@@ -1,0 +1,2078 @@
+"use client";
+
+import { useState } from "react";
+import useUser from "@/utils/useUser";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Plus,
+  ChevronUp,
+  ChevronDown,
+  Target,
+  DollarSign,
+  Trophy,
+  X,
+} from "lucide-react";
+
+const ASK_TYPES = [
+  "Major Gift",
+  "Endowed Scholarship",
+  "Capital Project",
+  "Program Support",
+  "Annual Leadership Gift",
+  "Planned Gift",
+  "Other",
+];
+
+const FY_OPTIONS = ["FY25", "FY26", "FY27", "FY28", "FY29", "FY30"];
+
+const STATUS_COLORS = {
+  Active: { bg: "#D1FAE5", text: "#065F46", border: "#A7F3D0" },
+  "Closed – Gift Secured": {
+    bg: "#DBEAFE",
+    text: "#1E40AF",
+    border: "#BFDBFE",
+  },
+  "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
+};
+
+function StatusBadge({ status }) {
+  const colors = STATUS_COLORS[status] || {
+    bg: "#F3F4F6",
+    text: "#374151",
+    border: "#E5E7EB",
+  };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 10px",
+        borderRadius: "999px",
+        fontSize: "11px",
+        fontWeight: "600",
+        backgroundColor: colors.bg,
+        color: colors.text,
+        border: `1px solid ${colors.border}`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function formatCurrency(amount) {
+  if (!amount) return "$0";
+  return "$" + Number(amount).toLocaleString();
+}
+
+function AddProspectModal({ onClose, onSubmit, isPending }) {
+  const [name, setName] = useState("");
+  const [fy, setFy] = useState("FY26");
+  const [amount, setAmount] = useState("");
+  const [askType, setAskType] = useState("Major Gift");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSubmit({
+      prospectName: name.trim(),
+      expectedCloseFY: fy,
+      askAmount: amount ? parseFloat(amount) : null,
+      askType,
+    });
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: "20px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "white",
+          borderRadius: "16px",
+          width: "100%",
+          maxWidth: "480px",
+          maxHeight: "90vh",
+          overflow: "auto",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "20px 24px",
+            borderBottom: "1px solid #E5E7EB",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "#111827",
+              margin: 0,
+            }}
+          >
+            Add Prospect
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+            }}
+          >
+            <X size={20} color="#6B7280" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ padding: "24px" }}>
+          <div style={{ marginBottom: "20px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "6px",
+              }}
+            >
+              Prospect Name <span style={{ color: "#DC2626" }}>*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter prospect name"
+              required
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "8px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: "20px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "6px",
+              }}
+            >
+              Expected Close Fiscal Year
+            </label>
+            <select
+              value={fy}
+              onChange={(e) => setFy(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "8px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+                backgroundColor: "white",
+              }}
+            >
+              {FY_OPTIONS.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: "20px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "6px",
+              }}
+            >
+              Ask Amount
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span
+                style={{
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#374151",
+                }}
+              >
+                $
+              </span>
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                step="0.01"
+                style={{
+                  flex: 1,
+                  padding: "10px 14px",
+                  border: "1px solid #D1D5DB",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: "24px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "6px",
+              }}
+            >
+              Ask Type
+            </label>
+            <select
+              value={askType}
+              onChange={(e) => setAskType(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "8px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+                backgroundColor: "white",
+              }}
+            >
+              {ASK_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isPending || !name.trim()}
+            style={{
+              width: "100%",
+              padding: "12px",
+              backgroundColor: isPending ? "#9CA3AF" : "#6A5BFF",
+              color: "white",
+              border: "none",
+              borderRadius: "10px",
+              fontSize: "15px",
+              fontWeight: "600",
+              cursor: isPending ? "not-allowed" : "pointer",
+            }}
+          >
+            {isPending ? "Adding..." : "Add Prospect"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function CloseModal({ prospect, onClose, onSubmit, isPending }) {
+  const [outcome, setOutcome] = useState("secured");
+  const [closedAmount, setClosedAmount] = useState(
+    prospect?.ask_amount?.toString() || "",
+  );
+  const [closeDate, setCloseDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [declineReason, setDeclineReason] = useState("");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (outcome === "secured") {
+      onSubmit({
+        status: "Closed – Gift Secured",
+        closedAmount: closedAmount ? parseFloat(closedAmount) : null,
+        closeDate,
+      });
+    } else {
+      onSubmit({
+        status: "Closed – Declined",
+        declineReason: declineReason || null,
+      });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: "20px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "white",
+          borderRadius: "16px",
+          width: "100%",
+          maxWidth: "480px",
+          maxHeight: "90vh",
+          overflow: "auto",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "20px 24px",
+            borderBottom: "1px solid #E5E7EB",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "#111827",
+              margin: 0,
+            }}
+          >
+            Close Prospect
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+            }}
+          >
+            <X size={20} color="#6B7280" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ padding: "24px" }}>
+          <p
+            style={{ fontSize: "14px", color: "#6B7280", margin: "0 0 20px 0" }}
+          >
+            Closing:{" "}
+            <strong style={{ color: "#111827" }}>
+              {prospect?.prospect_name}
+            </strong>
+          </p>
+
+          <div style={{ marginBottom: "20px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "10px",
+              }}
+            >
+              Outcome
+            </label>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={() => setOutcome("secured")}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  border:
+                    outcome === "secured"
+                      ? "2px solid #059669"
+                      : "1px solid #E5E7EB",
+                  backgroundColor: outcome === "secured" ? "#D1FAE5" : "white",
+                  color: outcome === "secured" ? "#059669" : "#6B7280",
+                  cursor: "pointer",
+                }}
+              >
+                Gift Secured
+              </button>
+              <button
+                type="button"
+                onClick={() => setOutcome("declined")}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  border:
+                    outcome === "declined"
+                      ? "2px solid #DC2626"
+                      : "1px solid #E5E7EB",
+                  backgroundColor: outcome === "declined" ? "#FEE2E2" : "white",
+                  color: outcome === "declined" ? "#DC2626" : "#6B7280",
+                  cursor: "pointer",
+                }}
+              >
+                Declined
+              </button>
+            </div>
+          </div>
+
+          {outcome === "secured" && (
+            <>
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#374151",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Closed Amount
+                </label>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <span
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: "600",
+                      color: "#374151",
+                    }}
+                  >
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    value={closedAmount}
+                    onChange={(e) => setClosedAmount(e.target.value)}
+                    placeholder="0.00"
+                    step="0.01"
+                    style={{
+                      flex: 1,
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: "24px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#374151",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Close Date
+                </label>
+                <input
+                  type="date"
+                  value={closeDate}
+                  onChange={(e) => setCloseDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </>
+          )}
+
+          {outcome === "declined" && (
+            <div style={{ marginBottom: "24px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: "6px",
+                }}
+              >
+                Decline Reason (optional)
+              </label>
+              <textarea
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                placeholder="Why was this declined?"
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  border: "1px solid #D1D5DB",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  fontFamily: "inherit",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isPending}
+            style={{
+              width: "100%",
+              padding: "12px",
+              backgroundColor: isPending
+                ? "#9CA3AF"
+                : outcome === "secured"
+                  ? "#059669"
+                  : "#DC2626",
+              color: "white",
+              border: "none",
+              borderRadius: "10px",
+              fontSize: "15px",
+              fontWeight: "600",
+              cursor: isPending ? "not-allowed" : "pointer",
+            }}
+          >
+            {isPending
+              ? "Saving..."
+              : outcome === "secured"
+                ? "Mark as Gift Secured"
+                : "Mark as Declined"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ProspectDetailModal({ prospectId, onClose }) {
+  const queryClient = useQueryClient();
+  const [showUpdateForm, setShowUpdateForm] = useState(false);
+  const [updateNotes, setUpdateNotes] = useState("");
+  const [updateDate, setUpdateDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editData, setEditData] = useState({});
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["prospect", prospectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospectId}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: !!prospectId,
+  });
+
+  const addUpdateMutation = useMutation({
+    mutationFn: async (body) => {
+      const res = await fetch(`/api/prospects/${prospectId}/updates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to add update");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      setUpdateNotes("");
+      setUpdateDate(new Date().toISOString().split("T")[0]);
+      setShowUpdateForm(false);
+    },
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: async (body) => {
+      const res = await fetch(`/api/prospects/${prospectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to close");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setShowCloseModal(false);
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async (body) => {
+      const res = await fetch(`/api/prospects/${prospectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setEditMode(false);
+    },
+  });
+
+  const prospect = data?.prospect;
+  const updates = data?.updates || [];
+
+  if (isLoading || !prospect) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 100,
+          padding: "20px",
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            padding: "40px",
+            textAlign: "center",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p style={{ color: "#6B7280" }}>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (showCloseModal) {
+    return (
+      <CloseModal
+        prospect={prospect}
+        onClose={() => setShowCloseModal(false)}
+        onSubmit={(body) => closeMutation.mutate(body)}
+        isPending={closeMutation.isPending}
+      />
+    );
+  }
+
+  const handleEditSave = () => {
+    editMutation.mutate(editData);
+  };
+
+  const isActive = prospect.status === "Active";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: "20px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "white",
+          borderRadius: "16px",
+          width: "100%",
+          maxWidth: "580px",
+          maxHeight: "90vh",
+          overflow: "auto",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "20px 24px",
+            borderBottom: "1px solid #E5E7EB",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "#111827",
+              margin: 0,
+            }}
+          >
+            {prospect.prospect_name}
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+            }}
+          >
+            <X size={20} color="#6B7280" />
+          </button>
+        </div>
+
+        <div style={{ padding: "24px" }}>
+          {/* Details */}
+          {editMode ? (
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ marginBottom: "14px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Prospect Name
+                </label>
+                <input
+                  type="text"
+                  defaultValue={prospect.prospect_name}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      prospectName: e.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "14px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Expected Close FY
+                  </label>
+                  <select
+                    defaultValue={prospect.expected_close_fy}
+                    onChange={(e) =>
+                      setEditData((prev) => ({
+                        ...prev,
+                        expectedCloseFY: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    {FY_OPTIONS.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Ask Amount
+                  </label>
+                  <input
+                    type="number"
+                    defaultValue={prospect.ask_amount || ""}
+                    onChange={(e) =>
+                      setEditData((prev) => ({
+                        ...prev,
+                        askAmount: e.target.value
+                          ? parseFloat(e.target.value)
+                          : null,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: "14px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Ask Type
+                </label>
+                <select
+                  defaultValue={prospect.ask_type}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      askType: e.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    backgroundColor: "white",
+                  }}
+                >
+                  {ASK_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
+                <button
+                  onClick={handleEditSave}
+                  disabled={editMutation.isPending}
+                  style={{
+                    flex: 1,
+                    padding: "10px",
+                    backgroundColor: "#6A5BFF",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {editMutation.isPending ? "Saving..." : "Save Changes"}
+                </button>
+                <button
+                  onClick={() => {
+                    setEditMode(false);
+                    setEditData({});
+                  }}
+                  style={{
+                    padding: "10px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#374151",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+                marginBottom: "24px",
+              }}
+            >
+              <div>
+                <p
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "2px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Expected Close FY
+                </p>
+                <p
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: "600",
+                    color: "#111827",
+                    margin: 0,
+                  }}
+                >
+                  {prospect.expected_close_fy}
+                </p>
+              </div>
+              <div>
+                <p
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "2px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Ask Amount
+                </p>
+                <p
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: "600",
+                    color: "#111827",
+                    margin: 0,
+                  }}
+                >
+                  {formatCurrency(prospect.ask_amount)}
+                </p>
+              </div>
+              <div>
+                <p
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "2px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Ask Type
+                </p>
+                <p
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: "600",
+                    color: "#111827",
+                    margin: 0,
+                  }}
+                >
+                  {prospect.ask_type}
+                </p>
+              </div>
+              <div>
+                <p
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "2px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Status
+                </p>
+                <StatusBadge status={prospect.status} />
+              </div>
+              {prospect.closed_amount != null && (
+                <div>
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "2px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Closed Amount
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "15px",
+                      fontWeight: "600",
+                      color: "#059669",
+                      margin: 0,
+                    }}
+                  >
+                    {formatCurrency(prospect.closed_amount)}
+                  </p>
+                </div>
+              )}
+              {prospect.close_date && (
+                <div>
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "2px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Close Date
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "15px",
+                      fontWeight: "600",
+                      color: "#111827",
+                      margin: 0,
+                    }}
+                  >
+                    {new Date(prospect.close_date).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+              {prospect.decline_reason && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "2px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Decline Reason
+                  </p>
+                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                    {prospect.decline_reason}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          {!editMode && (
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                marginBottom: "24px",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                onClick={() => setEditMode(true)}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: "#F3F4F6",
+                  color: "#374151",
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Edit Prospect
+              </button>
+              <button
+                onClick={() => setShowUpdateForm(true)}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: "#EDE9FE",
+                  color: "#6A5BFF",
+                  border: "1px solid #C4B5FD",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Add Progress Update
+              </button>
+              {isActive && (
+                <button
+                  onClick={() => setShowCloseModal(true)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#FEF3C7",
+                    color: "#92400E",
+                    border: "1px solid #FDE68A",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Mark Closed
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Add Update Form */}
+          {showUpdateForm && (
+            <div
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: "12px",
+                padding: "16px",
+                marginBottom: "20px",
+                border: "1px solid #E5E7EB",
+              }}
+            >
+              <h4
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  margin: "0 0 12px 0",
+                }}
+              >
+                New Progress Update
+              </h4>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={updateDate}
+                  onChange={(e) => setUpdateDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Notes
+                </label>
+                <textarea
+                  value={updateNotes}
+                  onChange={(e) => setUpdateNotes(e.target.value)}
+                  placeholder="What happened? e.g. Meeting completed, proposal delivered..."
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={() =>
+                    addUpdateMutation.mutate({ updateDate, updateNotes })
+                  }
+                  disabled={addUpdateMutation.isPending || !updateNotes.trim()}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#6A5BFF",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {addUpdateMutation.isPending ? "Saving..." : "Save Update"}
+                </button>
+                <button
+                  onClick={() => setShowUpdateForm(false)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#374151",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Progress Log */}
+          <div>
+            <h3
+              style={{
+                fontSize: "15px",
+                fontWeight: "700",
+                color: "#111827",
+                margin: "0 0 12px 0",
+              }}
+            >
+              Progress Log
+            </h3>
+            {updates.length === 0 ? (
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "#9CA3AF",
+                  fontStyle: "italic",
+                }}
+              >
+                No progress updates yet.
+              </p>
+            ) : (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+              >
+                {updates.map((u) => (
+                  <div
+                    key={u.id}
+                    style={{
+                      padding: "12px",
+                      backgroundColor: "#F9FAFB",
+                      borderRadius: "8px",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    <p
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        color: "#6A5BFF",
+                        margin: "0 0 4px 0",
+                      }}
+                    >
+                      {new Date(u.update_date).toLocaleDateString("en-US", {
+                        month: "long",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </p>
+                    <p
+                      style={{
+                        fontSize: "14px",
+                        color: "#374151",
+                        margin: 0,
+                        lineHeight: "1.5",
+                      }}
+                    >
+                      {u.update_notes}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MyTopProspectsPage() {
+  const { data: user, loading } = useUser();
+  const queryClient = useQueryClient();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedProspectId, setSelectedProspectId] = useState(null);
+
+  const { data: prospects = [], isLoading } = useQuery({
+    queryKey: ["prospects"],
+    queryFn: async () => {
+      const res = await fetch("/api/prospects");
+      if (!res.ok) throw new Error("Failed to fetch prospects");
+      return res.json();
+    },
+    enabled: !!user,
+  });
+
+  const { data: summary } = useQuery({
+    queryKey: ["prospect-summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/prospects/summary");
+      if (!res.ok) throw new Error("Failed to fetch summary");
+      return res.json();
+    },
+    enabled: !!user,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async (body) => {
+      const res = await fetch("/api/prospects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to add prospect");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setShowAddModal(false);
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (body) => {
+      const res = await fetch("/api/prospects/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to reorder");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+    },
+  });
+
+  if (loading || !user) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#F9FAFB",
+        }}
+      >
+        <p style={{ color: "#6B7280" }}>Loading...</p>
+      </div>
+    );
+  }
+
+  const activeProspects = prospects.filter((p) => p.status === "Active");
+  const closedSecured = prospects.filter(
+    (p) => p.status === "Closed – Gift Secured",
+  );
+  const closedDeclined = prospects.filter(
+    (p) => p.status === "Closed – Declined",
+  );
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "#F9FAFB",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+      }}
+    >
+      {/* Header */}
+      <header
+        style={{
+          backgroundColor: "white",
+          borderBottom: "1px solid #E5E7EB",
+          padding: "16px 24px",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "1000px",
+            margin: "0 auto",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <a
+              href="/"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                backgroundColor: "#F3F4F6",
+                border: "1px solid #E5E7EB",
+                textDecoration: "none",
+              }}
+            >
+              <ArrowLeft size={18} color="#374151" />
+            </a>
+            <h1
+              style={{
+                fontSize: "18px",
+                fontWeight: "700",
+                color: "#111827",
+                margin: 0,
+              }}
+            >
+              My Top Prospects
+            </h1>
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 16px",
+              backgroundColor: "#6A5BFF",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              fontSize: "14px",
+              fontWeight: "600",
+              cursor: "pointer",
+            }}
+          >
+            <Plus size={16} />
+            Add Prospect
+          </button>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "24px" }}>
+        {/* Summary Stats */}
+        {summary && (
+          <div
+            style={{
+              display: "flex",
+              gap: "16px",
+              marginBottom: "24px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: "white",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+                padding: "20px",
+                flex: "1 1 180px",
+                minWidth: "180px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "8px",
+                }}
+              >
+                <Target size={18} color="#6A5BFF" />
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "#6B7280",
+                    fontWeight: "500",
+                  }}
+                >
+                  Active Prospects
+                </span>
+              </div>
+              <p
+                style={{
+                  fontSize: "28px",
+                  fontWeight: "700",
+                  color: "#111827",
+                  margin: 0,
+                }}
+              >
+                {summary.activeCount}
+              </p>
+            </div>
+            <div
+              style={{
+                backgroundColor: "white",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+                padding: "20px",
+                flex: "1 1 180px",
+                minWidth: "180px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "8px",
+                }}
+              >
+                <DollarSign size={18} color="#059669" />
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "#6B7280",
+                    fontWeight: "500",
+                  }}
+                >
+                  Total Ask Pipeline
+                </span>
+              </div>
+              <p
+                style={{
+                  fontSize: "28px",
+                  fontWeight: "700",
+                  color: "#111827",
+                  margin: 0,
+                }}
+              >
+                {formatCurrency(summary.totalAskPipeline)}
+              </p>
+            </div>
+            <div
+              style={{
+                backgroundColor: "white",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+                padding: "20px",
+                flex: "1 1 180px",
+                minWidth: "180px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "8px",
+                }}
+              >
+                <Trophy size={18} color="#F59E0B" />
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "#6B7280",
+                    fontWeight: "500",
+                  }}
+                >
+                  Closed {summary.currentFY}
+                </span>
+              </div>
+              <p
+                style={{
+                  fontSize: "28px",
+                  fontWeight: "700",
+                  color: "#111827",
+                  margin: 0,
+                }}
+              >
+                {formatCurrency(summary.closedThisFY)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Active Prospects */}
+        <h2
+          style={{
+            fontSize: "16px",
+            fontWeight: "700",
+            color: "#111827",
+            margin: "0 0 12px 0",
+          }}
+        >
+          Active Prospects ({activeProspects.length})
+        </h2>
+
+        {isLoading ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "40px",
+              color: "#6B7280",
+              fontSize: "14px",
+            }}
+          >
+            Loading prospects...
+          </div>
+        ) : activeProspects.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "60px 20px",
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              marginBottom: "24px",
+            }}
+          >
+            <Target
+              size={40}
+              color="#D1D5DB"
+              style={{ margin: "0 auto 12px" }}
+            />
+            <p
+              style={{ fontSize: "15px", color: "#6B7280", margin: "0 0 4px" }}
+            >
+              No prospects yet
+            </p>
+            <p style={{ fontSize: "13px", color: "#9CA3AF", margin: 0 }}>
+              Click "Add Prospect" to start building your pipeline.
+            </p>
+          </div>
+        ) : (
+          <div style={{ marginBottom: "32px" }}>
+            {/* Table header (desktop only) */}
+            <div
+              className="hidden md:flex"
+              style={{
+                display: "none",
+                padding: "8px 20px",
+                fontSize: "12px",
+                fontWeight: "600",
+                color: "#6B7280",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
+              <span style={{ width: "50px" }}>#</span>
+              <span style={{ flex: 2 }}>Prospect</span>
+              <span style={{ flex: 1 }}>FY</span>
+              <span style={{ flex: 1 }}>Ask Amount</span>
+              <span style={{ flex: 1 }}>Ask Type</span>
+              <span style={{ width: "80px" }}>Priority</span>
+            </div>
+
+            {activeProspects.map((p, idx) => (
+              <div
+                key={p.id}
+                style={{
+                  backgroundColor: "white",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  padding: "16px 20px",
+                  marginBottom: "8px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  cursor: "pointer",
+                }}
+                onClick={() => setSelectedProspectId(p.id)}
+              >
+                {/* Priority number */}
+                <span
+                  style={{
+                    fontSize: "16px",
+                    fontWeight: "700",
+                    color: "#6A5BFF",
+                    width: "28px",
+                    flexShrink: 0,
+                    textAlign: "center",
+                  }}
+                >
+                  {idx + 1}
+                </span>
+
+                {/* Details */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      flexWrap: "wrap",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: "600",
+                        color: "#111827",
+                      }}
+                    >
+                      {p.prospect_name}
+                    </span>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      fontSize: "13px",
+                      color: "#6B7280",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span>{p.expected_close_fy}</span>
+                    <span>·</span>
+                    <span style={{ fontWeight: "600" }}>
+                      {formatCurrency(p.ask_amount)}
+                    </span>
+                    <span>·</span>
+                    <span>{p.ask_type}</span>
+                  </div>
+                </div>
+
+                {/* Priority arrows */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    flexShrink: 0,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() =>
+                      reorderMutation.mutate({
+                        prospectId: p.id,
+                        direction: "up",
+                      })
+                    }
+                    disabled={idx === 0}
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "6px",
+                      backgroundColor: idx === 0 ? "#F9FAFB" : "white",
+                      cursor: idx === 0 ? "default" : "pointer",
+                      opacity: idx === 0 ? 0.3 : 1,
+                    }}
+                  >
+                    <ChevronUp size={14} color="#374151" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      reorderMutation.mutate({
+                        prospectId: p.id,
+                        direction: "down",
+                      })
+                    }
+                    disabled={idx === activeProspects.length - 1}
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "6px",
+                      backgroundColor:
+                        idx === activeProspects.length - 1
+                          ? "#F9FAFB"
+                          : "white",
+                      cursor:
+                        idx === activeProspects.length - 1
+                          ? "default"
+                          : "pointer",
+                      opacity: idx === activeProspects.length - 1 ? 0.3 : 1,
+                    }}
+                  >
+                    <ChevronDown size={14} color="#374151" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Closed Prospects */}
+        {(closedSecured.length > 0 || closedDeclined.length > 0) && (
+          <div>
+            <h2
+              style={{
+                fontSize: "16px",
+                fontWeight: "700",
+                color: "#111827",
+                margin: "0 0 16px 0",
+              }}
+            >
+              Closed Prospects
+            </h2>
+
+            {closedSecured.length > 0 && (
+              <div style={{ marginBottom: "20px" }}>
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#059669",
+                    margin: "0 0 8px 0",
+                  }}
+                >
+                  Gift Secured ({closedSecured.length})
+                </h3>
+                {closedSecured.map((p) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      backgroundColor: "white",
+                      borderRadius: "12px",
+                      border: "1px solid #E5E7EB",
+                      padding: "16px 20px",
+                      marginBottom: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      cursor: "pointer",
+                      borderLeft: "4px solid #059669",
+                    }}
+                    onClick={() => setSelectedProspectId(p.id)}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          flexWrap: "wrap",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "15px",
+                            fontWeight: "600",
+                            color: "#111827",
+                          }}
+                        >
+                          {p.prospect_name}
+                        </span>
+                        <StatusBadge status={p.status} />
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          fontSize: "13px",
+                          color: "#6B7280",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span>{p.expected_close_fy}</span>
+                        <span>·</span>
+                        <span style={{ fontWeight: "600", color: "#059669" }}>
+                          {formatCurrency(p.closed_amount)}
+                        </span>
+                        {p.close_date && (
+                          <>
+                            <span>·</span>
+                            <span>
+                              Closed{" "}
+                              {new Date(p.close_date).toLocaleDateString()}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {closedDeclined.length > 0 && (
+              <div>
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#DC2626",
+                    margin: "0 0 8px 0",
+                  }}
+                >
+                  Declined ({closedDeclined.length})
+                </h3>
+                {closedDeclined.map((p) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      backgroundColor: "white",
+                      borderRadius: "12px",
+                      border: "1px solid #E5E7EB",
+                      padding: "16px 20px",
+                      marginBottom: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      cursor: "pointer",
+                      borderLeft: "4px solid #DC2626",
+                    }}
+                    onClick={() => setSelectedProspectId(p.id)}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          flexWrap: "wrap",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "15px",
+                            fontWeight: "600",
+                            color: "#111827",
+                          }}
+                        >
+                          {p.prospect_name}
+                        </span>
+                        <StatusBadge status={p.status} />
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          fontSize: "13px",
+                          color: "#6B7280",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span>{p.expected_close_fy}</span>
+                        <span>·</span>
+                        <span>{p.ask_type}</span>
+                        {p.decline_reason && (
+                          <>
+                            <span>·</span>
+                            <span style={{ fontStyle: "italic" }}>
+                              {p.decline_reason}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Modals */}
+      {showAddModal && (
+        <AddProspectModal
+          onClose={() => setShowAddModal(false)}
+          onSubmit={(data) => addMutation.mutate(data)}
+          isPending={addMutation.isPending}
+        />
+      )}
+
+      {selectedProspectId && (
+        <ProspectDetailModal
+          prospectId={selectedProspectId}
+          onClose={() => setSelectedProspectId(null)}
+        />
+      )}
+    </div>
+  );
+}

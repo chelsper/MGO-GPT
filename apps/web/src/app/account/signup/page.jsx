@@ -1,0 +1,366 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import useAuth from "@/utils/useAuth";
+
+export default function SignUpPage() {
+  const { signUpWithCredentials } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("mgo");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [callbackUrl, setCallbackUrl] = useState("/account/complete-signup");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const cbUrl = params.get("callbackUrl");
+      if (cbUrl) {
+        setCallbackUrl(cbUrl);
+      }
+    }
+  }, []);
+
+  const validatePassword = (password) => {
+    if (password.length < 8) {
+      return "Password must be at least 8 characters";
+    }
+    if (!/[a-zA-Z]/.test(password)) {
+      return "Password must contain at least one letter";
+    }
+    if (!/[0-9]/.test(password)) {
+      return "Password must contain at least one number";
+    }
+    return null;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    // Validate password
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
+
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Store role in localStorage to be used after signup
+      localStorage.setItem("pendingRole", role);
+
+      await signUpWithCredentials({
+        email,
+        password,
+        name,
+        callbackUrl,
+        redirect: true,
+      });
+    } catch (err) {
+      const errorMessages = {
+        CredentialsSignin:
+          "Invalid email or password. If you already have an account, try signing in instead.",
+        EmailCreateAccount:
+          "This email can't be used. It may already be registered.",
+      };
+      setError(
+        errorMessages[err.message] || "Something went wrong. Please try again.",
+      );
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#f9fafb",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "400px",
+          padding: "32px",
+          backgroundColor: "white",
+          borderRadius: "12px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+        }}
+      >
+        <h1
+          style={{
+            fontSize: "24px",
+            fontWeight: "bold",
+            marginBottom: "24px",
+            textAlign: "center",
+            color: "#111827",
+          }}
+        >
+          Create Account
+        </h1>
+
+        {error && (
+          <div
+            style={{
+              padding: "12px",
+              marginBottom: "16px",
+              backgroundColor: "#fee2e2",
+              color: "#991b1b",
+              borderRadius: "8px",
+              fontSize: "14px",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: "16px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "500",
+                marginBottom: "8px",
+                color: "#374151",
+              }}
+            >
+              Full Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: "8px",
+                fontSize: "14px",
+              }}
+              placeholder="Sarah Johnson"
+            />
+          </div>
+
+          <div style={{ marginBottom: "16px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "500",
+                marginBottom: "8px",
+                color: "#374151",
+              }}
+            >
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: "8px",
+                fontSize: "14px",
+              }}
+              placeholder="you@university.edu"
+            />
+          </div>
+
+          <div style={{ marginBottom: "16px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "500",
+                marginBottom: "8px",
+                color: "#374151",
+              }}
+            >
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: "8px",
+                fontSize: "14px",
+              }}
+              placeholder="Min 8 chars, 1 letter, 1 number"
+            />
+            <p style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
+              Must be at least 8 characters with 1 letter and 1 number
+            </p>
+          </div>
+
+          <div style={{ marginBottom: "24px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "500",
+                marginBottom: "12px",
+                color: "#374151",
+              }}
+            >
+              I am a...
+            </label>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+            >
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "12px",
+                  border: `2px solid ${role === "mgo" ? "#6A5BFF" : "#d1d5db"}`,
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  backgroundColor: role === "mgo" ? "#f5f3ff" : "white",
+                }}
+              >
+                <input
+                  type="radio"
+                  value="mgo"
+                  checked={role === "mgo"}
+                  onChange={(e) => setRole(e.target.value)}
+                  style={{
+                    marginRight: "12px",
+                    width: "18px",
+                    height: "18px",
+                    cursor: "pointer",
+                  }}
+                />
+                <div>
+                  <div
+                    style={{
+                      fontSize: "15px",
+                      fontWeight: "600",
+                      color: "#111827",
+                    }}
+                  >
+                    Major Gift Officer (MGO)
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      color: "#6b7280",
+                      marginTop: "2px",
+                    }}
+                  >
+                    Submit donor updates and track submissions
+                  </div>
+                </div>
+              </label>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "12px",
+                  border: `2px solid ${role === "reviewer" ? "#6A5BFF" : "#d1d5db"}`,
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  backgroundColor: role === "reviewer" ? "#f5f3ff" : "white",
+                }}
+              >
+                <input
+                  type="radio"
+                  value="reviewer"
+                  checked={role === "reviewer"}
+                  onChange={(e) => setRole(e.target.value)}
+                  style={{
+                    marginRight: "12px",
+                    width: "18px",
+                    height: "18px",
+                    cursor: "pointer",
+                  }}
+                />
+                <div>
+                  <div
+                    style={{
+                      fontSize: "15px",
+                      fontWeight: "600",
+                      color: "#111827",
+                    }}
+                  >
+                    Advancement Services Reviewer
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      color: "#6b7280",
+                      marginTop: "2px",
+                    }}
+                  >
+                    Review and approve submissions for CRM
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "12px",
+              backgroundColor: loading ? "#9ca3af" : "#6A5BFF",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              fontSize: "16px",
+              fontWeight: "600",
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            {loading ? "Creating Account..." : "Create Account"}
+          </button>
+        </form>
+
+        <p
+          style={{
+            marginTop: "24px",
+            textAlign: "center",
+            fontSize: "14px",
+            color: "#6b7280",
+          }}
+        >
+          Already have an account?{" "}
+          <a
+            href={`/account/signin${typeof window !== "undefined" ? window.location.search : ""}`}
+            style={{
+              color: "#6A5BFF",
+              fontWeight: "500",
+              textDecoration: "none",
+            }}
+          >
+            Sign in
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+}
