@@ -11,7 +11,7 @@ export default function SignUpPage() {
   const [role, setRole] = useState("mgo");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const callbackUrl = "/request-list";
+  const callbackUrl = "/";
 
   const validatePassword = (password) => {
     if (password.length < 8) {

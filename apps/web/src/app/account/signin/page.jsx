@@ -48,7 +48,7 @@ export default function SignInPage() {
       const result = await signInWithCredentials({
         email,
         password,
-        callbackUrl: "/request-list",
+        callbackUrl: "/",
         redirect: false,
       });
 
@@ -66,7 +66,7 @@ export default function SignInPage() {
         return;
       }
 
-      window.location.href = result?.url || "/request-list";
+      window.location.href = result?.url || "/";
     } catch (err) {
       console.error("Sign in error:", err);
       const errorMessages = {
