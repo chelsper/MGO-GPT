@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import useAuth from "@/utils/useAuth";
 
 export default function SignUpPage() {
@@ -11,17 +11,7 @@ export default function SignUpPage() {
   const [role, setRole] = useState("mgo");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [callbackUrl, setCallbackUrl] = useState("/account/complete-signup");
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const cbUrl = params.get("callbackUrl");
-      if (cbUrl) {
-        setCallbackUrl(cbUrl);
-      }
-    }
-  }, []);
+  const callbackUrl = "/";
 
   const validatePassword = (password) => {
     if (password.length < 8) {

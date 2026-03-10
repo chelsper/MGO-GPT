@@ -2,39 +2,38 @@ import { signIn, signOut } from '@auth/create/react';
 import { useCallback } from 'react';
 
 function useAuth() {
-	const callbackUrl =
-		typeof window !== 'undefined'
-			? new URLSearchParams(window.location.search).get('callbackUrl')
-			: null;
+	const resolveCallbackUrl = (options) => {
+		return options?.callbackUrl || '/';
+	};
 
 	const signInWithCredentials = useCallback(
 		(options) => {
 			return signIn('credentials-signin', {
 				...options,
-				callbackUrl: callbackUrl ?? options.callbackUrl,
+				callbackUrl: resolveCallbackUrl(options),
 			});
 		},
-		[callbackUrl]
+		[]
 	);
 
 	const signUpWithCredentials = useCallback(
 		(options) => {
 			return signIn('credentials-signup', {
 				...options,
-				callbackUrl: callbackUrl ?? options.callbackUrl,
+				callbackUrl: resolveCallbackUrl(options),
 			});
 		},
-		[callbackUrl]
+		[]
 	);
 
 	const signInWithGoogle = useCallback(
 		(options) => {
 			return signIn('google', {
 				...options,
-				callbackUrl: callbackUrl ?? options.callbackUrl,
+				callbackUrl: resolveCallbackUrl(options),
 			});
 		},
-		[callbackUrl]
+		[]
 	);
 	const signInWithFacebook = useCallback((options) => {
 		return signIn('facebook', options);
