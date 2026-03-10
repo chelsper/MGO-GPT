@@ -132,7 +132,7 @@ async function registerRoutes() {
 }
 
 // Initial route registration
-const routesReady = registerRoutes();
+await registerRoutes();
 
 // Hot reload routes in development
 if (import.meta.env.DEV) {
@@ -148,4 +148,4 @@ if (import.meta.env.DEV) {
   }
 }
 
-export { api, API_BASENAME, routesReady };
+export { api, API_BASENAME };

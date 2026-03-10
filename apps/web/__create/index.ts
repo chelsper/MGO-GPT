@@ -17,7 +17,7 @@ import ws from 'ws';
 import NeonAdapter from './adapter';
 import { getHTMLForErrorPage } from './get-html-for-error-page';
 import { isAuthAction } from './is-auth-action';
-import { API_BASENAME, api, routesReady } from './route-builder';
+import { API_BASENAME, api } from './route-builder';
 neonConfig.webSocketConstructor = ws;
 
 const als = new AsyncLocalStorage<{ requestId: string }>();
@@ -250,12 +250,7 @@ app.use('/api/auth/*', async (c, next) => {
 });
 app.route(API_BASENAME, api);
 
-const server = (async () => {
-  await routesReady;
-  return createHonoServer({
-    app,
-    defaultLogger: false,
-  });
-})();
-
-export default server;
+export default await createHonoServer({
+  app,
+  defaultLogger: false,
+});
