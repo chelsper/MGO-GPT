@@ -79,7 +79,9 @@ for (const method of ['post', 'put', 'patch'] as const) {
   );
 }
 
-if (process.env.AUTH_SECRET && process.env.DATABASE_URL) {
+const authEnabled = Boolean(process.env.AUTH_SECRET && process.env.DATABASE_URL);
+
+if (authEnabled) {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
   });
@@ -229,10 +231,19 @@ app.all('/integrations/:path{.+}', async (c, next) => {
 });
 
 app.use('/api/auth/*', async (c, next) => {
+  if (!authEnabled) {
+    return c.json(
+      {
+        error: 'Auth misconfigured on server',
+        details: 'AUTH_SECRET and DATABASE_URL must be set',
+      },
+      500
+    );
+  }
   if (isAuthAction(c.req.path)) {
     return authHandler()(c, next);
   }
-  return next();
+  return c.json({ error: 'Unknown auth action' }, 404);
 });
 app.route(API_BASENAME, api);
 
