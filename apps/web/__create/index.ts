@@ -107,26 +107,6 @@ if (process.env.AUTH_SECRET && process.env.DATABASE_URL) {
           return session;
         },
       },
-      cookies: {
-        csrfToken: {
-          options: {
-            secure: true,
-            sameSite: 'none',
-          },
-        },
-        sessionToken: {
-          options: {
-            secure: true,
-            sameSite: 'none',
-          },
-        },
-        callbackUrl: {
-          options: {
-            secure: true,
-            sameSite: 'none',
-          },
-        },
-      },
       providers: [
         Credentials({
           id: 'credentials-signin',
