@@ -24,6 +24,7 @@ const result = CreateAuth({
 	pages: {
 		signIn: '/account/signin',
 		signOut: '/account/logout',
+		error: '/account/signin',
 	},
 });
 export const { auth } = result;

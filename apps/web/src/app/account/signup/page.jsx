@@ -11,7 +11,7 @@ export default function SignUpPage() {
   const [role, setRole] = useState("mgo");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const callbackUrl = "/";
+  const callbackUrl = "/request-list";
 
   const validatePassword = (password) => {
     if (password.length < 8) {
@@ -48,13 +48,31 @@ export default function SignUpPage() {
       // Store role in localStorage to be used after signup
       localStorage.setItem("pendingRole", role);
 
-      await signUpWithCredentials({
+      const result = await signUpWithCredentials({
         email,
         password,
         name,
         callbackUrl,
-        redirect: true,
+        redirect: false,
       });
+
+      if (result?.error) {
+        const errorMessages = {
+          CredentialsSignin:
+            "Invalid email or password. If you already have an account, try signing in instead.",
+          EmailCreateAccount:
+            "This email can't be used. It may already be registered.",
+          AccessDenied: "You don't have permission to sign up.",
+          Configuration: "There is a problem with the server configuration.",
+        };
+        setError(
+          errorMessages[result.error] || "Something went wrong. Please try again.",
+        );
+        setLoading(false);
+        return;
+      }
+
+      window.location.href = result?.url || callbackUrl;
     } catch (err) {
       const errorMessages = {
         CredentialsSignin:

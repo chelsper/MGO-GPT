@@ -45,12 +45,28 @@ export default function SignInPage() {
     }
 
     try {
-      await signInWithCredentials({
+      const result = await signInWithCredentials({
         email,
         password,
-        callbackUrl: "/",
-        redirect: true,
+        callbackUrl: "/request-list",
+        redirect: false,
       });
+
+      if (result?.error) {
+        const errorMessages = {
+          CredentialsSignin: "Incorrect email or password. Try again.",
+          AccessDenied: "You don't have permission to sign in.",
+          Configuration: "There is a problem with the server configuration.",
+        };
+        setError(
+          errorMessages[result.error] ||
+            "Incorrect email or password. Try again.",
+        );
+        setLoading(false);
+        return;
+      }
+
+      window.location.href = result?.url || "/request-list";
     } catch (err) {
       console.error("Sign in error:", err);
       const errorMessages = {

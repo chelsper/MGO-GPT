@@ -92,6 +92,7 @@ if (process.env.AUTH_SECRET && process.env.DATABASE_URL) {
       pages: {
         signIn: '/account/signin',
         signOut: '/account/logout',
+        error: '/account/signin',
       },
       skipCSRFCheck,
       session: {
