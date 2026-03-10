@@ -113,7 +113,7 @@ if (import.meta.env.DEV) {
 	}
 }
 const tree = buildRouteTree(__dirname);
-const notFound = route('*?', './__create/not-found.tsx');
+const notFound = route('*', './__create/not-found.tsx');
 const routes = [...generateRoutes(tree), notFound];
 
 export default routes;
