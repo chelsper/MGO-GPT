@@ -35,11 +35,6 @@ for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
   };
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-const adapter = NeonAdapter(pool);
-
 const app = new Hono();
 
 app.use('*', requestId());
@@ -84,7 +79,12 @@ for (const method of ['post', 'put', 'patch'] as const) {
   );
 }
 
-if (process.env.AUTH_SECRET) {
+if (process.env.AUTH_SECRET && process.env.DATABASE_URL) {
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
+  const adapter = NeonAdapter(pool);
+
   app.use(
     '*',
     initAuthConfig((c) => ({
@@ -219,6 +219,10 @@ if (process.env.AUTH_SECRET) {
         }),
       ],
     }))
+  );
+} else {
+  console.warn(
+    'Auth middleware disabled: AUTH_SECRET and DATABASE_URL must both be set.'
   );
 }
 app.all('/integrations/:path{.+}', async (c, next) => {
