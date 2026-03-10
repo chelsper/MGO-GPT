@@ -1,22 +1,37 @@
 'use client';
 
-import { useIdleTimer } from 'react-idle-timer';
+import { useEffect } from 'react';
 
 export function useDevServerHeartbeat() {
-  useIdleTimer({
-    throttle: 60_000 * 3,
-    timeout: 60_000,
-    onAction: () => {
-      // HACK: at time of writing, we run the dev server on a proxy url that
-      // when requested, ensures that the dev server's life is extended. If
-      // the user is using a page or is active in it in the app, but when the
-      // user has popped out their preview, they no longer can rely on the
-      // app to do this. This hook ensures it stays alive.
-      fetch('/', {
-        method: 'GET',
-      }).catch((error) => {
-        // this is a no-op, we just want to keep the dev server alive
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    const ping = () => {
+      // Keeps the dev proxy alive while the user is active.
+      fetch('/', { method: 'GET' }).catch(() => {
+        // no-op
       });
-    },
-  });
+    };
+
+    let lastPing = 0;
+    const onAction = () => {
+      const now = Date.now();
+      if (now - lastPing >= 60_000 * 3) {
+        lastPing = now;
+        ping();
+      }
+    };
+
+    window.addEventListener('pointerdown', onAction);
+    window.addEventListener('keydown', onAction);
+    window.addEventListener('scroll', onAction, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', onAction);
+      window.removeEventListener('keydown', onAction);
+      window.removeEventListener('scroll', onAction);
+    };
+  }, []);
 }
