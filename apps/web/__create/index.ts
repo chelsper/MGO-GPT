@@ -89,6 +89,7 @@ if (process.env.AUTH_SECRET && process.env.DATABASE_URL) {
     '*',
     initAuthConfig((c) => ({
       secret: c.env.AUTH_SECRET,
+      trustHost: true,
       pages: {
         signIn: '/account/signin',
         signOut: '/account/logout',
