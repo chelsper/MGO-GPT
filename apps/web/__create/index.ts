@@ -7,8 +7,9 @@ import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { proxy } from 'hono/proxy';
 import { requestId } from 'hono/request-id';
-import { createHonoServer } from 'react-router-hono-server/node';
+import { createRequestHandler } from 'react-router';
 import { serializeError } from 'serialize-error';
+import * as build from 'virtual:react-router/server-build';
 import ws from 'ws';
 import { getHTMLForErrorPage } from './get-html-for-error-page';
 import { API_BASENAME, api } from './route-builder';
@@ -95,7 +96,13 @@ app.all('/integrations/:path{.+}', async (c) => {
 
 app.route(API_BASENAME, api);
 
-export default await createHonoServer({
-  app,
-  defaultLogger: false,
+const requestHandler = createRequestHandler(
+  build,
+  import.meta.env.DEV ? 'development' : 'production'
+);
+
+app.all('*', (c) => {
+  return requestHandler(c.req.raw);
 });
+
+export default app.fetch;
