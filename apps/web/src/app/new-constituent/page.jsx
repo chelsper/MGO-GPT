@@ -26,7 +26,7 @@ function loadImage(dataUrl) {
 
 async function shrinkImageDataUrl(dataUrl) {
   const image = await loadImage(dataUrl);
-  const maxSide = 1600;
+  const maxSide = 1200;
   const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
@@ -44,7 +44,16 @@ async function shrinkImageDataUrl(dataUrl) {
   context.fillRect(0, 0, width, height);
   context.drawImage(image, 0, 0, width, height);
 
-  return canvas.toDataURL("image/jpeg", 0.82);
+  const maxLength = 900_000;
+  let quality = 0.78;
+  let compressed = canvas.toDataURL("image/jpeg", quality);
+
+  while (compressed.length > maxLength && quality > 0.35) {
+    quality -= 0.08;
+    compressed = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  return compressed;
 }
 
 export default function NewConstituentPage() {
@@ -79,7 +88,9 @@ export default function NewConstituentPage() {
 
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
-          throw new Error(payload?.error || "Failed to read business card");
+          throw new Error(
+            payload?.details || payload?.error || "Failed to read business card",
+          );
         }
 
         const data = await response.json();

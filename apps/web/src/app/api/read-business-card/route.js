@@ -109,7 +109,10 @@ export async function POST(request) {
       const errorText = await extractionResponse.text();
       console.error("Business card extraction API error:", errorText);
       return Response.json(
-        { error: "Failed to read business card", details: errorText },
+        {
+          error: "Failed to read business card",
+          details: errorText || "The AI extraction service rejected the card image",
+        },
         { status: extractionResponse.status },
       );
     }
