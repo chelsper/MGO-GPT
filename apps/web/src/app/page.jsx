@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 
-const QUICK_ACTIONS = [
+const MGO_ACTIONS = [
   {
     title: "Submission Tracker",
     href: "/submissions",
-    description: "Track review status and follow-up on submitted work.",
+    description: "Track review status, clarification requests, and completed work.",
   },
   {
     title: "My Top Prospects",
@@ -18,32 +18,57 @@ const QUICK_ACTIONS = [
   {
     title: "Log Donor Updates",
     href: "/log-donor-update",
-    description: "Capture updates with voice transcription.",
+    description: "Capture donor interactions with live dictation.",
   },
   {
     title: "Update Opportunity",
     href: "/update-opportunity",
-    description: "Update stage, amount, and notes.",
+    description: "Update stage, amount, and solicitation notes.",
   },
   {
     title: "Suggest New Constituent",
     href: "/new-constituent",
-    description: "Use business card photo to prefill contact info.",
+    description: "Submit new constituent leads with card parsing.",
   },
   {
     title: "Request List from DevData",
     href: "/request-list",
-    description: "Submit list and data pull requests.",
+    description: "Submit list and data pull requests to Advancement Services.",
   },
   {
     title: "Knowledge Base",
     href: "/knowledge-base",
-    description: "Search tips, scripts, and process guidance.",
+    description: "Search standards, scripts, and process guidance.",
+  },
+];
+
+const REVIEWER_ACTIONS = [
+  {
+    title: "Review Submissions",
+    href: "/submissions",
+    description: "Approve submissions or push them back to MGOs with notes.",
+  },
+  {
+    title: "List Request Queue",
+    href: "/list-requests",
+    description: "Prioritize DevData requests in one shared Advancement Services queue.",
+  },
+  {
+    title: "Edit Knowledge Base",
+    href: "/knowledge-base/manage",
+    description: "Update standards, examples, and guidance for the team.",
+  },
+  {
+    title: "Read Knowledge Base",
+    href: "/knowledge-base",
+    description: "Review the current published knowledge base content.",
   },
 ];
 
 export default function Page() {
   const { data: user, loading } = useUser();
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
@@ -54,6 +79,37 @@ export default function Page() {
       window.location.href = "/account/signin";
     }
   }, [loading, user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let active = true;
+
+    async function loadProfile() {
+      setProfileLoading(true);
+      try {
+        const response = await fetch("/api/users/profile");
+        if (!response.ok) {
+          throw new Error("Failed to load profile");
+        }
+        const data = await response.json();
+        if (active) {
+          setProfile(data.user || null);
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (active) {
+          setProfileLoading(false);
+        }
+      }
+    }
+
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!accountMenuOpen && !menuOpen) return;
@@ -83,7 +139,13 @@ export default function Page() {
     };
   }, [accountMenuOpen, menuOpen]);
 
-  if (loading || !user) {
+  const isReviewer = profile?.role === "reviewer";
+  const quickActions = useMemo(
+    () => (isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS),
+    [isReviewer],
+  );
+
+  if (loading || !user || profileLoading) {
     return (
       <div
         style={{
@@ -156,7 +218,7 @@ export default function Page() {
                   position: "absolute",
                   top: "calc(100% + 8px)",
                   left: 0,
-                  width: "290px",
+                  width: "300px",
                   backgroundColor: "white",
                   border: "1px solid #E5E7EB",
                   borderRadius: "16px",
@@ -184,10 +246,12 @@ export default function Page() {
                     Navigation
                   </div>
                   <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
-                    MGO-GPT workspace
+                    {isReviewer ? "Advancement Services workspace" : "MGO workspace"}
                   </div>
                   <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
-                    Jump directly to the workflows you use most.
+                    {isReviewer
+                      ? "Review queues, manage priorities, and maintain shared guidance."
+                      : "Jump directly to your donor-facing workflows."}
                   </div>
                 </div>
 
@@ -209,12 +273,12 @@ export default function Page() {
                     Dashboard
                   </div>
                   <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.45 }}>
-                    Return to your main action hub and account overview.
+                    Return to your main action hub and role overview.
                   </div>
                 </a>
 
                 <div style={{ display: "grid", gap: "8px" }}>
-                  {QUICK_ACTIONS.map((action) => (
+                  {quickActions.map((action) => (
                     <a
                       key={`menu-${action.href}`}
                       href={action.href}
@@ -310,7 +374,7 @@ export default function Page() {
                     Signed in as
                   </div>
                   <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
-                    {user?.name || "MGO-GPT User"}
+                    {profile?.name || user?.name || "MGO-GPT User"}
                   </div>
                   <div
                     style={{
@@ -320,7 +384,10 @@ export default function Page() {
                       wordBreak: "break-word",
                     }}
                   >
-                    {user?.email || "No email available"}
+                    {profile?.email || user?.email || "No email available"}
+                  </div>
+                  <div style={{ marginTop: "8px", fontSize: "12px", color: "#6A5BFF", fontWeight: 700, textTransform: "capitalize" }}>
+                    {profile?.role || "mgo"}
                   </div>
                 </div>
 
@@ -376,14 +443,45 @@ export default function Page() {
             alt="MGO-GPT Logo"
             style={{ width: "30px", height: "30px", borderRadius: "8px" }}
           />
-          <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>MGO-GPT</h1>
+          <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>
+            {isReviewer ? "Advancement Services Hub" : "MGO-GPT"}
+          </h1>
         </div>
 
+        <p style={{ margin: "0 0 8px", color: "#111827", fontSize: "16px", fontWeight: 600 }}>
+          {profile?.name || user?.name || user?.email}
+        </p>
         <p style={{ margin: "0 0 22px", color: "#6B7280", fontSize: "14px" }}>
-          Signed in as {user?.email || user?.name || "user"}
+          {isReviewer
+            ? "Review submissions, manage shared queues, and keep the knowledge base current."
+            : "Capture field updates, request support, and track your work with Advancement Services."}
         </p>
 
-        <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>Quick Actions</h2>
+        <div
+          style={{
+            marginBottom: "18px",
+            backgroundColor: isReviewer ? "#EEF2FF" : "#F5F3FF",
+            border: `1px solid ${isReviewer ? "#C7D2FE" : "#DDD6FE"}`,
+            borderRadius: "16px",
+            padding: "18px 20px",
+          }}
+        >
+          <div style={{ fontSize: "12px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B7280", marginBottom: "8px" }}>
+            {isReviewer ? "Role focus" : "Today’s workflow"}
+          </div>
+          <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginBottom: "6px" }}>
+            {isReviewer ? "Shared review operations" : "MGO submission workspace"}
+          </div>
+          <div style={{ fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
+            {isReviewer
+              ? "Everything here is shared across Advancement Services users, so queue priority, notes, and knowledge base edits stay visible to the whole team."
+              : "Your forms flow into shared review queues, where Advancement Services can approve them or send them back with clarification notes."}
+          </div>
+        </div>
+
+        <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>
+          {isReviewer ? "Reviewer Actions" : "Quick Actions"}
+        </h2>
 
         <div
           style={{
@@ -392,7 +490,7 @@ export default function Page() {
             gap: "12px",
           }}
         >
-          {QUICK_ACTIONS.map((action) => (
+          {quickActions.map((action) => (
             <a
               key={action.href}
               href={action.href}
@@ -405,8 +503,12 @@ export default function Page() {
                 color: "#111827",
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>{action.title}</div>
-              <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>{action.description}</div>
+              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
+                {action.title}
+              </div>
+              <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
+                {action.description}
+              </div>
             </a>
           ))}
         </div>

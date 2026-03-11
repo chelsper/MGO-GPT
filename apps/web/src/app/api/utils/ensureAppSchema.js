@@ -113,7 +113,45 @@ export default async function ensureAppSchema() {
         exclusions_other TEXT,
         priority_level TEXT,
         status TEXT NOT NULL DEFAULT 'Pending',
+        queue_priority INTEGER NOT NULL DEFAULT 3,
+        reviewer_notes TEXT,
+        reviewer_notes_updated_at TIMESTAMPTZ,
+        reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS queue_priority INTEGER NOT NULL DEFAULT 3
+    `;
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS reviewer_notes TEXT
+    `;
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS reviewer_notes_updated_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
+        article_id TEXT PRIMARY KEY,
+        title TEXT,
+        summary TEXT,
+        tags JSONB,
+        sections JSONB,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
