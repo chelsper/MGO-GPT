@@ -95,10 +95,14 @@ export default function NewConstituentPage() {
       }
 
       // Upload
-      const { url, error: uploadError } = await upload({ file });
+      const base64Payload = imageDataUrl.split(",")[1];
+      const { url, error: uploadError } = await upload({
+        base64: base64Payload,
+      });
       if (uploadError) {
-        setError("Failed to upload image. Please try again.");
+        setError(uploadError || "Failed to upload image. Please try again.");
         setBusinessCardPreview(null);
+        setScanMessage("");
         return;
       }
 
