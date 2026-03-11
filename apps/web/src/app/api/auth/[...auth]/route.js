@@ -1,125 +1,142 @@
-import { skipCSRFCheck } from "@auth/core";
-import Credentials from "@auth/core/providers/credentials";
-import { authHandler, initAuthConfig } from "@hono/auth-js";
-import { Pool } from "@neondatabase/serverless";
-import { Hono } from "hono";
-import NeonAdapter from "../../../../../__create/adapter";
+let authAppPromise;
 
-const authApp = new Hono();
-const authEnabled = Boolean(process.env.AUTH_SECRET && process.env.DATABASE_URL);
+async function getAuthApp() {
+  if (authAppPromise) return authAppPromise;
 
-if (authEnabled) {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  const adapter = NeonAdapter(pool);
+  authAppPromise = (async () => {
+    const authEnabled = Boolean(process.env.AUTH_SECRET && process.env.DATABASE_URL);
+    if (!authEnabled) {
+      return null;
+    }
 
-  authApp.use(
-    "*",
-    initAuthConfig(() => ({
-      secret: process.env.AUTH_SECRET,
-      trustHost: true,
-      skipCSRFCheck,
-      pages: {
-        signIn: "/account/signin",
-        signOut: "/account/logout",
-        error: "/account/signin",
-      },
-      session: {
-        strategy: "jwt",
-      },
-      callbacks: {
-        session({ session, token }) {
-          if (token.sub) {
-            session.user.id = token.sub;
-          }
-          return session;
+    const [{ Hono }, { initAuthConfig, authHandler }, { skipCSRFCheck }, { default: Credentials }, { Pool }, { default: NeonAdapter }] =
+      await Promise.all([
+        import("hono"),
+        import("@hono/auth-js"),
+        import("@auth/core"),
+        import("@auth/core/providers/credentials"),
+        import("@neondatabase/serverless"),
+        import("../../../../../__create/adapter"),
+      ]);
+
+    const authApp = new Hono();
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const adapter = NeonAdapter(pool);
+
+    authApp.use(
+      "*",
+      initAuthConfig(() => ({
+        secret: process.env.AUTH_SECRET,
+        trustHost: true,
+        skipCSRFCheck,
+        pages: {
+          signIn: "/account/signin",
+          signOut: "/account/logout",
+          error: "/account/signin",
         },
-      },
-      providers: [
-        Credentials({
-          id: "credentials-signin",
-          name: "Credentials Sign in",
-          credentials: {
-            email: { label: "Email", type: "email" },
-            password: { label: "Password", type: "password" },
+        session: {
+          strategy: "jwt",
+        },
+        callbacks: {
+          session({ session, token }) {
+            if (token.sub) {
+              session.user.id = token.sub;
+            }
+            return session;
           },
-          authorize: async (credentials) => {
-            const { email, password } = credentials ?? {};
-            if (!email || !password) return null;
-            if (typeof email !== "string" || typeof password !== "string") return null;
+        },
+        providers: [
+          Credentials({
+            id: "credentials-signin",
+            name: "Credentials Sign in",
+            credentials: {
+              email: { label: "Email", type: "email" },
+              password: { label: "Password", type: "password" },
+            },
+            authorize: async (credentials) => {
+              const { email, password } = credentials ?? {};
+              if (!email || !password) return null;
+              if (typeof email !== "string" || typeof password !== "string") return null;
 
-            const user = await adapter.getUserByEmail(email);
-            if (!user) return null;
+              const user = await adapter.getUserByEmail(email);
+              if (!user) return null;
 
-            const matchingAccount = user.accounts.find(
-              (account) => account.provider === "credentials"
-            );
-            const accountPassword = matchingAccount?.password;
-            if (!accountPassword) return null;
+              const matchingAccount = user.accounts.find(
+                (account) => account.provider === "credentials"
+              );
+              const accountPassword = matchingAccount?.password;
+              if (!accountPassword) return null;
 
-            const { verify } = await import("argon2");
-            const isValid = await verify(accountPassword, password);
-            if (!isValid) return null;
+              const { verify } = await import("argon2");
+              const isValid = await verify(accountPassword, password);
+              if (!isValid) return null;
 
-            return user;
-          },
-        }),
-        Credentials({
-          id: "credentials-signup",
-          name: "Credentials Sign up",
-          credentials: {
-            email: { label: "Email", type: "email" },
-            password: { label: "Password", type: "password" },
-            name: { label: "Name", type: "text" },
-            image: { label: "Image", type: "text", required: false },
-          },
-          authorize: async (credentials) => {
-            const { email, password, name, image } = credentials ?? {};
-            if (!email || !password) return null;
-            if (typeof email !== "string" || typeof password !== "string") return null;
+              return user;
+            },
+          }),
+          Credentials({
+            id: "credentials-signup",
+            name: "Credentials Sign up",
+            credentials: {
+              email: { label: "Email", type: "email" },
+              password: { label: "Password", type: "password" },
+              name: { label: "Name", type: "text" },
+              image: { label: "Image", type: "text", required: false },
+            },
+            authorize: async (credentials) => {
+              const { email, password, name, image } = credentials ?? {};
+              if (!email || !password) return null;
+              if (typeof email !== "string" || typeof password !== "string") return null;
 
-            const user = await adapter.getUserByEmail(email);
-            if (user) return null;
+              const user = await adapter.getUserByEmail(email);
+              if (user) return null;
 
-            const newUser = await adapter.createUser({
-              emailVerified: null,
-              email,
-              name: typeof name === "string" && name.length > 0 ? name : undefined,
-              image: typeof image === "string" && image.length > 0 ? image : undefined,
-            });
+              const newUser = await adapter.createUser({
+                emailVerified: null,
+                email,
+                name: typeof name === "string" && name.length > 0 ? name : undefined,
+                image: typeof image === "string" && image.length > 0 ? image : undefined,
+              });
 
-            const { hash } = await import("argon2");
-            await adapter.linkAccount({
-              extraData: {
-                password: await hash(password),
-              },
-              type: "credentials",
-              userId: newUser.id,
-              providerAccountId: newUser.id,
-              provider: "credentials",
-            });
+              const { hash } = await import("argon2");
+              await adapter.linkAccount({
+                extraData: {
+                  password: await hash(password),
+                },
+                type: "credentials",
+                userId: newUser.id,
+                providerAccountId: newUser.id,
+                provider: "credentials",
+              });
 
-            return newUser;
-          },
-        }),
-      ],
-    }))
-  );
+              return newUser;
+            },
+          }),
+        ],
+      }))
+    );
 
-  authApp.use("*", authHandler());
+    authApp.use("*", authHandler());
+    return authApp;
+  })();
+
+  return authAppPromise;
 }
 
-const misconfigured = () =>
-  new Response(
+function misconfigured() {
+  return new Response(
     JSON.stringify({
       error: "Auth misconfigured on server",
       details: "AUTH_SECRET and DATABASE_URL must be set",
     }),
     { status: 500, headers: { "Content-Type": "application/json" } }
   );
+}
 
-export async function GET(request) {
-  if (!authEnabled) return misconfigured();
+async function handle(request) {
   try {
+    const authApp = await getAuthApp();
+    if (!authApp) return misconfigured();
     return await authApp.fetch(request);
   } catch (error) {
     return new Response(
@@ -132,17 +149,10 @@ export async function GET(request) {
   }
 }
 
+export async function GET(request) {
+  return handle(request);
+}
+
 export async function POST(request) {
-  if (!authEnabled) return misconfigured();
-  try {
-    return await authApp.fetch(request);
-  } catch (error) {
-    return new Response(
-      JSON.stringify({
-        error: "Auth route crashed",
-        details: error instanceof Error ? error.message : String(error),
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
+  return handle(request);
 }
