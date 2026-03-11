@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import nodeConsole from 'node:console';
 import { skipCSRFCheck } from '@auth/core';
 import Credentials from '@auth/core/providers/credentials';
-import { authHandler, initAuthConfig } from '@hono/auth-js';
+import { initAuthConfig } from '@hono/auth-js';
 import { Pool, neonConfig } from '@neondatabase/serverless';
 import { hash, verify } from 'argon2';
 import { Hono } from 'hono';
@@ -16,7 +16,6 @@ import { serializeError } from 'serialize-error';
 import ws from 'ws';
 import NeonAdapter from './adapter';
 import { getHTMLForErrorPage } from './get-html-for-error-page';
-import { isAuthAction } from './is-auth-action';
 import { API_BASENAME, api } from './route-builder';
 neonConfig.webSocketConstructor = ws;
 
@@ -230,21 +229,6 @@ app.all('/integrations/:path{.+}', async (c, next) => {
   });
 });
 
-app.all('/api/auth/:action{.+}', async (c, next) => {
-  if (!authEnabled) {
-    return c.json(
-      {
-        error: 'Auth misconfigured on server',
-        details: 'AUTH_SECRET and DATABASE_URL must be set',
-      },
-      500
-    );
-  }
-  if (isAuthAction(c.req.path)) {
-    return authHandler()(c, next);
-  }
-  return c.json({ error: 'Unknown auth action' }, 404);
-});
 app.route(API_BASENAME, api);
 
 export default await createHonoServer({
