@@ -4,11 +4,36 @@
  *
  * Uses the Resend API (https://resend.com/docs/api-reference/emails/send-email)
  */
+import sql from "@/app/api/utils/sql";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 const RECIPIENT_EMAIL =
   process.env.SUBMISSIONS_RECIPIENT_EMAIL || "csantor@ju.edu";
 const FROM_EMAIL =
   process.env.RESEND_FROM_EMAIL || "MGO VoiceLog <onboarding@resend.dev>";
+
+async function updateEmailStatus(submissionId, status, extra = {}) {
+  await ensureAppSchema();
+
+  const {
+    recipient = null,
+    messageId = null,
+    error = null,
+    sentAt = null,
+  } = extra;
+
+  await sql`
+    UPDATE submissions
+    SET
+      notification_email_status = ${status},
+      notification_email_recipient = ${recipient},
+      notification_email_id = ${messageId},
+      notification_email_error = ${error},
+      notification_email_sent_at = ${sentAt},
+      updated_at = NOW()
+    WHERE id = ${submissionId}
+  `;
+}
 
 /**
  * Convert a submission record into CSV content (header row + data row).
@@ -165,10 +190,18 @@ export async function sendSubmissionEmail(submission, submissionType) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.error("RESEND_API_KEY is not set — skipping email notification");
+    await updateEmailStatus(submission.id, "skipped", {
+      recipient: RECIPIENT_EMAIL,
+      error: "RESEND_API_KEY is not set",
+    });
     return;
   }
 
   try {
+    await updateEmailStatus(submission.id, "processing", {
+      recipient: RECIPIENT_EMAIL,
+    });
+
     // Build CSV attachment
     const csvContent = buildCsvContent(submission, submissionType);
     const csvBase64 = Buffer.from(csvContent, "utf-8").toString("base64");
@@ -249,12 +282,24 @@ export async function sendSubmissionEmail(submission, submissionType) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Resend API error:", response.status, errorText);
+      await updateEmailStatus(submission.id, "failed", {
+        recipient: RECIPIENT_EMAIL,
+        error: errorText || `Resend returned ${response.status}`,
+      });
     } else {
       const result = await response.json();
       console.log("Submission email sent successfully, id:", result.id);
+      await updateEmailStatus(submission.id, "sent", {
+        recipient: RECIPIENT_EMAIL,
+        messageId: result.id || null,
+        sentAt: new Date(),
+      });
     }
   } catch (error) {
     console.error("Failed to send submission email:", error);
-    // Don't throw — email failure should not block the submission
+    await updateEmailStatus(submission.id, "failed", {
+      recipient: RECIPIENT_EMAIL,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }

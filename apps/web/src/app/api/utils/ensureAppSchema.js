@@ -39,12 +39,38 @@ export default async function ensureAppSchema() {
         business_card_url TEXT,
         attachments JSONB,
         status TEXT NOT NULL DEFAULT 'Pending',
+        notification_email_status TEXT NOT NULL DEFAULT 'not_requested',
+        notification_email_recipient TEXT,
+        notification_email_id TEXT,
+        notification_email_error TEXT,
+        notification_email_sent_at TIMESTAMPTZ,
         reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         reviewed_at TIMESTAMPTZ,
         date_submitted TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS notification_email_status TEXT NOT NULL DEFAULT 'not_requested'
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS notification_email_recipient TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS notification_email_id TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS notification_email_error TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS notification_email_sent_at TIMESTAMPTZ
     `;
 
     await sql`

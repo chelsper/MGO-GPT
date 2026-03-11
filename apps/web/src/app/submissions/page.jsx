@@ -34,6 +34,18 @@ function getStatusColors(status) {
   return map[status] || { bg: "#E5E7EB", fg: "#374151" };
 }
 
+function getEmailStatusMeta(status) {
+  const map = {
+    sent: { label: "Email sent", bg: "#DCFCE7", fg: "#166534" },
+    failed: { label: "Email failed", bg: "#FEE2E2", fg: "#991B1B" },
+    skipped: { label: "Email skipped", bg: "#FEF3C7", fg: "#92400E" },
+    processing: { label: "Sending email", bg: "#DBEAFE", fg: "#1D4ED8" },
+    not_requested: { label: "Email not requested", bg: "#E5E7EB", fg: "#374151" },
+  };
+
+  return map[status] || map.not_requested;
+}
+
 export default function SubmissionsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -306,6 +318,7 @@ export default function SubmissionsPage() {
             <div style={{ display: "grid", gap: "12px" }}>
               {submissions.map((submission) => {
                 const colors = getStatusColors(submission.status);
+                const emailMeta = getEmailStatusMeta(submission.notification_email_status);
                 return (
                   <article
                     key={submission.id}
@@ -417,6 +430,37 @@ export default function SubmissionsPage() {
                         </div>
                       ) : null}
 
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                          Email delivery
+                        </div>
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "4px 10px",
+                            borderRadius: "999px",
+                            backgroundColor: emailMeta.bg,
+                            color: emailMeta.fg,
+                            fontSize: "12px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {emailMeta.label}
+                        </div>
+                        {submission.notification_email_recipient ? (
+                          <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
+                            To: {submission.notification_email_recipient}
+                          </div>
+                        ) : null}
+                        {submission.notification_email_sent_at ? (
+                          <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                            Sent {formatDate(submission.notification_email_sent_at)}
+                          </div>
+                        ) : null}
+                      </div>
+
                       {submission.next_step ? (
                         <div>
                           <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
@@ -455,6 +499,25 @@ export default function SubmissionsPage() {
                         </div>
                         <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
                           {submission.notes}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {submission.notification_email_error ? (
+                      <div
+                        style={{
+                          marginTop: "16px",
+                          padding: "12px 14px",
+                          borderRadius: "12px",
+                          backgroundColor: "#FEF2F2",
+                          border: "1px solid #FECACA",
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#991B1B", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                          Email error
+                        </div>
+                        <div style={{ fontSize: "13px", color: "#991B1B", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                          {submission.notification_email_error}
                         </div>
                       </div>
                     ) : null}
