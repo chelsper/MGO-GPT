@@ -48,8 +48,8 @@ export async function POST(request) {
       );
     }
 
-    // Lazy-load password hashing so route registration stays lightweight.
-    const { hash } = await import("@node-rs/argon2");
+    // Lazy-load argon2 so route registration does not crash if native bindings fail at startup.
+    const { hash } = await import("argon2");
     const hashedPassword = await hash(password);
 
     // Create user in users table

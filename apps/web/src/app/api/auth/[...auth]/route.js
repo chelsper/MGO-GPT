@@ -67,7 +67,7 @@ async function getAuthApp() {
               const accountPassword = matchingAccount?.password;
               if (!accountPassword) return null;
 
-              const { verify } = await import("@node-rs/argon2");
+              const { verify } = await import("argon2");
               const isValid = await verify(accountPassword, password);
               if (!isValid) return null;
 
@@ -98,7 +98,7 @@ async function getAuthApp() {
                 image: typeof image === "string" && image.length > 0 ? image : undefined,
               });
 
-              const { hash } = await import("@node-rs/argon2");
+              const { hash } = await import("argon2");
               await adapter.linkAccount({
                 extraData: {
                   password: await hash(password),
