@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { resolveConstituent } from "@/app/api/utils/constituents";
 
 export async function POST(request) {
   try {
@@ -28,9 +29,16 @@ export async function POST(request) {
       return Response.json({ error: "Name is required" }, { status: 400 });
     }
 
+    const constituent = await resolveConstituent({
+      userId: user.id,
+      name,
+      createNew: false,
+    });
+
     const result = await sql`
       INSERT INTO submissions (
         user_id,
+        constituent_id,
         officer_name,
         submission_type,
         constituent_name,
@@ -44,6 +52,7 @@ export async function POST(request) {
         status
       ) VALUES (
         ${user.id},
+        ${constituent?.id || null},
         ${user.name},
         'constituent_suggestion',
         ${name},

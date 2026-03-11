@@ -21,6 +21,12 @@ function normalizeName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function getDefaultFY() {
+  const now = new Date();
+  const fiscalYear = now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
+  return `FY${String(fiscalYear).slice(-2)}`;
+}
+
 export default function LogDonorUpdatePage() {
   const { data: user, loading } = useUser();
   const [upload, { loading: uploadLoading }] = useUpload();
@@ -38,6 +44,9 @@ export default function LogDonorUpdatePage() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [constituentMatches, setConstituentMatches] = useState([]);
   const [matchDecision, setMatchDecision] = useState("");
+  const [prospectPrompt, setProspectPrompt] = useState(null);
+  const [prospectError, setProspectError] = useState("");
+  const [prospectAdded, setProspectAdded] = useState(false);
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -462,8 +471,13 @@ export default function LogDonorUpdatePage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       setSuccess(true);
+      setProspectError("");
+      setProspectAdded(false);
+      const submittedName = donorName.trim();
+      const submittedAmount = estimatedAmount ? parseFloat(estimatedAmount) : null;
+      const submittedConstituentId = data?.constituent_id || null;
       setDonorName("");
       setInteractionType("visit");
       setNotes("");
@@ -472,6 +486,37 @@ export default function LogDonorUpdatePage() {
       setEstimatedAmount("");
       setConstituentMatches([]);
       setMatchDecision("");
+
+      try {
+        const response = await fetch("/api/prospects");
+        if (!response.ok) {
+          setProspectPrompt(null);
+          return;
+        }
+        const prospects = await response.json();
+        const normalizedSubmittedName = normalizeName(submittedName);
+        const alreadyTracked = Array.isArray(prospects) && prospects.some((prospect) => {
+          if (submittedConstituentId && prospect.constituent_id) {
+            return Number(prospect.constituent_id) === Number(submittedConstituentId);
+          }
+          return normalizeName(prospect.prospect_name) === normalizedSubmittedName;
+        });
+
+        setProspectPrompt(
+          alreadyTracked
+            ? null
+            : {
+                prospectName: submittedName,
+                constituentId: submittedConstituentId,
+                askAmount: submittedAmount,
+                expectedCloseFY: getDefaultFY(),
+                askType: "Major Gift",
+              },
+        );
+      } catch (prospectLookupError) {
+        console.error("Prospect lookup error:", prospectLookupError);
+        setProspectPrompt(null);
+      }
     },
     onError: (err) => {
       console.error(err);
@@ -479,10 +524,37 @@ export default function LogDonorUpdatePage() {
     },
   });
 
+  const addProspectMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await fetch("/api/prospects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error || "Failed to add prospect");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setProspectAdded(true);
+      setProspectError("");
+      setProspectPrompt(null);
+    },
+    onError: (err) => {
+      console.error(err);
+      setProspectError(err?.message || "Failed to add prospect.");
+    },
+  });
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
     setSuccess(false);
+    setProspectPrompt(null);
+    setProspectError("");
+    setProspectAdded(false);
 
     if (!donorName.trim()) {
       setError("Please enter a donor name.");
@@ -624,6 +696,92 @@ export default function LogDonorUpdatePage() {
             >
               Back to dashboard
             </a>
+          </div>
+        )}
+
+        {prospectPrompt && (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#FEF3C7",
+              color: "#92400E",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+            }}
+          >
+            Would you like to add <strong>{prospectPrompt.prospectName}</strong> to My Top Prospects?
+            <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => addProspectMutation.mutate(prospectPrompt)}
+                disabled={addProspectMutation.isPending}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "10px",
+                  border: "none",
+                  backgroundColor: "#92400E",
+                  color: "white",
+                  fontWeight: "600",
+                  cursor: addProspectMutation.isPending ? "not-allowed" : "pointer",
+                }}
+              >
+                {addProspectMutation.isPending ? "Adding..." : "Add to Top Prospects"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProspectPrompt(null);
+                  setProspectError("");
+                }}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid #D6D3D1",
+                  backgroundColor: "white",
+                  color: "#57534E",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {prospectAdded && (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#DBEAFE",
+              color: "#1D4ED8",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              fontWeight: "600",
+            }}
+          >
+            Prospect added to{" "}
+            <a href="/my-top-prospects" style={{ color: "#1D4ED8", textDecoration: "underline" }}>
+              My Top Prospects
+            </a>
+            .
+          </div>
+        )}
+
+        {prospectError && (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#FEF2F2",
+              color: "#991B1B",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+            }}
+          >
+            {prospectError}
           </div>
         )}
 
