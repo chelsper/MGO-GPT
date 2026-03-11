@@ -43,7 +43,9 @@ export default function LogDonorUpdatePage() {
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
+  const recognitionDisplayRef = useRef("");
   const recognitionFinalizedRef = useRef(false);
+  const notesBeforeDictationRef = useRef("");
 
   const supportsMediaRecording =
     typeof window !== "undefined" &&
@@ -124,6 +126,7 @@ export default function LogDonorUpdatePage() {
 
     const transcriptText = text.trim();
     setLiveTranscript("");
+    recognitionDisplayRef.current = "";
 
     if (!transcriptText) {
       setTranscriptionStatus("");
@@ -131,7 +134,14 @@ export default function LogDonorUpdatePage() {
       return;
     }
 
-    appendTranscriptToNotes(transcriptText);
+    setTranscript(transcriptText);
+    setNotes((prev) => {
+      const liveNotes = prev.trim();
+      const baseNotes = notesBeforeDictationRef.current.trim();
+      return liveNotes || baseNotes || transcriptText;
+    });
+    setTranscriptionStatus("Transcript added to notes.");
+    setTranscriptionError("");
   };
 
   const startRecording = async () => {
@@ -140,6 +150,8 @@ export default function LogDonorUpdatePage() {
     setTranscriptionStatus("");
     setLastAudioFileName("");
     setLiveTranscript("");
+    recognitionDisplayRef.current = "";
+    notesBeforeDictationRef.current = notes;
 
     if (supportsSpeechRecognition) {
       try {
@@ -152,6 +164,7 @@ export default function LogDonorUpdatePage() {
         recognition.maxAlternatives = 1;
 
         recognitionTranscriptRef.current = "";
+        recognitionDisplayRef.current = "";
         recognitionFinalizedRef.current = false;
         speechRecognitionRef.current = recognition;
 
@@ -173,9 +186,13 @@ export default function LogDonorUpdatePage() {
             recognitionTranscriptRef.current = `${recognitionTranscriptRef.current} ${finalTranscript}`.trim();
           }
 
-          setLiveTranscript(
-            `${recognitionTranscriptRef.current} ${interimTranscript}`.trim(),
-          );
+          const combinedTranscript = `${recognitionTranscriptRef.current} ${interimTranscript}`.trim();
+          recognitionDisplayRef.current = combinedTranscript;
+          setLiveTranscript(combinedTranscript);
+          setNotes(() => {
+            const baseNotes = notesBeforeDictationRef.current.trim();
+            return baseNotes ? `${baseNotes}\n\n${combinedTranscript}` : combinedTranscript;
+          });
         };
 
         recognition.onerror = (event) => {
@@ -184,6 +201,7 @@ export default function LogDonorUpdatePage() {
           stopRecordingTimer();
           setIsRecording(false);
           setLiveTranscript("");
+          recognitionDisplayRef.current = "";
           setTranscriptionStatus("");
 
           if (event.error === "not-allowed" || event.error === "service-not-allowed") {
@@ -205,7 +223,7 @@ export default function LogDonorUpdatePage() {
           speechRecognitionRef.current = null;
           if (recognitionFinalizedRef.current) return;
           recognitionFinalizedRef.current = true;
-          finishLiveTranscript(recognitionTranscriptRef.current);
+          finishLiveTranscript(recognitionDisplayRef.current || recognitionTranscriptRef.current);
         };
 
         recognition.start();
@@ -269,7 +287,9 @@ export default function LogDonorUpdatePage() {
       recognitionFinalizedRef.current = true;
       speechRecognitionRef.current.stop();
       speechRecognitionRef.current = null;
-      finishLiveTranscript(recognitionTranscriptRef.current || liveTranscript);
+      finishLiveTranscript(
+        recognitionDisplayRef.current || recognitionTranscriptRef.current || liveTranscript,
+      );
       return;
     }
 
