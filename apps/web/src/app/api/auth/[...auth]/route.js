@@ -15,8 +15,8 @@ if (authEnabled) {
 
   authApp.use(
     "*",
-    initAuthConfig((c) => ({
-      secret: c.env.AUTH_SECRET,
+    initAuthConfig(() => ({
+      secret: process.env.AUTH_SECRET,
       trustHost: true,
       skipCSRFCheck,
       pages: {
@@ -118,10 +118,30 @@ const misconfigured = () =>
 
 export async function GET(request) {
   if (!authEnabled) return misconfigured();
-  return authApp.fetch(request);
+  try {
+    return await authApp.fetch(request);
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: "Auth route crashed",
+        details: error instanceof Error ? error.message : String(error),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 }
 
 export async function POST(request) {
   if (!authEnabled) return misconfigured();
-  return authApp.fetch(request);
+  try {
+    return await authApp.fetch(request);
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: "Auth route crashed",
+        details: error instanceof Error ? error.message : String(error),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 }
