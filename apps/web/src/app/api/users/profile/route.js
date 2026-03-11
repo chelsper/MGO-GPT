@@ -1,8 +1,11 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 export async function GET() {
   try {
+    await ensureAppSchema();
+
     const session = await auth();
     if (!session || !session.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

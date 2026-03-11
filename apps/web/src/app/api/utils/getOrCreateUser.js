@@ -1,6 +1,9 @@
 import sql from "@/app/api/utils/sql";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 export default async function getOrCreateUser(session, fallbackRole = "mgo") {
+  await ensureAppSchema();
+
   const email = session?.user?.email;
   if (!email) {
     throw new Error("Authenticated user email is required");
