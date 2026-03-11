@@ -1,24 +1,7 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
-
-async function getOrCreateUser(session) {
-  const email = session.user.email;
-  const name = session.user.name || email;
-
-  const existing =
-    await sql`SELECT id, name FROM users WHERE email = ${email} LIMIT 1`;
-  if (existing.length > 0) {
-    return existing[0];
-  }
-
-  const created = await sql`
-    INSERT INTO users (name, email, role)
-    VALUES (${name}, ${email}, 'mgo')
-    RETURNING id, name
-  `;
-  return created[0];
-}
+import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 
 export async function POST(request) {
   try {
@@ -74,7 +57,12 @@ export async function POST(request) {
   } catch (error) {
     console.error("Error creating opportunity update:", error);
     return Response.json(
-      { error: "Failed to create opportunity update" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create opportunity update",
+      },
       { status: 500 },
     );
   }

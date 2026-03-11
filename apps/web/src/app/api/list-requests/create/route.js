@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
+import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 
 export async function POST(request) {
   try {
@@ -8,16 +9,7 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user from users table
-    const users = await sql`
-      SELECT id, name FROM users WHERE email = ${session.user.email}
-    `;
-
-    if (users.length === 0) {
-      return Response.json({ error: "User not found" }, { status: 404 });
-    }
-
-    const user = users[0];
+    const user = await getOrCreateUser(session);
     const body = await request.json();
 
     const {
@@ -119,7 +111,10 @@ export async function POST(request) {
   } catch (error) {
     console.error("List request error:", error);
     return Response.json(
-      { error: "Failed to submit list request" },
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to submit list request",
+      },
       { status: 500 },
     );
   }
