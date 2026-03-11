@@ -39,8 +39,10 @@ const QUICK_ACTIONS = [
 
 export default function Page() {
   const { data: user, loading } = useUser();
+  const [menuOpen, setMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -49,17 +51,21 @@ export default function Page() {
   }, [loading, user]);
 
   useEffect(() => {
-    if (!accountMenuOpen) return;
+    if (!accountMenuOpen && !menuOpen) return;
 
     const handlePointerDown = (event) => {
       if (!accountMenuRef.current?.contains(event.target)) {
         setAccountMenuOpen(false);
+      }
+      if (!menuRef.current?.contains(event.target)) {
+        setMenuOpen(false);
       }
     };
 
     const handleEscape = (event) => {
       if (event.key === "Escape") {
         setAccountMenuOpen(false);
+        setMenuOpen(false);
       }
     };
 
@@ -70,7 +76,7 @@ export default function Page() {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [accountMenuOpen]);
+  }, [accountMenuOpen, menuOpen]);
 
   if (loading || !user) {
     return (
@@ -116,22 +122,120 @@ export default function Page() {
             justifyContent: "space-between",
           }}
         >
-          <button
-            type="button"
-            aria-label="Menu"
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "10px",
-              border: "1px solid #E5E7EB",
-              backgroundColor: "#F9FAFB",
-              display: "grid",
-              placeItems: "center",
-              cursor: "default",
-            }}
-          >
-            <Menu size={18} color="#111827" />
-          </button>
+          <div ref={menuRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              aria-label="Open navigation menu"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              onClick={() => setMenuOpen((open) => !open)}
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "10px",
+                border: "1px solid #E5E7EB",
+                backgroundColor: "#F9FAFB",
+                display: "grid",
+                placeItems: "center",
+                cursor: "pointer",
+              }}
+            >
+              <Menu size={18} color="#111827" />
+            </button>
+
+            {menuOpen ? (
+              <div
+                role="menu"
+                aria-label="Primary navigation"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  left: 0,
+                  width: "290px",
+                  backgroundColor: "white",
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "16px",
+                  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
+                  padding: "12px",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "8px 10px 12px",
+                    borderBottom: "1px solid #E5E7EB",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      color: "#6B7280",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    Navigation
+                  </div>
+                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+                    MGO-GPT workspace
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
+                    Jump directly to the workflows you use most.
+                  </div>
+                </div>
+
+                <a
+                  href="/"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  style={{
+                    display: "block",
+                    borderRadius: "12px",
+                    padding: "12px",
+                    textDecoration: "none",
+                    color: "#111827",
+                    backgroundColor: "#F9FAFB",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>
+                    Dashboard
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.45 }}>
+                    Return to your main action hub and account overview.
+                  </div>
+                </a>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {QUICK_ACTIONS.map((action) => (
+                    <a
+                      key={`menu-${action.href}`}
+                      href={action.href}
+                      role="menuitem"
+                      onClick={() => setMenuOpen(false)}
+                      style={{
+                        display: "block",
+                        borderRadius: "12px",
+                        padding: "12px",
+                        textDecoration: "none",
+                        color: "#111827",
+                        border: "1px solid #E5E7EB",
+                      }}
+                    >
+                      <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>
+                        {action.title}
+                      </div>
+                      <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.45 }}>
+                        {action.description}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <div ref={accountMenuRef} style={{ position: "relative" }}>
             <button
