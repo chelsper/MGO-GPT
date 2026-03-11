@@ -5,7 +5,10 @@
  * Uses the Resend API (https://resend.com/docs/api-reference/emails/send-email)
  */
 
-const RECIPIENT_EMAIL = "csantor@ju.edu";
+const RECIPIENT_EMAIL =
+  process.env.SUBMISSIONS_RECIPIENT_EMAIL || "csantor@ju.edu";
+const FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL || "MGO VoiceLog <onboarding@resend.dev>";
 
 /**
  * Convert a submission record into CSV content (header row + data row).
@@ -227,7 +230,7 @@ export async function sendSubmissionEmail(submission, submissionType) {
 
     // Send via Resend API
     const emailPayload = {
-      from: "MGO VoiceLog <onboarding@resend.dev>",
+      from: FROM_EMAIL,
       to: [RECIPIENT_EMAIL],
       subject: getSubjectLine(submission, submissionType),
       text: getEmailBody(submission, submissionType),

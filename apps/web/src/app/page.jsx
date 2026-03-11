@@ -6,6 +6,11 @@ import useUser from "@/utils/useUser";
 
 const QUICK_ACTIONS = [
   {
+    title: "Submission Tracker",
+    href: "/submissions",
+    description: "Track review status and follow-up on submitted work.",
+  },
+  {
     title: "My Top Prospects",
     href: "/my-top-prospects",
     description: "View your priority donor portfolio.",
