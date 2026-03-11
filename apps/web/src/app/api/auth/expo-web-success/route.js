@@ -1,8 +1,18 @@
 import { getToken } from '@auth/core/jwt';
 
+function isSecureRequest(request) {
+	const proto = request.headers.get('x-forwarded-proto');
+	if (proto) return proto.includes('https');
+
+	try {
+		return new URL(request.url).protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
 export async function GET(request) {
-	const authUrl = process.env.AUTH_URL || '';
-	const secureCookie = authUrl.startsWith('https');
+	const secureCookie = isSecureRequest(request);
 
 	const [token, jwt] = await Promise.all([
 		getToken({

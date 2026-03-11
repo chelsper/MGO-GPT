@@ -1,5 +1,16 @@
 let authAppPromise;
 
+function isSecureRequest(request) {
+  const proto = request.headers.get("x-forwarded-proto");
+  if (proto) return proto.includes("https");
+
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 async function getAuthApp() {
   if (authAppPromise) return authAppPromise;
 
@@ -28,6 +39,7 @@ async function getAuthApp() {
       initAuthConfig(() => ({
         secret: process.env.AUTH_SECRET,
         trustHost: true,
+        basePath: "/api/auth",
         skipCSRFCheck,
         pages: {
           signIn: "/account/signin",
@@ -137,7 +149,19 @@ async function handle(request) {
   try {
     const authApp = await getAuthApp();
     if (!authApp) return misconfigured();
-    return await authApp.fetch(request);
+    const forwardedRequest = new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      redirect: request.redirect,
+      // Required when forwarding streamed request bodies in Node.
+      ...(request.body ? { duplex: "half" } : {}),
+    });
+    forwardedRequest.headers.set(
+      "x-forwarded-proto",
+      isSecureRequest(request) ? "https" : "http"
+    );
+    return await authApp.fetch(forwardedRequest);
   } catch (error) {
     return new Response(
       JSON.stringify({
