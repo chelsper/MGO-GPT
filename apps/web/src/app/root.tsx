@@ -10,6 +10,7 @@ import {
 } from 'react-router';
 
 import { useButton } from '@react-aria/button';
+import { Analytics } from '@vercel/analytics/react';
 import {
   type CSSProperties,
   Component,
@@ -446,6 +447,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <body>
         <ErrorBoundaryWrapper>{children}</ErrorBoundaryWrapper>
         <Toaster position={isMobile ? 'top-center' : 'bottom-right'} />
+        <Analytics />
         <ScrollRestoration />
         <Scripts />
         <script src="https://kit.fontawesome.com/2c15cc0cc7.js" crossOrigin="anonymous" async />
