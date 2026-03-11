@@ -1,5 +1,5 @@
 {
   "framework": "react-router",
-  "installCommand": "cd apps/web && npm install",
+  "installCommand": "cd apps/web && npm install --omit=optional",
   "buildCommand": "cd apps/web && npm run build"
 }
