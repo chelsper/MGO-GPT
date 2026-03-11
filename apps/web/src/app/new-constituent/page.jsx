@@ -6,6 +6,15 @@ import useUpload from "@/utils/useUpload";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Camera, Upload, Loader2 } from "lucide-react";
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function NewConstituentPage() {
   const { data: user, loading } = useUser();
   const [upload, { loading: uploadLoading }] = useUpload();
@@ -20,21 +29,24 @@ export default function NewConstituentPage() {
   const [businessCardUrl, setBusinessCardUrl] = useState(null);
   const [businessCardPreview, setBusinessCardPreview] = useState(null);
   const [isScanningCard, setIsScanningCard] = useState(false);
+  const [scanMessage, setScanMessage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
   const readBusinessCard = useCallback(
-    async (imageUrl) => {
+    async ({ imageUrl, imageDataUrl }) => {
       setIsScanningCard(true);
+      setScanMessage("Scanning business card and filling form fields...");
       try {
         const response = await fetch("/api/read-business-card", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl }),
+          body: JSON.stringify({ imageUrl, imageDataUrl }),
         });
 
         if (!response.ok) {
-          throw new Error("Failed to read business card");
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || "Failed to read business card");
         }
 
         const data = await response.json();
@@ -46,23 +58,41 @@ export default function NewConstituentPage() {
             setOrganization(fields.organization);
           if (fields.email && !email) setEmail(fields.email);
           if (fields.phone && !phone) setPhone(fields.phone);
+          if (fields.notes && !notes) setNotes(fields.notes);
+          setScanMessage("Business card scanned. Review the suggested fields.");
+        } else {
+          setScanMessage("Card uploaded, but no contact fields were detected.");
         }
       } catch (err) {
         console.error("Business card scan error:", err);
+        setError(err?.message || "Could not read the business card.");
+        setScanMessage("");
       } finally {
         setIsScanningCard(false);
       }
     },
-    [name, organization, email, phone],
+    [name, organization, email, phone, notes],
   );
 
   const handleFileSelected = useCallback(
     async (file) => {
       if (!file) return;
+      setError("");
+      setSuccess(false);
+      setScanMessage("");
 
       // Show preview
       const previewUrl = URL.createObjectURL(file);
       setBusinessCardPreview(previewUrl);
+
+      let imageDataUrl;
+      try {
+        imageDataUrl = await fileToDataUrl(file);
+      } catch (readError) {
+        setError("Could not read the selected image. Please try another file.");
+        setBusinessCardPreview(null);
+        return;
+      }
 
       // Upload
       const { url, error: uploadError } = await upload({ file });
@@ -73,7 +103,7 @@ export default function NewConstituentPage() {
       }
 
       setBusinessCardUrl(url);
-      readBusinessCard(url);
+      readBusinessCard({ imageUrl: url, imageDataUrl });
     },
     [upload, readBusinessCard],
   );
@@ -429,10 +459,26 @@ export default function NewConstituentPage() {
                     fontWeight: "500",
                   }}
                 >
-                  Scanning business card & auto-filling fields...
+                  {scanMessage || "Scanning business card & auto-filling fields..."}
                 </span>
               </div>
             )}
+
+            {!isScanningCard && scanMessage ? (
+              <div
+                style={{
+                  marginBottom: "16px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  backgroundColor: "#ECFDF5",
+                  color: "#065F46",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
+              >
+                {scanMessage}
+              </div>
+            ) : null}
 
             {/* Buttons */}
             <div style={{ display: "flex", gap: "12px" }}>
