@@ -58,6 +58,10 @@ export default function SubmissionsPage() {
   const [reviewFilter, setReviewFilter] = useState("Pending");
   const [reviewDrafts, setReviewDrafts] = useState({});
 
+  function getSubmissionDisplayName(submission) {
+    return submission.donor_name || submission.constituent_name || "Untitled submission";
+  }
+
   useEffect(() => {
     if (!loading && !sessionUser) {
       window.location.href = "/account/signin";
@@ -162,20 +166,53 @@ export default function SubmissionsPage() {
     }, {});
   }, [profile, submissions]);
 
-  const visibleSubmissions = useMemo(() => {
+  const visibleSubmissionGroups = useMemo(() => {
     let next = [...submissions];
 
     if (profile?.role === "reviewer" && reviewFilter !== "All") {
       next = next.filter((submission) => (submission.status || "Pending") === reviewFilter);
     }
 
-    next.sort((a, b) => {
-      const aDate = new Date(a.date_submitted || a.created_at || 0).getTime();
-      const bDate = new Date(b.date_submitted || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
+    const grouped = new Map();
 
-    return next;
+    for (const submission of next) {
+      const groupKey = submission.constituent_id
+        ? `constituent:${submission.constituent_id}`
+        : `submission:${submission.id}`;
+
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, {
+          id: groupKey,
+          constituentId: submission.constituent_id || null,
+          title: getSubmissionDisplayName(submission),
+          submissions: [],
+          latestAt: 0,
+        });
+      }
+
+      const entry = grouped.get(groupKey);
+      entry.submissions.push(submission);
+      const submittedAt = new Date(
+        submission.date_submitted || submission.created_at || 0,
+      ).getTime();
+      if (submittedAt >= entry.latestAt) {
+        entry.latestAt = submittedAt;
+        entry.title = getSubmissionDisplayName(submission);
+      }
+    }
+
+    const groups = Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        submissions: [...group.submissions].sort((a, b) => {
+          const aDate = new Date(a.date_submitted || a.created_at || 0).getTime();
+          const bDate = new Date(b.date_submitted || b.created_at || 0).getTime();
+          return bDate - aDate;
+        }),
+      }))
+      .sort((a, b) => b.latestAt - a.latestAt);
+
+    return groups;
   }, [profile, reviewFilter, submissions]);
 
   function setReviewDraft(id, updates) {
@@ -447,7 +484,7 @@ export default function SubmissionsPage() {
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
               Loading submissions...
             </div>
-          ) : visibleSubmissions.length === 0 ? (
+          ) : visibleSubmissionGroups.length === 0 ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
               {profile?.role === "reviewer"
                 ? "No submissions match the current filter."
@@ -455,16 +492,10 @@ export default function SubmissionsPage() {
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
-              {visibleSubmissions.map((submission) => {
-                const colors = getStatusColors(submission.status);
-                const emailMeta = getEmailStatusMeta(submission.notification_email_status);
-                const draft = reviewDrafts[submission.id];
-                const selectedStatus = draft?.status || submission.status || "Pending";
-                const reviewerNotes =
-                  draft?.reviewerNotes ?? submission.reviewer_notes ?? "";
+              {visibleSubmissionGroups.map((group) => {
                 return (
                   <article
-                    key={submission.id}
+                    key={group.id}
                     style={{
                       border: "1px solid #E5E7EB",
                       borderRadius: "16px",
@@ -484,253 +515,311 @@ export default function SubmissionsPage() {
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                           <h2 style={{ margin: 0, fontSize: "17px", color: "#111827" }}>
-                            {TYPE_LABELS[submission.submission_type] || "Submission"}
+                            {group.title}
                           </h2>
-                          <span
-                            style={{
-                              backgroundColor: colors.bg,
-                              color: colors.fg,
-                              padding: "4px 10px",
-                              borderRadius: "999px",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                            }}
-                          >
-                            {submission.status}
-                          </span>
+                          {group.constituentId ? (
+                            <span
+                              style={{
+                                backgroundColor: "#EDE9FE",
+                                color: "#5B21B6",
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              Linked workflow thread
+                            </span>
+                          ) : null}
                         </div>
-                        <div style={{ marginTop: "6px", fontSize: "14px", color: "#111827", fontWeight: 600 }}>
-                          {submission.donor_name || submission.constituent_name || "Untitled submission"}
+                        <div style={{ marginTop: "6px", fontSize: "14px", color: "#6B7280" }}>
+                          {group.submissions.length} submission{group.submissions.length === 1 ? "" : "s"} in this thread
                         </div>
                         <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
-                          Submitted {formatDate(submission.date_submitted || submission.created_at)}
+                          Latest activity {formatDate(group.latestAt)}
                         </div>
                       </div>
-
-                      {profile?.role === "reviewer" ? (
-                        <div style={{ minWidth: "220px" }}>
-                          <label
-                            style={{
-                              display: "block",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              color: "#6B7280",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.04em",
-                              marginBottom: "8px",
-                            }}
-                          >
-                            Review status
-                          </label>
-                          <select
-                            value={selectedStatus}
-                            disabled={updatingId === submission.id}
-                            onChange={(event) =>
-                              setReviewDraft(submission.id, { status: event.target.value })
-                            }
-                            style={{
-                              width: "100%",
-                              padding: "10px 12px",
-                              borderRadius: "10px",
-                              border: "1px solid #D1D5DB",
-                              backgroundColor: "white",
-                              fontSize: "14px",
-                            }}
-                          >
-                            {REVIEW_STATUSES.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                          <label
-                            style={{
-                              display: "block",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              color: "#6B7280",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.04em",
-                              margin: "12px 0 8px",
-                            }}
-                          >
-                            Reviewer notes
-                          </label>
-                          <textarea
-                            value={reviewerNotes}
-                            disabled={updatingId === submission.id}
-                            onChange={(event) =>
-                              setReviewDraft(submission.id, {
-                                reviewerNotes: event.target.value,
-                              })
-                            }
-                            placeholder="Add context, follow-up questions, or CRM instructions."
-                            rows={4}
-                            style={{
-                              width: "100%",
-                              padding: "10px 12px",
-                              borderRadius: "10px",
-                              border: "1px solid #D1D5DB",
-                              backgroundColor: "white",
-                              fontSize: "14px",
-                              resize: "vertical",
-                              boxSizing: "border-box",
-                            }}
-                          />
-                          <button
-                            type="button"
-                            disabled={updatingId === submission.id}
-                            onClick={() => saveReview(submission.id)}
-                            style={{
-                              marginTop: "10px",
-                              width: "100%",
-                              padding: "10px 12px",
-                              borderRadius: "10px",
-                              border: "none",
-                              backgroundColor: "#6A5BFF",
-                              color: "white",
-                              fontSize: "14px",
-                              fontWeight: 700,
-                              cursor: updatingId === submission.id ? "wait" : "pointer",
-                              opacity: updatingId === submission.id ? 0.7 : 1,
-                            }}
-                          >
-                            {updatingId === submission.id ? "Saving..." : "Save review"}
-                          </button>
-                        </div>
-                      ) : null}
                     </div>
 
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                        gap: "12px",
-                        marginTop: "16px",
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                          Submitted by
-                        </div>
-                        <div style={{ fontSize: "14px", color: "#111827" }}>
-                          {submission.officer_name || "Unknown"}
-                        </div>
-                      </div>
+                    <div style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
+                      {group.submissions.map((submission) => {
+                        const colors = getStatusColors(submission.status);
+                        const emailMeta = getEmailStatusMeta(submission.notification_email_status);
+                        const draft = reviewDrafts[submission.id];
+                        const selectedStatus = draft?.status || submission.status || "Pending";
+                        const reviewerNotes =
+                          draft?.reviewerNotes ?? submission.reviewer_notes ?? "";
 
-                      {submission.reviewer_name ? (
-                        <div>
-                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                            Reviewed by
-                          </div>
-                          <div style={{ fontSize: "14px", color: "#111827" }}>
-                            {submission.reviewer_name}
-                          </div>
-                        </div>
-                      ) : null}
+                        return (
+                          <div
+                            key={submission.id}
+                            style={{
+                              border: "1px solid #E5E7EB",
+                              borderRadius: "14px",
+                              padding: "16px",
+                              backgroundColor: "#FFFFFF",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: "14px",
+                                flexWrap: "wrap",
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                  <h3 style={{ margin: 0, fontSize: "16px", color: "#111827" }}>
+                                    {TYPE_LABELS[submission.submission_type] || "Submission"}
+                                  </h3>
+                                  <span
+                                    style={{
+                                      backgroundColor: colors.bg,
+                                      color: colors.fg,
+                                      padding: "4px 10px",
+                                      borderRadius: "999px",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {submission.status}
+                                  </span>
+                                </div>
+                                <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
+                                  Submitted {formatDate(submission.date_submitted || submission.created_at)}
+                                </div>
+                              </div>
 
-                      <div>
-                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                          Email delivery
-                        </div>
-                        <div
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            padding: "4px 10px",
-                            borderRadius: "999px",
-                            backgroundColor: emailMeta.bg,
-                            color: emailMeta.fg,
-                            fontSize: "12px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {emailMeta.label}
-                        </div>
-                        {submission.notification_email_recipient ? (
-                          <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
-                            To: {submission.notification_email_recipient}
-                          </div>
-                        ) : null}
-                        {submission.notification_email_sent_at ? (
-                          <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
-                            Sent {formatDate(submission.notification_email_sent_at)}
-                          </div>
-                        ) : null}
-                      </div>
+                              {profile?.role === "reviewer" ? (
+                                <div style={{ minWidth: "220px" }}>
+                                  <label
+                                    style={{
+                                      display: "block",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                      color: "#6B7280",
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.04em",
+                                      marginBottom: "8px",
+                                    }}
+                                  >
+                                    Review status
+                                  </label>
+                                  <select
+                                    value={selectedStatus}
+                                    disabled={updatingId === submission.id}
+                                    onChange={(event) =>
+                                      setReviewDraft(submission.id, { status: event.target.value })
+                                    }
+                                    style={{
+                                      width: "100%",
+                                      padding: "10px 12px",
+                                      borderRadius: "10px",
+                                      border: "1px solid #D1D5DB",
+                                      backgroundColor: "white",
+                                      fontSize: "14px",
+                                    }}
+                                  >
+                                    {REVIEW_STATUSES.map((status) => (
+                                      <option key={status} value={status}>
+                                        {status}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <label
+                                    style={{
+                                      display: "block",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                      color: "#6B7280",
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.04em",
+                                      margin: "12px 0 8px",
+                                    }}
+                                  >
+                                    Reviewer notes
+                                  </label>
+                                  <textarea
+                                    value={reviewerNotes}
+                                    disabled={updatingId === submission.id}
+                                    onChange={(event) =>
+                                      setReviewDraft(submission.id, {
+                                        reviewerNotes: event.target.value,
+                                      })
+                                    }
+                                    placeholder="Add context, follow-up questions, or CRM instructions."
+                                    rows={4}
+                                    style={{
+                                      width: "100%",
+                                      padding: "10px 12px",
+                                      borderRadius: "10px",
+                                      border: "1px solid #D1D5DB",
+                                      backgroundColor: "white",
+                                      fontSize: "14px",
+                                      resize: "vertical",
+                                      boxSizing: "border-box",
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={updatingId === submission.id}
+                                    onClick={() => saveReview(submission.id)}
+                                    style={{
+                                      marginTop: "10px",
+                                      width: "100%",
+                                      padding: "10px 12px",
+                                      borderRadius: "10px",
+                                      border: "none",
+                                      backgroundColor: "#6A5BFF",
+                                      color: "white",
+                                      fontSize: "14px",
+                                      fontWeight: 700,
+                                      cursor: updatingId === submission.id ? "wait" : "pointer",
+                                      opacity: updatingId === submission.id ? 0.7 : 1,
+                                    }}
+                                  >
+                                    {updatingId === submission.id ? "Saving..." : "Save review"}
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
 
-                      {submission.next_step ? (
-                        <div>
-                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                            Next step
-                          </div>
-                          <div style={{ fontSize: "14px", color: "#111827" }}>
-                            {submission.next_step}
-                          </div>
-                        </div>
-                      ) : null}
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                gap: "12px",
+                                marginTop: "16px",
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                  Submitted by
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                  {submission.officer_name || "Unknown"}
+                                </div>
+                              </div>
 
-                      {submission.interaction_type ? (
-                        <div>
-                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                            Interaction
-                          </div>
-                          <div style={{ fontSize: "14px", color: "#111827", textTransform: "capitalize" }}>
-                            {submission.interaction_type}
-                          </div>
-                        </div>
-                      ) : null}
+                              {submission.reviewer_name ? (
+                                <div>
+                                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                    Reviewed by
+                                  </div>
+                                  <div style={{ fontSize: "14px", color: "#111827" }}>
+                                    {submission.reviewer_name}
+                                  </div>
+                                </div>
+                              ) : null}
 
-                      {submission.reviewer_notes ? (
-                        <div style={{ gridColumn: "1 / -1" }}>
-                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                            Reviewer notes
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                  Email delivery
+                                </div>
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                    padding: "4px 10px",
+                                    borderRadius: "999px",
+                                    backgroundColor: emailMeta.bg,
+                                    color: emailMeta.fg,
+                                    fontSize: "12px",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {emailMeta.label}
+                                </div>
+                                {submission.notification_email_recipient ? (
+                                  <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
+                                    To: {submission.notification_email_recipient}
+                                  </div>
+                                ) : null}
+                                {submission.notification_email_sent_at ? (
+                                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                                    Sent {formatDate(submission.notification_email_sent_at)}
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              {submission.next_step ? (
+                                <div>
+                                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                    Next step
+                                  </div>
+                                  <div style={{ fontSize: "14px", color: "#111827" }}>
+                                    {submission.next_step}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {submission.interaction_type ? (
+                                <div>
+                                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                    Interaction
+                                  </div>
+                                  <div style={{ fontSize: "14px", color: "#111827", textTransform: "capitalize" }}>
+                                    {submission.interaction_type}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {submission.reviewer_notes ? (
+                                <div style={{ gridColumn: "1 / -1" }}>
+                                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                    Reviewer notes
+                                  </div>
+                                  <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                    {submission.reviewer_notes}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {submission.notes ? (
+                              <div
+                                style={{
+                                  marginTop: "16px",
+                                  padding: "12px 14px",
+                                  borderRadius: "12px",
+                                  backgroundColor: "#F9FAFB",
+                                  border: "1px solid #E5E7EB",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                                  Notes
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                  {submission.notes}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {submission.notification_email_error ? (
+                              <div
+                                style={{
+                                  marginTop: "16px",
+                                  padding: "12px 14px",
+                                  borderRadius: "12px",
+                                  backgroundColor: "#FEF2F2",
+                                  border: "1px solid #FECACA",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#991B1B", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                                  Email error
+                                </div>
+                                <div style={{ fontSize: "13px", color: "#991B1B", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                  {submission.notification_email_error}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                            {submission.reviewer_notes}
-                          </div>
-                        </div>
-                      ) : null}
+                        );
+                      })}
                     </div>
-
-                    {submission.notes ? (
-                      <div
-                        style={{
-                          marginTop: "16px",
-                          padding: "12px 14px",
-                          borderRadius: "12px",
-                          backgroundColor: "#F9FAFB",
-                          border: "1px solid #E5E7EB",
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
-                          Notes
-                        </div>
-                        <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                          {submission.notes}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {submission.notification_email_error ? (
-                      <div
-                        style={{
-                          marginTop: "16px",
-                          padding: "12px 14px",
-                          borderRadius: "12px",
-                          backgroundColor: "#FEF2F2",
-                          border: "1px solid #FECACA",
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#991B1B", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
-                          Email error
-                        </div>
-                        <div style={{ fontSize: "13px", color: "#991B1B", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                          {submission.notification_email_error}
-                        </div>
-                      </div>
-                    ) : null}
                   </article>
                 );
               })}

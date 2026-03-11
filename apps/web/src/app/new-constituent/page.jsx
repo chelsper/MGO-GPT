@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
 import useUpload from "@/utils/useUpload";
 import { useMutation } from "@tanstack/react-query";
@@ -32,9 +32,49 @@ export default function NewConstituentPage() {
   const [error, setError] = useState("");
   const [uploadWarning, setUploadWarning] = useState("");
   const [success, setSuccess] = useState(false);
-  const [prospectPrompt, setProspectPrompt] = useState(null);
+  const [existingProspects, setExistingProspects] = useState([]);
+  const [loadingProspects, setLoadingProspects] = useState(true);
+  const [addToProspects, setAddToProspects] = useState(false);
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let active = true;
+
+    async function loadProspects() {
+      setLoadingProspects(true);
+      try {
+        const response = await fetch("/api/prospects");
+        if (!response.ok) {
+          throw new Error("Failed to load prospects");
+        }
+        const data = await response.json();
+        if (active) {
+          setExistingProspects(Array.isArray(data) ? data : []);
+        }
+      } catch (prospectLoadError) {
+        console.error("Prospect lookup error:", prospectLoadError);
+      } finally {
+        if (active) {
+          setLoadingProspects(false);
+        }
+      }
+    }
+
+    loadProspects();
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  const normalizedName = normalizeName(name);
+  const alreadyTrackedAsProspect =
+    normalizedName &&
+    existingProspects.some(
+      (prospect) => normalizeName(prospect.prospect_name) === normalizedName,
+    );
 
   const handleFileSelected = async (file) => {
     if (!file) return;
@@ -100,8 +140,15 @@ export default function NewConstituentPage() {
       setSuccess(true);
       setProspectError("");
       setProspectAdded(false);
-      const submittedName = name.trim();
       const submittedConstituentId = data?.constituent_id || null;
+      const shouldAddToProspects = addToProspects && !alreadyTrackedAsProspect;
+      const submittedProspect = {
+        prospectName: name.trim(),
+        constituentId: submittedConstituentId,
+        askAmount: null,
+        expectedCloseFY: getDefaultFY(),
+        askType: "Major Gift",
+      };
       setName("");
       setOrganization("");
       setEmail("");
@@ -111,36 +158,18 @@ export default function NewConstituentPage() {
       setBusinessCardUrl(null);
       setBusinessCardPreview(null);
       setUploadWarning("");
+      setAddToProspects(false);
 
-      try {
-        const response = await fetch("/api/prospects");
-        if (!response.ok) {
-          setProspectPrompt(null);
-          return;
+      if (shouldAddToProspects) {
+        try {
+          const createdProspect = await addProspectMutation.mutateAsync(
+            submittedProspect,
+          );
+          setProspectAdded(true);
+          setExistingProspects((current) => [...current, createdProspect]);
+        } catch {
+          // handled in mutation onError
         }
-        const prospects = await response.json();
-        const normalizedSubmittedName = normalizeName(submittedName);
-        const alreadyTracked = Array.isArray(prospects) && prospects.some((prospect) => {
-          if (submittedConstituentId && prospect.constituent_id) {
-            return Number(prospect.constituent_id) === Number(submittedConstituentId);
-          }
-          return normalizeName(prospect.prospect_name) === normalizedSubmittedName;
-        });
-
-        setProspectPrompt(
-          alreadyTracked
-            ? null
-            : {
-                prospectName: submittedName,
-                constituentId: submittedConstituentId,
-                askAmount: null,
-                expectedCloseFY: getDefaultFY(),
-                askType: "Major Gift",
-              },
-        );
-      } catch (prospectLookupError) {
-        console.error("Prospect lookup error:", prospectLookupError);
-        setProspectPrompt(null);
       }
     },
     onError: (err) => {
@@ -163,9 +192,7 @@ export default function NewConstituentPage() {
       return res.json();
     },
     onSuccess: () => {
-      setProspectAdded(true);
       setProspectError("");
-      setProspectPrompt(null);
     },
     onError: (err) => {
       console.error(err);
@@ -177,7 +204,6 @@ export default function NewConstituentPage() {
     e.preventDefault();
     setError("");
     setSuccess(false);
-    setProspectPrompt(null);
     setProspectError("");
     setProspectAdded(false);
 
@@ -314,57 +340,6 @@ export default function NewConstituentPage() {
             >
               Back to dashboard
             </a>
-          </div>
-        )}
-
-        {prospectPrompt && (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#FEF3C7",
-              color: "#92400E",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-            }}
-          >
-            Would you like to add <strong>{prospectPrompt.prospectName}</strong> to My Top Prospects?
-            <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => addProspectMutation.mutate(prospectPrompt)}
-                disabled={addProspectMutation.isPending}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "10px",
-                  border: "none",
-                  backgroundColor: "#92400E",
-                  color: "white",
-                  fontWeight: "600",
-                  cursor: addProspectMutation.isPending ? "not-allowed" : "pointer",
-                }}
-              >
-                {addProspectMutation.isPending ? "Adding..." : "Add to Top Prospects"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setProspectPrompt(null);
-                  setProspectError("");
-                }}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "10px",
-                  border: "1px solid #D6D3D1",
-                  backgroundColor: "white",
-                  color: "#57534E",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                Not now
-              </button>
-            </div>
           </div>
         )}
 
@@ -576,6 +551,72 @@ export default function NewConstituentPage() {
                 Upload
               </button>
             </div>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              padding: "24px",
+              marginBottom: "20px",
+            }}
+          >
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "10px",
+              }}
+            >
+              Top Prospects
+            </label>
+
+            {alreadyTrackedAsProspect ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  backgroundColor: "#ECFDF5",
+                  border: "1px solid #A7F3D0",
+                  color: "#065F46",
+                  fontSize: "14px",
+                }}
+              >
+                This constituent is already on your top prospects list.
+              </div>
+            ) : (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                  cursor: loadingProspects ? "wait" : "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={addToProspects}
+                  disabled={loadingProspects || !name.trim()}
+                  onChange={(event) => setAddToProspects(event.target.checked)}
+                  style={{ marginTop: "2px" }}
+                />
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "#111827" }}>
+                    Add to top prospects list after submission
+                  </div>
+                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                    Use this when the suggested constituent should move directly into your active prospect pipeline.
+                  </div>
+                </div>
+              </label>
+            )}
           </div>
 
           <div
