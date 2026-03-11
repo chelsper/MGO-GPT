@@ -29,7 +29,12 @@ export default function UpdateOpportunityPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to submit opportunity update");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(
+          errorData?.error || "Failed to submit opportunity update",
+        );
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -41,7 +46,7 @@ export default function UpdateOpportunityPage() {
     },
     onError: (err) => {
       console.error(err);
-      setError("Failed to submit. Please try again.");
+      setError(err?.message || "Failed to submit. Please try again.");
     },
   });
 
@@ -136,6 +141,22 @@ export default function UpdateOpportunityPage() {
       </header>
 
       <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px" }}>
+        {submitMutation.isPending && (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#EDE9FE",
+              color: "#5B21B6",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              fontWeight: "600",
+            }}
+          >
+            Sending your opportunity update to the submission tracker...
+          </div>
+        )}
+
         {success && (
           <div
             style={{
@@ -148,7 +169,14 @@ export default function UpdateOpportunityPage() {
               fontWeight: "600",
             }}
           >
-            Opportunity update submitted successfully!{" "}
+            Opportunity update submitted successfully.{" "}
+            <a
+              href="/submissions"
+              style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
+            >
+              View submission tracker
+            </a>
+            or{" "}
             <a
               href="/"
               style={{ color: "#065F46", textDecoration: "underline" }}

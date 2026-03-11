@@ -109,7 +109,12 @@ export default function NewConstituentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to submit constituent suggestion");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(
+          errorData?.error || "Failed to submit constituent suggestion",
+        );
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -125,7 +130,7 @@ export default function NewConstituentPage() {
     },
     onError: (err) => {
       console.error(err);
-      setError("Failed to submit. Please try again.");
+      setError(err?.message || "Failed to submit. Please try again.");
     },
   });
 
@@ -225,6 +230,22 @@ export default function NewConstituentPage() {
       </header>
 
       <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px" }}>
+        {submitMutation.isPending && (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#EDE9FE",
+              color: "#5B21B6",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              fontWeight: "600",
+            }}
+          >
+            Sending your constituent suggestion to the submission tracker...
+          </div>
+        )}
+
         {success && (
           <div
             style={{
@@ -237,7 +258,14 @@ export default function NewConstituentPage() {
               fontWeight: "600",
             }}
           >
-            Constituent suggestion submitted successfully!{" "}
+            Constituent suggestion submitted successfully.{" "}
+            <a
+              href="/submissions"
+              style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
+            >
+              View submission tracker
+            </a>
+            or{" "}
             <a
               href="/"
               style={{ color: "#065F46", textDecoration: "underline" }}
