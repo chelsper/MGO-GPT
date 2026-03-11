@@ -18,9 +18,24 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS constituents (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL,
+        organization TEXT,
+        email TEXT,
+        phone TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS submissions (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
         officer_name TEXT,
         submission_type TEXT NOT NULL,
         donor_name TEXT,
@@ -82,6 +97,10 @@ export default async function ensureAppSchema() {
       ALTER TABLE submissions
       ADD COLUMN IF NOT EXISTS reviewer_notes_updated_at TIMESTAMPTZ
     `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS list_requests (
@@ -142,6 +161,11 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE list_requests
       ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ
+    `;
+
+    await sql`
+      ALTER TABLE IF EXISTS prospects
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
     `;
 
     await sql`

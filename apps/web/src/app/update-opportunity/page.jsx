@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useUser from "@/utils/useUser";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
@@ -13,6 +13,10 @@ const STAGES = [
   "Stewardship",
 ];
 
+function normalizeName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 export default function UpdateOpportunityPage() {
   const { data: user, loading } = useUser();
   const [donorName, setDonorName] = useState("");
@@ -21,6 +25,42 @@ export default function UpdateOpportunityPage() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [constituentMatches, setConstituentMatches] = useState([]);
+  const [matchDecision, setMatchDecision] = useState("");
+
+  useEffect(() => {
+    const query = donorName.trim();
+    if (query.length < 2) {
+      setConstituentMatches([]);
+      setMatchDecision("");
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active) {
+          setConstituentMatches(Array.isArray(data) ? data : []);
+        }
+      } catch (searchError) {
+        console.error("Constituent lookup error:", searchError);
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [donorName]);
+
+  const exactMatch = constituentMatches.find(
+    (item) => item.normalized_name === normalizeName(donorName),
+  );
 
   const submitMutation = useMutation({
     mutationFn: async (data) => {
@@ -43,6 +83,8 @@ export default function UpdateOpportunityPage() {
       setOpportunityStage("Identification");
       setEstimatedAmount("");
       setNotes("");
+      setConstituentMatches([]);
+      setMatchDecision("");
     },
     onError: (err) => {
       console.error(err);
@@ -60,8 +102,17 @@ export default function UpdateOpportunityPage() {
       return;
     }
 
+    if (exactMatch && !matchDecision) {
+      setError(
+        `We found an existing ${exactMatch.name} in your workflow. Choose whether to link this update or treat it as a new person.`,
+      );
+      return;
+    }
+
     submitMutation.mutate({
       donorName,
+      constituentId: matchDecision === "link" ? exactMatch?.id || null : null,
+      createNewConstituent: matchDecision === "new",
       opportunityStage,
       estimatedAmount: estimatedAmount ? parseFloat(estimatedAmount) : null,
       notes,
@@ -225,7 +276,10 @@ export default function UpdateOpportunityPage() {
             <input
               type="text"
               value={donorName}
-              onChange={(e) => setDonorName(e.target.value)}
+              onChange={(e) => {
+                setDonorName(e.target.value);
+                setMatchDecision("");
+              }}
               placeholder="Enter donor name"
               style={{
                 width: "100%",
@@ -236,6 +290,59 @@ export default function UpdateOpportunityPage() {
                 boxSizing: "border-box",
               }}
             />
+            {exactMatch ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #DDD6FE",
+                  backgroundColor: "#F5F3FF",
+                }}
+              >
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#5B21B6", marginBottom: "6px" }}>
+                  Existing workflow match found
+                </div>
+                <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
+                  We found <strong>{exactMatch.name}</strong> in your prospects or prior updates.
+                  Do you want to tie this opportunity to that existing person?
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setMatchDecision("link")}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "999px",
+                      border: matchDecision === "link" ? "2px solid #6A5BFF" : "1px solid #C4B5FD",
+                      backgroundColor: matchDecision === "link" ? "#EDE9FE" : "white",
+                      color: "#5B21B6",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Link existing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMatchDecision("new")}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "999px",
+                      border: matchDecision === "new" ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
+                      backgroundColor: matchDecision === "new" ? "#F3F4F6" : "white",
+                      color: "#374151",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Treat as new person
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div

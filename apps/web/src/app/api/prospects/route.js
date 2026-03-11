@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
+import { resolveConstituent } from "@/app/api/utils/constituents";
 
 async function getOrCreateUser(session) {
   const email = session.user.email;
@@ -54,7 +55,8 @@ export async function POST(request) {
 
     const user = await getOrCreateUser(session);
     const body = await request.json();
-    const { prospectName, expectedCloseFY, askAmount, askType } = body;
+    const { prospectName, expectedCloseFY, askAmount, askType, constituentId } =
+      body;
 
     if (!prospectName || !expectedCloseFY || !askType) {
       return Response.json(
@@ -71,12 +73,19 @@ export async function POST(request) {
     `;
     const nextOrder = maxOrder[0].max_order + 1;
 
+    const constituent = await resolveConstituent({
+      userId: user.id,
+      name: prospectName,
+      constituentId,
+      createNew: false,
+    });
+
     const result = await sql`
       INSERT INTO prospects (
-        user_id, prospect_name, expected_close_fy,
+        user_id, constituent_id, prospect_name, expected_close_fy,
         ask_amount, ask_type, priority_order
       ) VALUES (
-        ${user.id}, ${prospectName}, ${expectedCloseFY},
+        ${user.id}, ${constituent?.id || null}, ${prospectName}, ${expectedCloseFY},
         ${askAmount || null}, ${askType}, ${nextOrder}
       )
       RETURNING *

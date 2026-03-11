@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { resolveConstituent } from "@/app/api/utils/constituents";
 
 export async function POST(request) {
   try {
@@ -13,8 +14,15 @@ export async function POST(request) {
     const user = await getOrCreateUser(session);
 
     const body = await request.json();
-    const { donorName, opportunityStage, estimatedAmount, notes, attachments } =
-      body;
+    const {
+      donorName,
+      opportunityStage,
+      estimatedAmount,
+      notes,
+      attachments,
+      constituentId,
+      createNewConstituent,
+    } = body;
 
     if (!donorName) {
       return Response.json(
@@ -23,9 +31,17 @@ export async function POST(request) {
       );
     }
 
+    const constituent = await resolveConstituent({
+      userId: user.id,
+      name: donorName,
+      constituentId,
+      createNew: Boolean(createNewConstituent),
+    });
+
     const result = await sql`
       INSERT INTO submissions (
         user_id,
+        constituent_id,
         officer_name,
         submission_type,
         donor_name,
@@ -36,6 +52,7 @@ export async function POST(request) {
         status
       ) VALUES (
         ${user.id},
+        ${constituent?.id || null},
         ${user.name},
         'opportunity_update',
         ${donorName},
