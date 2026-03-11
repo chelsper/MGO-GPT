@@ -230,7 +230,7 @@ app.all('/integrations/:path{.+}', async (c, next) => {
   });
 });
 
-app.use('/api/auth/*', async (c, next) => {
+app.all('/api/auth/:action{.+}', async (c, next) => {
   if (!authEnabled) {
     return c.json(
       {
