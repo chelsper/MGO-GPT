@@ -1,6 +1,9 @@
 import sql from "@/app/api/utils/sql";
 import crypto from "crypto";
 
+const FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL || "MGO VoiceLog <onboarding@resend.dev>";
+
 export async function POST(request) {
   try {
     const { email } = await request.json();
@@ -102,7 +105,7 @@ export async function POST(request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "MGO VoiceLog <onboarding@resend.dev>",
+        from: FROM_EMAIL,
         to: [user.email],
         subject: "Reset your MGO-GPT password",
         html: emailHtml,

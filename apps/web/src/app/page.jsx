@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut, Menu, UserCircle2 } from "lucide-react";
+import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 
 const QUICK_ACTIONS = [
@@ -325,7 +325,7 @@ export default function Page() {
                 </div>
 
                 <a
-                  href="/"
+                  href="/settings"
                   role="menuitem"
                   onClick={() => setAccountMenuOpen(false)}
                   style={{
@@ -340,8 +340,8 @@ export default function Page() {
                     fontWeight: 600,
                   }}
                 >
-                  <UserCircle2 size={16} color="#6B7280" />
-                  Dashboard
+                  <Settings size={16} color="#6B7280" />
+                  Settings
                 </a>
 
                 <a
