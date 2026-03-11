@@ -1,60 +1,10 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import useUser from "@/utils/useUser";
 import useUpload from "@/utils/useUpload";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Upload, Loader2 } from "lucide-react";
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("Failed to read image file"));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Failed to process image"));
-    image.src = dataUrl;
-  });
-}
-
-async function shrinkImageDataUrl(dataUrl) {
-  const image = await loadImage(dataUrl);
-  const maxSide = 1200;
-  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-  const width = Math.max(1, Math.round(image.width * scale));
-  const height = Math.max(1, Math.round(image.height * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw new Error("Image processing is unavailable in this browser");
-  }
-
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, 0, 0, width, height);
-
-  const maxLength = 900_000;
-  let quality = 0.78;
-  let compressed = canvas.toDataURL("image/jpeg", quality);
-
-  while (compressed.length > maxLength && quality > 0.35) {
-    quality -= 0.08;
-    compressed = canvas.toDataURL("image/jpeg", quality);
-  }
-
-  return compressed;
-}
+import { ArrowLeft, Camera, Upload } from "lucide-react";
 
 export default function NewConstituentPage() {
   const { data: user, loading } = useUser();
@@ -69,96 +19,30 @@ export default function NewConstituentPage() {
   const [assignToMe, setAssignToMe] = useState("yes");
   const [businessCardUrl, setBusinessCardUrl] = useState(null);
   const [businessCardPreview, setBusinessCardPreview] = useState(null);
-  const [isScanningCard, setIsScanningCard] = useState(false);
-  const [scanMessage, setScanMessage] = useState("");
   const [error, setError] = useState("");
   const [uploadWarning, setUploadWarning] = useState("");
   const [success, setSuccess] = useState(false);
 
-  const readBusinessCard = useCallback(
-    async ({ imageUrl, imageDataUrl }) => {
-      setIsScanningCard(true);
-      setScanMessage("Scanning business card and filling form fields...");
-      try {
-        const response = await fetch("/api/read-business-card", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl, imageDataUrl }),
-        });
+  const handleFileSelected = async (file) => {
+    if (!file) return;
+    setError("");
+    setUploadWarning("");
+    setSuccess(false);
 
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(
-            payload?.details || payload?.error || "Failed to read business card",
-          );
-        }
+    const previewUrl = URL.createObjectURL(file);
+    setBusinessCardPreview(previewUrl);
 
-        const data = await response.json();
+    const { url, error: uploadError } = await upload({ file });
+    if (uploadError) {
+      setBusinessCardUrl(null);
+      setUploadWarning(
+        "Business card image could not be attached. You can still submit this constituent manually.",
+      );
+      return;
+    }
 
-        if (data.extractedFields) {
-          const fields = data.extractedFields;
-          if (fields.name && !name) setName(fields.name);
-          if (fields.organization && !organization)
-            setOrganization(fields.organization);
-          if (fields.email && !email) setEmail(fields.email);
-          if (fields.phone && !phone) setPhone(fields.phone);
-          if (fields.notes && !notes) setNotes(fields.notes);
-          setScanMessage("Business card scanned. Review the suggested fields.");
-        } else {
-          setScanMessage("Card uploaded, but no contact fields were detected.");
-        }
-      } catch (err) {
-        console.error("Business card scan error:", err);
-        setError(err?.message || "Could not read the business card.");
-        setScanMessage("");
-      } finally {
-        setIsScanningCard(false);
-      }
-    },
-    [name, organization, email, phone, notes],
-  );
-
-  const handleFileSelected = useCallback(
-    async (file) => {
-      if (!file) return;
-      setError("");
-      setUploadWarning("");
-      setSuccess(false);
-      setScanMessage("");
-
-      // Show preview
-      const previewUrl = URL.createObjectURL(file);
-      setBusinessCardPreview(previewUrl);
-
-      let imageDataUrl;
-      try {
-        const originalDataUrl = await fileToDataUrl(file);
-        imageDataUrl = await shrinkImageDataUrl(originalDataUrl);
-      } catch (readError) {
-        setError("Could not read the selected image. Please try another file.");
-        setBusinessCardPreview(null);
-        return;
-      }
-
-      // Upload
-      const base64Payload = imageDataUrl.split(",")[1];
-      const { url, error: uploadError } = await upload({
-        base64: base64Payload,
-      });
-      if (uploadError) {
-        setBusinessCardUrl(null);
-        setUploadWarning(
-          "Business card image could not be attached, but the card can still be scanned and submitted.",
-        );
-        await readBusinessCard({ imageUrl: null, imageDataUrl });
-        return;
-      }
-
-      setBusinessCardUrl(url);
-      readBusinessCard({ imageUrl: url, imageDataUrl });
-    },
-    [upload, readBusinessCard],
-  );
+    setBusinessCardUrl(url);
+  };
 
   const handleUploadClick = () => {
     if (fileInputRef.current) {
@@ -254,7 +138,7 @@ export default function NewConstituentPage() {
     );
   }
 
-  const isProcessing = uploadLoading || isScanningCard;
+  const isProcessing = uploadLoading;
 
   return (
     <div
@@ -428,64 +312,23 @@ export default function NewConstituentPage() {
                 backgroundColor: businessCardPreview ? "#F9FAFB" : "#F3F4F6",
                 borderRadius: "12px",
                 border: "1px solid #E5E7EB",
-                marginBottom: isScanningCard ? "8px" : "16px",
+                marginBottom: "16px",
                 overflow: "hidden",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                position: "relative",
               }}
             >
               {businessCardPreview ? (
-                <>
-                  <img
-                    src={businessCardPreview}
-                    alt="Business card"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                  {isScanningCard && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        backgroundColor: "rgba(0,0,0,0.45)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <div
-                        style={{
-                          backgroundColor: "white",
-                          borderRadius: "12px",
-                          padding: "16px 24px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                        }}
-                      >
-                        <Loader2
-                          size={20}
-                          color="#6A5BFF"
-                          style={{ animation: "spin 1s linear infinite" }}
-                        />
-                        <span
-                          style={{
-                            fontSize: "14px",
-                            fontWeight: "600",
-                            color: "#111827",
-                          }}
-                        >
-                          Reading card...
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </>
+                <img
+                  src={businessCardPreview}
+                  alt="Business card"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
+                />
               ) : (
                 <div style={{ textAlign: "center" }}>
                   <Camera
@@ -506,47 +349,20 @@ export default function NewConstituentPage() {
               )}
             </div>
 
-            {/* Scanning indicator */}
-            {isScanningCard && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginBottom: "16px",
-                }}
-              >
-                <span
-                  style={{
-                    display: "inline-block",
-                    padding: "4px 12px",
-                    borderRadius: "8px",
-                    backgroundColor: "#EDE9FE",
-                    color: "#6A5BFF",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                  }}
-                >
-                  {scanMessage || "Scanning business card & auto-filling fields..."}
-                </span>
-              </div>
-            )}
-
-            {!isScanningCard && scanMessage ? (
-              <div
-                style={{
-                  marginBottom: "16px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  backgroundColor: "#ECFDF5",
-                  color: "#065F46",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                }}
-              >
-                {scanMessage}
-              </div>
-            ) : null}
+            <div
+              style={{
+                marginBottom: "16px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                backgroundColor: "#F9FAFB",
+                border: "1px solid #E5E7EB",
+                color: "#6B7280",
+                fontSize: "13px",
+                lineHeight: 1.5,
+              }}
+            >
+              Business card AI autofill is temporarily unavailable. You can still attach a card image for reviewer context and submit the constituent manually.
+            </div>
 
             {/* Buttons */}
             <div style={{ display: "flex", gap: "12px" }}>
