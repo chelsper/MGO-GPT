@@ -1,5 +1,5 @@
 {
   "framework": "react-router",
-  "installCommand": "npm install --omit=optional",
+  "installCommand": "npm install",
   "buildCommand": "npm run build"
 }
