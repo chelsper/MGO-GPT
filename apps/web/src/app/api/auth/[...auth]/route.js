@@ -4,7 +4,7 @@ import { authHandler, initAuthConfig } from "@hono/auth-js";
 import { Pool } from "@neondatabase/serverless";
 import { hash, verify } from "argon2";
 import { Hono } from "hono";
-import NeonAdapter from "../../../../__create/adapter";
+import NeonAdapter from "../../../../../__create/adapter";
 
 const authApp = new Hono();
 const authEnabled = Boolean(process.env.AUTH_SECRET && process.env.DATABASE_URL);
