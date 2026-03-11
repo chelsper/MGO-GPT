@@ -31,21 +31,30 @@ export default function LogDonorUpdatePage() {
   const [transcriptionStatus, setTranscriptionStatus] = useState("");
   const [transcriptionError, setTranscriptionError] = useState("");
   const [lastAudioFileName, setLastAudioFileName] = useState("");
+  const [liveTranscript, setLiveTranscript] = useState("");
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const mediaRecorderRef = useRef(null);
+  const speechRecognitionRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const recognitionTranscriptRef = useRef("");
+  const recognitionFinalizedRef = useRef(false);
 
   const supportsMediaRecording =
     typeof window !== "undefined" &&
     typeof navigator !== "undefined" &&
     !!navigator.mediaDevices?.getUserMedia &&
     typeof window.MediaRecorder !== "undefined";
+
+  const supportsSpeechRecognition =
+    typeof window !== "undefined" &&
+    (typeof window.SpeechRecognition !== "undefined" ||
+      typeof window.webkitSpeechRecognition !== "undefined");
 
   const getSupportedMimeType = () => {
     if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
@@ -75,17 +84,143 @@ export default function LogDonorUpdatePage() {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.onresult = null;
+        speechRecognitionRef.current.onerror = null;
+        speechRecognitionRef.current.onend = null;
+        speechRecognitionRef.current.stop();
+      }
     };
   }, []);
+
+  const stopRecordingTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const startRecordingTimer = () => {
+    stopRecordingTimer();
+    setRecordingDuration(0);
+    timerRef.current = setInterval(() => {
+      setRecordingDuration((prev) => prev + 1);
+    }, 1000);
+  };
+
+  const appendTranscriptToNotes = (transcriptText) => {
+    if (!transcriptText) return;
+
+    setTranscript(transcriptText);
+    setNotes((prev) => (prev.trim() ? `${prev.trim()}\n\n${transcriptText}` : transcriptText));
+    setTranscriptionStatus("Transcript added to notes.");
+    setTranscriptionError("");
+  };
+
+  const finishLiveTranscript = (text) => {
+    stopRecordingTimer();
+    setIsRecording(false);
+    setLastAudioFileName("Live dictation");
+
+    const transcriptText = text.trim();
+    setLiveTranscript("");
+
+    if (!transcriptText) {
+      setTranscriptionStatus("");
+      setTranscriptionError("No speech was detected. Try again or upload an audio file.");
+      return;
+    }
+
+    appendTranscriptToNotes(transcriptText);
+  };
 
   const startRecording = async () => {
     setError("");
     setTranscriptionError("");
     setTranscriptionStatus("");
+    setLastAudioFileName("");
+    setLiveTranscript("");
+
+    if (supportsSpeechRecognition) {
+      try {
+        const SpeechRecognition =
+          window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = "en-US";
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognitionTranscriptRef.current = "";
+        recognitionFinalizedRef.current = false;
+        speechRecognitionRef.current = recognition;
+
+        recognition.onresult = (event) => {
+          let finalTranscript = "";
+          let interimTranscript = "";
+
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            const text = result[0]?.transcript || "";
+            if (result.isFinal) {
+              finalTranscript += text;
+            } else {
+              interimTranscript += text;
+            }
+          }
+
+          if (finalTranscript) {
+            recognitionTranscriptRef.current = `${recognitionTranscriptRef.current} ${finalTranscript}`.trim();
+          }
+
+          setLiveTranscript(
+            `${recognitionTranscriptRef.current} ${interimTranscript}`.trim(),
+          );
+        };
+
+        recognition.onerror = (event) => {
+          recognitionFinalizedRef.current = true;
+          speechRecognitionRef.current = null;
+          stopRecordingTimer();
+          setIsRecording(false);
+          setLiveTranscript("");
+          setTranscriptionStatus("");
+
+          if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+            setTranscriptionError(
+              "Microphone access was blocked by the browser. If Chrome keeps prompting, allow microphone access for this site in browser settings.",
+            );
+            return;
+          }
+
+          if (event.error === "no-speech") {
+            setTranscriptionError("No speech was detected. Try again.");
+            return;
+          }
+
+          setTranscriptionError("Live dictation failed. Try again or upload an audio file instead.");
+        };
+
+        recognition.onend = () => {
+          speechRecognitionRef.current = null;
+          if (recognitionFinalizedRef.current) return;
+          recognitionFinalizedRef.current = true;
+          finishLiveTranscript(recognitionTranscriptRef.current);
+        };
+
+        recognition.start();
+        setIsRecording(true);
+        setTranscriptionStatus("Listening and transcribing as you speak...");
+        startRecordingTimer();
+        return;
+      } catch (err) {
+        console.error("Speech recognition error:", err);
+      }
+    }
 
     if (!supportsMediaRecording) {
       setTranscriptionError(
-        "This browser does not support in-app recording. Upload an audio file instead.",
+        "This browser does not support live dictation or in-app recording. Upload an audio file instead.",
       );
       return;
     }
@@ -119,11 +254,8 @@ export default function LogDonorUpdatePage() {
 
       mediaRecorder.start();
       setIsRecording(true);
-      setRecordingDuration(0);
       setTranscriptionStatus("Listening...");
-      timerRef.current = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
-      }, 1000);
+      startRecordingTimer();
     } catch (err) {
       console.error("Microphone error:", err);
       setTranscriptionError(
@@ -133,14 +265,19 @@ export default function LogDonorUpdatePage() {
   };
 
   const stopRecording = () => {
+    if (speechRecognitionRef.current && isRecording) {
+      recognitionFinalizedRef.current = true;
+      speechRecognitionRef.current.stop();
+      speechRecognitionRef.current = null;
+      finishLiveTranscript(recognitionTranscriptRef.current || liveTranscript);
+      return;
+    }
+
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setTranscriptionStatus("Preparing audio...");
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      stopRecordingTimer();
     }
   };
 
@@ -191,22 +328,13 @@ export default function LogDonorUpdatePage() {
 
       const data = await transcriptionResponse.json();
       const transcriptText = data.transcript || "";
-      setTranscript(transcriptText);
       setTranscriptionStatus(
         transcriptText
           ? "Transcript added to notes."
           : "No speech was detected. Try again or upload a clearer recording."
       );
 
-      // Append transcript to notes
-      if (transcriptText) {
-        setNotes((prev) => {
-          if (prev.trim()) {
-            return prev.trim() + "\n\n" + transcriptText;
-          }
-          return transcriptText;
-        });
-      }
+      appendTranscriptToNotes(transcriptText);
 
       // Auto-fill fields from extracted data
       if (data.extractedFields) {
@@ -654,7 +782,9 @@ export default function LogDonorUpdatePage() {
                           color: "#DC2626",
                         }}
                       >
-                        Listening... {formatDuration(recordingDuration)}
+                        {supportsSpeechRecognition
+                          ? `Dictating... ${formatDuration(recordingDuration)}`
+                          : `Listening... ${formatDuration(recordingDuration)}`}
                       </span>
                     </div>
                     <button
@@ -680,17 +810,20 @@ export default function LogDonorUpdatePage() {
                     <button
                       type="button"
                       onClick={startRecording}
-                      disabled={!supportsMediaRecording}
+                      disabled={!supportsSpeechRecognition && !supportsMediaRecording}
                       style={{
                         display: "flex",
                         alignItems: "center",
                         gap: "8px",
                         background: "none",
                         border: "none",
-                        cursor: supportsMediaRecording ? "pointer" : "not-allowed",
+                        cursor:
+                          supportsSpeechRecognition || supportsMediaRecording
+                            ? "pointer"
+                            : "not-allowed",
                         padding: "6px 12px",
                         borderRadius: "8px",
-                        opacity: supportsMediaRecording ? 1 : 0.45,
+                        opacity: supportsSpeechRecognition || supportsMediaRecording ? 1 : 0.45,
                       }}
                     >
                       <div
@@ -713,7 +846,11 @@ export default function LogDonorUpdatePage() {
                           color: "#6A5BFF",
                         }}
                       >
-                        {supportsMediaRecording ? "Tap to dictate" : "Recording unavailable"}
+                        {supportsSpeechRecognition
+                          ? "Start live dictation"
+                          : supportsMediaRecording
+                            ? "Record and transcribe"
+                            : "Recording unavailable"}
                       </span>
                     </button>
                     <button
@@ -752,7 +889,11 @@ export default function LogDonorUpdatePage() {
                 )}
               </div>
             </div>
-            {(uploadLoading || transcriptionStatus || transcriptionError || lastAudioFileName) && (
+            {(uploadLoading ||
+              transcriptionStatus ||
+              transcriptionError ||
+              lastAudioFileName ||
+              liveTranscript) && (
               <div
                 style={{
                   marginTop: "12px",
@@ -776,6 +917,22 @@ export default function LogDonorUpdatePage() {
                 {transcriptionStatus && (
                   <div style={{ fontSize: "13px", color: "#374151", fontWeight: 500 }}>
                     {transcriptionStatus}
+                  </div>
+                )}
+                {liveTranscript && (
+                  <div
+                    style={{
+                      marginTop: transcriptionStatus ? "8px" : 0,
+                      fontSize: "13px",
+                      color: "#111827",
+                      lineHeight: 1.5,
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      backgroundColor: "#FFFFFF",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    {liveTranscript}
                   </div>
                 )}
                 {uploadLoading && !transcriptionStatus && (
