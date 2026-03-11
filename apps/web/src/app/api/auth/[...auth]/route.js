@@ -1,12 +1,4 @@
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
-import { loadArgon2 } from "../../utils/loadArgon2";
-
 let authAppPromise;
-
-// Vercel builds this route as its own Node function, so it does not inherit
-// the websocket setup from the main Hono server entrypoint.
-neonConfig.webSocketConstructor = ws;
 
 async function getAuthApp() {
   if (authAppPromise) return authAppPromise;
@@ -75,7 +67,7 @@ async function getAuthApp() {
               const accountPassword = matchingAccount?.password;
               if (!accountPassword) return null;
 
-              const { verify } = loadArgon2();
+              const { verify } = await import("@node-rs/argon2");
               const isValid = await verify(accountPassword, password);
               if (!isValid) return null;
 
@@ -106,7 +98,7 @@ async function getAuthApp() {
                 image: typeof image === "string" && image.length > 0 ? image : undefined,
               });
 
-              const { hash } = loadArgon2();
+              const { hash } = await import("@node-rs/argon2");
               await adapter.linkAccount({
                 extraData: {
                   password: await hash(password),
@@ -141,40 +133,8 @@ function misconfigured() {
   );
 }
 
-async function handleSession(request) {
-  const [{ getToken }] = await Promise.all([import("@auth/core/jwt")]);
-  const authUrl = process.env.AUTH_URL || "";
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET,
-    secureCookie: authUrl.startsWith("https"),
-  });
-
-  const session = token
-    ? {
-        user: {
-          id: token.sub,
-          email: token.email,
-          name: token.name,
-          image: token.picture,
-        },
-        expires: token.exp ? new Date(token.exp * 1000).toISOString() : null,
-      }
-    : null;
-
-  return new Response(JSON.stringify(session), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 async function handle(request) {
   try {
-    const { pathname } = new URL(request.url);
-    if (request.method === "GET" && pathname.endsWith("/session")) {
-      return await handleSession(request);
-    }
-
     const authApp = await getAuthApp();
     if (!authApp) return misconfigured();
     return await authApp.fetch(request);

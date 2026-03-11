@@ -1,5 +1,4 @@
 import sql from "@/app/api/utils/sql";
-import { loadArgon2 } from "@/app/api/utils/loadArgon2";
 
 export async function POST(request) {
   try {
@@ -55,7 +54,7 @@ export async function POST(request) {
     const resetToken = tokens[0];
 
     // Lazy-load password hashing so route registration stays lightweight.
-    const { hash } = loadArgon2();
+    const { hash } = await import("@node-rs/argon2");
     const hashedPassword = await hash(password);
 
     // Update user's password and mark token as used
