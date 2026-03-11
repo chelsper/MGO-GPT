@@ -63,6 +63,7 @@ export default function NewConstituentPage() {
   const [isScanningCard, setIsScanningCard] = useState(false);
   const [scanMessage, setScanMessage] = useState("");
   const [error, setError] = useState("");
+  const [uploadWarning, setUploadWarning] = useState("");
   const [success, setSuccess] = useState(false);
 
   const readBusinessCard = useCallback(
@@ -110,6 +111,7 @@ export default function NewConstituentPage() {
     async (file) => {
       if (!file) return;
       setError("");
+      setUploadWarning("");
       setSuccess(false);
       setScanMessage("");
 
@@ -133,9 +135,11 @@ export default function NewConstituentPage() {
         base64: base64Payload,
       });
       if (uploadError) {
-        setError(uploadError || "Failed to upload image. Please try again.");
-        setBusinessCardPreview(null);
-        setScanMessage("");
+        setBusinessCardUrl(null);
+        setUploadWarning(
+          "Business card image could not be attached, but the card can still be scanned and submitted.",
+        );
+        await readBusinessCard({ imageUrl: null, imageDataUrl });
         return;
       }
 
@@ -194,6 +198,7 @@ export default function NewConstituentPage() {
       setAssignToMe("yes");
       setBusinessCardUrl(null);
       setBusinessCardPreview(null);
+      setUploadWarning("");
     },
     onError: (err) => {
       console.error(err);
@@ -354,6 +359,21 @@ export default function NewConstituentPage() {
             }}
           >
             {error}
+          </div>
+        )}
+
+        {uploadWarning && (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#FEF3C7",
+              color: "#92400E",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+            }}
+          >
+            {uploadWarning}
           </div>
         )}
 
