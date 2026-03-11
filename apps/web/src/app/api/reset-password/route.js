@@ -1,5 +1,4 @@
 import sql from "@/app/api/utils/sql";
-import { hash } from "argon2";
 
 export async function POST(request) {
   try {
@@ -54,7 +53,8 @@ export async function POST(request) {
 
     const resetToken = tokens[0];
 
-    // Hash the new password using argon2
+    // Lazy-load argon2 so route registration does not crash if native bindings fail at startup.
+    const { hash } = await import("argon2");
     const hashedPassword = await hash(password);
 
     // Update user's password and mark token as used

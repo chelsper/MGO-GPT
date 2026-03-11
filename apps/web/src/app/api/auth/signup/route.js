@@ -1,5 +1,4 @@
 import sql from "@/app/api/utils/sql";
-import { hash } from "argon2";
 
 export async function POST(request) {
   try {
@@ -49,7 +48,8 @@ export async function POST(request) {
       );
     }
 
-    // Hash password
+    // Lazy-load argon2 so route registration does not crash if native bindings fail at startup.
+    const { hash } = await import("argon2");
     const hashedPassword = await hash(password);
 
     // Create user in users table
