@@ -1,46 +1,47 @@
-let authAppPromise;
+let authConfigPromise;
 
-function isSecureRequest(request) {
-  const proto = request.headers.get("x-forwarded-proto");
-  if (proto) return proto.includes("https");
+function rebuildAuthRequest(request, authPath) {
+  const url = new URL(request.url);
+  const normalizedPath = Array.isArray(authPath) ? authPath.join("/") : authPath || "";
+  url.pathname = `/api/auth/${normalizedPath}`.replace(/\/+$/, "");
 
-  try {
-    return new URL(request.url).protocol === "https:";
-  } catch {
-    return false;
-  }
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    redirect: request.redirect,
+    ...(request.body ? { duplex: "half" } : {}),
+  });
 }
 
-async function getAuthApp() {
-  if (authAppPromise) return authAppPromise;
+async function getAuthConfig() {
+  if (authConfigPromise) return authConfigPromise;
 
-  authAppPromise = (async () => {
+  authConfigPromise = (async () => {
     const authEnabled = Boolean(process.env.AUTH_SECRET && process.env.DATABASE_URL);
     if (!authEnabled) {
       return null;
     }
 
-    const [{ Hono }, { initAuthConfig, authHandler }, { skipCSRFCheck }, { default: Credentials }, { Pool }, { default: NeonAdapter }] =
+    const [{ Auth, skipCSRFCheck }, { default: Credentials }, { Pool }, { default: NeonAdapter }] =
       await Promise.all([
-        import("hono"),
-        import("@hono/auth-js"),
         import("@auth/core"),
         import("@auth/core/providers/credentials"),
         import("@neondatabase/serverless"),
         import("../../../../../__create/adapter"),
       ]);
 
-    const authApp = new Hono();
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     const adapter = NeonAdapter(pool);
 
-    authApp.use(
-      "*",
-      initAuthConfig(() => ({
+    return {
+      Auth,
+      config: {
         secret: process.env.AUTH_SECRET,
         trustHost: true,
         basePath: "/api/auth",
         skipCSRFCheck,
+        adapter,
         pages: {
           signIn: "/account/signin",
           signOut: "/account/logout",
@@ -125,14 +126,11 @@ async function getAuthApp() {
             },
           }),
         ],
-      }))
-    );
-
-    authApp.use("*", authHandler());
-    return authApp;
+      },
+    };
   })();
 
-  return authAppPromise;
+  return authConfigPromise;
 }
 
 function misconfigured() {
@@ -145,23 +143,13 @@ function misconfigured() {
   );
 }
 
-async function handle(request) {
+async function handle(request, params) {
   try {
-    const authApp = await getAuthApp();
-    if (!authApp) return misconfigured();
-    const forwardedRequest = new Request(request.url, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      redirect: request.redirect,
-      // Required when forwarding streamed request bodies in Node.
-      ...(request.body ? { duplex: "half" } : {}),
-    });
-    forwardedRequest.headers.set(
-      "x-forwarded-proto",
-      isSecureRequest(request) ? "https" : "http"
-    );
-    return await authApp.fetch(forwardedRequest);
+    const authSetup = await getAuthConfig();
+    if (!authSetup) return misconfigured();
+
+    const authRequest = rebuildAuthRequest(request, params?.auth);
+    return await authSetup.Auth(authRequest, authSetup.config);
   } catch (error) {
     return new Response(
       JSON.stringify({
@@ -173,10 +161,10 @@ async function handle(request) {
   }
 }
 
-export async function GET(request) {
-  return handle(request);
+export async function GET(request, { params }) {
+  return handle(request, params);
 }
 
-export async function POST(request) {
-  return handle(request);
+export async function POST(request, { params }) {
+  return handle(request, params);
 }
