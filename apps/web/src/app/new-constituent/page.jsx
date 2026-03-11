@@ -15,6 +15,38 @@ function fileToDataUrl(file) {
   });
 }
 
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to process image"));
+    image.src = dataUrl;
+  });
+}
+
+async function shrinkImageDataUrl(dataUrl) {
+  const image = await loadImage(dataUrl);
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Image processing is unavailable in this browser");
+  }
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL("image/jpeg", 0.82);
+}
+
 export default function NewConstituentPage() {
   const { data: user, loading } = useUser();
   const [upload, { loading: uploadLoading }] = useUpload();
@@ -87,7 +119,8 @@ export default function NewConstituentPage() {
 
       let imageDataUrl;
       try {
-        imageDataUrl = await fileToDataUrl(file);
+        const originalDataUrl = await fileToDataUrl(file);
+        imageDataUrl = await shrinkImageDataUrl(originalDataUrl);
       } catch (readError) {
         setError("Could not read the selected image. Please try another file.");
         setBusinessCardPreview(null);
