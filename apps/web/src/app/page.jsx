@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { Menu, UserCircle2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, LogOut, Menu, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 
 const QUICK_ACTIONS = [
@@ -39,12 +39,38 @@ const QUICK_ACTIONS = [
 
 export default function Page() {
   const { data: user, loading } = useUser();
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef(null);
 
   useEffect(() => {
     if (!loading && !user) {
       window.location.href = "/account/signin";
     }
   }, [loading, user]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+
+    const handlePointerDown = (event) => {
+      if (!accountMenuRef.current?.contains(event.target)) {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [accountMenuOpen]);
 
   if (loading || !user) {
     return (
@@ -107,25 +133,130 @@ export default function Page() {
             <Menu size={18} color="#111827" />
           </button>
 
-          <a
-            href="/account/logout"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "9px 12px",
-              borderRadius: "10px",
-              border: "1px solid #E5E7EB",
-              backgroundColor: "white",
-              color: "#111827",
-              textDecoration: "none",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            <UserCircle2 size={16} />
-            Account
-          </a>
+          <div ref={accountMenuRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              aria-expanded={accountMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "9px 12px",
+                borderRadius: "10px",
+                border: "1px solid #E5E7EB",
+                backgroundColor: "white",
+                color: "#111827",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <UserCircle2 size={16} />
+              Account
+              <ChevronDown
+                size={16}
+                color="#6B7280"
+                style={{
+                  transform: accountMenuOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 150ms ease",
+                }}
+              />
+            </button>
+
+            {accountMenuOpen ? (
+              <div
+                role="menu"
+                aria-label="Account menu"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  width: "250px",
+                  backgroundColor: "white",
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "14px",
+                  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
+                  padding: "10px",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "10px 12px 12px",
+                    borderBottom: "1px solid #E5E7EB",
+                    marginBottom: "6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      color: "#6B7280",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    Signed in as
+                  </div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                    {user?.name || "MGO-GPT User"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      color: "#6B7280",
+                      marginTop: "2px",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {user?.email || "No email available"}
+                  </div>
+                </div>
+
+                <a
+                  href="/"
+                  role="menuitem"
+                  onClick={() => setAccountMenuOpen(false)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    color: "#111827",
+                    textDecoration: "none",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                  }}
+                >
+                  <UserCircle2 size={16} color="#6B7280" />
+                  Dashboard
+                </a>
+
+                <a
+                  href="/account/logout"
+                  role="menuitem"
+                  onClick={() => setAccountMenuOpen(false)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    color: "#B91C1C",
+                    textDecoration: "none",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                  }}
+                >
+                  <LogOut size={16} color="#B91C1C" />
+                  Sign out
+                </a>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
