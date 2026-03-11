@@ -2,7 +2,6 @@ import { skipCSRFCheck } from "@auth/core";
 import Credentials from "@auth/core/providers/credentials";
 import { authHandler, initAuthConfig } from "@hono/auth-js";
 import { Pool } from "@neondatabase/serverless";
-import { hash, verify } from "argon2";
 import { Hono } from "hono";
 import NeonAdapter from "../../../../../__create/adapter";
 
@@ -57,6 +56,7 @@ if (authEnabled) {
             const accountPassword = matchingAccount?.password;
             if (!accountPassword) return null;
 
+            const { verify } = await import("argon2");
             const isValid = await verify(accountPassword, password);
             if (!isValid) return null;
 
@@ -87,6 +87,7 @@ if (authEnabled) {
               image: typeof image === "string" && image.length > 0 ? image : undefined,
             });
 
+            const { hash } = await import("argon2");
             await adapter.linkAccount({
               extraData: {
                 password: await hash(password),
