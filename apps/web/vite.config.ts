@@ -45,6 +45,7 @@ export default defineConfig(({ isSsrBuild }) => ({
       babelConfig: {
         babelrc: false, // don’t merge other Babel files
         configFile: false,
+        sourceMaps: false,
         plugins: ['styled-jsx/babel'],
       },
     }),
@@ -62,7 +63,7 @@ export default defineConfig(({ isSsrBuild }) => ({
     loadFontsFromTailwindSource(),
     addRenderIds(),
     reactRouter(),
-    tsconfigPaths({ projects: ['./tsconfig.json'] }),
+    tsconfigPaths({ projects: ['./tsconfig.json'], ignoreConfigErrors: true }),
     aliases(),
     layoutWrapperPlugin(),
   ],
@@ -78,6 +79,13 @@ export default defineConfig(({ isSsrBuild }) => ({
     dedupe: ['react', 'react-dom'],
   },
   clearScreen: false,
+  ssr: {
+    external: [
+      'ws',
+      '@node-rs/argon2',
+      /^@node-rs\/argon2-/,
+    ],
+  },
   build: {
     target: 'esnext',
     rollupOptions: isSsrBuild
