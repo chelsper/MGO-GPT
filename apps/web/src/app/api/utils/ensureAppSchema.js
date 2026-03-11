@@ -44,6 +44,8 @@ export default async function ensureAppSchema() {
         notification_email_id TEXT,
         notification_email_error TEXT,
         notification_email_sent_at TIMESTAMPTZ,
+        reviewer_notes TEXT,
+        reviewer_notes_updated_at TIMESTAMPTZ,
         reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         reviewed_at TIMESTAMPTZ,
         date_submitted TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -71,6 +73,14 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE submissions
       ADD COLUMN IF NOT EXISTS notification_email_sent_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS reviewer_notes TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS reviewer_notes_updated_at TIMESTAMPTZ
     `;
 
     await sql`

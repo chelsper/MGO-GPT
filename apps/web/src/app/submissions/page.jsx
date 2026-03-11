@@ -56,6 +56,7 @@ export default function SubmissionsPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
   const [reviewFilter, setReviewFilter] = useState("Pending");
+  const [reviewDrafts, setReviewDrafts] = useState({});
 
   useEffect(() => {
     if (!loading && !sessionUser) {
@@ -177,30 +178,54 @@ export default function SubmissionsPage() {
     return next;
   }, [profile, reviewFilter, submissions]);
 
-  async function updateStatus(id, status) {
+  function setReviewDraft(id, updates) {
+    setReviewDrafts((current) => ({
+      ...current,
+      [id]: {
+        status: current[id]?.status || "",
+        reviewerNotes: current[id]?.reviewerNotes || "",
+        ...updates,
+      },
+    }));
+  }
+
+  async function saveReview(id) {
     setUpdatingId(id);
     setActionMessage("");
     setError("");
 
     try {
+      const currentSubmission = submissions.find((item) => item.id === id);
+      const draft = reviewDrafts[id] || {};
       const response = await fetch("/api/submissions/update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status }),
+        body: JSON.stringify({
+          id,
+          status: draft.status || currentSubmission?.status || "Pending",
+          reviewerNotes:
+            draft.reviewerNotes ?? currentSubmission?.reviewer_notes ?? "",
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to update submission status");
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to update submission review");
       }
 
       const updated = await response.json();
       setSubmissions((current) =>
         current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
       );
-      setActionMessage(`Submission #${updated.id} updated to ${updated.status}.`);
+      setReviewDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setActionMessage(`Submission #${updated.id} review saved.`);
     } catch (err) {
       console.error(err);
-      setError("Could not update submission status.");
+      setError(err.message || "Could not update submission review.");
     } finally {
       setUpdatingId(null);
     }
@@ -433,6 +458,10 @@ export default function SubmissionsPage() {
               {visibleSubmissions.map((submission) => {
                 const colors = getStatusColors(submission.status);
                 const emailMeta = getEmailStatusMeta(submission.notification_email_status);
+                const draft = reviewDrafts[submission.id];
+                const selectedStatus = draft?.status || submission.status || "Pending";
+                const reviewerNotes =
+                  draft?.reviewerNotes ?? submission.reviewer_notes ?? "";
                 return (
                   <article
                     key={submission.id}
@@ -494,9 +523,11 @@ export default function SubmissionsPage() {
                             Review status
                           </label>
                           <select
-                            value={submission.status || "Pending"}
+                            value={selectedStatus}
                             disabled={updatingId === submission.id}
-                            onChange={(event) => updateStatus(submission.id, event.target.value)}
+                            onChange={(event) =>
+                              setReviewDraft(submission.id, { status: event.target.value })
+                            }
                             style={{
                               width: "100%",
                               padding: "10px 12px",
@@ -512,6 +543,60 @@ export default function SubmissionsPage() {
                               </option>
                             ))}
                           </select>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              color: "#6B7280",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                              margin: "12px 0 8px",
+                            }}
+                          >
+                            Reviewer notes
+                          </label>
+                          <textarea
+                            value={reviewerNotes}
+                            disabled={updatingId === submission.id}
+                            onChange={(event) =>
+                              setReviewDraft(submission.id, {
+                                reviewerNotes: event.target.value,
+                              })
+                            }
+                            placeholder="Add context, follow-up questions, or CRM instructions."
+                            rows={4}
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid #D1D5DB",
+                              backgroundColor: "white",
+                              fontSize: "14px",
+                              resize: "vertical",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={updatingId === submission.id}
+                            onClick={() => saveReview(submission.id)}
+                            style={{
+                              marginTop: "10px",
+                              width: "100%",
+                              padding: "10px 12px",
+                              borderRadius: "10px",
+                              border: "none",
+                              backgroundColor: "#6A5BFF",
+                              color: "white",
+                              fontSize: "14px",
+                              fontWeight: 700,
+                              cursor: updatingId === submission.id ? "wait" : "pointer",
+                              opacity: updatingId === submission.id ? 0.7 : 1,
+                            }}
+                          >
+                            {updatingId === submission.id ? "Saving..." : "Save review"}
+                          </button>
                         </div>
                       ) : null}
                     </div>
@@ -593,6 +678,17 @@ export default function SubmissionsPage() {
                           </div>
                           <div style={{ fontSize: "14px", color: "#111827", textTransform: "capitalize" }}>
                             {submission.interaction_type}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {submission.reviewer_notes ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Reviewer notes
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                            {submission.reviewer_notes}
                           </div>
                         </div>
                       ) : null}
