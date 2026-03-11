@@ -55,6 +55,7 @@ export default function SubmissionsPage() {
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
+  const [reviewFilter, setReviewFilter] = useState("Pending");
 
   useEffect(() => {
     if (!loading && !sessionUser) {
@@ -148,6 +149,33 @@ export default function SubmissionsPage() {
       subtitle: "See what you submitted, when it was reviewed, and what needs follow-up.",
     };
   }, [profile]);
+
+  const reviewerCounts = useMemo(() => {
+    if (profile?.role !== "reviewer") return {};
+
+    return submissions.reduce((counts, submission) => {
+      const key = submission.status || "Pending";
+      counts[key] = (counts[key] || 0) + 1;
+      counts.All = (counts.All || 0) + 1;
+      return counts;
+    }, {});
+  }, [profile, submissions]);
+
+  const visibleSubmissions = useMemo(() => {
+    let next = [...submissions];
+
+    if (profile?.role === "reviewer" && reviewFilter !== "All") {
+      next = next.filter((submission) => (submission.status || "Pending") === reviewFilter);
+    }
+
+    next.sort((a, b) => {
+      const aDate = new Date(a.date_submitted || a.created_at || 0).getTime();
+      const bDate = new Date(b.date_submitted || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+
+    return next;
+  }, [profile, reviewFilter, submissions]);
 
   async function updateStatus(id, status) {
     setUpdatingId(id);
@@ -306,17 +334,103 @@ export default function SubmissionsPage() {
             padding: "18px",
           }}
         >
+          {profile?.role === "reviewer" ? (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "16px",
+                flexWrap: "wrap",
+                padding: "4px 4px 16px",
+                borderBottom: "1px solid #E5E7EB",
+                marginBottom: "18px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  Filter queue
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {["Pending", "Needs Clarification", "Ready for CRM", "Approved", "All"].map(
+                    (status) => {
+                      const selected = reviewFilter === status;
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setReviewFilter(status)}
+                          style={{
+                            borderRadius: "999px",
+                            border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
+                            backgroundColor: selected ? "#EDE9FE" : "white",
+                            color: selected ? "#5B21B6" : "#374151",
+                            padding: "8px 12px",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {status} ({reviewerCounts[status] || 0})
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  minWidth: "220px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Queue snapshot
+                </div>
+                <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
+                  <div>Pending: {reviewerCounts.Pending || 0}</div>
+                  <div>Needs Clarification: {reviewerCounts["Needs Clarification"] || 0}</div>
+                  <div>Ready for CRM: {reviewerCounts["Ready for CRM"] || 0}</div>
+                  <div>Total: {reviewerCounts.All || 0}</div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {submissionsLoading ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
               Loading submissions...
             </div>
-          ) : submissions.length === 0 ? (
+          ) : visibleSubmissions.length === 0 ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
-              No submissions yet.
+              {profile?.role === "reviewer"
+                ? "No submissions match the current filter."
+                : "No submissions yet."}
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
-              {submissions.map((submission) => {
+              {visibleSubmissions.map((submission) => {
                 const colors = getStatusColors(submission.status);
                 const emailMeta = getEmailStatusMeta(submission.notification_email_status);
                 return (
