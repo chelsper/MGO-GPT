@@ -56,19 +56,45 @@ function registerRoute(
 function registerRoutes() {
   api.routes = [];
 
-  const routeModules = import.meta.glob('../src/app/api/**/route.js', { eager: true });
+  const routeModules = import.meta.glob('../src/app/api/**/route.js');
+  const moduleCache = new Map<string, Promise<RouteModule>>();
   const routeFiles = Object.keys(routeModules).sort((a, b) => b.length - a.length);
   const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
 
   for (const routeFile of routeFiles) {
-    const route = routeModules[routeFile] as RouteModule;
+    const loader = routeModules[routeFile];
+    if (!loader) continue;
+
+    const getRouteModule = () => {
+      if (!moduleCache.has(routeFile)) {
+        moduleCache.set(routeFile, loader().then((mod) => mod as RouteModule));
+      }
+      return moduleCache.get(routeFile)!;
+    };
+
     const honoPath = getHonoPath(routeFile);
 
     for (const method of methods) {
-      const methodHandler = route[method];
-      if (typeof methodHandler !== 'function') continue;
-
       const handler: Handler = async (c) => {
+        let route: RouteModule;
+        try {
+          route = await getRouteModule();
+        } catch (error) {
+          return c.json(
+            {
+              error: 'Failed to load API route module',
+              route: routeFile,
+              details: error instanceof Error ? error.message : String(error),
+            },
+            500
+          );
+        }
+
+        const methodHandler = route[method];
+        if (typeof methodHandler !== 'function') {
+          return c.json({ error: 'Method not allowed' }, 405);
+        }
+
         const params = c.req.param();
         return await (methodHandler as (req: Request, ctx: { params: Record<string, string> }) => Promise<Response>)(
           c.req.raw,
