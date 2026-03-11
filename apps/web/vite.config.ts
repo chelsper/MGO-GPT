@@ -13,7 +13,7 @@ import { nextPublicProcessEnv } from './plugins/nextPublicProcessEnv';
 import { restart } from './plugins/restart';
 import { restartEnvFileChange } from './plugins/restartEnvFileChange';
 
-export default defineConfig({
+export default defineConfig(({ isSsrBuild }) => ({
   // Keep them available via import.meta.env.NEXT_PUBLIC_*
   envPrefix: 'NEXT_PUBLIC_',
   optimizeDeps: {
@@ -80,6 +80,12 @@ export default defineConfig({
   clearScreen: false,
   build: {
     target: 'esnext',
+    rollupOptions: isSsrBuild
+      ? {
+          // Ensure Vercel SSR uses the custom Hono server entrypoint.
+          input: './__create/index.ts',
+        }
+      : undefined,
   },
   server: {
     allowedHosts: true,
@@ -92,4 +98,4 @@ export default defineConfig({
       clientFiles: ['./src/app/**/*', './src/app/root.tsx', './src/app/routes.ts'],
     },
   },
-});
+}));
