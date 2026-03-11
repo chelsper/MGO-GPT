@@ -4,7 +4,10 @@ export async function POST(request) {
     const { audioUrl } = body;
 
     if (!audioUrl) {
-      return Response.json({ error: "No audio URL provided" }, { status: 400 });
+      return Response.json(
+        { error: "No audio URL provided", stage: "request" },
+        { status: 400 }
+      );
     }
 
     // Download the audio file from the uploaded URL
@@ -14,7 +17,11 @@ export async function POST(request) {
     } catch (fetchErr) {
       console.error("Failed to fetch audio URL:", fetchErr);
       return Response.json(
-        { error: "Failed to download audio file" },
+        {
+          error: "Failed to download audio file",
+          stage: "download",
+          details: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+        },
         { status: 400 },
       );
     }
@@ -22,7 +29,11 @@ export async function POST(request) {
     if (!audioResponse.ok) {
       console.error("Failed to download audio:", audioResponse.status);
       return Response.json(
-        { error: "Failed to download audio file" },
+        {
+          error: "Failed to download audio file",
+          stage: "download",
+          details: `Audio URL returned ${audioResponse.status}`,
+        },
         { status: 400 },
       );
     }
@@ -65,7 +76,11 @@ export async function POST(request) {
         errorData,
       );
       return Response.json(
-        { error: "Failed to transcribe audio" },
+        {
+          error: "Failed to transcribe audio",
+          stage: "transcription",
+          details: errorData || `Whisper returned ${whisperResponse.status}`,
+        },
         { status: whisperResponse.status },
       );
     }
@@ -171,7 +186,11 @@ If a field cannot be determined from the transcript, return null for that field.
   } catch (error) {
     console.error("Transcription error:", error);
     return Response.json(
-      { error: "Failed to transcribe audio" },
+      {
+        error: "Failed to transcribe audio",
+        stage: "unknown",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 },
     );
   }

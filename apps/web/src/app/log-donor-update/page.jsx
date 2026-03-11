@@ -4,9 +4,18 @@ import { useState, useRef, useEffect } from "react";
 import useUser from "@/utils/useUser";
 import useUpload from "@/utils/useUpload";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Mic, Square, Loader } from "lucide-react";
+import { ArrowLeft, Mic, Square, Loader, Upload } from "lucide-react";
 
 const INTERACTION_TYPES = ["visit", "call", "email", "event"];
+const SUPPORTED_AUDIO_MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/ogg",
+];
 
 export default function LogDonorUpdatePage() {
   const { data: user, loading } = useUser();
@@ -19,6 +28,9 @@ export default function LogDonorUpdatePage() {
   const [estimatedAmount, setEstimatedAmount] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [transcriptionStatus, setTranscriptionStatus] = useState("");
+  const [transcriptionError, setTranscriptionError] = useState("");
+  const [lastAudioFileName, setLastAudioFileName] = useState("");
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -27,6 +39,38 @@ export default function LogDonorUpdatePage() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const supportsMediaRecording =
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof window.MediaRecorder !== "undefined";
+
+  const getSupportedMimeType = () => {
+    if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+      return "";
+    }
+
+    return (
+      SUPPORTED_AUDIO_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || ""
+    );
+  };
+
+  const buildTranscriptionMessage = (stage, details) => {
+    const stageLabel = {
+      upload: "uploading the recording",
+      download: "preparing the uploaded audio",
+      transcription: "transcribing the audio",
+      request: "sending the audio",
+      unsupported: "starting microphone recording",
+      unknown: "processing the recording",
+    }[stage || "unknown"];
+
+    return details
+      ? `There was a problem ${stageLabel}: ${details}`
+      : `There was a problem ${stageLabel}.`;
+  };
 
   useEffect(() => {
     return () => {
@@ -35,13 +79,28 @@ export default function LogDonorUpdatePage() {
   }, []);
 
   const startRecording = async () => {
+    setError("");
+    setTranscriptionError("");
+    setTranscriptionStatus("");
+
+    if (!supportsMediaRecording) {
+      setTranscriptionError(
+        "This browser does not support in-app recording. Upload an audio file instead.",
+      );
+      return;
+    }
+
     try {
+      const mimeType = getSupportedMimeType();
+      if (!mimeType) {
+        setTranscriptionError(
+          "This browser cannot record a supported audio format. Upload an audio file instead.",
+        );
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : "audio/mp4",
-      });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -55,19 +114,20 @@ export default function LogDonorUpdatePage() {
         stream.getTracks().forEach((track) => track.stop());
         const mimeType = mediaRecorder.mimeType;
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        await transcribeAudio(blob, mimeType);
+        await transcribeAudio(blob, mimeType, "Voice recording");
       };
 
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingDuration(0);
+      setTranscriptionStatus("Listening...");
       timerRef.current = setInterval(() => {
         setRecordingDuration((prev) => prev + 1);
       }, 1000);
     } catch (err) {
       console.error("Microphone error:", err);
-      setError(
-        "Could not access your microphone. Please allow microphone access and try again.",
+      setTranscriptionError(
+        "Could not access your microphone. Allow microphone access or upload an audio file instead.",
       );
     }
   };
@@ -76,6 +136,7 @@ export default function LogDonorUpdatePage() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      setTranscriptionStatus("Preparing audio...");
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -83,9 +144,11 @@ export default function LogDonorUpdatePage() {
     }
   };
 
-  const transcribeAudio = async (blob, mimeType) => {
+  const transcribeAudio = async (blob, mimeType, sourceLabel = "Audio file") => {
     setIsTranscribing(true);
     setError("");
+    setTranscriptionError("");
+    setLastAudioFileName(sourceLabel);
 
     try {
       // Determine file extension from mime type
@@ -93,19 +156,24 @@ export default function LogDonorUpdatePage() {
       if (mimeType.includes("mp4")) ext = "m4a";
       else if (mimeType.includes("ogg")) ext = "ogg";
       else if (mimeType.includes("wav")) ext = "wav";
+      else if (mimeType.includes("mpeg") || mimeType.includes("mp3")) ext = "mp3";
 
       const file = new File([blob], `recording.${ext}`, { type: mimeType });
 
       // Upload the audio file
+      setTranscriptionStatus(`Uploading ${sourceLabel.toLowerCase()}...`);
       const uploadResult = await upload({ file });
 
       if (uploadResult.error) {
-        throw new Error("Failed to upload audio: " + uploadResult.error);
+        const uploadError = new Error(uploadResult.error);
+        uploadError.stage = "upload";
+        throw uploadError;
       }
 
       const audioUrl = uploadResult.url;
 
       // Send to transcribe endpoint
+      setTranscriptionStatus("Transcribing audio...");
       const transcriptionResponse = await fetch("/api/transcribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,12 +181,22 @@ export default function LogDonorUpdatePage() {
       });
 
       if (!transcriptionResponse.ok) {
-        throw new Error("Transcription failed");
+        const errorData = await transcriptionResponse.json().catch(() => null);
+        const transcriptionError = new Error(
+          errorData?.details || errorData?.error || "Transcription failed"
+        );
+        transcriptionError.stage = errorData?.stage || "transcription";
+        throw transcriptionError;
       }
 
       const data = await transcriptionResponse.json();
       const transcriptText = data.transcript || "";
       setTranscript(transcriptText);
+      setTranscriptionStatus(
+        transcriptText
+          ? "Transcript added to notes."
+          : "No speech was detected. Try again or upload a clearer recording."
+      );
 
       // Append transcript to notes
       if (transcriptText) {
@@ -151,10 +229,30 @@ export default function LogDonorUpdatePage() {
       }
     } catch (err) {
       console.error("Transcription error:", err);
-      setError("Failed to transcribe audio. Please try again.");
+      setTranscriptionError(
+        buildTranscriptionMessage(err?.stage, err?.message || "Please try again."),
+      );
+      setTranscriptionStatus("");
     } finally {
       setIsTranscribing(false);
     }
+  };
+
+  const handleAudioFileSelected = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setError("");
+    setTranscriptionError("");
+
+    if (!file.type.startsWith("audio/")) {
+      setTranscriptionError("Please choose an audio file.");
+      event.target.value = "";
+      return;
+    }
+
+    await transcribeAudio(file, file.type || "audio/webm", file.name);
+    event.target.value = "";
   };
 
   const formatDuration = (seconds) => {
@@ -449,6 +547,17 @@ export default function LogDonorUpdatePage() {
                 </span>
               )}
             </div>
+            <p
+              style={{
+                margin: "0 0 12px",
+                color: "#6B7280",
+                fontSize: "13px",
+                lineHeight: 1.5,
+              }}
+            >
+              Record a voice note or upload an audio file. The transcript will be appended to
+              your notes for review before submit.
+            </p>
 
             <div style={{ position: "relative" }}>
               <textarea
@@ -567,46 +676,120 @@ export default function LogDonorUpdatePage() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={startRecording}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: "6px 12px",
-                      borderRadius: "8px",
-                    }}
-                  >
-                    <div
+                  <>
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      disabled={!supportsMediaRecording}
                       style={{
-                        width: "32px",
-                        height: "32px",
-                        borderRadius: "50%",
-                        backgroundColor: "#6A5BFF",
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
+                        gap: "8px",
+                        background: "none",
+                        border: "none",
+                        cursor: supportsMediaRecording ? "pointer" : "not-allowed",
+                        padding: "6px 12px",
+                        borderRadius: "8px",
+                        opacity: supportsMediaRecording ? 1 : 0.45,
                       }}
                     >
-                      <Mic size={16} color="white" />
-                    </div>
-                    <span
+                      <div
+                        style={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "50%",
+                          backgroundColor: "#6A5BFF",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Mic size={16} color="white" />
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: "500",
+                          color: "#6A5BFF",
+                        }}
+                      >
+                        {supportsMediaRecording ? "Tap to dictate" : "Recording unavailable"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
                       style={{
-                        fontSize: "13px",
-                        fontWeight: "500",
-                        color: "#6A5BFF",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        background: "white",
+                        border: "1px solid #D1D5DB",
+                        cursor: "pointer",
+                        padding: "6px 12px",
+                        borderRadius: "8px",
                       }}
                     >
-                      Tap to dictate
-                    </span>
-                  </button>
+                      <Upload size={16} color="#374151" />
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: "500",
+                          color: "#374151",
+                        }}
+                      >
+                        Upload audio
+                      </span>
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleAudioFileSelected}
+                      style={{ display: "none" }}
+                    />
+                  </>
                 )}
               </div>
             </div>
+            {(uploadLoading || transcriptionStatus || transcriptionError || lastAudioFileName) && (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  backgroundColor: transcriptionError ? "#FEF2F2" : "#F9FAFB",
+                  border: `1px solid ${transcriptionError ? "#FECACA" : "#E5E7EB"}`,
+                }}
+              >
+                {lastAudioFileName && !transcriptionError && (
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#6B7280",
+                      marginBottom: transcriptionStatus ? "6px" : 0,
+                    }}
+                  >
+                    Source: {lastAudioFileName}
+                  </div>
+                )}
+                {transcriptionStatus && (
+                  <div style={{ fontSize: "13px", color: "#374151", fontWeight: 500 }}>
+                    {transcriptionStatus}
+                  </div>
+                )}
+                {uploadLoading && !transcriptionStatus && (
+                  <div style={{ fontSize: "13px", color: "#374151", fontWeight: 500 }}>
+                    Uploading audio...
+                  </div>
+                )}
+                {transcriptionError && (
+                  <div style={{ fontSize: "13px", color: "#991B1B", fontWeight: 500 }}>
+                    {transcriptionError}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Next Step */}
