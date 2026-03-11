@@ -5,6 +5,21 @@ export function normalizeConstituentName(name) {
   return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+let prospectsTableReady;
+
+async function hasProspectsTable() {
+  if (typeof prospectsTableReady === "boolean") {
+    return prospectsTableReady;
+  }
+
+  const result = await sql`
+    SELECT to_regclass('public.prospects') AS table_name
+  `;
+
+  prospectsTableReady = Boolean(result[0]?.table_name);
+  return prospectsTableReady;
+}
+
 async function verifyOwnedConstituent(userId, constituentId) {
   const result = await sql`
     SELECT id, user_id, name, normalized_name
@@ -70,6 +85,10 @@ export async function linkHistoricalRecords(userId, name, constituentId) {
       AND donor_name IS NOT NULL
       AND LOWER(TRIM(REGEXP_REPLACE(donor_name, '\s+', ' ', 'g'))) = ${normalizedName}
   `;
+
+  if (!(await hasProspectsTable())) {
+    return;
+  }
 
   await sql`
     UPDATE prospects
