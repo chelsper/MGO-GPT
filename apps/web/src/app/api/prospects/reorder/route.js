@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 async function getUser(session) {
   const email = session.user.email;
@@ -12,6 +13,8 @@ async function getUser(session) {
 // POST reorder prospects (swap two positions)
 export async function POST(request) {
   try {
+    await ensureAppSchema();
+
     const session = await auth();
     if (!session || !session.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

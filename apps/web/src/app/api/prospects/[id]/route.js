@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 async function getUser(session) {
   const email = session.user.email;
@@ -12,6 +13,8 @@ async function getUser(session) {
 // GET a single prospect with its updates
 export async function GET(request, { params }) {
   try {
+    await ensureAppSchema();
+
     const session = await auth();
     if (!session || !session.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -52,6 +55,8 @@ export async function GET(request, { params }) {
 // PUT update a prospect
 export async function PUT(request, { params }) {
   try {
+    await ensureAppSchema();
+
     const session = await auth();
     if (!session || !session.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -128,6 +133,8 @@ export async function PUT(request, { params }) {
 // DELETE a prospect
 export async function DELETE(request, { params }) {
   try {
+    await ensureAppSchema();
+
     const session = await auth();
     if (!session || !session.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

@@ -164,8 +164,37 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
-      ALTER TABLE IF EXISTS prospects
+      CREATE TABLE IF NOT EXISTS prospects (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        prospect_name TEXT NOT NULL,
+        expected_close_fy TEXT NOT NULL,
+        ask_amount NUMERIC,
+        ask_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Active',
+        priority_order INTEGER NOT NULL DEFAULT 1,
+        closed_amount NUMERIC,
+        close_date DATE,
+        decline_reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE prospects
       ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS prospect_updates (
+        id BIGSERIAL PRIMARY KEY,
+        prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
+        update_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        update_notes TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
     `;
 
     await sql`
