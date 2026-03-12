@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useUser from "@/utils/useUser";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -92,6 +92,7 @@ export default function SubmissionsPage() {
   const [reviewDrafts, setReviewDrafts] = useState({});
   const [clarificationDrafts, setClarificationDrafts] = useState({});
   const [listRequestDrafts, setListRequestDrafts] = useState({});
+  const [expandedSubmissionGroups, setExpandedSubmissionGroups] = useState({});
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
@@ -345,6 +346,13 @@ export default function SubmissionsPage() {
         reviewerNotes: current[id]?.reviewerNotes || "",
         ...updates,
       },
+    }));
+  }
+
+  function toggleSubmissionGroup(groupId) {
+    setExpandedSubmissionGroups((current) => ({
+      ...current,
+      [groupId]: !current[groupId],
     }));
   }
 
@@ -822,6 +830,14 @@ export default function SubmissionsPage() {
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
               {visibleSubmissionGroups.map((group) => {
+                const isCollapsible =
+                  profile?.role !== "reviewer" &&
+                  group.constituentId &&
+                  group.submissions.length > 1;
+                const isExpanded = isCollapsible
+                  ? Boolean(expandedSubmissionGroups[group.id])
+                  : true;
+
                 return (
                   <article
                     key={group.id}
@@ -831,11 +847,11 @@ export default function SubmissionsPage() {
                       padding: "16px",
                       backgroundColor: "#FFFFFF",
                     }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
                         gap: "14px",
                         flexWrap: "wrap",
                         alignItems: "flex-start",
@@ -868,9 +884,46 @@ export default function SubmissionsPage() {
                           Latest activity {formatDate(group.latestAt)}
                         </div>
                       </div>
+                      {isCollapsible ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSubmissionGroup(group.id)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "8px 12px",
+                            borderRadius: "999px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            color: "#374151",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isExpanded ? (
+                            <>
+                              <ChevronUp size={16} />
+                              Hide related submissions
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown size={16} />
+                              View all related submissions
+                            </>
+                          )}
+                        </button>
+                      ) : null}
                     </div>
 
-                    <div style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
+                    <div
+                      style={{
+                        display: isExpanded ? "grid" : "none",
+                        gap: "12px",
+                        marginTop: "16px",
+                      }}
+                    >
                       {group.submissions.map((submission) => {
                         const colors = getStatusColors(submission.status);
                         const emailMeta = getEmailStatusMeta(submission.notification_email_status);
