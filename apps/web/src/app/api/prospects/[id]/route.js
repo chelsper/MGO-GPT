@@ -46,22 +46,30 @@ export async function GET(request, { params }) {
         ORDER BY update_date DESC, created_at DESC
       `,
       getProspectOpportunities(prospectId),
-      sql`
-        SELECT
-          s.*,
-          reviewer.name AS reviewer_name
-        FROM submissions s
-        LEFT JOIN users reviewer ON reviewer.id = s.reviewed_by
-        WHERE s.user_id = ${user.id}
-          AND (
-            s.prospect_id = ${prospectId}
-            OR (
-              ${constituentId} IS NOT NULL
-              AND s.constituent_id = ${constituentId}
-            )
-          )
-        ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
-      `,
+      constituentId == null
+        ? sql`
+            SELECT
+              s.*,
+              reviewer.name AS reviewer_name
+            FROM submissions s
+            LEFT JOIN users reviewer ON reviewer.id = s.reviewed_by
+            WHERE s.user_id = ${user.id}
+              AND s.prospect_id = ${prospectId}
+            ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
+          `
+        : sql`
+            SELECT
+              s.*,
+              reviewer.name AS reviewer_name
+            FROM submissions s
+            LEFT JOIN users reviewer ON reviewer.id = s.reviewed_by
+            WHERE s.user_id = ${user.id}
+              AND (
+                s.prospect_id = ${prospectId}
+                OR s.constituent_id = ${constituentId}
+              )
+            ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
+          `,
     ]);
 
     return Response.json({
