@@ -47,6 +47,7 @@ export default function ProspectPoolPage() {
   const [reviewerFilters, setReviewerFilters] = useState({
     assignedUserId: "all",
     requestState: "all",
+    assignedDateRange: "all",
     sortBy: "requests-first-newest",
   });
 
@@ -170,6 +171,24 @@ export default function ProspectPoolPage() {
         (entry.needs_contact_info || entry.solicitor_requested)
       ) {
         return false;
+      }
+
+      if (reviewerFilters.assignedDateRange !== "all") {
+        const assignedAt = new Date(entry.created_at || 0).getTime();
+        const now = Date.now();
+        const day = 24 * 60 * 60 * 1000;
+
+        if (reviewerFilters.assignedDateRange === "today" && assignedAt < now - day) {
+          return false;
+        }
+
+        if (reviewerFilters.assignedDateRange === "last-7" && assignedAt < now - 7 * day) {
+          return false;
+        }
+
+        if (reviewerFilters.assignedDateRange === "last-30" && assignedAt < now - 30 * day) {
+          return false;
+        }
       }
 
       return true;
@@ -681,6 +700,31 @@ export default function ProspectPoolPage() {
               </label>
 
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
+                Filter by date assigned
+                <select
+                  value={reviewerFilters.assignedDateRange}
+                  onChange={(event) =>
+                    setReviewerFilters((current) => ({
+                      ...current,
+                      assignedDateRange: event.target.value,
+                    }))
+                  }
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    border: "1px solid #D1D5DB",
+                    backgroundColor: "white",
+                    fontSize: "14px",
+                  }}
+                >
+                  <option value="all">All assigned dates</option>
+                  <option value="today">Assigned today</option>
+                  <option value="last-7">Assigned in last 7 days</option>
+                  <option value="last-30">Assigned in last 30 days</option>
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Sort queue
                 <select
                   value={reviewerFilters.sortBy}
@@ -806,6 +850,12 @@ export default function ProspectPoolPage() {
                           Assigned MGO
                         </div>
                         <div>{entry.assigned_user_name || entry.assigned_user_email || "Unassigned"}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
+                          Date assigned
+                        </div>
+                        <div>{formatDate(entry.created_at)}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
