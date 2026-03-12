@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { getProvisioningDecision } from "@/app/api/utils/invitations";
 
 export async function POST(request) {
   try {
@@ -46,6 +47,14 @@ export async function POST(request) {
       );
     }
 
+    const decision = await getProvisioningDecision(email);
+    if (decision.kind === "none") {
+      return Response.json(
+        { error: "An administrator must invite this email address before it can access the app" },
+        { status: 403 },
+      );
+    }
+
     // Lazy-load argon2 so route registration does not crash if native bindings fail at startup.
     const { hash } = await import("argon2");
     const hashedPassword = await hash(password);
@@ -53,7 +62,7 @@ export async function POST(request) {
     // Create user in users table
     const result = await sql`
       INSERT INTO users (name, email, role, created_at)
-      VALUES (${name}, ${email}, ${userRole}, NOW())
+      VALUES (${name}, ${email}, ${decision.kind === "bootstrap-admin" ? "admin" : userRole}, NOW())
       RETURNING id, name, email, role
     `;
 

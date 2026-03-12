@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
+import { acceptInvitation, getProvisioningDecision } from "@/app/api/utils/invitations";
 
 export async function POST(request) {
   try {
@@ -26,12 +27,24 @@ export async function POST(request) {
       return Response.json({ success: true, user: existing[0] });
     }
 
+    const decision = await getProvisioningDecision(userEmail);
+    if (decision.kind === "none") {
+      return Response.json(
+        { error: "An administrator must invite this email address before it can access the app" },
+        { status: 403 },
+      );
+    }
+
     // Create user in users table
     const result = await sql`
       INSERT INTO users (name, email, role, created_at)
-      VALUES (${name}, ${userEmail}, ${userRole}, NOW())
+      VALUES (${name}, ${userEmail}, ${decision.kind === "bootstrap-admin" ? "admin" : userRole}, NOW())
       RETURNING id, name, email, role
     `;
+
+    if (decision.kind === "invited") {
+      await acceptInvitation(userEmail);
+    }
 
     return Response.json({ success: true, user: result[0] });
   } catch (error) {

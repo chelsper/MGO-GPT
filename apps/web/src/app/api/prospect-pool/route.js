@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 function normalizeName(value) {
   return (value || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -20,7 +21,7 @@ export async function GET() {
     const currentUser = await getOrCreateUser(session);
 
     const rows =
-      currentUser.role === "reviewer"
+      isReviewerRole(currentUser.role)
         ? await sql`
             SELECT
               pp.*,
@@ -67,7 +68,7 @@ export async function POST(request) {
     }
 
     const reviewer = await getOrCreateUser(session, "reviewer");
-    if (reviewer.role !== "reviewer") {
+    if (!isReviewerRole(reviewer.role)) {
       return Response.json(
         { error: "Forbidden — reviewers only" },
         { status: 403 },

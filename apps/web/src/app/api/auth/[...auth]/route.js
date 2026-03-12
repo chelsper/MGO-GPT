@@ -1,4 +1,49 @@
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+
 let authConfigPromise;
+
+function isAllowedWorkspaceEmail(email) {
+  if (typeof email !== "string") return false;
+  const allowedDomain =
+    process.env.WORKSPACE_EMAIL_DOMAIN?.toLowerCase() || "ju.edu";
+  return email.trim().toLowerCase().endsWith(`@${allowedDomain}`);
+}
+
+async function getProvisioningDecision(email) {
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!normalizedEmail) return { kind: "none" };
+
+  const bootstrapAdminEmail =
+    process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || "";
+
+  const { rows: existingRows } = await globalThis.__mgoAuthPool.query(
+    "SELECT id, role FROM users WHERE email = $1 LIMIT 1",
+    [normalizedEmail],
+  );
+  if (existingRows.length > 0) {
+    return { kind: "existing", role: existingRows[0].role };
+  }
+
+  if (bootstrapAdminEmail && normalizedEmail === bootstrapAdminEmail) {
+    return { kind: "bootstrap-admin", role: "admin" };
+  }
+
+  const { rows: inviteRows } = await globalThis.__mgoAuthPool.query(
+    `SELECT id, role
+     FROM user_invitations
+     WHERE email = $1
+       AND accepted_at IS NULL
+       AND revoked_at IS NULL
+     LIMIT 1`,
+    [normalizedEmail],
+  );
+
+  if (inviteRows.length > 0) {
+    return { kind: "invited", role: inviteRows[0].role };
+  }
+
+  return { kind: "none" };
+}
 
 function rebuildAuthRequest(request, authPath) {
   const url = new URL(request.url);
@@ -35,6 +80,8 @@ async function getAuthConfig() {
     const Okta = oktaProviderModule.default;
 
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    globalThis.__mgoAuthPool = pool;
+    await ensureAppSchema();
     const adapter = NeonAdapter(pool);
     const oktaEnabled = Boolean(
       process.env.OKTA_CLIENT_ID &&
@@ -73,6 +120,13 @@ async function getAuthConfig() {
           strategy: "jwt",
         },
         callbacks: {
+          async signIn({ user, profile }) {
+            const email = user?.email || profile?.email;
+            if (!isAllowedWorkspaceEmail(email)) return false;
+
+            const decision = await getProvisioningDecision(email);
+            return decision.kind !== "none";
+          },
           session({ session, token }) {
             if (token.sub) {
               session.user.id = token.sub;
@@ -96,6 +150,7 @@ async function getAuthConfig() {
                     if (!email || !password) return null;
                     if (typeof email !== "string" || typeof password !== "string")
                       return null;
+                    if (!isAllowedWorkspaceEmail(email)) return null;
 
                     const user = await adapter.getUserByEmail(email);
                     if (!user) return null;
@@ -127,6 +182,10 @@ async function getAuthConfig() {
                     if (!email || !password) return null;
                     if (typeof email !== "string" || typeof password !== "string")
                       return null;
+                    if (!isAllowedWorkspaceEmail(email)) return null;
+
+                    const decision = await getProvisioningDecision(email);
+                    if (decision.kind === "none") return null;
 
                     const user = await adapter.getUserByEmail(email);
                     if (user) return null;

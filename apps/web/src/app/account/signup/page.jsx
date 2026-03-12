@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import useAuth from "@/utils/useAuth";
+import { isAllowedWorkspaceEmail, workspaceEmailAccessMessage } from "@/utils/authDomain";
+
+const INVITATION_REQUIRED_MESSAGE =
+  "You need a ju.edu email address and an administrator invitation before you can create an account.";
 
 export default function SignUpPage() {
   const { signUpWithCredentials } = useAuth();
@@ -53,6 +57,11 @@ export default function SignUpPage() {
       return;
     }
 
+    if (!isAllowedWorkspaceEmail(email)) {
+      setError(workspaceEmailAccessMessage());
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -70,7 +79,7 @@ export default function SignUpPage() {
             "Invalid email or password. If you already have an account, try signing in instead.",
           EmailCreateAccount:
             "This email can't be used. It may already be registered.",
-          AccessDenied: "You don't have permission to sign up.",
+          AccessDenied: INVITATION_REQUIRED_MESSAGE,
           Configuration: "There is a problem with the server configuration.",
         };
         setError(
@@ -87,6 +96,7 @@ export default function SignUpPage() {
           "Invalid email or password. If you already have an account, try signing in instead.",
         EmailCreateAccount:
           "This email can't be used. It may already be registered.",
+        AccessDenied: INVITATION_REQUIRED_MESSAGE,
       };
       setError(
         errorMessages[err.message] || "Something went wrong. Please try again.",
@@ -126,6 +136,16 @@ export default function SignUpPage() {
         >
           Create Account
         </h1>
+        <p
+          style={{
+            fontSize: "13px",
+            color: "#6B7280",
+            textAlign: "center",
+            marginBottom: "24px",
+          }}
+        >
+          Access is limited to Jacksonville University email addresses.
+        </p>
 
         {error && (
           <div
@@ -257,7 +277,7 @@ export default function SignUpPage() {
                 lineHeight: 1.5,
               }}
             >
-              Advancement Services reviewer access is assigned separately by an administrator.
+              Access is limited to invited JU users. Advancement Services reviewer access is assigned separately by an administrator.
             </div>
           </div>
 

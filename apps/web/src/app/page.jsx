@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
+import { isAdminRole, isReviewerRole } from "@/utils/workspaceRoles";
 
 const MGO_ACTIONS = [
   {
@@ -75,6 +76,15 @@ const REVIEWER_ACTIONS = [
   },
 ];
 
+const ADMIN_ACTIONS = [
+  ...REVIEWER_ACTIONS,
+  {
+    title: "Access Management",
+    href: "/access-management",
+    description: "Invite JU users and manage workspace roles.",
+  },
+];
+
 const MGO_NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "My Top Prospects", href: "/my-top-prospects" },
@@ -93,6 +103,11 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Prospect Pool", href: "/prospect-pool" },
   { label: "Knowledge Base", href: "/knowledge-base" },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage" },
+];
+
+const ADMIN_NAV_ITEMS = [
+  ...REVIEWER_NAV_ITEMS,
+  { label: "Access Management", href: "/access-management" },
 ];
 
 export default function Page() {
@@ -169,14 +184,15 @@ export default function Page() {
     };
   }, [accountMenuOpen, menuOpen]);
 
-  const isReviewer = profile?.role === "reviewer";
+  const isAdmin = isAdminRole(profile?.role);
+  const isReviewer = isReviewerRole(profile?.role);
   const quickActions = useMemo(
-    () => (isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS),
-    [isReviewer],
+    () => (isAdmin ? ADMIN_ACTIONS : isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS),
+    [isAdmin, isReviewer],
   );
   const navItems = useMemo(
-    () => (isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS),
-    [isReviewer],
+    () => (isAdmin ? ADMIN_NAV_ITEMS : isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS),
+    [isAdmin, isReviewer],
   );
 
   if (loading || !user || profileLoading) {
@@ -452,7 +468,7 @@ export default function Page() {
             style={{ width: "30px", height: "30px", borderRadius: "8px" }}
           />
           <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>
-            {isReviewer ? "Advancement Services Hub" : "MGO-GPT"}
+            {isAdmin ? "Workspace Administration" : isReviewer ? "Advancement Services Hub" : "MGO-GPT"}
           </h1>
         </div>
 
@@ -460,9 +476,11 @@ export default function Page() {
           {profile?.name || user?.name || user?.email}
         </p>
         <p style={{ margin: "0 0 22px", color: "#6B7280", fontSize: "14px" }}>
-          {isReviewer
-            ? "Review submissions, manage shared queues, and keep the knowledge base current."
-            : "Capture field updates, request support, and track your work with Advancement Services."}
+          {isAdmin
+            ? "Manage access, assign workspace roles, and oversee shared team operations."
+            : isReviewer
+              ? "Review submissions, manage shared queues, and keep the knowledge base current."
+              : "Capture field updates, request support, and track your work with Advancement Services."}
         </p>
 
         <div
@@ -475,20 +493,22 @@ export default function Page() {
           }}
         >
           <div style={{ fontSize: "12px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B7280", marginBottom: "8px" }}>
-            {isReviewer ? "Role focus" : "Today’s workflow"}
+            {isAdmin ? "Admin focus" : isReviewer ? "Role focus" : "Today’s workflow"}
           </div>
           <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginBottom: "6px" }}>
-            {isReviewer ? "Shared review operations" : "MGO submission workspace"}
+            {isAdmin ? "Access and workflow control" : isReviewer ? "Shared review operations" : "MGO submission workspace"}
           </div>
           <div style={{ fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
-            {isReviewer
-              ? "Everything here is shared across Advancement Services users, so queue priority, notes, and knowledge base edits stay visible to the whole team."
-              : "Your forms flow into shared review queues, where Advancement Services can approve them or send them back with clarification notes."}
+            {isAdmin
+              ? "You control who can access the workspace, what role they receive, and you can still work the shared Advancement Services queues."
+              : isReviewer
+                ? "Everything here is shared across Advancement Services users, so queue priority, notes, and knowledge base edits stay visible to the whole team."
+                : "Your forms flow into shared review queues, where Advancement Services can approve them or send them back with clarification notes."}
           </div>
         </div>
 
         <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>
-          {isReviewer ? "Reviewer Actions" : "Quick Actions"}
+          {isReviewer ? "Workspace Actions" : "Quick Actions"}
         </h2>
 
         <div

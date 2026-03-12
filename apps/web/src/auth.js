@@ -5,6 +5,7 @@
  */
 import CreateAuth from '@auth/create';
 import Credentials from '@auth/core/providers/credentials';
+import { isAllowedWorkspaceEmail } from '@/utils/authDomain';
 
 const result = CreateAuth({
 	providers: [
@@ -27,4 +28,18 @@ const result = CreateAuth({
 		error: '/account/signin',
 	},
 });
-export const { auth } = result;
+const { auth: baseAuth } = result;
+
+export async function auth(...args) {
+	const session = await baseAuth(...args);
+
+	if (!session?.user?.email) {
+		return null;
+	}
+
+	if (!isAllowedWorkspaceEmail(session.user.email)) {
+		return null;
+	}
+
+	return session;
+}

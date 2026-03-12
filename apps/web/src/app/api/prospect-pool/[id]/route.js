@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 function isTruthy(value) {
   return value === true || value === "true" || value === 1 || value === "1";
@@ -36,7 +37,7 @@ export async function PATCH(request, { params }) {
 
     const entry = existing[0];
 
-    if (currentUser.role === "reviewer") {
+    if (isReviewerRole(currentUser.role)) {
       const body = await request.json();
       const assignedUserId =
         body?.assignedUserId !== undefined ? Number(body.assignedUserId) : null;

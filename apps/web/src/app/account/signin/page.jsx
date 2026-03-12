@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from "react";
 import useAuth from "@/utils/useAuth";
+import { isAllowedWorkspaceEmail, workspaceEmailAccessMessage } from "@/utils/authDomain";
+
+const ACCESS_DENIED_MESSAGE =
+  "You don't have access to this workspace yet. Use a ju.edu email address and ask an administrator for an invitation.";
 
 export default function SignInPage() {
   const { signInWithCredentials, signInWithOkta } = useAuth();
@@ -24,7 +28,7 @@ export default function SignInPage() {
       if (urlError) {
         const errorMessages = {
           CredentialsSignin: "Incorrect email or password. Try again.",
-          AccessDenied: "You don't have permission to sign in.",
+          AccessDenied: ACCESS_DENIED_MESSAGE,
           Configuration: "There is a problem with the server configuration.",
         };
         setError(
@@ -59,6 +63,12 @@ export default function SignInPage() {
       return;
     }
 
+    if (!isAllowedWorkspaceEmail(email)) {
+      setError(workspaceEmailAccessMessage());
+      setLoading(false);
+      return;
+    }
+
     try {
       const result = await signInWithCredentials({
         email,
@@ -70,7 +80,7 @@ export default function SignInPage() {
       if (result?.error) {
         const errorMessages = {
           CredentialsSignin: "Incorrect email or password. Try again.",
-          AccessDenied: "You don't have permission to sign in.",
+          AccessDenied: ACCESS_DENIED_MESSAGE,
           Configuration: "There is a problem with the server configuration.",
         };
         setError(
@@ -86,7 +96,7 @@ export default function SignInPage() {
       console.error("Sign in error:", err);
       const errorMessages = {
         CredentialsSignin: "Incorrect email or password. Try again.",
-        AccessDenied: "You don't have permission to sign in.",
+        AccessDenied: ACCESS_DENIED_MESSAGE,
         Configuration: "There is a problem with the server configuration.",
       };
       setError(
@@ -147,6 +157,9 @@ export default function SignInPage() {
           >
             MGO-GPT
           </h1>
+          <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "8px" }}>
+            Access is limited to Jacksonville University email addresses.
+          </p>
         </div>
 
         {message && (

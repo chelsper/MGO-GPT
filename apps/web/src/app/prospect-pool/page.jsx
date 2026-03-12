@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 function formatDate(value) {
   if (!value) return "Unknown";
@@ -74,7 +75,7 @@ export default function ProspectPoolPage() {
         const user = profileData.user;
 
         const requests = [fetch("/api/prospect-pool")];
-        if (user?.role === "reviewer") {
+        if (isReviewerRole(user?.role)) {
           requests.push(fetch("/api/users/mgos"));
         }
 
@@ -87,7 +88,7 @@ export default function ProspectPoolPage() {
         const poolData = await poolResponse.json();
 
         let mgoData = [];
-        if (user?.role === "reviewer" && responses[1]) {
+        if (isReviewerRole(user?.role) && responses[1]) {
           if (!responses[1].ok) {
             const payload = await responses[1].json().catch(() => null);
             throw new Error(payload?.error || "Failed to load MGO accounts");
@@ -125,7 +126,7 @@ export default function ProspectPoolPage() {
     };
   }, [sessionUser]);
 
-  const isReviewer = profile?.role === "reviewer";
+  const isReviewer = isReviewerRole(profile?.role);
 
   const summary = useMemo(() => {
     return entries.reduce(

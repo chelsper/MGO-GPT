@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const VALID_STATUSES = ["Pending", "Needs Clarification", "Ready for CRM", "Approved"];
 const VALID_PRIORITIES = [1, 2, 3];
@@ -16,7 +17,7 @@ export async function POST(request) {
     }
 
     const reviewer = await getOrCreateUser(session, "reviewer");
-    if (reviewer.role !== "reviewer") {
+    if (!isReviewerRole(reviewer.role)) {
       return Response.json(
         { error: "Forbidden — reviewers only" },
         { status: 403 },

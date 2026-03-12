@@ -1,6 +1,7 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 export async function GET(request) {
   try {
@@ -16,7 +17,7 @@ export async function GET(request) {
       SELECT id, role FROM users WHERE email = ${session.user.email} LIMIT 1
     `;
 
-    if (userResult.length === 0 || userResult[0].role !== "reviewer") {
+    if (userResult.length === 0 || !isReviewerRole(userResult[0].role)) {
       return Response.json(
         { error: "Forbidden — reviewers only" },
         { status: 403 },

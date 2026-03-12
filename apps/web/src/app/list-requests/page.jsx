@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const REQUEST_STATUSES = [
   "Pending",
@@ -72,7 +73,7 @@ export default function ListRequestsQueuePage() {
           throw new Error("Failed to load profile");
         }
         const profileData = await profileResponse.json();
-        if (profileData?.user?.role !== "reviewer") {
+        if (!isReviewerRole(profileData?.user?.role)) {
           window.location.href = "/";
           return;
         }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useUser from "@/utils/useUser";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -93,6 +94,7 @@ export default function SubmissionsPage() {
   const [clarificationDrafts, setClarificationDrafts] = useState({});
   const [listRequestDrafts, setListRequestDrafts] = useState({});
   const [expandedSubmissionGroups, setExpandedSubmissionGroups] = useState({});
+  const isReviewer = isReviewerRole(profile?.role);
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
@@ -147,10 +149,9 @@ export default function SubmissionsPage() {
       setSubmissionsLoading(true);
       setError("");
       try {
-        const endpoint =
-          profile.role === "reviewer"
-            ? "/api/submissions/all"
-            : "/api/submissions/my-submissions";
+        const endpoint = isReviewer
+          ? "/api/submissions/all"
+          : "/api/submissions/my-submissions";
         const response = await fetch(endpoint);
         if (!response.ok) {
           throw new Error("Failed to load submissions");
@@ -186,10 +187,9 @@ export default function SubmissionsPage() {
       setListRequestsLoading(true);
       setError("");
       try {
-        const endpoint =
-          profile.role === "reviewer"
-            ? "/api/list-requests/all"
-            : "/api/list-requests/my-requests";
+        const endpoint = isReviewer
+          ? "/api/list-requests/all"
+          : "/api/list-requests/my-requests";
         const response = await fetch(endpoint);
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
@@ -218,7 +218,7 @@ export default function SubmissionsPage() {
   }, [profile]);
 
   const heading = useMemo(() => {
-    if (profile?.role === "reviewer") {
+    if (isReviewer) {
       return {
         title: "Advancement Services Queue",
         subtitle: "Review incoming submissions and move them toward CRM completion.",
@@ -232,7 +232,7 @@ export default function SubmissionsPage() {
   }, [profile]);
 
   const reviewerCounts = useMemo(() => {
-    if (profile?.role !== "reviewer") return {};
+    if (!isReviewer) return {};
 
     return submissions.reduce((counts, submission) => {
       const key = submission.status || "Pending";
@@ -243,7 +243,7 @@ export default function SubmissionsPage() {
   }, [profile, submissions]);
 
   const reviewerListRequestCounts = useMemo(() => {
-    if (profile?.role !== "reviewer") return {};
+    if (!isReviewer) return {};
 
     return listRequests.reduce((counts, request) => {
       const key = request.status || "Pending";
@@ -256,7 +256,7 @@ export default function SubmissionsPage() {
   const visibleSubmissionGroups = useMemo(() => {
     let next = [...submissions];
 
-    if (profile?.role === "reviewer" && reviewFilter !== "All") {
+    if (isReviewer && reviewFilter !== "All") {
       next = next.filter((submission) => (submission.status || "Pending") === reviewFilter);
     }
 
@@ -305,19 +305,19 @@ export default function SubmissionsPage() {
   const visibleListRequests = useMemo(() => {
     let next = [...listRequests];
 
-    if (profile?.role === "reviewer" && listRequestFilter !== "All") {
+    if (isReviewer && listRequestFilter !== "All") {
       next = next.filter((request) => (request.status || "Pending") === listRequestFilter);
     }
 
     return next.sort((a, b) => {
-      if (profile?.role === "reviewer" && a.queue_priority !== b.queue_priority) {
+      if (isReviewer && a.queue_priority !== b.queue_priority) {
         return a.queue_priority - b.queue_priority;
       }
       const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
       const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
       return bDate - aDate;
     });
-  }, [listRequests, listRequestFilter, profile]);
+  }, [isReviewer, listRequests, listRequestFilter]);
 
   function setReviewDraft(id, updates) {
     setReviewDrafts((current) => ({
@@ -648,7 +648,7 @@ export default function SubmissionsPage() {
             })}
           </div>
 
-          {profile?.role === "reviewer" && activeTab === "submissions" ? (
+          {isReviewer && activeTab === "submissions" ? (
             <div
               style={{
                 display: "flex",
@@ -732,7 +732,7 @@ export default function SubmissionsPage() {
             </div>
           ) : null}
 
-          {profile?.role === "reviewer" && activeTab === "listRequests" ? (
+          {isReviewer && activeTab === "listRequests" ? (
             <div
               style={{
                 display: "flex",
@@ -823,7 +823,7 @@ export default function SubmissionsPage() {
             </div>
           ) : visibleSubmissionGroups.length === 0 ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
-              {profile?.role === "reviewer"
+              {isReviewer
                 ? "No submissions match the current filter."
                 : "No submissions yet."}
             </div>
@@ -831,7 +831,7 @@ export default function SubmissionsPage() {
             <div style={{ display: "grid", gap: "12px" }}>
               {visibleSubmissionGroups.map((group) => {
                 const isCollapsible =
-                  profile?.role !== "reviewer" &&
+                  !isReviewer &&
                   group.constituentId &&
                   group.submissions.length > 1;
                 const isExpanded = isCollapsible
@@ -976,7 +976,7 @@ export default function SubmissionsPage() {
                                 </div>
                               </div>
 
-                              {profile?.role === "reviewer" ? (
+                              {isReviewer ? (
                                 <div style={{ minWidth: "220px" }}>
                                   <label
                                     style={{
@@ -1285,7 +1285,7 @@ export default function SubmissionsPage() {
             </div>
           ) : visibleListRequests.length === 0 ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
-              {profile?.role === "reviewer"
+              {isReviewer
                 ? "No list requests match the current filter."
                 : "No list requests yet."}
             </div>
@@ -1336,7 +1336,7 @@ export default function SubmissionsPage() {
                           >
                             {request.status}
                           </span>
-                          {profile?.role === "reviewer" ? (
+                          {isReviewer ? (
                             <span
                               style={{
                                 backgroundColor: "#F3F4F6",
@@ -1356,7 +1356,7 @@ export default function SubmissionsPage() {
                         </div>
                       </div>
 
-                      {profile?.role === "reviewer" ? (
+                      {isReviewer ? (
                         <div style={{ minWidth: "240px" }}>
                           <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
                             Review status

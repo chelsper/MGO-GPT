@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 export async function GET() {
   try {
@@ -13,7 +14,7 @@ export async function GET() {
     }
 
     const currentUser = await getOrCreateUser(session, "reviewer");
-    if (currentUser.role !== "reviewer") {
+    if (!isReviewerRole(currentUser.role)) {
       return Response.json(
         { error: "Forbidden — reviewers only" },
         { status: 403 },

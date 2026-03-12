@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import knowledgeBase from "./data/knowledge-base-complete.json";
+import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const baseCategories = Array.isArray(knowledgeBase?.categories)
   ? knowledgeBase.categories
@@ -67,7 +68,7 @@ export async function PATCH(request) {
       LIMIT 1
     `;
 
-    if (reviewer.length === 0 || reviewer[0].role !== "reviewer") {
+    if (reviewer.length === 0 || !isReviewerRole(reviewer[0].role)) {
       return Response.json(
         { error: "Forbidden — reviewers only" },
         { status: 403 },
