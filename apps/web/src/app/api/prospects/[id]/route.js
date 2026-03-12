@@ -73,7 +73,12 @@ export async function GET(request, { params }) {
   } catch (error) {
     console.error("Error fetching prospect:", error);
     return Response.json(
-      { error: "Failed to fetch prospect" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch prospect",
+      },
       { status: 500 },
     );
   }
