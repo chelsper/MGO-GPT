@@ -584,6 +584,81 @@ export default function Page() {
               : "Capture field updates, request support, and track your work with Advancement Services."}
         </p>
 
+        {isAdmin ? (
+          <div
+            style={{
+              marginBottom: "18px",
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              borderRadius: "16px",
+              padding: "16px 18px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "16px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                Workspace view
+              </div>
+              <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>
+                You are currently in {isReviewer ? "Advancement Services" : "MGO"} view.
+              </div>
+              <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                Switch views to work the shared reviewer queues or the MGO workflow without changing your admin role.
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "inline-flex",
+                border: "1px solid #E5E7EB",
+                borderRadius: "999px",
+                padding: "4px",
+                gap: "4px",
+                backgroundColor: "#F9FAFB",
+              }}
+            >
+              {[
+                { value: "reviewer", label: "Advancement Services" },
+                { value: "mgo", label: "MGO" },
+              ].map((option) => {
+                const active = adminViewMode === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setViewMode(option.value)}
+                    style={{
+                      border: "none",
+                      borderRadius: "999px",
+                      padding: "8px 12px",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      color: active ? "white" : "#4B5563",
+                      backgroundColor: active ? "#6A5BFF" : "transparent",
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div
           style={{
             marginBottom: "18px",
