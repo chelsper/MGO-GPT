@@ -16,6 +16,11 @@ const MGO_ACTIONS = [
     description: "View your priority donor portfolio.",
   },
   {
+    title: "My Prospect Pool",
+    href: "/prospect-pool",
+    description: "See new names assigned to you and request missing contact details.",
+  },
+  {
     title: "Log Donor Updates",
     href: "/log-donor-update",
     description: "Capture donor interactions with live dictation.",
@@ -54,6 +59,11 @@ const REVIEWER_ACTIONS = [
     description: "Prioritize DevData requests in one shared Advancement Services queue.",
   },
   {
+    title: "Prospect Pool",
+    href: "/prospect-pool",
+    description: "Assign new prospects to MGOs and track contact info requests.",
+  },
+  {
     title: "Edit Knowledge Base",
     href: "/knowledge-base/manage",
     description: "Update standards, examples, and guidance for the team.",
@@ -68,6 +78,7 @@ const REVIEWER_ACTIONS = [
 const MGO_NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "My Top Prospects", href: "/my-top-prospects" },
+  { label: "My Prospect Pool", href: "/prospect-pool" },
   { label: "Submissions", href: "/submissions" },
   { label: "Log Donor Update", href: "/log-donor-update" },
   { label: "Update Opportunity", href: "/update-opportunity" },
@@ -79,6 +90,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "Review Queue", href: "/submissions" },
   { label: "List Requests", href: "/list-requests" },
+  { label: "Prospect Pool", href: "/prospect-pool" },
   { label: "Knowledge Base", href: "/knowledge-base" },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage" },
 ];

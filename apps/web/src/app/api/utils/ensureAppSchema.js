@@ -164,6 +164,80 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS prospect_pool (
+        id BIGSERIAL PRIMARY KEY,
+        assigned_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        prospect_name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL,
+        note TEXT,
+        email TEXT,
+        phone TEXT,
+        needs_contact_info BOOLEAN NOT NULL DEFAULT FALSE,
+        contact_info_request_note TEXT,
+        solicitor_requested BOOLEAN NOT NULL DEFAULT FALSE,
+        solicitor_requested_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS assigned_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS prospect_name TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS normalized_name TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS note TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS email TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS phone TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS needs_contact_info BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS contact_info_request_note TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS solicitor_requested BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS solicitor_requested_at TIMESTAMPTZ
+    `;
+    await sql`
+      UPDATE prospect_pool
+      SET normalized_name = LOWER(TRIM(COALESCE(prospect_name, '')))
+      WHERE normalized_name IS NULL OR normalized_name = ''
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS prospects (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
