@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
+import { saveProspectOpportunity } from "@/app/api/utils/prospectOpportunities";
 
 export async function POST(request) {
   try {
@@ -22,6 +23,10 @@ export async function POST(request) {
       attachments,
       constituentId,
       createNewConstituent,
+      linkedProspectId,
+      linkedOpportunityId,
+      createNewOpportunity,
+      opportunityTitle,
     } = body;
 
     if (!donorName) {
@@ -42,6 +47,8 @@ export async function POST(request) {
       INSERT INTO submissions (
         user_id,
         constituent_id,
+        prospect_id,
+        prospect_opportunity_id,
         officer_name,
         submission_type,
         donor_name,
@@ -53,6 +60,8 @@ export async function POST(request) {
       ) VALUES (
         ${user.id},
         ${constituent?.id || null},
+        ${linkedProspectId || null},
+        ${null},
         ${user.name},
         'opportunity_update',
         ${donorName},
@@ -65,12 +74,43 @@ export async function POST(request) {
       RETURNING *
     `;
 
+    let savedSubmission = result[0];
+
+    if (
+      linkedProspectId &&
+      (createNewOpportunity || linkedOpportunityId)
+    ) {
+      const linkedOpportunity = await saveProspectOpportunity({
+        userId: user.id,
+        prospectId: linkedProspectId,
+        constituentId: constituent?.id || null,
+        opportunityId: createNewOpportunity ? null : linkedOpportunityId,
+        title: opportunityTitle,
+        currentStage: opportunityStage,
+        estimatedAmount: estimatedAmount ?? null,
+        latestNotes: notes || null,
+        submissionId: savedSubmission.id,
+      });
+
+      const updatedSubmission = await sql`
+        UPDATE submissions
+        SET
+          prospect_id = ${linkedOpportunity.prospectId},
+          prospect_opportunity_id = ${linkedOpportunity.opportunity?.id || null},
+          updated_at = NOW()
+        WHERE id = ${savedSubmission.id}
+        RETURNING *
+      `;
+
+      savedSubmission = updatedSubmission[0] || savedSubmission;
+    }
+
     // Send email notification to advancement services (non-blocking)
-    sendSubmissionEmail(result[0], "opportunity_update").catch((err) =>
+    sendSubmissionEmail(savedSubmission, "opportunity_update").catch((err) =>
       console.error("Email notification failed:", err),
     );
 
-    return Response.json(result[0], { status: 201 });
+    return Response.json(savedSubmission, { status: 201 });
   } catch (error) {
     console.error("Error creating opportunity update:", error);
     return Response.json(

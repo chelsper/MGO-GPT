@@ -33,6 +33,10 @@ export default function UpdateOpportunityPage() {
   const [success, setSuccess] = useState(false);
   const [constituentMatches, setConstituentMatches] = useState([]);
   const [matchDecision, setMatchDecision] = useState("");
+  const [linkedProspectContext, setLinkedProspectContext] = useState(null);
+  const [opportunityLinkMode, setOpportunityLinkMode] = useState("create");
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
+  const [newOpportunityTitle, setNewOpportunityTitle] = useState("");
   const [prospectPrompt, setProspectPrompt] = useState(null);
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
@@ -71,6 +75,67 @@ export default function UpdateOpportunityPage() {
     (item) => item.normalized_name === normalizeName(donorName),
   );
 
+  useEffect(() => {
+    if (!exactMatch || matchDecision === "new") {
+      setLinkedProspectContext(null);
+      setOpportunityLinkMode("create");
+      setSelectedOpportunityId("");
+      setNewOpportunityTitle("");
+      return;
+    }
+
+    let active = true;
+
+    const loadContext = async () => {
+      try {
+        const params = new URLSearchParams();
+        if (exactMatch.id) {
+          params.set("constituentId", String(exactMatch.id));
+        }
+        params.set("name", donorName.trim());
+
+        const response = await fetch(
+          `/api/prospects/opportunity-context?${params.toString()}`,
+        );
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        if (!active) return;
+
+        const opportunities = Array.isArray(data?.opportunities)
+          ? data.opportunities
+          : [];
+
+        setLinkedProspectContext(data?.prospect ? data : null);
+        if (data?.prospect) {
+          if (opportunities.length > 0) {
+            setOpportunityLinkMode("update");
+            setSelectedOpportunityId(String(opportunities[0].id));
+            setNewOpportunityTitle("");
+          } else {
+            setOpportunityLinkMode("create");
+            setSelectedOpportunityId("");
+            setNewOpportunityTitle(`${donorName.trim()} opportunity`);
+          }
+        } else {
+          setOpportunityLinkMode("create");
+          setSelectedOpportunityId("");
+          setNewOpportunityTitle("");
+        }
+      } catch (contextError) {
+        console.error("Linked opportunity lookup error:", contextError);
+      }
+    };
+
+    loadContext();
+
+    return () => {
+      active = false;
+    };
+  }, [exactMatch, donorName, matchDecision]);
+
   const submitMutation = useMutation({
     mutationFn: async (data) => {
       const res = await fetch("/api/submissions/opportunity-update", {
@@ -99,6 +164,10 @@ export default function UpdateOpportunityPage() {
       setNotes("");
       setConstituentMatches([]);
       setMatchDecision("");
+      setLinkedProspectContext(null);
+      setOpportunityLinkMode("create");
+      setSelectedOpportunityId("");
+      setNewOpportunityTitle("");
 
       try {
         const response = await fetch("/api/prospects");
@@ -116,7 +185,7 @@ export default function UpdateOpportunityPage() {
         });
 
         setProspectPrompt(
-          alreadyTracked
+          alreadyTracked || data?.prospect_id
             ? null
             : {
                 prospectName: submittedName,
@@ -188,6 +257,18 @@ export default function UpdateOpportunityPage() {
       opportunityStage,
       estimatedAmount: estimatedAmount ? parseFloat(estimatedAmount) : null,
       notes,
+      linkedProspectId: linkedProspectContext?.prospect?.id || null,
+      linkedOpportunityId:
+        linkedProspectContext?.prospect && opportunityLinkMode === "update"
+          ? Number(selectedOpportunityId) || null
+          : null,
+      createNewOpportunity:
+        Boolean(linkedProspectContext?.prospect) &&
+        opportunityLinkMode === "create",
+      opportunityTitle:
+        linkedProspectContext?.prospect && opportunityLinkMode === "create"
+          ? newOpportunityTitle.trim()
+          : null,
     });
   };
 
@@ -499,6 +580,192 @@ export default function UpdateOpportunityPage() {
                     Treat as new person
                   </button>
                 </div>
+              </div>
+            ) : null}
+
+            {linkedProspectContext?.prospect ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "14px",
+                  borderRadius: "10px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#1D4ED8",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Linked top prospect found
+                </div>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#1F2937",
+                    lineHeight: 1.5,
+                    marginBottom: "10px",
+                  }}
+                >
+                  This update is tied to <strong>{linkedProspectContext.prospect.prospect_name}</strong> in My Top
+                  Prospects. We can either update an existing linked opportunity or create a new one and roll it into
+                  the total ask pipeline automatically.
+                </div>
+
+                {linkedProspectContext.opportunities?.length > 0 ? (
+                  <>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                        marginBottom: "10px",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setOpportunityLinkMode("update")}
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: "999px",
+                          border:
+                            opportunityLinkMode === "update"
+                              ? "2px solid #2563EB"
+                              : "1px solid #93C5FD",
+                          backgroundColor:
+                            opportunityLinkMode === "update" ? "#DBEAFE" : "white",
+                          color: "#1D4ED8",
+                          fontSize: "13px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Update existing opportunity
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOpportunityLinkMode("create")}
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: "999px",
+                          border:
+                            opportunityLinkMode === "create"
+                              ? "2px solid #2563EB"
+                              : "1px solid #93C5FD",
+                          backgroundColor:
+                            opportunityLinkMode === "create" ? "#DBEAFE" : "white",
+                          color: "#1D4ED8",
+                          fontSize: "13px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Create new linked opportunity
+                      </button>
+                    </div>
+
+                    {opportunityLinkMode === "update" ? (
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            color: "#1D4ED8",
+                            marginBottom: "6px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          Existing opportunity
+                        </label>
+                        <select
+                          value={selectedOpportunityId}
+                          onChange={(e) => setSelectedOpportunityId(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 14px",
+                            border: "1px solid #BFDBFE",
+                            borderRadius: "8px",
+                            fontSize: "14px",
+                            boxSizing: "border-box",
+                            backgroundColor: "white",
+                          }}
+                        >
+                          {linkedProspectContext.opportunities.map((opportunity) => (
+                            <option key={opportunity.id} value={opportunity.id}>
+                              {opportunity.title} | {opportunity.current_stage}
+                              {opportunity.estimated_amount
+                                ? ` | $${Number(opportunity.estimated_amount).toLocaleString()}`
+                                : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            color: "#1D4ED8",
+                            marginBottom: "6px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          New opportunity title
+                        </label>
+                        <input
+                          type="text"
+                          value={newOpportunityTitle}
+                          onChange={(e) => setNewOpportunityTitle(e.target.value)}
+                          placeholder="e.g. Endowed scholarship ask"
+                          style={{
+                            width: "100%",
+                            padding: "10px 14px",
+                            border: "1px solid #BFDBFE",
+                            borderRadius: "8px",
+                            fontSize: "14px",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      color: "#1F2937",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    No linked opportunities exist yet. This submission will create a new linked opportunity under this
+                    prospect.
+                    <div style={{ marginTop: "10px" }}>
+                      <input
+                        type="text"
+                        value={newOpportunityTitle}
+                        onChange={(e) => setNewOpportunityTitle(e.target.value)}
+                        placeholder="Opportunity title"
+                        style={{
+                          width: "100%",
+                          padding: "10px 14px",
+                          border: "1px solid #BFDBFE",
+                          borderRadius: "8px",
+                          fontSize: "14px",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>

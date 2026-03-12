@@ -660,6 +660,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
 
   const prospect = data?.prospect;
   const updates = data?.updates || [];
+  const opportunities = data?.opportunities || [];
 
   if (isLoading || !prospect) {
     return (
@@ -886,6 +887,16 @@ function ProspectDetailModal({ prospectId, onClose }) {
                 </div>
               </div>
               <div style={{ marginTop: "14px" }}>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#6B7280",
+                    marginBottom: "10px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  If this prospect has linked opportunities, the ask amount will auto-sync from that pipeline.
+                </div>
                 <label
                   style={{
                     display: "block",
@@ -1307,6 +1318,101 @@ function ProspectDetailModal({ prospectId, onClose }) {
           )}
 
           {/* Progress Log */}
+          <div style={{ marginBottom: "24px" }}>
+            <h3
+              style={{
+                fontSize: "15px",
+                fontWeight: "700",
+                color: "#111827",
+                margin: "0 0 12px 0",
+              }}
+            >
+              Linked Opportunities
+            </h3>
+            {opportunities.length === 0 ? (
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "#9CA3AF",
+                  fontStyle: "italic",
+                }}
+              >
+                No linked opportunities yet. New opportunity updates for this prospect will appear here and roll into
+                the total ask pipeline.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {opportunities.map((opportunity) => (
+                  <div
+                    key={opportunity.id}
+                    style={{
+                      padding: "14px",
+                      backgroundColor: "#EFF6FF",
+                      borderRadius: "10px",
+                      border: "1px solid #BFDBFE",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "12px",
+                        marginBottom: "6px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: "700",
+                            color: "#1E3A8A",
+                            marginBottom: "2px",
+                          }}
+                        >
+                          {opportunity.title}
+                        </div>
+                        <div style={{ fontSize: "12px", color: "#1D4ED8" }}>
+                          {opportunity.current_stage}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: "700",
+                          color: "#111827",
+                        }}
+                      >
+                        {formatCurrency(opportunity.estimated_amount)}
+                      </div>
+                    </div>
+                    {opportunity.latest_notes ? (
+                      <p
+                        style={{
+                          fontSize: "13px",
+                          color: "#374151",
+                          lineHeight: 1.5,
+                          margin: "0 0 6px 0",
+                        }}
+                      >
+                        {opportunity.latest_notes}
+                      </p>
+                    ) : null}
+                    <div style={{ fontSize: "12px", color: "#6B7280" }}>
+                      Last updated{" "}
+                      {new Date(opportunity.updated_at).toLocaleDateString("en-US", {
+                        month: "long",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div>
             <h3
               style={{

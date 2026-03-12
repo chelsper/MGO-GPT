@@ -188,6 +188,75 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS prospect_opportunities (
+        id BIGSERIAL PRIMARY KEY,
+        prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        current_stage TEXT NOT NULL,
+        estimated_amount NUMERIC,
+        latest_notes TEXT,
+        last_submission_id BIGINT REFERENCES submissions(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS title TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS current_stage TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS estimated_amount NUMERIC
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS latest_notes TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS last_submission_id BIGINT REFERENCES submissions(id) ON DELETE SET NULL
+    `;
+
+    await sql`
+      UPDATE prospect_opportunities
+      SET title = COALESCE(NULLIF(title, ''), 'Untitled opportunity')
+      WHERE title IS NULL OR title = ''
+    `;
+    await sql`
+      UPDATE prospect_opportunities
+      SET current_stage = COALESCE(NULLIF(current_stage, ''), 'Identification')
+      WHERE current_stage IS NULL OR current_stage = ''
+    `;
+
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ALTER COLUMN title SET NOT NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ALTER COLUMN current_stage SET NOT NULL
+    `;
+
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS prospect_id BIGINT REFERENCES prospects(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS prospect_opportunity_id BIGINT REFERENCES prospect_opportunities(id) ON DELETE SET NULL
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS prospect_updates (
         id BIGSERIAL PRIMARY KEY,
         prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,

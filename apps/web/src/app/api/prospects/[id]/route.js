@@ -1,6 +1,7 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities";
 
 async function getUser(session) {
   const email = session.user.email;
@@ -42,7 +43,9 @@ export async function GET(request, { params }) {
       ORDER BY update_date DESC, created_at DESC
     `;
 
-    return Response.json({ prospect: prospects[0], updates });
+    const opportunities = await getProspectOpportunities(prospectId);
+
+    return Response.json({ prospect: prospects[0], updates, opportunities });
   } catch (error) {
     console.error("Error fetching prospect:", error);
     return Response.json(
