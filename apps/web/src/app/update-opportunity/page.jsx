@@ -88,41 +88,53 @@ export default function UpdateOpportunityPage() {
 
     const loadContext = async () => {
       try {
-        const params = new URLSearchParams();
-        if (exactMatch.id) {
-          params.set("constituentId", String(exactMatch.id));
-        }
-        params.set("name", donorName.trim());
-
-        const response = await fetch(
-          `/api/prospects/opportunity-context?${params.toString()}`,
-        );
-        if (!response.ok) {
+        const prospectsResponse = await fetch("/api/prospects");
+        if (!prospectsResponse.ok) {
           return;
         }
 
-        const data = await response.json();
+        const prospects = await prospectsResponse.json();
         if (!active) return;
 
-        const opportunities = Array.isArray(data?.opportunities)
-          ? data.opportunities
-          : [];
+        const normalizedDonorName = normalizeName(donorName);
+        const matchedProspect = Array.isArray(prospects)
+          ? prospects.find((prospect) => {
+              if (exactMatch.id && prospect.constituent_id) {
+                return Number(prospect.constituent_id) === Number(exactMatch.id);
+              }
+              return normalizeName(prospect.prospect_name) === normalizedDonorName;
+            })
+          : null;
 
-        setLinkedProspectContext(data?.prospect ? data : null);
-        if (data?.prospect) {
-          if (opportunities.length > 0) {
-            setOpportunityLinkMode("update");
-            setSelectedOpportunityId(String(opportunities[0].id));
-            setNewOpportunityTitle("");
-          } else {
-            setOpportunityLinkMode("create");
-            setSelectedOpportunityId("");
-            setNewOpportunityTitle(`${donorName.trim()} opportunity`);
-          }
-        } else {
+        if (!matchedProspect) {
+          setLinkedProspectContext(null);
           setOpportunityLinkMode("create");
           setSelectedOpportunityId("");
           setNewOpportunityTitle("");
+          return;
+        }
+
+        const detailResponse = await fetch(`/api/prospects/${matchedProspect.id}`);
+        if (!detailResponse.ok) {
+          return;
+        }
+
+        const detail = await detailResponse.json();
+        if (!active) return;
+
+        const opportunities = Array.isArray(detail?.opportunities)
+          ? detail.opportunities
+          : [];
+
+        setLinkedProspectContext(detail?.prospect ? detail : null);
+        if (opportunities.length > 0) {
+          setOpportunityLinkMode("update");
+          setSelectedOpportunityId(String(opportunities[0].id));
+          setNewOpportunityTitle("");
+        } else {
+          setOpportunityLinkMode("create");
+          setSelectedOpportunityId("");
+          setNewOpportunityTitle(`${donorName.trim()} opportunity`);
         }
       } catch (contextError) {
         console.error("Linked opportunity lookup error:", contextError);
