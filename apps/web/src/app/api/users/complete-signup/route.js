@@ -9,15 +9,17 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { name, email, role } = body;
+    const { name, email } = body;
+    const userRole = "mgo";
+    const userEmail = session.user.email;
 
-    // Validate role
-    const validRoles = ["mgo", "reviewer"];
-    const userRole = role && validRoles.includes(role) ? role : "mgo";
+    if (email && email !== userEmail) {
+      return Response.json({ error: "Email mismatch" }, { status: 400 });
+    }
 
     // Check if user already exists in users table
     const existing = await sql`
-      SELECT id FROM users WHERE email = ${email}
+      SELECT id FROM users WHERE email = ${userEmail}
     `;
 
     if (existing.length > 0) {
@@ -27,7 +29,7 @@ export async function POST(request) {
     // Create user in users table
     const result = await sql`
       INSERT INTO users (name, email, role, created_at)
-      VALUES (${name}, ${email}, ${userRole}, NOW())
+      VALUES (${name}, ${userEmail}, ${userRole}, NOW())
       RETURNING id, name, email, role
     `;
 

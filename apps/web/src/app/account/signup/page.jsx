@@ -8,7 +8,6 @@ export default function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState("mgo");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const callbackUrl = "/";
@@ -45,9 +44,6 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      // Store role in localStorage to be used after signup
-      localStorage.setItem("pendingRole", role);
-
       const result = await signUpWithCredentials({
         email,
         password,
@@ -222,110 +218,33 @@ export default function SignUpPage() {
             </p>
           </div>
 
-          <div style={{ marginBottom: "24px" }}>
-            <label
+          <div
+            style={{
+              marginBottom: "24px",
+              padding: "12px",
+              borderRadius: "8px",
+              backgroundColor: "#F9FAFB",
+              border: "1px solid #E5E7EB",
+            }}
+          >
+            <div
               style={{
-                display: "block",
                 fontSize: "14px",
-                fontWeight: "500",
-                marginBottom: "12px",
-                color: "#374151",
+                fontWeight: "600",
+                color: "#111827",
+                marginBottom: "4px",
               }}
             >
-              I am a...
-            </label>
+              New accounts are created as Major Gift Officer (MGO)
+            </div>
             <div
-              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+              style={{
+                fontSize: "13px",
+                color: "#6B7280",
+                lineHeight: 1.5,
+              }}
             >
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "12px",
-                  border: `2px solid ${role === "mgo" ? "#6A5BFF" : "#d1d5db"}`,
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  backgroundColor: role === "mgo" ? "#f5f3ff" : "white",
-                }}
-              >
-                <input
-                  type="radio"
-                  value="mgo"
-                  checked={role === "mgo"}
-                  onChange={(e) => setRole(e.target.value)}
-                  style={{
-                    marginRight: "12px",
-                    width: "18px",
-                    height: "18px",
-                    cursor: "pointer",
-                  }}
-                />
-                <div>
-                  <div
-                    style={{
-                      fontSize: "15px",
-                      fontWeight: "600",
-                      color: "#111827",
-                    }}
-                  >
-                    Major Gift Officer (MGO)
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      color: "#6b7280",
-                      marginTop: "2px",
-                    }}
-                  >
-                    Submit donor updates and track submissions
-                  </div>
-                </div>
-              </label>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "12px",
-                  border: `2px solid ${role === "reviewer" ? "#6A5BFF" : "#d1d5db"}`,
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  backgroundColor: role === "reviewer" ? "#f5f3ff" : "white",
-                }}
-              >
-                <input
-                  type="radio"
-                  value="reviewer"
-                  checked={role === "reviewer"}
-                  onChange={(e) => setRole(e.target.value)}
-                  style={{
-                    marginRight: "12px",
-                    width: "18px",
-                    height: "18px",
-                    cursor: "pointer",
-                  }}
-                />
-                <div>
-                  <div
-                    style={{
-                      fontSize: "15px",
-                      fontWeight: "600",
-                      color: "#111827",
-                    }}
-                  >
-                    Advancement Services Reviewer
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      color: "#6b7280",
-                      marginTop: "2px",
-                    }}
-                  >
-                    Review and approve submissions for CRM
-                  </div>
-                </div>
-              </label>
+              Advancement Services reviewer access is assigned separately by an administrator.
             </div>
           </div>
 

@@ -15,16 +15,12 @@ export default function CompleteSignupPage() {
       setCompleting(true);
 
       try {
-        const pendingRole = localStorage.getItem("pendingRole") || "mgo";
-
-        // Create user in the users table with role
         const response = await fetch("/api/users/complete-signup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: user.name,
             email: user.email,
-            role: pendingRole,
           }),
         });
 
@@ -33,8 +29,6 @@ export default function CompleteSignupPage() {
         }
 
         // Clear pending data
-        localStorage.removeItem("pendingRole");
-
         // Redirect to home
         window.location.href = "/";
       } catch (err) {

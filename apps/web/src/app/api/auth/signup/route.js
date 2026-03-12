@@ -3,7 +3,7 @@ import sql from "@/app/api/utils/sql";
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { email, password, name, role } = body;
+    const { email, password, name } = body;
 
     if (!email || !password || !name) {
       return Response.json(
@@ -32,9 +32,7 @@ export async function POST(request) {
       );
     }
 
-    // Validate role
-    const validRoles = ["mgo", "reviewer"];
-    const userRole = role && validRoles.includes(role) ? role : "mgo";
+    const userRole = "mgo";
 
     // Check if user already exists
     const existingUser = await sql`
