@@ -2462,6 +2462,10 @@ export default function MyTopProspectsPage() {
   const queryClient = useQueryClient();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProspectId, setSelectedProspectId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [fyFilter, setFyFilter] = useState("all");
+  const [actionFilter, setActionFilter] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const { data: prospects = [], isLoading } = useQuery({
     queryKey: ["prospects"],
@@ -2538,6 +2542,36 @@ export default function MyTopProspectsPage() {
   const closedDeclined = prospects.filter(
     (p) => p.status === "Closed – Declined",
   );
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const filteredActiveProspects = activeProspects.filter((prospect) => {
+    const nextAction = getProspectNextAction(prospect);
+    const matchesSearch =
+      !normalizedSearch ||
+      prospect.prospect_name?.toLowerCase().includes(normalizedSearch) ||
+      prospect.ask_type?.toLowerCase().includes(normalizedSearch) ||
+      prospect.next_action_text?.toLowerCase().includes(normalizedSearch);
+
+    const matchesStatus =
+      statusFilter === "all" || prospect.status === statusFilter;
+    const matchesFY =
+      fyFilter === "all" || prospect.expected_close_fy === fyFilter;
+    const matchesAction =
+      actionFilter === "all" ||
+      (actionFilter === "clarification" &&
+        prospect.latest_submission_status === "Needs Clarification") ||
+      (actionFilter === "due" &&
+        Boolean(
+          prospect.next_action_text &&
+            !prospect.next_action_completed_at &&
+            prospect.next_action_due_date,
+        )) ||
+      (actionFilter === "follow-up" &&
+        nextAction.label === "Needs follow-up") ||
+      (actionFilter === "no-opportunity" &&
+        (prospect.active_opportunity_count || 0) === 0);
+
+    return matchesSearch && matchesStatus && matchesFY && matchesAction;
+  });
 
   return (
     <div
@@ -2751,6 +2785,136 @@ export default function MyTopProspectsPage() {
           </div>
         )}
 
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "14px",
+            border: "1px solid #E5E7EB",
+            padding: "16px",
+            marginBottom: "20px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              marginBottom: "12px",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  fontSize: "15px",
+                  fontWeight: "700",
+                  color: "#111827",
+                  margin: "0 0 4px 0",
+                }}
+              >
+                Filter Top Prospects
+              </h2>
+              <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
+                Promote or demote prospects with the arrow controls on each card to
+                keep your ranked list current.
+              </p>
+            </div>
+            <div
+              style={{
+                padding: "8px 10px",
+                borderRadius: "10px",
+                backgroundColor: "#F9FAFB",
+                border: "1px solid #E5E7EB",
+                fontSize: "12px",
+                color: "#4B5563",
+                fontWeight: "600",
+              }}
+            >
+              Showing {filteredActiveProspects.length} of {activeProspects.length} active prospects
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "2fr repeat(3, minmax(140px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by prospect, ask type, or next action"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "10px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+              }}
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "10px",
+                fontSize: "14px",
+                backgroundColor: "white",
+                boxSizing: "border-box",
+              }}
+            >
+              <option value="all">All statuses</option>
+              <option value="Active">Active</option>
+              <option value="Closed – Gift Secured">Closed – Gift Secured</option>
+              <option value="Closed – Declined">Closed – Declined</option>
+            </select>
+            <select
+              value={fyFilter}
+              onChange={(e) => setFyFilter(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "10px",
+                fontSize: "14px",
+                backgroundColor: "white",
+                boxSizing: "border-box",
+              }}
+            >
+              <option value="all">All fiscal years</option>
+              {FY_OPTIONS.map((fy) => (
+                <option key={fy} value={fy}>
+                  {fy}
+                </option>
+              ))}
+            </select>
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "10px",
+                fontSize: "14px",
+                backgroundColor: "white",
+                boxSizing: "border-box",
+              }}
+            >
+              <option value="all">All action states</option>
+              <option value="clarification">Clarification requested</option>
+              <option value="due">Next action due</option>
+              <option value="follow-up">Needs follow-up</option>
+              <option value="no-opportunity">No active opportunities</option>
+            </select>
+          </div>
+        </div>
+
         {/* Active Prospects */}
         <h2
           style={{
@@ -2760,7 +2924,7 @@ export default function MyTopProspectsPage() {
             margin: "0 0 12px 0",
           }}
         >
-          Active Prospects ({activeProspects.length})
+          Active Prospects ({filteredActiveProspects.length})
         </h2>
 
         {isLoading ? (
@@ -2774,7 +2938,7 @@ export default function MyTopProspectsPage() {
           >
             Loading prospects...
           </div>
-        ) : activeProspects.length === 0 ? (
+        ) : filteredActiveProspects.length === 0 ? (
           <div
             style={{
               textAlign: "center",
@@ -2793,10 +2957,10 @@ export default function MyTopProspectsPage() {
             <p
               style={{ fontSize: "15px", color: "#6B7280", margin: "0 0 4px" }}
             >
-              No prospects yet
+              No prospects match these filters
             </p>
             <p style={{ fontSize: "13px", color: "#9CA3AF", margin: 0 }}>
-              Click "Add Prospect" to start building your pipeline.
+              Adjust your filters or add a new prospect to expand your pipeline.
             </p>
           </div>
         ) : (
@@ -2822,7 +2986,7 @@ export default function MyTopProspectsPage() {
               <span style={{ width: "80px" }}>Priority</span>
             </div>
 
-            {activeProspects.map((p, idx) => (
+            {filteredActiveProspects.map((p, idx) => (
               (() => {
                 const nextAction = getProspectNextAction(p);
 
@@ -3035,6 +3199,7 @@ export default function MyTopProspectsPage() {
                         flexShrink: 0,
                       }}
                       onClick={(e) => e.stopPropagation()}
+                      aria-label={`Reorder ${p.prospect_name}`}
                     >
                       <button
                         onClick={() =>
@@ -3044,6 +3209,7 @@ export default function MyTopProspectsPage() {
                           })
                         }
                         disabled={idx === 0}
+                        title="Promote prospect"
                         style={{
                           width: "28px",
                           height: "28px",
@@ -3059,6 +3225,17 @@ export default function MyTopProspectsPage() {
                       >
                         <ChevronUp size={14} color="#374151" />
                       </button>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: "#6B7280",
+                          fontWeight: "700",
+                          textAlign: "center",
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        Promote
+                      </span>
                       <button
                         onClick={() =>
                           reorderMutation.mutate({
@@ -3066,7 +3243,8 @@ export default function MyTopProspectsPage() {
                             direction: "down",
                           })
                         }
-                        disabled={idx === activeProspects.length - 1}
+                        disabled={idx === filteredActiveProspects.length - 1}
+                        title="Demote prospect"
                         style={{
                           width: "28px",
                           height: "28px",
@@ -3076,14 +3254,25 @@ export default function MyTopProspectsPage() {
                           border: "1px solid #E5E7EB",
                           borderRadius: "6px",
                           backgroundColor:
-                            idx === activeProspects.length - 1 ? "#F9FAFB" : "white",
+                            idx === filteredActiveProspects.length - 1 ? "#F9FAFB" : "white",
                           cursor:
-                            idx === activeProspects.length - 1 ? "default" : "pointer",
-                          opacity: idx === activeProspects.length - 1 ? 0.3 : 1,
+                            idx === filteredActiveProspects.length - 1 ? "default" : "pointer",
+                          opacity: idx === filteredActiveProspects.length - 1 ? 0.3 : 1,
                         }}
                       >
                         <ChevronDown size={14} color="#374151" />
                       </button>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: "#6B7280",
+                          fontWeight: "700",
+                          textAlign: "center",
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        Demote
+                      </span>
                     </div>
                   </div>
                 );
