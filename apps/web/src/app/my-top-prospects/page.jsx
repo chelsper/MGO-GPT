@@ -634,6 +634,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const [editData, setEditData] = useState({});
   const [editingOpportunityId, setEditingOpportunityId] = useState(null);
   const [opportunityEditData, setOpportunityEditData] = useState({});
+  const [opportunityEditError, setOpportunityEditError] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["prospect", prospectId],
@@ -706,8 +707,11 @@ function ProspectDetailModal({ prospectId, onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to update linked opportunity");
-      return res.json();
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to update linked opportunity");
+      }
+      return payload;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
@@ -715,6 +719,12 @@ function ProspectDetailModal({ prospectId, onClose }) {
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setEditingOpportunityId(null);
       setOpportunityEditData({});
+      setOpportunityEditError("");
+    },
+    onError: (error) => {
+      setOpportunityEditError(
+        error instanceof Error ? error.message : "Failed to update linked opportunity",
+      );
     },
   });
 
@@ -769,6 +779,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
 
   const startEditingOpportunity = (opportunity) => {
     setEditingOpportunityId(opportunity.id);
+    setOpportunityEditError("");
     setOpportunityEditData({
       title: opportunity.title || "",
       currentStage: opportunity.current_stage || "Identification",
@@ -787,6 +798,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
 
   const saveOpportunityEdit = () => {
     if (!editingOpportunityId) return;
+    setOpportunityEditError("");
     updateOpportunityMutation.mutate({
       opportunityId: editingOpportunityId,
       body: {
@@ -1779,6 +1791,22 @@ function ProspectDetailModal({ prospectId, onClose }) {
                             }}
                           />
                         </div>
+                        {opportunityEditError ? (
+                          <div
+                            style={{
+                              marginBottom: "10px",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              backgroundColor: "#FEF2F2",
+                              border: "1px solid #FECACA",
+                              color: "#991B1B",
+                              fontSize: "13px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {opportunityEditError}
+                          </div>
+                        ) : null}
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button
                             type="button"
@@ -1801,6 +1829,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
                             onClick={() => {
                               setEditingOpportunityId(null);
                               setOpportunityEditData({});
+                              setOpportunityEditError("");
                             }}
                             style={{
                               padding: "8px 14px",
