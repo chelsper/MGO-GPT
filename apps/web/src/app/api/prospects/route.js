@@ -30,71 +30,96 @@ export async function GET(request) {
     const user = await getOrCreateUser(session);
 
     const prospects = await sql`
-      SELECT
-        p.*,
-        COALESCE(opp.linked_opportunity_count, 0) AS linked_opportunity_count,
-        COALESCE(opp.active_opportunity_count, 0) AS active_opportunity_count,
-        COALESCE(opp.secured_opportunity_count, 0) AS secured_opportunity_count,
-        COALESCE(opp.declined_opportunity_count, 0) AS declined_opportunity_count,
-        COALESCE(opp.active_pipeline_amount, 0) AS active_pipeline_amount,
-        activity.latest_activity_at,
-        latest_submission.status AS latest_submission_status,
-        latest_submission.submission_type AS latest_submission_type,
-        latest_submission.reviewer_notes AS latest_submission_reviewer_notes,
-        latest_submission.updated_at AS latest_submission_updated_at
-      FROM prospects p
-      LEFT JOIN LATERAL (
+      WITH user_prospects AS (
+        SELECT *
+        FROM prospects
+        WHERE user_id = ${user.id}
+      ),
+      opportunity_summary AS (
         SELECT
+          po.prospect_id,
           COUNT(*) AS linked_opportunity_count,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Active') AS active_opportunity_count,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Closed – Gift Secured') AS secured_opportunity_count,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Closed – Declined') AS declined_opportunity_count,
-          COALESCE(SUM(COALESCE(po.estimated_amount, 0)) FILTER (WHERE po.opportunity_status = 'Active'), 0) AS active_pipeline_amount
+          COALESCE(
+            SUM(COALESCE(po.estimated_amount, 0)) FILTER (WHERE po.opportunity_status = 'Active'),
+            0
+          ) AS active_pipeline_amount
         FROM prospect_opportunities po
-        WHERE po.prospect_id = p.id
-      ) opp ON true
-      LEFT JOIN LATERAL (
-        SELECT MAX(event_at) AS latest_activity_at
-        FROM (
-          SELECT p.updated_at AS event_at
-          UNION ALL
-          SELECT pu.created_at AS event_at
-          FROM prospect_updates pu
-          WHERE pu.prospect_id = p.id
-          UNION ALL
-          SELECT po.updated_at AS event_at
-          FROM prospect_opportunities po
-          WHERE po.prospect_id = p.id
-          UNION ALL
-          SELECT COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) AS event_at
-          FROM submissions s
-          WHERE s.user_id = ${user.id}
-            AND (
-              s.prospect_id = p.id
-              OR (p.constituent_id IS NOT NULL AND s.constituent_id = p.constituent_id)
-            )
-        ) timeline
-      ) activity ON true
-      LEFT JOIN LATERAL (
+        INNER JOIN user_prospects up ON up.id = po.prospect_id
+        GROUP BY po.prospect_id
+      ),
+      submission_matches AS (
         SELECT
+          up.id AS prospect_id,
           s.status,
           s.submission_type,
           s.reviewer_notes,
-          COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) AS updated_at
-        FROM submissions s
-        WHERE s.user_id = ${user.id}
-          AND (
-            s.prospect_id = p.id
-            OR (p.constituent_id IS NOT NULL AND s.constituent_id = p.constituent_id)
-          )
-        ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
-        LIMIT 1
-      ) latest_submission ON true
-      WHERE p.user_id = ${user.id}
+          COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) AS activity_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY up.id
+            ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
+          ) AS row_num
+        FROM user_prospects up
+        INNER JOIN submissions s
+          ON s.user_id = ${user.id}
+         AND (
+           s.prospect_id = up.id
+           OR (up.constituent_id IS NOT NULL AND s.constituent_id = up.constituent_id)
+         )
+      ),
+      latest_submission AS (
+        SELECT
+          prospect_id,
+          status AS latest_submission_status,
+          submission_type AS latest_submission_type,
+          reviewer_notes AS latest_submission_reviewer_notes,
+          activity_at AS latest_submission_updated_at
+        FROM submission_matches
+        WHERE row_num = 1
+      ),
+      latest_activity AS (
+        SELECT
+          timeline.prospect_id,
+          MAX(timeline.activity_at) AS latest_activity_at
+        FROM (
+          SELECT up.id AS prospect_id, up.updated_at AS activity_at
+          FROM user_prospects up
+          UNION ALL
+          SELECT pu.prospect_id, pu.created_at AS activity_at
+          FROM prospect_updates pu
+          INNER JOIN user_prospects up ON up.id = pu.prospect_id
+          UNION ALL
+          SELECT po.prospect_id, po.updated_at AS activity_at
+          FROM prospect_opportunities po
+          INNER JOIN user_prospects up ON up.id = po.prospect_id
+          UNION ALL
+          SELECT prospect_id, activity_at
+          FROM submission_matches
+        ) timeline
+        GROUP BY timeline.prospect_id
+      )
+      SELECT
+        up.*,
+        COALESCE(os.linked_opportunity_count, 0) AS linked_opportunity_count,
+        COALESCE(os.active_opportunity_count, 0) AS active_opportunity_count,
+        COALESCE(os.secured_opportunity_count, 0) AS secured_opportunity_count,
+        COALESCE(os.declined_opportunity_count, 0) AS declined_opportunity_count,
+        COALESCE(os.active_pipeline_amount, 0) AS active_pipeline_amount,
+        la.latest_activity_at,
+        ls.latest_submission_status,
+        ls.latest_submission_type,
+        ls.latest_submission_reviewer_notes,
+        ls.latest_submission_updated_at
+      FROM user_prospects up
+      LEFT JOIN opportunity_summary os ON os.prospect_id = up.id
+      LEFT JOIN latest_activity la ON la.prospect_id = up.id
+      LEFT JOIN latest_submission ls ON ls.prospect_id = up.id
       ORDER BY
-        CASE WHEN p.status = 'Active' THEN 0 ELSE 1 END,
-        p.priority_order ASC,
-        p.created_at DESC
+        CASE WHEN up.status = 'Active' THEN 0 ELSE 1 END,
+        up.priority_order ASC,
+        up.created_at DESC
     `;
 
     return Response.json(prospects);
