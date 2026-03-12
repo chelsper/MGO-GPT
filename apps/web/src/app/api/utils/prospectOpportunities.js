@@ -89,15 +89,15 @@ export async function syncProspectAskAmount(prospectId) {
   const latestCloseDate = statuses[0]?.latest_close_date || null;
 
   let nextStatus = "Active";
-  let nextClosedAmount = null;
+  let nextClosedAmount = securedCount > 0 ? closedTotal : null;
   let nextCloseDate = null;
 
   if (activeCount === 0 && securedCount > 0 && declinedCount === 0) {
     nextStatus = "Closed – Gift Secured";
-    nextClosedAmount = closedTotal;
     nextCloseDate = latestCloseDate;
   } else if (activeCount === 0 && declinedCount > 0 && securedCount === 0) {
     nextStatus = "Closed – Declined";
+    nextClosedAmount = null;
     nextCloseDate = latestCloseDate;
   }
 
