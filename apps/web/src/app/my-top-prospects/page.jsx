@@ -132,6 +132,54 @@ function getSubmissionTimelineDescription(submission) {
   }
 }
 
+function formatRelativeDays(value) {
+  if (!value) return "No recent activity";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No recent activity";
+  const diffMs = Date.now() - date.getTime();
+  const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  if (diffDays === 0) return "Active today";
+  if (diffDays === 1) return "Active yesterday";
+  return `Active ${diffDays} days ago`;
+}
+
+function getProspectNextAction(prospect) {
+  if (prospect.latest_submission_status === "Needs Clarification") {
+    return {
+      label: "Respond to clarification",
+      tone: { bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D" },
+    };
+  }
+
+  if ((prospect.active_opportunity_count || 0) === 0) {
+    return {
+      label: "Add first opportunity",
+      tone: { bg: "#EDE9FE", fg: "#5B21B6", border: "#DDD6FE" },
+    };
+  }
+
+  if (!prospect.latest_activity_at) {
+    return {
+      label: "Log first update",
+      tone: { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE" },
+    };
+  }
+
+  const latestActivityAt = new Date(prospect.latest_activity_at);
+  const staleDays = (Date.now() - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (staleDays >= 30) {
+    return {
+      label: "Needs follow-up",
+      tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" },
+    };
+  }
+
+  return {
+    label: "Keep momentum",
+    tone: { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" },
+  };
+}
+
 function getOpportunityDisplayAmount(opportunity) {
   if (opportunity.opportunity_status === "Closed – Gift Secured") {
     return opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
@@ -2525,141 +2573,260 @@ export default function MyTopProspectsPage() {
             </div>
 
             {activeProspects.map((p, idx) => (
-              <div
-                key={p.id}
-                style={{
-                  backgroundColor: "white",
-                  borderRadius: "12px",
-                  border: "1px solid #E5E7EB",
-                  padding: "16px 20px",
-                  marginBottom: "8px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  cursor: "pointer",
-                }}
-                onClick={() => setSelectedProspectId(p.id)}
-              >
-                {/* Priority number */}
-                <span
-                  style={{
-                    fontSize: "16px",
-                    fontWeight: "700",
-                    color: "#6A5BFF",
-                    width: "28px",
-                    flexShrink: 0,
-                    textAlign: "center",
-                  }}
-                >
-                  {idx + 1}
-                </span>
+              (() => {
+                const nextAction = getProspectNextAction(p);
 
-                {/* Details */}
-                <div style={{ flex: 1, minWidth: 0 }}>
+                return (
                   <div
+                    key={p.id}
                     style={{
+                      backgroundColor: "white",
+                      borderRadius: "16px",
+                      border: "1px solid #E5E7EB",
+                      padding: "18px 20px",
+                      marginBottom: "10px",
                       display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      flexWrap: "wrap",
-                      marginBottom: "4px",
+                      alignItems: "flex-start",
+                      gap: "14px",
+                      cursor: "pointer",
                     }}
+                    onClick={() => setSelectedProspectId(p.id)}
                   >
                     <span
                       style={{
-                        fontSize: "15px",
-                        fontWeight: "600",
-                        color: "#111827",
+                        fontSize: "16px",
+                        fontWeight: "700",
+                        color: "#6A5BFF",
+                        width: "28px",
+                        flexShrink: 0,
+                        textAlign: "center",
+                        paddingTop: "4px",
                       }}
                     >
-                      {p.prospect_name}
+                      {idx + 1}
                     </span>
-                    <StatusBadge status={p.status} />
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      fontSize: "13px",
-                      color: "#6B7280",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span>{p.expected_close_fy}</span>
-                    <span>·</span>
-                    <span style={{ fontWeight: "600" }}>
-                      {formatCurrency(p.ask_amount)}
-                    </span>
-                    <span>·</span>
-                    <span>{p.ask_type}</span>
-                  </div>
-                </div>
 
-                {/* Priority arrows */}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                    flexShrink: 0,
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() =>
-                      reorderMutation.mutate({
-                        prospectId: p.id,
-                        direction: "up",
-                      })
-                    }
-                    disabled={idx === 0}
-                    style={{
-                      width: "28px",
-                      height: "28px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      border: "1px solid #E5E7EB",
-                      borderRadius: "6px",
-                      backgroundColor: idx === 0 ? "#F9FAFB" : "white",
-                      cursor: idx === 0 ? "default" : "pointer",
-                      opacity: idx === 0 ? 0.3 : 1,
-                    }}
-                  >
-                    <ChevronUp size={14} color="#374151" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      reorderMutation.mutate({
-                        prospectId: p.id,
-                        direction: "down",
-                      })
-                    }
-                    disabled={idx === activeProspects.length - 1}
-                    style={{
-                      width: "28px",
-                      height: "28px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      border: "1px solid #E5E7EB",
-                      borderRadius: "6px",
-                      backgroundColor:
-                        idx === activeProspects.length - 1
-                          ? "#F9FAFB"
-                          : "white",
-                      cursor:
-                        idx === activeProspects.length - 1
-                          ? "default"
-                          : "pointer",
-                      opacity: idx === activeProspects.length - 1 ? 0.3 : 1,
-                    }}
-                  >
-                    <ChevronDown size={14} color="#374151" />
-                  </button>
-                </div>
-              </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          flexWrap: "wrap",
+                          alignItems: "flex-start",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                              flexWrap: "wrap",
+                              marginBottom: "6px",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: "700",
+                                color: "#111827",
+                              }}
+                            >
+                              {p.prospect_name}
+                            </span>
+                            <StatusBadge status={p.status} />
+                            <span
+                              style={{
+                                backgroundColor: nextAction.tone.bg,
+                                color: nextAction.tone.fg,
+                                border: `1px solid ${nextAction.tone.border}`,
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {nextAction.label}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                              fontSize: "13px",
+                              color: "#6B7280",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span>{p.expected_close_fy}</span>
+                            <span>·</span>
+                            <span style={{ fontWeight: "600" }}>{p.ask_type}</span>
+                            <span>·</span>
+                            <span>{formatRelativeDays(p.latest_activity_at)}</span>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(2, minmax(110px, 1fr))",
+                            gap: "10px 14px",
+                            minWidth: "240px",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#6B7280",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Open Pipeline
+                            </div>
+                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+                              {formatCurrency(p.ask_amount)}
+                            </div>
+                          </div>
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#6B7280",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Closed So Far
+                            </div>
+                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#059669" }}>
+                              {formatCurrency(p.closed_amount)}
+                            </div>
+                          </div>
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#6B7280",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Opportunities
+                            </div>
+                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+                              {p.active_opportunity_count || 0} active / {p.linked_opportunity_count || 0} total
+                            </div>
+                          </div>
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#6B7280",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Latest Review
+                            </div>
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                              {p.latest_submission_status || "No review yet"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {p.latest_submission_reviewer_notes ? (
+                        <div
+                          style={{
+                            marginTop: "12px",
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            backgroundColor: "#F9FAFB",
+                            border: "1px solid #E5E7EB",
+                            fontSize: "13px",
+                            color: "#374151",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          <span style={{ fontWeight: 700, color: "#111827" }}>Latest reviewer note:</span>{" "}
+                          {p.latest_submission_reviewer_notes}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        flexShrink: 0,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={() =>
+                          reorderMutation.mutate({
+                            prospectId: p.id,
+                            direction: "up",
+                          })
+                        }
+                        disabled={idx === 0}
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          border: "1px solid #E5E7EB",
+                          borderRadius: "6px",
+                          backgroundColor: idx === 0 ? "#F9FAFB" : "white",
+                          cursor: idx === 0 ? "default" : "pointer",
+                          opacity: idx === 0 ? 0.3 : 1,
+                        }}
+                      >
+                        <ChevronUp size={14} color="#374151" />
+                      </button>
+                      <button
+                        onClick={() =>
+                          reorderMutation.mutate({
+                            prospectId: p.id,
+                            direction: "down",
+                          })
+                        }
+                        disabled={idx === activeProspects.length - 1}
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          border: "1px solid #E5E7EB",
+                          borderRadius: "6px",
+                          backgroundColor:
+                            idx === activeProspects.length - 1 ? "#F9FAFB" : "white",
+                          cursor:
+                            idx === activeProspects.length - 1 ? "default" : "pointer",
+                          opacity: idx === activeProspects.length - 1 ? 0.3 : 1,
+                        }}
+                      >
+                        <ChevronDown size={14} color="#374151" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
             ))}
           </div>
         )}
