@@ -23,16 +23,38 @@ async function getAuthConfig() {
       return null;
     }
 
-    const [{ Auth, skipCSRFCheck }, { default: Credentials }, { Pool }, { default: NeonAdapter }] =
+    const [{ Auth, skipCSRFCheck }, { default: Credentials }, oktaProviderModule, { Pool }, { default: NeonAdapter }] =
       await Promise.all([
         import("@auth/core"),
         import("@auth/core/providers/credentials"),
+        import("@auth/core/providers/okta"),
         import("@neondatabase/serverless"),
         import("../../../../../__create/adapter"),
       ]);
 
+    const Okta = oktaProviderModule.default;
+
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     const adapter = NeonAdapter(pool);
+    const oktaEnabled = Boolean(
+      process.env.OKTA_CLIENT_ID &&
+        process.env.OKTA_CLIENT_SECRET &&
+        process.env.OKTA_ISSUER,
+    );
+    const credentialsEnabled =
+      process.env.AUTH_ALLOW_CREDENTIALS !== "false";
+
+    const providers = [
+      ...(oktaEnabled
+        ? [
+            Okta({
+              clientId: process.env.OKTA_CLIENT_ID,
+              clientSecret: process.env.OKTA_CLIENT_SECRET,
+              issuer: process.env.OKTA_ISSUER,
+            }),
+          ]
+        : []),
+    ];
 
     return {
       Auth,
@@ -59,72 +81,85 @@ async function getAuthConfig() {
           },
         },
         providers: [
-          Credentials({
-            id: "credentials-signin",
-            name: "Credentials Sign in",
-            credentials: {
-              email: { label: "Email", type: "email" },
-              password: { label: "Password", type: "password" },
-            },
-            authorize: async (credentials) => {
-              const { email, password } = credentials ?? {};
-              if (!email || !password) return null;
-              if (typeof email !== "string" || typeof password !== "string") return null;
+          ...providers,
+          ...(credentialsEnabled
+            ? [
+                Credentials({
+                  id: "credentials-signin",
+                  name: "Credentials Sign in",
+                  credentials: {
+                    email: { label: "Email", type: "email" },
+                    password: { label: "Password", type: "password" },
+                  },
+                  authorize: async (credentials) => {
+                    const { email, password } = credentials ?? {};
+                    if (!email || !password) return null;
+                    if (typeof email !== "string" || typeof password !== "string")
+                      return null;
 
-              const user = await adapter.getUserByEmail(email);
-              if (!user) return null;
+                    const user = await adapter.getUserByEmail(email);
+                    if (!user) return null;
 
-              const matchingAccount = user.accounts.find(
-                (account) => account.provider === "credentials"
-              );
-              const accountPassword = matchingAccount?.password;
-              if (!accountPassword) return null;
+                    const matchingAccount = user.accounts.find(
+                      (account) => account.provider === "credentials",
+                    );
+                    const accountPassword = matchingAccount?.password;
+                    if (!accountPassword) return null;
 
-              const { verify } = await import("argon2");
-              const isValid = await verify(accountPassword, password);
-              if (!isValid) return null;
+                    const { verify } = await import("argon2");
+                    const isValid = await verify(accountPassword, password);
+                    if (!isValid) return null;
 
-              return user;
-            },
-          }),
-          Credentials({
-            id: "credentials-signup",
-            name: "Credentials Sign up",
-            credentials: {
-              email: { label: "Email", type: "email" },
-              password: { label: "Password", type: "password" },
-              name: { label: "Name", type: "text" },
-              image: { label: "Image", type: "text", required: false },
-            },
-            authorize: async (credentials) => {
-              const { email, password, name, image } = credentials ?? {};
-              if (!email || !password) return null;
-              if (typeof email !== "string" || typeof password !== "string") return null;
+                    return user;
+                  },
+                }),
+                Credentials({
+                  id: "credentials-signup",
+                  name: "Credentials Sign up",
+                  credentials: {
+                    email: { label: "Email", type: "email" },
+                    password: { label: "Password", type: "password" },
+                    name: { label: "Name", type: "text" },
+                    image: { label: "Image", type: "text", required: false },
+                  },
+                  authorize: async (credentials) => {
+                    const { email, password, name, image } = credentials ?? {};
+                    if (!email || !password) return null;
+                    if (typeof email !== "string" || typeof password !== "string")
+                      return null;
 
-              const user = await adapter.getUserByEmail(email);
-              if (user) return null;
+                    const user = await adapter.getUserByEmail(email);
+                    if (user) return null;
 
-              const newUser = await adapter.createUser({
-                emailVerified: null,
-                email,
-                name: typeof name === "string" && name.length > 0 ? name : undefined,
-                image: typeof image === "string" && image.length > 0 ? image : undefined,
-              });
+                    const newUser = await adapter.createUser({
+                      emailVerified: null,
+                      email,
+                      name:
+                        typeof name === "string" && name.length > 0
+                          ? name
+                          : undefined,
+                      image:
+                        typeof image === "string" && image.length > 0
+                          ? image
+                          : undefined,
+                    });
 
-              const { hash } = await import("argon2");
-              await adapter.linkAccount({
-                extraData: {
-                  password: await hash(password),
-                },
-                type: "credentials",
-                userId: newUser.id,
-                providerAccountId: newUser.id,
-                provider: "credentials",
-              });
+                    const { hash } = await import("argon2");
+                    await adapter.linkAccount({
+                      extraData: {
+                        password: await hash(password),
+                      },
+                      type: "credentials",
+                      userId: newUser.id,
+                      providerAccountId: newUser.id,
+                      provider: "credentials",
+                    });
 
-              return newUser;
-            },
-          }),
+                    return newUser;
+                  },
+                }),
+              ]
+            : []),
         ],
       },
     };

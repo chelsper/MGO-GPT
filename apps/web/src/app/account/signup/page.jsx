@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useAuth from "@/utils/useAuth";
 
 export default function SignUpPage() {
@@ -10,7 +10,19 @@ export default function SignUpPage() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [credentialsEnabled, setCredentialsEnabled] = useState(true);
   const callbackUrl = "/";
+
+  useEffect(() => {
+    fetch("/api/auth/providers")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((providers) => {
+        setCredentialsEnabled(Boolean(providers?.["credentials-signup"]));
+      })
+      .catch(() => {
+        setCredentialsEnabled(true);
+      });
+  }, []);
 
   const validatePassword = (password) => {
     if (password.length < 8) {
@@ -130,7 +142,8 @@ export default function SignUpPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        {credentialsEnabled ? (
+          <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: "16px" }}>
             <label
               style={{
@@ -265,7 +278,22 @@ export default function SignUpPage() {
           >
             {loading ? "Creating Account..." : "Create Account"}
           </button>
-        </form>
+          </form>
+        ) : (
+          <div
+            style={{
+              padding: "14px",
+              borderRadius: "8px",
+              backgroundColor: "#F9FAFB",
+              border: "1px solid #E5E7EB",
+              fontSize: "14px",
+              color: "#4B5563",
+              lineHeight: 1.6,
+            }}
+          >
+            Self-service signup is disabled for this workspace. Use Jacksonville University SSO or contact an administrator for access.
+          </div>
+        )}
 
         <p
           style={{

@@ -4,12 +4,14 @@ import { useState, useEffect } from "react";
 import useAuth from "@/utils/useAuth";
 
 export default function SignInPage() {
-  const { signInWithCredentials } = useAuth();
+  const { signInWithCredentials, signInWithOkta } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oktaEnabled, setOktaEnabled] = useState(false);
+  const [credentialsEnabled, setCredentialsEnabled] = useState(true);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -29,6 +31,19 @@ export default function SignInPage() {
           errorMessages[urlError] || "Something went wrong. Please try again.",
         );
       }
+
+      fetch("/api/auth/providers")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((providers) => {
+          if (providers?.okta) {
+            setOktaEnabled(true);
+          }
+          setCredentialsEnabled(Boolean(providers?.["credentials-signin"]));
+        })
+        .catch(() => {
+          setOktaEnabled(false);
+          setCredentialsEnabled(true);
+        });
     }
   }, []);
 
@@ -77,6 +92,22 @@ export default function SignInPage() {
       setError(
         errorMessages[err.message] || "Incorrect email or password. Try again.",
       );
+      setLoading(false);
+    }
+  };
+
+  const handleOktaSignIn = async () => {
+    setError("");
+    setMessage("");
+    setLoading(true);
+
+    try {
+      await signInWithOkta({
+        callbackUrl: "/",
+      });
+    } catch (err) {
+      console.error("Okta sign in error:", err);
+      setError("Unable to start Okta sign-in. Please try again.");
       setLoading(false);
     }
   };
@@ -149,117 +180,176 @@ export default function SignInPage() {
         )}
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: "16px" }}>
-            <label
+          {oktaEnabled ? (
+            <>
+              <button
+                type="button"
+                onClick={handleOktaSignIn}
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  backgroundColor: "#111827",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  marginBottom: "16px",
+                }}
+              >
+                Continue with Jacksonville University SSO
+              </button>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  marginBottom: "16px",
+                }}
+              >
+                <div style={{ flex: 1, height: "1px", backgroundColor: "#E5E7EB" }} />
+                <span style={{ fontSize: "12px", color: "#6B7280", fontWeight: "600" }}>
+                  OR
+                </span>
+                <div style={{ flex: 1, height: "1px", backgroundColor: "#E5E7EB" }} />
+              </div>
+            </>
+          ) : null}
+
+          {credentialsEnabled ? (
+            <>
+              <div style={{ marginBottom: "16px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    marginBottom: "8px",
+                    color: "#374151",
+                  }}
+                >
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                  placeholder="you@university.edu"
+                />
+              </div>
+
+              <div style={{ marginBottom: "8px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    marginBottom: "8px",
+                    color: "#374151",
+                  }}
+                >
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                  placeholder="Enter your password"
+                />
+              </div>
+
+              <div style={{ textAlign: "right", marginBottom: "24px" }}>
+                <a
+                  href="/forgot-password"
+                  style={{
+                    fontSize: "13px",
+                    color: "#6A5BFF",
+                    textDecoration: "none",
+                    fontWeight: "500",
+                  }}
+                >
+                  Forgot password?
+                </a>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  backgroundColor: loading ? "#9ca3af" : "#6A5BFF",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  cursor: loading ? "not-allowed" : "pointer",
+                }}
+              >
+                {loading ? "Signing In..." : "Sign In"}
+              </button>
+            </>
+          ) : (
+            <div
               style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "500",
-                marginBottom: "8px",
-                color: "#374151",
-              }}
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                border: "1px solid #d1d5db",
+                padding: "14px",
                 borderRadius: "8px",
+                backgroundColor: "#F9FAFB",
+                border: "1px solid #E5E7EB",
                 fontSize: "14px",
-                boxSizing: "border-box",
-              }}
-              placeholder="you@university.edu"
-            />
-          </div>
-
-          <div style={{ marginBottom: "8px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "500",
-                marginBottom: "8px",
-                color: "#374151",
+                color: "#4B5563",
+                lineHeight: 1.6,
               }}
             >
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                border: "1px solid #d1d5db",
-                borderRadius: "8px",
-                fontSize: "14px",
-                boxSizing: "border-box",
-              }}
-              placeholder="Enter your password"
-            />
-          </div>
-
-          <div style={{ textAlign: "right", marginBottom: "24px" }}>
-            <a
-              href="/forgot-password"
-              style={{
-                fontSize: "13px",
-                color: "#6A5BFF",
-                textDecoration: "none",
-                fontWeight: "500",
-              }}
-            >
-              Forgot password?
-            </a>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "12px",
-              backgroundColor: loading ? "#9ca3af" : "#6A5BFF",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              fontSize: "16px",
-              fontWeight: "600",
-              cursor: loading ? "not-allowed" : "pointer",
-            }}
-          >
-            {loading ? "Signing In..." : "Sign In"}
-          </button>
+              Password sign-in is disabled for this workspace. Use Jacksonville University SSO to continue.
+            </div>
+          )}
         </form>
 
-        <p
-          style={{
-            marginTop: "24px",
-            textAlign: "center",
-            fontSize: "14px",
-            color: "#6b7280",
-          }}
-        >
-          Don't have an account?{" "}
-          <a
-            href={`/account/signup${typeof window !== "undefined" ? window.location.search : ""}`}
+        {credentialsEnabled ? (
+          <p
             style={{
-              color: "#6A5BFF",
-              fontWeight: "500",
-              textDecoration: "none",
+              marginTop: "24px",
+              textAlign: "center",
+              fontSize: "14px",
+              color: "#6b7280",
             }}
           >
-            Sign up
-          </a>
-        </p>
+            Don't have an account?{" "}
+            <a
+              href={`/account/signup${typeof window !== "undefined" ? window.location.search : ""}`}
+              style={{
+                color: "#6A5BFF",
+                fontWeight: "500",
+                textDecoration: "none",
+              }}
+            >
+              Sign up
+            </a>
+          </p>
+        ) : null}
       </div>
     </div>
   );
