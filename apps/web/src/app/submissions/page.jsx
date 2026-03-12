@@ -57,6 +57,7 @@ export default function SubmissionsPage() {
   const [updatingId, setUpdatingId] = useState(null);
   const [reviewFilter, setReviewFilter] = useState("Pending");
   const [reviewDrafts, setReviewDrafts] = useState({});
+  const [clarificationDrafts, setClarificationDrafts] = useState({});
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
@@ -226,6 +227,13 @@ export default function SubmissionsPage() {
     }));
   }
 
+  function setClarificationDraft(id, value) {
+    setClarificationDrafts((current) => ({
+      ...current,
+      [id]: value,
+    }));
+  }
+
   async function saveReview(id) {
     setUpdatingId(id);
     setActionMessage("");
@@ -263,6 +271,45 @@ export default function SubmissionsPage() {
     } catch (err) {
       console.error(err);
       setError(err.message || "Could not update submission review.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function resubmitForReview(id) {
+    setUpdatingId(id);
+    setActionMessage("");
+    setError("");
+
+    try {
+      const clarificationResponse = String(clarificationDrafts[id] || "").trim();
+      const response = await fetch("/api/submissions/resubmit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          clarificationResponse,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to resubmit submission");
+      }
+
+      const updated = await response.json();
+      setSubmissions((current) =>
+        current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+      );
+      setClarificationDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setActionMessage(`Submission #${updated.id} was resubmitted for review.`);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Could not resubmit submission.");
     } finally {
       setUpdatingId(null);
     }
@@ -549,6 +596,8 @@ export default function SubmissionsPage() {
                         const selectedStatus = draft?.status || submission.status || "Pending";
                         const reviewerNotes =
                           draft?.reviewerNotes ?? submission.reviewer_notes ?? "";
+                        const clarificationResponse =
+                          clarificationDrafts[submission.id] ?? "";
 
                         return (
                           <div
@@ -681,6 +730,77 @@ export default function SubmissionsPage() {
                                     }}
                                   >
                                     {updatingId === submission.id ? "Saving..." : "Save review"}
+                                  </button>
+                                </div>
+                              ) : submission.status === "Needs Clarification" ? (
+                                <div style={{ minWidth: "260px" }}>
+                                  <label
+                                    style={{
+                                      display: "block",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                      color: "#6B7280",
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.04em",
+                                      marginBottom: "8px",
+                                    }}
+                                  >
+                                    Clarification response
+                                  </label>
+                                  <textarea
+                                    value={clarificationResponse}
+                                    disabled={updatingId === submission.id}
+                                    onChange={(event) =>
+                                      setClarificationDraft(
+                                        submission.id,
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder="Respond to Advancement Services and send this back for review."
+                                    rows={4}
+                                    style={{
+                                      width: "100%",
+                                      padding: "10px 12px",
+                                      borderRadius: "10px",
+                                      border: "1px solid #D1D5DB",
+                                      backgroundColor: "white",
+                                      fontSize: "14px",
+                                      resize: "vertical",
+                                      boxSizing: "border-box",
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      updatingId === submission.id ||
+                                      !clarificationResponse.trim()
+                                    }
+                                    onClick={() => resubmitForReview(submission.id)}
+                                    style={{
+                                      marginTop: "10px",
+                                      width: "100%",
+                                      padding: "10px 12px",
+                                      borderRadius: "10px",
+                                      border: "none",
+                                      backgroundColor: "#6A5BFF",
+                                      color: "white",
+                                      fontSize: "14px",
+                                      fontWeight: 700,
+                                      cursor:
+                                        updatingId === submission.id ||
+                                        !clarificationResponse.trim()
+                                          ? "not-allowed"
+                                          : "pointer",
+                                      opacity:
+                                        updatingId === submission.id ||
+                                        !clarificationResponse.trim()
+                                          ? 0.7
+                                          : 1,
+                                    }}
+                                  >
+                                    {updatingId === submission.id
+                                      ? "Resubmitting..."
+                                      : "Resubmit for review"}
                                   </button>
                                 </div>
                               ) : null}
