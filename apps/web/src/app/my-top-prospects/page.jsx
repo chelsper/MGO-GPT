@@ -93,6 +93,18 @@ function formatCurrency(amount) {
   return "$" + Number(amount).toLocaleString();
 }
 
+function getOpportunityDisplayAmount(opportunity) {
+  if (opportunity.opportunity_status === "Closed – Gift Secured") {
+    return opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
+  }
+
+  if (opportunity.opportunity_status === "Closed – Declined") {
+    return 0;
+  }
+
+  return opportunity.estimated_amount ?? 0;
+}
+
 function AddProspectModal({ onClose, onSubmit, isPending }) {
   const [name, setName] = useState("");
   const [fy, setFy] = useState("FY26");
@@ -1474,7 +1486,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
                           color: "#111827",
                         }}
                       >
-                        {formatCurrency(opportunity.estimated_amount)}
+                        {formatCurrency(getOpportunityDisplayAmount(opportunity))}
                       </div>
                     </div>
                     {editingOpportunityId === opportunity.id ? (
@@ -1817,6 +1829,49 @@ function ProspectDetailModal({ prospectId, onClose }) {
                           >
                             {opportunity.latest_notes}
                           </p>
+                        ) : null}
+                        {opportunity.opportunity_status === "Closed – Gift Secured" &&
+                        (opportunity.closed_amount != null || opportunity.close_date) ? (
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: "#166534",
+                              marginBottom: "6px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {opportunity.closed_amount != null
+                              ? `Closed amount ${formatCurrency(opportunity.closed_amount)}`
+                              : null}
+                            {opportunity.closed_amount != null && opportunity.close_date ? " · " : ""}
+                            {opportunity.close_date
+                              ? `Closed ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
+                                  month: "long",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}`
+                              : null}
+                          </div>
+                        ) : null}
+                        {opportunity.opportunity_status === "Closed – Declined" &&
+                        (opportunity.decline_reason || opportunity.close_date) ? (
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: "#991B1B",
+                              marginBottom: "6px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {opportunity.decline_reason || "Opportunity declined"}
+                            {opportunity.close_date
+                              ? ` · Closed ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
+                                  month: "long",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}`
+                              : ""}
+                          </div>
                         ) : null}
                         <div
                           style={{
