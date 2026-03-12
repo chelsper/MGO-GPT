@@ -593,6 +593,8 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
+  const [editingOpportunityId, setEditingOpportunityId] = useState(null);
+  const [opportunityEditData, setOpportunityEditData] = useState({});
 
   const { data, isLoading } = useQuery({
     queryKey: ["prospect", prospectId],
@@ -658,6 +660,25 @@ function ProspectDetailModal({ prospectId, onClose }) {
     },
   });
 
+  const updateOpportunityMutation = useMutation({
+    mutationFn: async ({ opportunityId, body }) => {
+      const res = await fetch(`/api/prospects/opportunities/${opportunityId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to update linked opportunity");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setEditingOpportunityId(null);
+      setOpportunityEditData({});
+    },
+  });
+
   const prospect = data?.prospect;
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
@@ -705,6 +726,34 @@ function ProspectDetailModal({ prospectId, onClose }) {
 
   const handleEditSave = () => {
     editMutation.mutate(editData);
+  };
+
+  const startEditingOpportunity = (opportunity) => {
+    setEditingOpportunityId(opportunity.id);
+    setOpportunityEditData({
+      title: opportunity.title || "",
+      currentStage: opportunity.current_stage || "Identification",
+      estimatedAmount:
+        opportunity.estimated_amount != null
+          ? String(opportunity.estimated_amount)
+          : "",
+      latestNotes: opportunity.latest_notes || "",
+    });
+  };
+
+  const saveOpportunityEdit = () => {
+    if (!editingOpportunityId) return;
+    updateOpportunityMutation.mutate({
+      opportunityId: editingOpportunityId,
+      body: {
+        title: opportunityEditData.title,
+        currentStage: opportunityEditData.currentStage,
+        estimatedAmount: opportunityEditData.estimatedAmount
+          ? parseFloat(opportunityEditData.estimatedAmount)
+          : null,
+        latestNotes: opportunityEditData.latestNotes,
+      },
+    });
   };
 
   const isActive = prospect.status === "Active";
@@ -1387,26 +1436,238 @@ function ProspectDetailModal({ prospectId, onClose }) {
                         {formatCurrency(opportunity.estimated_amount)}
                       </div>
                     </div>
-                    {opportunity.latest_notes ? (
-                      <p
-                        style={{
-                          fontSize: "13px",
-                          color: "#374151",
-                          lineHeight: 1.5,
-                          margin: "0 0 6px 0",
-                        }}
-                      >
-                        {opportunity.latest_notes}
-                      </p>
-                    ) : null}
-                    <div style={{ fontSize: "12px", color: "#6B7280" }}>
-                      Last updated{" "}
-                      {new Date(opportunity.updated_at).toLocaleDateString("en-US", {
-                        month: "long",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </div>
+                    {editingOpportunityId === opportunity.id ? (
+                      <div style={{ marginTop: "10px" }}>
+                        <div style={{ marginBottom: "10px" }}>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              color: "#1D4ED8",
+                              marginBottom: "4px",
+                            }}
+                          >
+                            Opportunity title
+                          </label>
+                          <input
+                            type="text"
+                            value={opportunityEditData.title || ""}
+                            onChange={(e) =>
+                              setOpportunityEditData((prev) => ({
+                                ...prev,
+                                title: e.target.value,
+                              }))
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "8px 12px",
+                              border: "1px solid #93C5FD",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: "10px",
+                            marginBottom: "10px",
+                          }}
+                        >
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#1D4ED8",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Stage
+                            </label>
+                            <select
+                              value={opportunityEditData.currentStage || "Identification"}
+                              onChange={(e) =>
+                                setOpportunityEditData((prev) => ({
+                                  ...prev,
+                                  currentStage: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "8px 12px",
+                                border: "1px solid #93C5FD",
+                                borderRadius: "8px",
+                                fontSize: "14px",
+                                boxSizing: "border-box",
+                                backgroundColor: "white",
+                              }}
+                            >
+                              {["Identification", "Qualification", "Cultivation", "Solicitation", "Stewardship"].map(
+                                (stage) => (
+                                  <option key={stage} value={stage}>
+                                    {stage}
+                                  </option>
+                                ),
+                              )}
+                            </select>
+                          </div>
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#1D4ED8",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Amount
+                            </label>
+                            <input
+                              type="number"
+                              value={opportunityEditData.estimatedAmount || ""}
+                              onChange={(e) =>
+                                setOpportunityEditData((prev) => ({
+                                  ...prev,
+                                  estimatedAmount: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "8px 12px",
+                                border: "1px solid #93C5FD",
+                                borderRadius: "8px",
+                                fontSize: "14px",
+                                boxSizing: "border-box",
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div style={{ marginBottom: "10px" }}>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              color: "#1D4ED8",
+                              marginBottom: "4px",
+                            }}
+                          >
+                            Notes
+                          </label>
+                          <textarea
+                            value={opportunityEditData.latestNotes || ""}
+                            onChange={(e) =>
+                              setOpportunityEditData((prev) => ({
+                                ...prev,
+                                latestNotes: e.target.value,
+                              }))
+                            }
+                            rows={3}
+                            style={{
+                              width: "100%",
+                              padding: "8px 12px",
+                              border: "1px solid #93C5FD",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              boxSizing: "border-box",
+                              fontFamily: "inherit",
+                              resize: "vertical",
+                            }}
+                          />
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={saveOpportunityEdit}
+                            disabled={updateOpportunityMutation.isPending}
+                            style={{
+                              padding: "8px 14px",
+                              borderRadius: "8px",
+                              border: "none",
+                              backgroundColor: "#1D4ED8",
+                              color: "white",
+                              fontWeight: "600",
+                              cursor: updateOpportunityMutation.isPending ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {updateOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingOpportunityId(null);
+                              setOpportunityEditData({});
+                            }}
+                            style={{
+                              padding: "8px 14px",
+                              borderRadius: "8px",
+                              border: "1px solid #BFDBFE",
+                              backgroundColor: "white",
+                              color: "#1D4ED8",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {opportunity.latest_notes ? (
+                          <p
+                            style={{
+                              fontSize: "13px",
+                              color: "#374151",
+                              lineHeight: 1.5,
+                              margin: "0 0 6px 0",
+                            }}
+                          >
+                            {opportunity.latest_notes}
+                          </p>
+                        ) : null}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: "12px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ fontSize: "12px", color: "#6B7280" }}>
+                            Last updated{" "}
+                            {new Date(opportunity.updated_at).toLocaleDateString("en-US", {
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => startEditingOpportunity(opportunity)}
+                            style={{
+                              padding: "7px 12px",
+                              borderRadius: "999px",
+                              border: "1px solid #93C5FD",
+                              backgroundColor: "white",
+                              color: "#1D4ED8",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Edit Opportunity
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
