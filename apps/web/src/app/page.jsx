@@ -65,6 +65,24 @@ const REVIEWER_ACTIONS = [
   },
 ];
 
+const MGO_NAV_ITEMS = [
+  { label: "Dashboard", href: "/" },
+  { label: "My Top Prospects", href: "/my-top-prospects" },
+  { label: "Submissions", href: "/submissions" },
+  { label: "Log Donor Update", href: "/log-donor-update" },
+  { label: "Update Opportunity", href: "/update-opportunity" },
+  { label: "Suggest New Constituent", href: "/new-constituent" },
+  { label: "Request List", href: "/request-list" },
+];
+
+const REVIEWER_NAV_ITEMS = [
+  { label: "Dashboard", href: "/" },
+  { label: "Review Queue", href: "/submissions" },
+  { label: "List Requests", href: "/list-requests" },
+  { label: "Knowledge Base", href: "/knowledge-base" },
+  { label: "Edit Knowledge Base", href: "/knowledge-base/manage" },
+];
+
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -144,6 +162,10 @@ export default function Page() {
     () => (isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS),
     [isReviewer],
   );
+  const navItems = useMemo(
+    () => (isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS),
+    [isReviewer],
+  );
 
   if (loading || !user || profileLoading) {
     return (
@@ -218,19 +240,19 @@ export default function Page() {
                   position: "absolute",
                   top: "calc(100% + 8px)",
                   left: 0,
-                  width: "300px",
+                  width: "240px",
                   backgroundColor: "white",
                   border: "1px solid #E5E7EB",
-                  borderRadius: "16px",
+                  borderRadius: "14px",
                   boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
-                  padding: "12px",
+                  padding: "10px",
                 }}
               >
                 <div
                   style={{
-                    padding: "8px 10px 12px",
+                    padding: "8px 10px 10px",
                     borderBottom: "1px solid #E5E7EB",
-                    marginBottom: "8px",
+                    marginBottom: "6px",
                   }}
                 >
                   <div
@@ -243,62 +265,36 @@ export default function Page() {
                       marginBottom: "6px",
                     }}
                   >
-                    Navigation
+                    Menu
                   </div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
-                    {isReviewer ? "Advancement Services workspace" : "MGO workspace"}
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                    {isReviewer ? "Advancement Services" : "MGO workspace"}
                   </div>
-                  <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
-                    {isReviewer
-                      ? "Review queues, manage priorities, and maintain shared guidance."
-                      : "Jump directly to your donor-facing workflows."}
+                  <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "4px" }}>
+                    {isReviewer ? "Shared team navigation" : "Primary workflow navigation"}
                   </div>
                 </div>
 
-                <a
-                  href="/"
-                  role="menuitem"
-                  onClick={() => setMenuOpen(false)}
-                  style={{
-                    display: "block",
-                    borderRadius: "12px",
-                    padding: "12px",
-                    textDecoration: "none",
-                    color: "#111827",
-                    backgroundColor: "#F9FAFB",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>
-                    Dashboard
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.45 }}>
-                    Return to your main action hub and role overview.
-                  </div>
-                </a>
-
                 <div style={{ display: "grid", gap: "8px" }}>
-                  {quickActions.map((action) => (
+                  {navItems.map((item) => (
                     <a
-                      key={`menu-${action.href}`}
-                      href={action.href}
+                      key={`menu-${item.href}`}
+                      href={item.href}
                       role="menuitem"
                       onClick={() => setMenuOpen(false)}
                       style={{
-                        display: "block",
-                        borderRadius: "12px",
-                        padding: "12px",
+                        display: "flex",
+                        alignItems: "center",
+                        borderRadius: "10px",
+                        padding: "10px 12px",
                         textDecoration: "none",
                         color: "#111827",
                         border: "1px solid #E5E7EB",
+                        fontSize: "14px",
+                        fontWeight: 600,
                       }}
                     >
-                      <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>
-                        {action.title}
-                      </div>
-                      <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.45 }}>
-                        {action.description}
-                      </div>
+                      {item.label}
                     </a>
                   ))}
                 </div>
