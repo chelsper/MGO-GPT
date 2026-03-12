@@ -362,6 +362,84 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS blackbaud_connections (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT,
+        token_type TEXT,
+        scope TEXT,
+        expires_at TIMESTAMPTZ,
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES users(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS access_token TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS refresh_token TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS token_type TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS scope TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE blackbaud_connections
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS blackbaud_oauth_states (
+        state TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        redirect_path TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL
+      )
+    `;
+
+    await sql`
+      ALTER TABLE blackbaud_oauth_states
+      ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES users(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE blackbaud_oauth_states
+      ADD COLUMN IF NOT EXISTS redirect_path TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_oauth_states
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE blackbaud_oauth_states
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ
+    `;
+    await sql`
+      DELETE FROM blackbaud_oauth_states
+      WHERE expires_at IS NOT NULL AND expires_at < NOW()
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
         article_id TEXT PRIMARY KEY,
         title TEXT,
