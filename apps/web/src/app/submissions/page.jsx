@@ -68,6 +68,12 @@ function getListRequestTitle(request) {
   );
 }
 
+function formatList(value) {
+  if (!value) return "";
+  if (Array.isArray(value)) return value.filter(Boolean).join(", ");
+  return String(value);
+}
+
 export default function SubmissionsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -1391,6 +1397,94 @@ export default function SubmissionsPage() {
                           </div>
                           <div style={{ fontSize: "14px", color: "#111827" }}>
                             {request.output_type}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.excel_fields?.length ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Selected fields
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6 }}>
+                            {formatList(request.excel_fields)}
+                            {request.excel_fields_other
+                              ? `, Other: ${request.excel_fields_other}`
+                              : ""}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.who_included?.length ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Include
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6 }}>
+                            {formatList(request.who_included)}
+                            {request.who_included_other
+                              ? `, Other: ${request.who_included_other}`
+                              : ""}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.exclusions?.length ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Exclusions
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6 }}>
+                            {formatList(request.exclusions)}
+                            {request.exclusions_other
+                              ? `, Other: ${request.exclusions_other}`
+                              : ""}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.giving_level || request.giving_level_custom ? (
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Giving filter
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827" }}>
+                            {request.giving_level || "Custom"}
+                            {request.giving_level_custom
+                              ? ` (${formatCurrency(request.giving_level_custom)})`
+                              : ""}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.gift_timeframe ||
+                      request.gift_timeframe_custom_start ||
+                      request.gift_timeframe_custom_end ? (
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Gift timeframe
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6 }}>
+                            {request.gift_timeframe || "Custom"}
+                            {request.gift_timeframe_custom_start || request.gift_timeframe_custom_end
+                              ? ` (${request.gift_timeframe_custom_start || "?"} to ${request.gift_timeframe_custom_end || "?"})`
+                              : ""}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.location_filter && request.location_filter !== "none" ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Location filter
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6 }}>
+                            {[
+                              request.location_filter,
+                              request.location_state,
+                              request.location_city,
+                              request.location_zip,
+                              request.location_radius_address,
+                              request.location_radius_miles
+                                ? `${request.location_radius_miles} mile radius`
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </div>
                         </div>
                       ) : null}
