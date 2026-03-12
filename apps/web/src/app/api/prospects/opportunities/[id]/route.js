@@ -26,7 +26,16 @@ export async function PUT(request, { params }) {
 
     const opportunityId = params.id;
     const body = await request.json();
-    const { title, currentStage, estimatedAmount, latestNotes } = body;
+    const {
+      title,
+      currentStage,
+      estimatedAmount,
+      latestNotes,
+      opportunityStatus,
+      closedAmount,
+      closeDate,
+      declineReason,
+    } = body;
 
     const existingRows = await sql`
       SELECT po.*, p.user_id
@@ -46,10 +55,34 @@ export async function PUT(request, { params }) {
       SET
         title = ${title?.trim() || existing.title},
         current_stage = ${currentStage || existing.current_stage},
+        opportunity_status = ${opportunityStatus || existing.opportunity_status || "Active"},
         estimated_amount = ${estimatedAmount ?? existing.estimated_amount},
         latest_notes = ${
           latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes
         },
+        closed_amount = CASE
+          WHEN ${opportunityStatus} = 'Closed – Gift Secured'
+            THEN ${closedAmount ?? existing.closed_amount ?? existing.estimated_amount}
+          WHEN ${opportunityStatus} = 'Active'
+            THEN NULL
+          ELSE existing.closed_amount
+        END,
+        close_date = CASE
+          WHEN ${opportunityStatus} = 'Closed – Gift Secured'
+            THEN ${closeDate || existing.close_date || null}
+          WHEN ${opportunityStatus} = 'Closed – Declined'
+            THEN ${closeDate || existing.close_date || null}
+          WHEN ${opportunityStatus} = 'Active'
+            THEN NULL
+          ELSE existing.close_date
+        END,
+        decline_reason = CASE
+          WHEN ${opportunityStatus} = 'Closed – Declined'
+            THEN ${declineReason?.trim() || existing.decline_reason || null}
+          WHEN ${opportunityStatus} = 'Active'
+            THEN NULL
+          ELSE existing.decline_reason
+        END,
         updated_at = NOW()
       WHERE id = ${existing.id}
       RETURNING *

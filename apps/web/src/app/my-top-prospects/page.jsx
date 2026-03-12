@@ -36,12 +36,39 @@ const STATUS_COLORS = {
   "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
 };
 
+const OPPORTUNITY_STATUS_COLORS = {
+  Active: { bg: "#DCFCE7", text: "#166534", border: "#BBF7D0" },
+  "Closed – Gift Secured": { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
+  "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
+};
+
 function StatusBadge({ status }) {
   const colors = STATUS_COLORS[status] || {
     bg: "#F3F4F6",
     text: "#374151",
     border: "#E5E7EB",
   };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 10px",
+        borderRadius: "999px",
+        fontSize: "11px",
+        fontWeight: "600",
+        backgroundColor: colors.bg,
+        color: colors.text,
+        border: `1px solid ${colors.border}`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function OpportunityStatusBadge({ status }) {
+  const colors = OPPORTUNITY_STATUS_COLORS[status] || OPPORTUNITY_STATUS_COLORS.Active;
   return (
     <span
       style={{
@@ -733,11 +760,16 @@ function ProspectDetailModal({ prospectId, onClose }) {
     setOpportunityEditData({
       title: opportunity.title || "",
       currentStage: opportunity.current_stage || "Identification",
+      opportunityStatus: opportunity.opportunity_status || "Active",
       estimatedAmount:
         opportunity.estimated_amount != null
           ? String(opportunity.estimated_amount)
           : "",
       latestNotes: opportunity.latest_notes || "",
+      closedAmount:
+        opportunity.closed_amount != null ? String(opportunity.closed_amount) : "",
+      closeDate: opportunity.close_date || "",
+      declineReason: opportunity.decline_reason || "",
     });
   };
 
@@ -748,10 +780,16 @@ function ProspectDetailModal({ prospectId, onClose }) {
       body: {
         title: opportunityEditData.title,
         currentStage: opportunityEditData.currentStage,
+        opportunityStatus: opportunityEditData.opportunityStatus,
         estimatedAmount: opportunityEditData.estimatedAmount
           ? parseFloat(opportunityEditData.estimatedAmount)
           : null,
         latestNotes: opportunityEditData.latestNotes,
+        closedAmount: opportunityEditData.closedAmount
+          ? parseFloat(opportunityEditData.closedAmount)
+          : null,
+        closeDate: opportunityEditData.closeDate || null,
+        declineReason: opportunityEditData.declineReason,
       },
     });
   };
@@ -1422,8 +1460,11 @@ function ProspectDetailModal({ prospectId, onClose }) {
                         >
                           {opportunity.title}
                         </div>
-                        <div style={{ fontSize: "12px", color: "#1D4ED8" }}>
-                          {opportunity.current_stage}
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "12px", color: "#1D4ED8" }}>
+                            {opportunity.current_stage}
+                          </div>
+                          <OpportunityStatusBadge status={opportunity.opportunity_status || "Active"} />
                         </div>
                       </div>
                       <div
@@ -1526,6 +1567,43 @@ function ProspectDetailModal({ prospectId, onClose }) {
                                 marginBottom: "4px",
                               }}
                             >
+                              Opportunity status
+                            </label>
+                            <select
+                              value={opportunityEditData.opportunityStatus || "Active"}
+                              onChange={(e) =>
+                                setOpportunityEditData((prev) => ({
+                                  ...prev,
+                                  opportunityStatus: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "8px 12px",
+                                border: "1px solid #93C5FD",
+                                borderRadius: "8px",
+                                fontSize: "14px",
+                                boxSizing: "border-box",
+                                backgroundColor: "white",
+                              }}
+                            >
+                              {["Active", "Closed – Gift Secured", "Closed – Declined"].map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#1D4ED8",
+                                marginBottom: "4px",
+                              }}
+                            >
                               Amount
                             </label>
                             <input
@@ -1548,6 +1626,114 @@ function ProspectDetailModal({ prospectId, onClose }) {
                             />
                           </div>
                         </div>
+                        {opportunityEditData.opportunityStatus === "Closed – Gift Secured" ? (
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 1fr",
+                              gap: "10px",
+                              marginBottom: "10px",
+                            }}
+                          >
+                            <div>
+                              <label
+                                style={{
+                                  display: "block",
+                                  fontSize: "12px",
+                                  fontWeight: "600",
+                                  color: "#1D4ED8",
+                                  marginBottom: "4px",
+                                }}
+                              >
+                                Closed amount
+                              </label>
+                              <input
+                                type="number"
+                                value={opportunityEditData.closedAmount || ""}
+                                onChange={(e) =>
+                                  setOpportunityEditData((prev) => ({
+                                    ...prev,
+                                    closedAmount: e.target.value,
+                                  }))
+                                }
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 12px",
+                                  border: "1px solid #93C5FD",
+                                  borderRadius: "8px",
+                                  fontSize: "14px",
+                                  boxSizing: "border-box",
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label
+                                style={{
+                                  display: "block",
+                                  fontSize: "12px",
+                                  fontWeight: "600",
+                                  color: "#1D4ED8",
+                                  marginBottom: "4px",
+                                }}
+                              >
+                                Close date
+                              </label>
+                              <input
+                                type="date"
+                                value={opportunityEditData.closeDate || ""}
+                                onChange={(e) =>
+                                  setOpportunityEditData((prev) => ({
+                                    ...prev,
+                                    closeDate: e.target.value,
+                                  }))
+                                }
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 12px",
+                                  border: "1px solid #93C5FD",
+                                  borderRadius: "8px",
+                                  fontSize: "14px",
+                                  boxSizing: "border-box",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                        {opportunityEditData.opportunityStatus === "Closed – Declined" ? (
+                          <div style={{ marginBottom: "10px" }}>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#1D4ED8",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Decline reason
+                            </label>
+                            <textarea
+                              value={opportunityEditData.declineReason || ""}
+                              onChange={(e) =>
+                                setOpportunityEditData((prev) => ({
+                                  ...prev,
+                                  declineReason: e.target.value,
+                                }))
+                              }
+                              rows={2}
+                              style={{
+                                width: "100%",
+                                padding: "8px 12px",
+                                border: "1px solid #93C5FD",
+                                borderRadius: "8px",
+                                fontSize: "14px",
+                                boxSizing: "border-box",
+                                fontFamily: "inherit",
+                                resize: "vertical",
+                              }}
+                            />
+                          </div>
+                        ) : null}
                         <div style={{ marginBottom: "10px" }}>
                           <label
                             style={{
@@ -1648,6 +1834,13 @@ function ProspectDetailModal({ prospectId, onClose }) {
                               day: "numeric",
                               year: "numeric",
                             })}
+                            {opportunity.close_date
+                              ? ` · Closed ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
+                                  month: "long",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}`
+                              : ""}
                           </div>
                           <button
                             type="button"

@@ -300,6 +300,22 @@ export default async function ensureAppSchema() {
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS last_submission_id BIGINT REFERENCES submissions(id) ON DELETE SET NULL
     `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS opportunity_status TEXT NOT NULL DEFAULT 'Active'
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS closed_amount NUMERIC
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS close_date DATE
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS decline_reason TEXT
+    `;
 
     await sql`
       UPDATE prospect_opportunities
@@ -310,6 +326,11 @@ export default async function ensureAppSchema() {
       UPDATE prospect_opportunities
       SET current_stage = COALESCE(NULLIF(current_stage, ''), 'Identification')
       WHERE current_stage IS NULL OR current_stage = ''
+    `;
+    await sql`
+      UPDATE prospect_opportunities
+      SET opportunity_status = COALESCE(NULLIF(opportunity_status, ''), 'Active')
+      WHERE opportunity_status IS NULL OR opportunity_status = ''
     `;
 
     await sql`

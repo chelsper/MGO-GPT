@@ -40,7 +40,10 @@ export async function getProspectOpportunities(prospectId) {
     SELECT *
     FROM prospect_opportunities
     WHERE prospect_id = ${prospectId}
-    ORDER BY updated_at DESC, created_at DESC
+    ORDER BY
+      CASE WHEN opportunity_status = 'Active' THEN 0 ELSE 1 END,
+      updated_at DESC,
+      created_at DESC
   `;
 }
 
@@ -61,7 +64,7 @@ export async function syncProspectAskAmount(prospectId) {
   const totals = await sql`
     SELECT COALESCE(SUM(COALESCE(estimated_amount, 0)), 0) AS total_pipeline
     FROM prospect_opportunities
-    WHERE prospect_id = ${prospectId}
+    WHERE prospect_id = ${prospectId} AND opportunity_status = 'Active'
   `;
 
   const totalPipeline = parseFloat(totals[0]?.total_pipeline) || 0;
@@ -149,6 +152,7 @@ export async function saveProspectOpportunity({
         constituent_id,
         title,
         current_stage,
+        opportunity_status,
         estimated_amount,
         latest_notes,
         last_submission_id
@@ -157,6 +161,7 @@ export async function saveProspectOpportunity({
         ${constituentId || prospect.constituent_id || null},
         ${defaultTitle},
         ${currentStage},
+        'Active',
         ${estimatedAmount ?? null},
         ${latestNotes?.trim() || null},
         ${submissionId || null}
