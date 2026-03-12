@@ -51,8 +51,8 @@ export async function GET(request) {
       SELECT COALESCE(SUM(closed_amount), 0) as closed_total
       FROM prospects
       WHERE user_id = ${user.id}
-        AND status = 'Closed – Gift Secured'
         AND expected_close_fy = ${currentFY}
+        AND closed_amount IS NOT NULL
     `;
 
     return Response.json({
