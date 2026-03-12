@@ -45,7 +45,29 @@ export async function GET(request, { params }) {
 
     const opportunities = await getProspectOpportunities(prospectId);
 
-    return Response.json({ prospect: prospects[0], updates, opportunities });
+    const linkedSubmissions = await sql`
+      SELECT
+        s.*,
+        reviewer.name AS reviewer_name
+      FROM submissions s
+      LEFT JOIN users reviewer ON reviewer.id = s.reviewed_by
+      WHERE s.user_id = ${user.id}
+        AND (
+          s.prospect_id = ${prospectId}
+          OR (
+            ${prospects[0].constituent_id || null} IS NOT NULL
+            AND s.constituent_id = ${prospects[0].constituent_id || null}
+          )
+        )
+      ORDER BY s.updated_at DESC, s.date_submitted DESC
+    `;
+
+    return Response.json({
+      prospect: prospects[0],
+      updates,
+      opportunities,
+      linkedSubmissions,
+    });
   } catch (error) {
     console.error("Error fetching prospect:", error);
     return Response.json(

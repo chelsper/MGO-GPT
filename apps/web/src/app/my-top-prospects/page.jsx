@@ -93,6 +93,45 @@ function formatCurrency(amount) {
   return "$" + Number(amount).toLocaleString();
 }
 
+function formatLongDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getSubmissionTimelineLabel(submission) {
+  switch (submission.submission_type) {
+    case "donor_update":
+      return "Donor update";
+    case "opportunity_update":
+      return "Opportunity update";
+    case "constituent_suggestion":
+      return "Constituent suggestion";
+    default:
+      return "Submission";
+  }
+}
+
+function getSubmissionTimelineDescription(submission) {
+  switch (submission.submission_type) {
+    case "donor_update":
+      return submission.notes || submission.transcript || "Donor update submitted.";
+    case "opportunity_update":
+      return submission.notes || submission.next_step || "Opportunity update submitted.";
+    case "constituent_suggestion":
+      return (
+        submission.notes ||
+        submission.organization ||
+        "New constituent suggestion submitted."
+      );
+    default:
+      return submission.notes || "Submission updated.";
+  }
+}
+
 function getOpportunityDisplayAmount(opportunity) {
   if (opportunity.opportunity_status === "Closed – Gift Secured") {
     return opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
@@ -731,6 +770,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const prospect = data?.prospect;
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
+  const linkedSubmissions = data?.linkedSubmissions || [];
 
   if (isLoading || !prospect) {
     return (
@@ -819,6 +859,65 @@ function ProspectDetailModal({ prospectId, onClose }) {
   };
 
   const isActive = prospect.status === "Active";
+  const timelineEvents = [
+    ...updates.map((update) => ({
+      id: `progress-${update.id}`,
+      occurredAt: update.update_date || update.created_at,
+      kind: "progress",
+      title: "Progress update",
+      description: update.update_notes,
+      meta: formatLongDate(update.update_date || update.created_at),
+      accent: "#6A5BFF",
+      border: "#DDD6FE",
+      background: "#F5F3FF",
+    })),
+    ...opportunities.map((opportunity) => ({
+      id: `opportunity-${opportunity.id}`,
+      occurredAt: opportunity.updated_at || opportunity.created_at,
+      kind: "opportunity",
+      title: `${opportunity.title}`,
+      description:
+        opportunity.latest_notes ||
+        `${opportunity.current_stage} · ${opportunity.opportunity_status || "Active"}`,
+      meta: `${opportunity.current_stage} · ${opportunity.opportunity_status || "Active"} · ${formatLongDate(
+        opportunity.updated_at || opportunity.created_at,
+      )}`,
+      accent: "#1D4ED8",
+      border: "#BFDBFE",
+      background: "#EFF6FF",
+    })),
+    ...linkedSubmissions.map((submission) => ({
+      id: `submission-${submission.id}`,
+      occurredAt:
+        submission.reviewed_at ||
+        submission.updated_at ||
+        submission.date_submitted,
+      kind: "submission",
+      title: getSubmissionTimelineLabel(submission),
+      description: getSubmissionTimelineDescription(submission),
+      meta: [
+        submission.status,
+        submission.reviewer_notes
+          ? `Reviewer note from ${submission.reviewer_name || "reviewer"}`
+          : null,
+        formatLongDate(
+          submission.reviewed_at ||
+            submission.updated_at ||
+            submission.date_submitted,
+        ),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      accent:
+        submission.status === "Needs Clarification" ? "#B45309" : "#065F46",
+      border:
+        submission.status === "Needs Clarification" ? "#FCD34D" : "#A7F3D0",
+      background:
+        submission.status === "Needs Clarification" ? "#FFFBEB" : "#ECFDF5",
+      reviewerNotes: submission.reviewer_notes,
+    })),
+  ]
+    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
   return (
     <div
@@ -1960,9 +2059,9 @@ function ProspectDetailModal({ prospectId, onClose }) {
                 margin: "0 0 12px 0",
               }}
             >
-              Progress Log
+              Activity Timeline
             </h3>
-            {updates.length === 0 ? (
+            {timelineEvents.length === 0 ? (
               <p
                 style={{
                   fontSize: "14px",
@@ -1970,45 +2069,84 @@ function ProspectDetailModal({ prospectId, onClose }) {
                   fontStyle: "italic",
                 }}
               >
-                No progress updates yet.
+                No activity yet for this prospect.
               </p>
             ) : (
               <div
                 style={{ display: "flex", flexDirection: "column", gap: "8px" }}
               >
-                {updates.map((u) => (
+                {timelineEvents.map((event) => (
                   <div
-                    key={u.id}
+                    key={event.id}
                     style={{
                       padding: "12px",
-                      backgroundColor: "#F9FAFB",
+                      backgroundColor: event.background,
                       borderRadius: "8px",
-                      border: "1px solid #E5E7EB",
+                      border: `1px solid ${event.border}`,
                     }}
                   >
-                    <p
+                    <div
                       style={{
-                        fontSize: "12px",
-                        fontWeight: "600",
-                        color: "#6A5BFF",
-                        margin: "0 0 4px 0",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        alignItems: "flex-start",
+                        marginBottom: "4px",
                       }}
                     >
-                      {new Date(u.update_date).toLocaleDateString("en-US", {
-                        month: "long",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </p>
+                      <p
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: "700",
+                          color: event.accent,
+                          margin: 0,
+                        }}
+                      >
+                        {event.title}
+                      </p>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          margin: 0,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatLongDate(event.occurredAt)}
+                      </p>
+                    </div>
                     <p
                       style={{
                         fontSize: "14px",
                         color: "#374151",
+                        margin: "0 0 4px 0",
+                        lineHeight: "1.5",
+                      }}
+                    >
+                      {event.description}
+                    </p>
+                    {event.reviewerNotes ? (
+                      <p
+                        style={{
+                          fontSize: "13px",
+                          color: "#6B7280",
+                          margin: "0 0 4px 0",
+                          lineHeight: "1.5",
+                        }}
+                      >
+                        Reviewer note: {event.reviewerNotes}
+                      </p>
+                    ) : null}
+                    <p
+                      style={{
+                        fontSize: "12px",
+                        color: "#6B7280",
                         margin: 0,
                         lineHeight: "1.5",
                       }}
                     >
-                      {u.update_notes}
+                      {event.meta}
                     </p>
                   </div>
                 ))}
