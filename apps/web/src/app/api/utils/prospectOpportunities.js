@@ -69,9 +69,51 @@ export async function syncProspectAskAmount(prospectId) {
 
   const totalPipeline = parseFloat(totals[0]?.total_pipeline) || 0;
 
+  const statuses = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE opportunity_status = 'Active') AS active_count,
+      COUNT(*) FILTER (WHERE opportunity_status = 'Closed – Gift Secured') AS secured_count,
+      COUNT(*) FILTER (WHERE opportunity_status = 'Closed – Declined') AS declined_count,
+      COALESCE(SUM(COALESCE(closed_amount, 0)) FILTER (WHERE opportunity_status = 'Closed – Gift Secured'), 0) AS closed_total,
+      MAX(close_date) FILTER (
+        WHERE opportunity_status IN ('Closed – Gift Secured', 'Closed – Declined')
+      ) AS latest_close_date
+    FROM prospect_opportunities
+    WHERE prospect_id = ${prospectId}
+  `;
+
+  const activeCount = Number(statuses[0]?.active_count || 0);
+  const securedCount = Number(statuses[0]?.secured_count || 0);
+  const declinedCount = Number(statuses[0]?.declined_count || 0);
+  const closedTotal = parseFloat(statuses[0]?.closed_total) || 0;
+  const latestCloseDate = statuses[0]?.latest_close_date || null;
+
+  let nextStatus = "Active";
+  let nextClosedAmount = null;
+  let nextCloseDate = null;
+
+  if (activeCount === 0 && securedCount > 0 && declinedCount === 0) {
+    nextStatus = "Closed – Gift Secured";
+    nextClosedAmount = closedTotal;
+    nextCloseDate = latestCloseDate;
+  } else if (activeCount === 0 && declinedCount > 0 && securedCount === 0) {
+    nextStatus = "Closed – Declined";
+    nextCloseDate = latestCloseDate;
+  }
+
   const result = await sql`
     UPDATE prospects
-    SET ask_amount = ${totalPipeline}, updated_at = NOW()
+    SET
+      ask_amount = ${totalPipeline},
+      status = ${nextStatus},
+      closed_amount = ${nextClosedAmount},
+      close_date = ${nextCloseDate},
+      decline_reason = CASE
+        WHEN ${nextStatus} = 'Active' OR ${nextStatus} = 'Closed – Gift Secured'
+          THEN NULL
+        ELSE decline_reason
+      END,
+      updated_at = NOW()
     WHERE id = ${prospectId}
     RETURNING *
   `;
