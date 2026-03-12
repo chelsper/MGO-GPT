@@ -50,28 +50,37 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Linked opportunity not found" }, { status: 404 });
     }
 
+    const nextEstimatedAmount =
+      estimatedAmount !== undefined ? estimatedAmount : existing.estimated_amount;
+    const normalizedCloseDate =
+      closeDate || (opportunityStatus && opportunityStatus !== "Active"
+        ? new Date().toISOString().slice(0, 10)
+        : existing.close_date || null);
+
     const updatedRows = await sql`
       UPDATE prospect_opportunities
       SET
         title = ${title?.trim() || existing.title},
         current_stage = ${currentStage || existing.current_stage},
         opportunity_status = ${opportunityStatus || existing.opportunity_status || "Active"},
-        estimated_amount = ${estimatedAmount ?? existing.estimated_amount},
+        estimated_amount = ${nextEstimatedAmount},
         latest_notes = ${
           latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes
         },
         closed_amount = CASE
           WHEN ${opportunityStatus} = 'Closed – Gift Secured'
-            THEN ${closedAmount ?? existing.closed_amount ?? existing.estimated_amount}
+            THEN ${closedAmount ?? nextEstimatedAmount ?? existing.closed_amount ?? 0}
+          WHEN ${opportunityStatus} = 'Closed – Declined'
+            THEN 0
           WHEN ${opportunityStatus} = 'Active'
             THEN NULL
           ELSE existing.closed_amount
         END,
         close_date = CASE
           WHEN ${opportunityStatus} = 'Closed – Gift Secured'
-            THEN ${closeDate || existing.close_date || null}
+            THEN ${normalizedCloseDate}
           WHEN ${opportunityStatus} = 'Closed – Declined'
-            THEN ${closeDate || existing.close_date || null}
+            THEN ${normalizedCloseDate}
           WHEN ${opportunityStatus} = 'Active'
             THEN NULL
           ELSE existing.close_date
@@ -95,7 +104,12 @@ export async function PUT(request, { params }) {
   } catch (error) {
     console.error("Error updating linked opportunity:", error);
     return Response.json(
-      { error: "Failed to update linked opportunity" },
+      {
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : "Failed to update linked opportunity",
+      },
       { status: 500 },
     );
   }
