@@ -508,6 +508,136 @@ export default function Page() {
             </a>
           ))}
         </div>
+
+        <footer
+          style={{
+            marginTop: "28px",
+            paddingTop: "18px",
+            borderTop: "1px solid #E5E7EB",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "12px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              borderRadius: "14px",
+              padding: "14px 16px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#6B7280",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginBottom: "8px",
+              }}
+            >
+              Signed in
+            </div>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+              {profile?.name || user?.name || user?.email}
+            </div>
+            <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+              {profile?.email || user?.email}
+            </div>
+            <div
+              style={{
+                marginTop: "8px",
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#6A5BFF",
+                textTransform: "capitalize",
+              }}
+            >
+              {profile?.role || "mgo"}
+            </div>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              borderRadius: "14px",
+              padding: "14px 16px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#6B7280",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginBottom: "8px",
+              }}
+            >
+              Need help?
+            </div>
+            <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.6 }}>
+              {isReviewer
+                ? "Review process guidance and shared standards live in the knowledge base."
+                : "Use the knowledge base for process guidance, scripts, and submission standards."}
+            </div>
+            <a
+              href={isReviewer ? "/knowledge-base/manage" : "/knowledge-base"}
+              style={{
+                display: "inline-flex",
+                marginTop: "10px",
+                color: "#6A5BFF",
+                fontSize: "13px",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              {isReviewer ? "Open knowledge base editor" : "Open knowledge base"}
+            </a>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              borderRadius: "14px",
+              padding: "14px 16px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#6B7280",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginBottom: "8px",
+              }}
+            >
+              Workspace status
+            </div>
+            <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.6 }}>
+              {isReviewer
+                ? "Submission reviews, list-request priorities, and knowledge-base changes are shared across Advancement Services."
+                : "Your submissions and list requests flow into shared Advancement Services queues and stay visible in your tracker."}
+            </div>
+            <a
+              href="/submissions"
+              style={{
+                display: "inline-flex",
+                marginTop: "10px",
+                color: "#6A5BFF",
+                fontSize: "13px",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              Open tracker
+            </a>
+          </div>
+        </footer>
       </main>
     </div>
   );
