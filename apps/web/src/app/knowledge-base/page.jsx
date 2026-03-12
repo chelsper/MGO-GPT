@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -17,100 +17,22 @@ import {
   Settings,
   Search,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  ArrowRight,
+  Link2,
 } from "lucide-react";
 
-const categories = [
-  {
-    id: "fundamentals",
-    title: "Raiser's Edge NXT Fundamentals",
-    icon: "BookOpen",
-    description: "Core platform navigation and profile basics",
-  },
-  {
-    id: "constituencies",
-    title: "Constituencies & Hierarchy",
-    icon: "Users",
-    description: "Standard constituency order and rules",
-  },
-  {
-    id: "household",
-    title: "Household & Mailing Rules",
-    icon: "Home",
-    description: "Head of household and mailing standards",
-  },
-  {
-    id: "giving",
-    title: "Gift & Giving Definitions",
-    icon: "Gift",
-    description: "Lifetime giving, recognition, and legal credit",
-  },
-  {
-    id: "prospect",
-    title: "Prospect Management",
-    icon: "Target",
-    description: "Ratings, contact reports, and pipeline",
-  },
-  {
-    id: "reporting",
-    title: "List & Reporting Standards",
-    icon: "FileText",
-    description: "List request guidelines and output formats",
-  },
-  {
-    id: "governance",
-    title: "Data Governance & Best Practices",
-    icon: "Shield",
-    description: "Why standards matter and compliance",
-  },
-  {
-    id: "fundraising-policies",
-    title: "Fundraising Policies",
-    icon: "Banknote",
-    description: "Tickets, auctions, raffles, sponsorships, and quid pro quo",
-  },
-  {
-    id: "gift-acceptance",
-    title: "Gift Acceptance",
-    icon: "Heart",
-    description: "Gifts-in-kind, pledges, endowments, and scholarships",
-  },
-  {
-    id: "gift-agreements",
-    title: "Gift Agreements",
-    icon: "FileSignature",
-    description: "Agreement types, MOUs, naming rights, and Heritage Society",
-  },
-  {
-    id: "campaign-counting",
-    title: "Campaign Counting & Reporting",
-    icon: "BarChart3",
-    description: "Gift counting rules, pillars, exclusions, and planned gifts",
-  },
-  {
-    id: "advancement-ops",
-    title: "Advancement Operations",
-    icon: "Settings",
-    description:
-      "Services, events, data, acknowledgments, ethics, and campaigns",
-  },
-];
-
 const ICON_MAP = {
-  BookOpen,
-  Users,
-  Home,
-  Gift,
-  Target,
-  FileText,
-  Shield,
-  Banknote,
-  Heart,
-  FileSignature,
-  BarChart3,
-  Settings,
+  "book-open": BookOpen,
+  users: Users,
+  home: Home,
+  gift: Gift,
+  target: Target,
+  "file-text": FileText,
+  shield: Shield,
+  banknote: Banknote,
+  heart: Heart,
+  "file-signature": FileSignature,
+  "bar-chart-3": BarChart3,
+  settings: Settings,
 };
 
 function CategoryCard({ category, onClick }) {
@@ -146,37 +68,19 @@ function CategoryCard({ category, onClick }) {
         <IconComp size={20} color="#6A5BFF" />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <h3
-          style={{
-            fontSize: "15px",
-            fontWeight: "600",
-            color: "#111827",
-            margin: "0 0 4px 0",
-          }}
-        >
+        <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111827", margin: "0 0 4px 0" }}>
           {category.title}
         </h3>
-        <p
-          style={{
-            fontSize: "13px",
-            color: "#6B7280",
-            margin: 0,
-            lineHeight: "1.4",
-          }}
-        >
+        <p style={{ fontSize: "13px", color: "#6B7280", margin: 0, lineHeight: "1.4" }}>
           {category.description}
         </p>
       </div>
-      <ChevronRight
-        size={18}
-        color="#9CA3AF"
-        style={{ marginTop: "4px", flexShrink: 0 }}
-      />
+      <ChevronRight size={18} color="#9CA3AF" style={{ marginTop: "4px", flexShrink: 0 }} />
     </button>
   );
 }
 
-function ArticleCard({ article, onClick }) {
+function ArticleCard({ article, categoryName, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -195,14 +99,21 @@ function ArticleCard({ article, onClick }) {
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <h4
-          style={{
-            fontSize: "14px",
-            fontWeight: "600",
-            color: "#111827",
-            margin: "0 0 4px 0",
-          }}
-        >
+        {categoryName ? (
+          <div
+            style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              color: "#6B7280",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              marginBottom: "6px",
+            }}
+          >
+            {categoryName}
+          </div>
+        ) : null}
+        <h4 style={{ fontSize: "14px", fontWeight: 600, color: "#111827", margin: "0 0 4px 0" }}>
           {article.title}
         </h4>
         <p
@@ -226,8 +137,54 @@ function ArticleCard({ article, onClick }) {
   );
 }
 
-function ArticleView({ article, onBack }) {
+function SectionCard({ title, children, tone = "default" }) {
+  const tones = {
+    default: {
+      backgroundColor: "white",
+      border: "1px solid #E5E7EB",
+      titleColor: "#111827",
+      bodyColor: "#374151",
+    },
+    warn: {
+      backgroundColor: "#FFFBEB",
+      border: "1px solid #FDE68A",
+      titleColor: "#92400E",
+      bodyColor: "#78350F",
+    },
+    danger: {
+      backgroundColor: "#FEF2F2",
+      border: "1px solid #FECACA",
+      titleColor: "#991B1B",
+      bodyColor: "#991B1B",
+    },
+  };
+  const style = tones[tone] || tones.default;
+
+  return (
+    <div
+      style={{
+        backgroundColor: style.backgroundColor,
+        borderRadius: "12px",
+        border: style.border,
+        padding: "20px",
+        marginBottom: "16px",
+      }}
+    >
+      <h3 style={{ fontSize: "15px", fontWeight: 700, color: style.titleColor, margin: "0 0 12px 0" }}>
+        {title}
+      </h3>
+      <div style={{ fontSize: "14px", color: style.bodyColor, lineHeight: "1.6" }}>{children}</div>
+    </div>
+  );
+}
+
+function ArticleView({ article, articlesById, categoryName, onBack, onSelectArticle }) {
   const sections = article.sections || {};
+  const relatedArticles = Array.isArray(sections.relatedArticles)
+    ? sections.relatedArticles
+        .map((id) => articlesById.get(id))
+        .filter(Boolean)
+    : [];
 
   return (
     <div>
@@ -242,7 +199,7 @@ function ArticleView({ article, onBack }) {
           cursor: "pointer",
           color: "#6A5BFF",
           fontSize: "14px",
-          fontWeight: "500",
+          fontWeight: 500,
           padding: 0,
           marginBottom: "20px",
         }}
@@ -251,36 +208,30 @@ function ArticleView({ article, onBack }) {
         Back
       </button>
 
-      <h2
-        style={{
-          fontSize: "22px",
-          fontWeight: "700",
-          color: "#111827",
-          margin: "0 0 8px 0",
-        }}
-      >
+      {categoryName ? (
+        <div
+          style={{
+            fontSize: "12px",
+            fontWeight: 700,
+            color: "#6B7280",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            marginBottom: "10px",
+          }}
+        >
+          {categoryName}
+        </div>
+      ) : null}
+
+      <h2 style={{ fontSize: "24px", fontWeight: 700, color: "#111827", margin: "0 0 8px 0" }}>
         {article.title}
       </h2>
-      <p
-        style={{
-          fontSize: "14px",
-          color: "#6B7280",
-          lineHeight: "1.6",
-          margin: "0 0 24px 0",
-        }}
-      >
+      <p style={{ fontSize: "14px", color: "#6B7280", lineHeight: "1.6", margin: "0 0 24px 0" }}>
         {article.summary}
       </p>
 
-      {article.tags && (
-        <div
-          style={{
-            display: "flex",
-            gap: "6px",
-            flexWrap: "wrap",
-            marginBottom: "24px",
-          }}
-        >
+      {article.tags?.length ? (
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "24px" }}>
           {article.tags.map((tag) => (
             <span
               key={tag}
@@ -296,232 +247,186 @@ function ArticleView({ article, onBack }) {
             </span>
           ))}
         </div>
-      )}
+      ) : null}
 
-      {sections.rulesStandards && sections.rulesStandards.length > 0 && (
-        <div
-          style={{
-            backgroundColor: "white",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
-            marginBottom: "16px",
-          }}
-        >
-          <h3
-            style={{
-              fontSize: "15px",
-              fontWeight: "700",
-              color: "#111827",
-              margin: "0 0 12px 0",
-            }}
-          >
-            Rules & Standards
-          </h3>
+      {sections.rulesStandards?.length ? (
+        <SectionCard title="Rules & Standards">
           <ul style={{ margin: 0, paddingLeft: "20px" }}>
-            {sections.rulesStandards.map((rule, i) => (
-              <li
-                key={i}
-                style={{
-                  fontSize: "14px",
-                  color: "#374151",
-                  lineHeight: "1.6",
-                  marginBottom: "6px",
-                }}
-              >
+            {sections.rulesStandards.map((rule, index) => (
+              <li key={index} style={{ marginBottom: "6px" }}>
                 {rule}
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        </SectionCard>
+      ) : null}
 
-      {sections.examples && sections.examples.length > 0 && (
-        <div
-          style={{
-            backgroundColor: "white",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "20px",
-            marginBottom: "16px",
-          }}
-        >
-          <h3
-            style={{
-              fontSize: "15px",
-              fontWeight: "700",
-              color: "#111827",
-              margin: "0 0 12px 0",
-            }}
-          >
-            Examples
-          </h3>
-          {sections.examples.map((example, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: i < sections.examples.length - 1 ? "16px" : 0,
-              }}
-            >
-              <h4
-                style={{
-                  fontSize: "14px",
-                  fontWeight: "600",
-                  color: "#6A5BFF",
-                  margin: "0 0 4px 0",
-                }}
-              >
+      {sections.examples?.length ? (
+        <SectionCard title="Examples">
+          {sections.examples.map((example, index) => (
+            <div key={index} style={{ marginBottom: index < sections.examples.length - 1 ? "16px" : 0 }}>
+              <h4 style={{ fontSize: "14px", fontWeight: 600, color: "#6A5BFF", margin: "0 0 4px 0" }}>
                 {example.title}
               </h4>
-              <p
-                style={{
-                  fontSize: "14px",
-                  color: "#374151",
-                  lineHeight: "1.6",
-                  margin: 0,
-                }}
-              >
-                {example.content}
-              </p>
+              <p style={{ margin: 0 }}>{example.content}</p>
             </div>
           ))}
-        </div>
-      )}
+        </SectionCard>
+      ) : null}
 
-      {sections.whyThisMatters && (
-        <div
-          style={{
-            backgroundColor: "#FFFBEB",
-            borderRadius: "12px",
-            border: "1px solid #FDE68A",
-            padding: "20px",
-            marginBottom: "16px",
-          }}
-        >
-          <h3
-            style={{
-              fontSize: "15px",
-              fontWeight: "700",
-              color: "#92400E",
-              margin: "0 0 8px 0",
-            }}
-          >
-            Why This Matters
-          </h3>
-          <p
-            style={{
-              fontSize: "14px",
-              color: "#78350F",
-              lineHeight: "1.6",
-              margin: 0,
-            }}
-          >
-            {sections.whyThisMatters}
-          </p>
-        </div>
-      )}
+      {sections.whyThisMatters ? (
+        <SectionCard title="Why This Matters" tone="warn">
+          <p style={{ margin: 0 }}>{sections.whyThisMatters}</p>
+        </SectionCard>
+      ) : null}
 
-      {sections.commonMistakes && sections.commonMistakes.length > 0 && (
-        <div
-          style={{
-            backgroundColor: "#FEF2F2",
-            borderRadius: "12px",
-            border: "1px solid #FECACA",
-            padding: "20px",
-            marginBottom: "16px",
-          }}
-        >
-          <h3
-            style={{
-              fontSize: "15px",
-              fontWeight: "700",
-              color: "#991B1B",
-              margin: "0 0 12px 0",
-            }}
-          >
-            Common Mistakes
-          </h3>
+      {sections.commonMistakes?.length ? (
+        <SectionCard title="Common Mistakes" tone="danger">
           <ul style={{ margin: 0, paddingLeft: "20px" }}>
-            {sections.commonMistakes.map((mistake, i) => (
-              <li
-                key={i}
-                style={{
-                  fontSize: "14px",
-                  color: "#991B1B",
-                  lineHeight: "1.6",
-                  marginBottom: "6px",
-                }}
-              >
+            {sections.commonMistakes.map((mistake, index) => (
+              <li key={index} style={{ marginBottom: "6px" }}>
                 {mistake}
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        </SectionCard>
+      ) : null}
+
+      {relatedArticles.length ? (
+        <SectionCard title="Related Articles">
+          <div style={{ display: "grid", gap: "10px" }}>
+            {relatedArticles.map((related) => (
+              <button
+                key={related.id}
+                type="button"
+                onClick={() => onSelectArticle(related)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "14px 16px",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  backgroundColor: "#F9FAFB",
+                  cursor: "pointer",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "#111827" }}>
+                    {related.title}
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
+                    {related.summary}
+                  </div>
+                </div>
+                <Link2 size={16} color="#6A5BFF" />
+              </button>
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
     </div>
   );
 }
 
 export default function KnowledgeBasePage() {
-  const [articles, setArticles] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [selectedArticle, setSelectedArticle] = useState(null);
+  const [knowledgeBase, setKnowledgeBase] = useState(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [selectedArticleId, setSelectedArticleId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState(null);
-  const [loadingArticles, setLoadingArticles] = useState(false);
+  const [loadingKnowledgeBase, setLoadingKnowledgeBase] = useState(false);
 
-  // Dynamically load articles from mobile data files
-  const loadArticles = async () => {
-    if (articles) return articles;
-    setLoadingArticles(true);
+  const categories = knowledgeBase?.categories || [];
+  const articles = knowledgeBase?.articles || [];
 
-    try {
-      // Fetch articles from a backend endpoint that serves the knowledge base data
-      const res = await fetch("/api/knowledge-base");
-      if (!res.ok) throw new Error("Failed to load articles");
-      const data = await res.json();
-      setArticles(data);
-      setLoadingArticles(false);
-      return data;
-    } catch (err) {
-      console.error("Failed to load knowledge base:", err);
-      setLoadingArticles(false);
-      return [];
-    }
-  };
+  const categoriesById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories],
+  );
+  const articlesById = useMemo(
+    () => new Map(articles.map((article) => [article.id, article])),
+    [articles],
+  );
 
-  const handleCategoryClick = async (cat) => {
-    const allArticles = await loadArticles();
-    const filtered = allArticles.filter((a) => a.categoryId === cat.id);
-    setSelectedCategory({ ...cat, articles: filtered });
-    setSelectedArticle(null);
-    setSearchResults(null);
-  };
+  const selectedCategory = selectedCategoryId
+    ? categoriesById.get(selectedCategoryId) || null
+    : null;
+  const selectedArticle = selectedArticleId
+    ? articlesById.get(selectedArticleId) || null
+    : null;
 
-  const handleSearch = async (query) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchResults(null);
-      return;
-    }
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return null;
 
-    const allArticles = await loadArticles();
-    const lower = query.toLowerCase().trim();
-    const results = allArticles.filter((a) => {
-      const titleMatch = a.title.toLowerCase().includes(lower);
-      const summaryMatch = a.summary.toLowerCase().includes(lower);
-      const tagMatch =
-        a.tags && a.tags.some((t) => t.toLowerCase().includes(lower));
-      return titleMatch || summaryMatch || tagMatch;
+    return articles.filter((article) => {
+      const titleMatch = article.title.toLowerCase().includes(query);
+      const summaryMatch = article.summary.toLowerCase().includes(query);
+      const tagMatch = article.tags?.some((tag) => tag.toLowerCase().includes(query));
+      const relatedMatch = article.sections?.rulesStandards?.some((item) =>
+        item.toLowerCase().includes(query),
+      );
+      return titleMatch || summaryMatch || tagMatch || relatedMatch;
     });
-    setSearchResults(results);
-    setSelectedCategory(null);
-    setSelectedArticle(null);
-  };
+  }, [articles, searchQuery]);
 
-  const showingCategories =
-    !selectedCategory && !selectedArticle && !searchResults;
+  const categoryArticles = useMemo(() => {
+    if (!selectedCategory) return [];
+    return articles.filter((article) => article.categoryId === selectedCategory.id);
+  }, [articles, selectedCategory]);
+
+  async function loadKnowledgeBase() {
+    if (knowledgeBase) return knowledgeBase;
+    setLoadingKnowledgeBase(true);
+    try {
+      const response = await fetch("/api/knowledge-base");
+      if (!response.ok) {
+        throw new Error("Failed to load knowledge base");
+      }
+      const data = await response.json();
+      setKnowledgeBase(data);
+      return data;
+    } catch (error) {
+      console.error("Failed to load knowledge base:", error);
+      return { categories: [], articles: [] };
+    } finally {
+      setLoadingKnowledgeBase(false);
+    }
+  }
+
+  async function handleCategoryClick(category) {
+    await loadKnowledgeBase();
+    setSelectedCategoryId(category.id);
+    setSelectedArticleId(null);
+    setSearchQuery("");
+  }
+
+  async function handleArticleSelect(article) {
+    await loadKnowledgeBase();
+    setSelectedArticleId(article.id);
+  }
+
+  async function handleSearch(query) {
+    setSearchQuery(query);
+    if (!knowledgeBase) {
+      await loadKnowledgeBase();
+    }
+    setSelectedCategoryId(null);
+    setSelectedArticleId(null);
+  }
+
+  const showingCategories = !selectedCategory && !selectedArticle && !searchResults;
   const showingCategoryArticles = selectedCategory && !selectedArticle;
+  const selectedCategoryName = selectedArticle
+    ? categoriesById.get(selectedArticle.categoryId)?.title || null
+    : null;
+
+  useEffect(() => {
+    loadKnowledgeBase();
+  }, []);
 
   return (
     <div
@@ -543,7 +448,7 @@ export default function KnowledgeBasePage() {
       >
         <div
           style={{
-            maxWidth: "800px",
+            maxWidth: "860px",
             margin: "0 auto",
             display: "flex",
             alignItems: "center",
@@ -566,21 +471,18 @@ export default function KnowledgeBasePage() {
           >
             <ArrowLeft size={18} color="#374151" />
           </a>
-          <h1
-            style={{
-              fontSize: "18px",
-              fontWeight: "700",
-              color: "#111827",
-              margin: 0,
-            }}
-          >
-            Knowledge Base
-          </h1>
+          <div>
+            <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#111827", margin: 0 }}>
+              Knowledge Base
+            </h1>
+            <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "4px" }}>
+              Search 51 standards articles with related click-throughs.
+            </div>
+          </div>
         </div>
       </header>
 
-      <main style={{ maxWidth: "800px", margin: "0 auto", padding: "24px" }}>
-        {/* Search */}
+      <main style={{ maxWidth: "860px", margin: "0 auto", padding: "24px" }}>
         <div style={{ position: "relative", marginBottom: "24px" }}>
           <Search
             size={18}
@@ -595,8 +497,8 @@ export default function KnowledgeBasePage() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search articles..."
+            onChange={(event) => handleSearch(event.target.value)}
+            placeholder="Search articles, standards, tags, or rules..."
             style={{
               width: "100%",
               padding: "12px 14px 12px 42px",
@@ -609,34 +511,22 @@ export default function KnowledgeBasePage() {
           />
         </div>
 
-        {/* Search Results */}
-        {searchResults && (
+        {searchResults ? (
           <div>
-            <p
-              style={{
-                fontSize: "13px",
-                color: "#6B7280",
-                marginBottom: "12px",
-              }}
-            >
-              {searchResults.length} result
-              {searchResults.length !== 1 ? "s" : ""} for "{searchQuery}"
+            <p style={{ fontSize: "13px", color: "#6B7280", marginBottom: "12px" }}>
+              {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for "{searchQuery}"
             </p>
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "10px" }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {searchResults.map((article) => (
                 <ArticleCard
                   key={article.id}
                   article={article}
-                  onClick={() => {
-                    setSelectedArticle(article);
-                    setSearchResults(null);
-                  }}
+                  categoryName={categoriesById.get(article.categoryId)?.title || ""}
+                  onClick={() => handleArticleSelect(article)}
                 />
               ))}
             </div>
-            {searchResults.length === 0 && (
+            {searchResults.length === 0 ? (
               <div
                 style={{
                   textAlign: "center",
@@ -644,40 +534,33 @@ export default function KnowledgeBasePage() {
                   backgroundColor: "white",
                   borderRadius: "12px",
                   border: "1px solid #E5E7EB",
+                  marginTop: "12px",
                 }}
               >
-                <Search
-                  size={32}
-                  color="#D1D5DB"
-                  style={{ margin: "0 auto 8px" }}
-                />
-                <p style={{ fontSize: "14px", color: "#6B7280" }}>
+                <Search size={32} color="#D1D5DB" style={{ margin: "0 auto 8px" }} />
+                <p style={{ fontSize: "14px", color: "#6B7280", margin: 0 }}>
                   No articles found. Try a different search term.
                 </p>
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        {/* Article Detail */}
-        {selectedArticle && (
+        {selectedArticle ? (
           <ArticleView
             article={selectedArticle}
-            onBack={() => {
-              setSelectedArticle(null);
-              if (!selectedCategory) {
-                setSearchQuery("");
-              }
-            }}
+            articlesById={articlesById}
+            categoryName={selectedCategoryName}
+            onSelectArticle={handleArticleSelect}
+            onBack={() => setSelectedArticleId(null)}
           />
-        )}
+        ) : null}
 
-        {/* Category Article List */}
-        {showingCategoryArticles && (
+        {showingCategoryArticles ? (
           <div>
             <button
               onClick={() => {
-                setSelectedCategory(null);
+                setSelectedCategoryId(null);
                 setSearchQuery("");
               }}
               style={{
@@ -689,7 +572,7 @@ export default function KnowledgeBasePage() {
                 cursor: "pointer",
                 color: "#6A5BFF",
                 fontSize: "14px",
-                fontWeight: "500",
+                fontWeight: 500,
                 padding: 0,
                 marginBottom: "16px",
               }}
@@ -697,69 +580,32 @@ export default function KnowledgeBasePage() {
               <ArrowLeft size={16} />
               All Categories
             </button>
-            <h2
-              style={{
-                fontSize: "20px",
-                fontWeight: "700",
-                color: "#111827",
-                margin: "0 0 4px 0",
-              }}
-            >
+            <h2 style={{ fontSize: "20px", fontWeight: 700, color: "#111827", margin: "0 0 4px 0" }}>
               {selectedCategory.title}
             </h2>
-            <p
-              style={{
-                fontSize: "13px",
-                color: "#6B7280",
-                margin: "0 0 20px 0",
-              }}
-            >
+            <p style={{ fontSize: "13px", color: "#6B7280", margin: "0 0 20px 0" }}>
               {selectedCategory.description}
             </p>
 
-            {loadingArticles ? (
-              <p
-                style={{
-                  color: "#6B7280",
-                  textAlign: "center",
-                  padding: "40px",
-                }}
-              >
+            {loadingKnowledgeBase ? (
+              <p style={{ color: "#6B7280", textAlign: "center", padding: "40px" }}>
                 Loading articles...
               </p>
             ) : (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                }}
-              >
-                {selectedCategory.articles.map((article) => (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {categoryArticles.map((article) => (
                   <ArticleCard
                     key={article.id}
                     article={article}
-                    onClick={() => setSelectedArticle(article)}
+                    onClick={() => handleArticleSelect(article)}
                   />
                 ))}
-                {selectedCategory.articles.length === 0 && (
-                  <p
-                    style={{
-                      color: "#6B7280",
-                      textAlign: "center",
-                      padding: "40px",
-                    }}
-                  >
-                    No articles in this category yet.
-                  </p>
-                )}
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
-        {/* Categories Grid */}
-        {showingCategories && (
+        {showingCategories ? (
           <div
             style={{
               display: "grid",
@@ -767,15 +613,15 @@ export default function KnowledgeBasePage() {
               gap: "12px",
             }}
           >
-            {categories.map((cat) => (
+            {categories.map((category) => (
               <CategoryCard
-                key={cat.id}
-                category={cat}
-                onClick={() => handleCategoryClick(cat)}
+                key={category.id}
+                category={category}
+                onClick={() => handleCategoryClick(category)}
               />
             ))}
           </div>
-        )}
+        ) : null}
       </main>
     </div>
   );

@@ -59,7 +59,7 @@ export default function KnowledgeBaseManagePage() {
         const articleData = await articlesResponse.json();
         if (active) {
           setProfile(profileData.user);
-          setArticles(Array.isArray(articleData) ? articleData : []);
+          setArticles(Array.isArray(articleData?.articles) ? articleData.articles : []);
         }
       } catch (err) {
         if (active) {
@@ -141,7 +141,7 @@ export default function KnowledgeBaseManagePage() {
 
       const refreshed = await fetch("/api/knowledge-base");
       const refreshedArticles = await refreshed.json();
-      setArticles(Array.isArray(refreshedArticles) ? refreshedArticles : []);
+      setArticles(Array.isArray(refreshedArticles?.articles) ? refreshedArticles.articles : []);
       setMessage("Knowledge base article updated.");
     } catch (err) {
       console.error(err);
