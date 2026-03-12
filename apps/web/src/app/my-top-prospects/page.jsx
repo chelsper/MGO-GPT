@@ -143,10 +143,29 @@ function formatRelativeDays(value) {
   return `Active ${diffDays} days ago`;
 }
 
+function formatShortDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function getProspectNextAction(prospect) {
+  if (prospect.next_action_text && !prospect.next_action_completed_at) {
+    return {
+      label: prospect.next_action_text,
+      meta: prospect.next_action_due_date
+        ? `Due ${formatShortDate(prospect.next_action_due_date)}`
+        : "No due date",
+      tone: { bg: "#E0F2FE", fg: "#075985", border: "#BAE6FD" },
+    };
+  }
+
   if (prospect.latest_submission_status === "Needs Clarification") {
     return {
       label: "Respond to clarification",
+      meta: "Reviewer requested follow-up",
       tone: { bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D" },
     };
   }
@@ -154,6 +173,7 @@ function getProspectNextAction(prospect) {
   if ((prospect.active_opportunity_count || 0) === 0) {
     return {
       label: "Add first opportunity",
+      meta: "No active opportunities yet",
       tone: { bg: "#EDE9FE", fg: "#5B21B6", border: "#DDD6FE" },
     };
   }
@@ -161,6 +181,7 @@ function getProspectNextAction(prospect) {
   if (!prospect.latest_activity_at) {
     return {
       label: "Log first update",
+      meta: "No recent activity yet",
       tone: { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE" },
     };
   }
@@ -170,12 +191,14 @@ function getProspectNextAction(prospect) {
   if (staleDays >= 30) {
     return {
       label: "Needs follow-up",
+      meta: `Last activity ${Math.floor(staleDays)} days ago`,
       tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" },
     };
   }
 
   return {
     label: "Keep momentum",
+    meta: "Recently active",
     tone: { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" },
   };
 }
@@ -1264,6 +1287,123 @@ function ProspectDetailModal({ prospectId, onClose }) {
                   ))}
                 </select>
               </div>
+              <div style={{ marginTop: "14px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Next Action
+                </label>
+                <textarea
+                  defaultValue={prospect.next_action_text || ""}
+                  onChange={(e) =>
+                    setEditData((prev) => ({
+                      ...prev,
+                      nextActionText: e.target.value.trim() || null,
+                    }))
+                  }
+                  rows={2}
+                  placeholder="What should happen next for this prospect?"
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "14px",
+                  marginTop: "14px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Next Action Due
+                  </label>
+                  <input
+                    type="date"
+                    defaultValue={prospect.next_action_due_date || ""}
+                    onChange={(e) =>
+                      setEditData((prev) => ({
+                        ...prev,
+                        nextActionDueDate: e.target.value || null,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#6B7280",
+                      marginBottom: "8px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Completion
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "14px",
+                      color: "#374151",
+                      paddingTop: "8px",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      defaultChecked={Boolean(prospect.next_action_completed_at)}
+                      onChange={(e) =>
+                        setEditData((prev) => ({
+                          ...prev,
+                          nextActionCompletedAt: e.target.checked
+                            ? new Date().toISOString()
+                            : null,
+                        }))
+                      }
+                    />
+                    Mark next action complete
+                  </label>
+                </div>
+              </div>
               <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
                 <button
                   onClick={handleEditSave}
@@ -1382,6 +1522,45 @@ function ProspectDetailModal({ prospectId, onClose }) {
                 >
                   {prospect.ask_type}
                 </p>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <p
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#6B7280",
+                    marginBottom: "2px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Next Action
+                </p>
+                {prospect.next_action_text ? (
+                  <>
+                    <p
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: "600",
+                        color: "#111827",
+                        margin: "0 0 4px 0",
+                      }}
+                    >
+                      {prospect.next_action_text}
+                    </p>
+                    <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
+                      {prospect.next_action_completed_at
+                        ? `Completed ${formatLongDate(prospect.next_action_completed_at)}`
+                        : prospect.next_action_due_date
+                          ? `Due ${formatLongDate(prospect.next_action_due_date)}`
+                          : "No due date set"}
+                    </p>
+                  </>
+                ) : (
+                  <p style={{ fontSize: "14px", color: "#9CA3AF", margin: 0 }}>
+                    No next action set.
+                  </p>
+                )}
               </div>
               <div>
                 <p
@@ -2720,6 +2899,17 @@ export default function MyTopProspectsPage() {
                             >
                               {nextAction.label}
                             </span>
+                            {nextAction.meta ? (
+                              <span
+                                style={{
+                                  fontSize: "12px",
+                                  color: "#6B7280",
+                                  fontWeight: "600",
+                                }}
+                              >
+                                {nextAction.meta}
+                              </span>
+                            ) : null}
                           </div>
                           <div
                             style={{

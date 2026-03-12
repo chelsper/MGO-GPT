@@ -260,6 +260,18 @@ export default async function ensureAppSchema() {
       ALTER TABLE prospects
       ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
     `;
+    await sql`
+      ALTER TABLE prospects
+      ADD COLUMN IF NOT EXISTS next_action_text TEXT
+    `;
+    await sql`
+      ALTER TABLE prospects
+      ADD COLUMN IF NOT EXISTS next_action_due_date DATE
+    `;
+    await sql`
+      ALTER TABLE prospects
+      ADD COLUMN IF NOT EXISTS next_action_completed_at TIMESTAMPTZ
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunities (
