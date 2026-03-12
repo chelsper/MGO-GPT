@@ -52,46 +52,48 @@ export async function PUT(request, { params }) {
 
     const nextEstimatedAmount =
       estimatedAmount !== undefined ? estimatedAmount : existing.estimated_amount;
+    const nextOpportunityStatus =
+      opportunityStatus || existing.opportunity_status || "Active";
+    const nextLatestNotes =
+      latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes;
+    const nextTitle = title?.trim() || existing.title;
+    const nextStage = currentStage || existing.current_stage;
+    const nextClosedAmount =
+      nextOpportunityStatus === "Closed – Gift Secured"
+        ? (closedAmount ?? nextEstimatedAmount ?? existing.closed_amount ?? 0)
+        : nextOpportunityStatus === "Closed – Declined"
+          ? 0
+          : nextOpportunityStatus === "Active"
+            ? null
+            : existing.closed_amount;
     const normalizedCloseDate =
-      closeDate || (opportunityStatus && opportunityStatus !== "Active"
+      closeDate || (nextOpportunityStatus !== "Active"
         ? new Date().toISOString().slice(0, 10)
         : existing.close_date || null);
+    const nextCloseDate =
+      nextOpportunityStatus === "Active"
+        ? null
+        : nextOpportunityStatus === "Closed – Gift Secured" || nextOpportunityStatus === "Closed – Declined"
+          ? normalizedCloseDate
+          : existing.close_date;
+    const nextDeclineReason =
+      nextOpportunityStatus === "Closed – Declined"
+        ? declineReason?.trim() || existing.decline_reason || null
+        : nextOpportunityStatus === "Active"
+          ? null
+          : existing.decline_reason;
 
     const updatedRows = await sql`
       UPDATE prospect_opportunities
       SET
-        title = ${title?.trim() || existing.title},
-        current_stage = ${currentStage || existing.current_stage},
-        opportunity_status = ${opportunityStatus || existing.opportunity_status || "Active"},
+        title = ${nextTitle},
+        current_stage = ${nextStage},
+        opportunity_status = ${nextOpportunityStatus},
         estimated_amount = ${nextEstimatedAmount},
-        latest_notes = ${
-          latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes
-        },
-        closed_amount = CASE
-          WHEN ${opportunityStatus} = 'Closed – Gift Secured'
-            THEN ${closedAmount ?? nextEstimatedAmount ?? existing.closed_amount ?? 0}
-          WHEN ${opportunityStatus} = 'Closed – Declined'
-            THEN 0
-          WHEN ${opportunityStatus} = 'Active'
-            THEN NULL
-          ELSE existing.closed_amount
-        END,
-        close_date = CASE
-          WHEN ${opportunityStatus} = 'Closed – Gift Secured'
-            THEN ${normalizedCloseDate}
-          WHEN ${opportunityStatus} = 'Closed – Declined'
-            THEN ${normalizedCloseDate}
-          WHEN ${opportunityStatus} = 'Active'
-            THEN NULL
-          ELSE existing.close_date
-        END,
-        decline_reason = CASE
-          WHEN ${opportunityStatus} = 'Closed – Declined'
-            THEN ${declineReason?.trim() || existing.decline_reason || null}
-          WHEN ${opportunityStatus} = 'Active'
-            THEN NULL
-          ELSE existing.decline_reason
-        END,
+        latest_notes = ${nextLatestNotes},
+        closed_amount = ${nextClosedAmount},
+        close_date = ${nextCloseDate},
+        decline_reason = ${nextDeclineReason},
         updated_at = NOW()
       WHERE id = ${existing.id}
       RETURNING *
