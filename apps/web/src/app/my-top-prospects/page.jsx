@@ -723,12 +723,15 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const [opportunityEditData, setOpportunityEditData] = useState({});
   const [opportunityEditError, setOpportunityEditError] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["prospect", prospectId],
     queryFn: async () => {
       const res = await fetch(`/api/prospects/${prospectId}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to fetch prospect details");
+      }
+      return payload;
     },
     enabled: !!prospectId,
   });
@@ -820,7 +823,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const opportunities = data?.opportunities || [];
   const linkedSubmissions = data?.linkedSubmissions || [];
 
-  if (isLoading || !prospect) {
+  if (isLoading) {
     return (
       <div
         style={{
@@ -845,6 +848,74 @@ function ProspectDetailModal({ prospectId, onClose }) {
           onClick={(e) => e.stopPropagation()}
         >
           <p style={{ color: "#6B7280" }}>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !prospect) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 100,
+          padding: "20px",
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            padding: "28px",
+            maxWidth: "420px",
+            width: "100%",
+            border: "1px solid #E5E7EB",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "#111827",
+            }}
+          >
+            Could not load prospect
+          </h2>
+          <p
+            style={{
+              margin: "0 0 16px 0",
+              fontSize: "14px",
+              lineHeight: 1.6,
+              color: "#6B7280",
+            }}
+          >
+            {error instanceof Error
+              ? error.message
+              : "The prospect details could not be loaded."}
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "10px 16px",
+              borderRadius: "8px",
+              border: "1px solid #D1D5DB",
+              backgroundColor: "white",
+              color: "#374151",
+              fontWeight: "600",
+              cursor: "pointer",
+            }}
+          >
+            Close
+          </button>
         </div>
       </div>
     );

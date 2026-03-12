@@ -37,30 +37,32 @@ export async function GET(request, { params }) {
       return Response.json({ error: "Prospect not found" }, { status: 404 });
     }
 
-    const updates = await sql`
-      SELECT * FROM prospect_updates
-      WHERE prospect_id = ${prospectId}
-      ORDER BY update_date DESC, created_at DESC
-    `;
+    const constituentId = prospects[0].constituent_id || null;
 
-    const opportunities = await getProspectOpportunities(prospectId);
-
-    const linkedSubmissions = await sql`
-      SELECT
-        s.*,
-        reviewer.name AS reviewer_name
-      FROM submissions s
-      LEFT JOIN users reviewer ON reviewer.id = s.reviewed_by
-      WHERE s.user_id = ${user.id}
-        AND (
-          s.prospect_id = ${prospectId}
-          OR (
-            ${prospects[0].constituent_id || null} IS NOT NULL
-            AND s.constituent_id = ${prospects[0].constituent_id || null}
+    const [updates, opportunities, linkedSubmissions] = await Promise.all([
+      sql`
+        SELECT * FROM prospect_updates
+        WHERE prospect_id = ${prospectId}
+        ORDER BY update_date DESC, created_at DESC
+      `,
+      getProspectOpportunities(prospectId),
+      sql`
+        SELECT
+          s.*,
+          reviewer.name AS reviewer_name
+        FROM submissions s
+        LEFT JOIN users reviewer ON reviewer.id = s.reviewed_by
+        WHERE s.user_id = ${user.id}
+          AND (
+            s.prospect_id = ${prospectId}
+            OR (
+              ${constituentId} IS NOT NULL
+              AND s.constituent_id = ${constituentId}
+            )
           )
-        )
-      ORDER BY s.updated_at DESC, s.date_submitted DESC
-    `;
+        ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
+      `,
+    ]);
 
     return Response.json({
       prospect: prospects[0],
