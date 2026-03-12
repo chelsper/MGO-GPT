@@ -44,6 +44,11 @@ export default function ProspectPoolPage() {
     phone: "",
   });
   const [drafts, setDrafts] = useState({});
+  const [reviewerFilters, setReviewerFilters] = useState({
+    assignedUserId: "all",
+    requestState: "all",
+    sortBy: "requests-first-newest",
+  });
 
   useEffect(() => {
     if (!loading && !sessionUser) {
@@ -138,6 +143,65 @@ export default function ProspectPoolPage() {
       },
     );
   }, [entries]);
+
+  const visibleEntries = useMemo(() => {
+    if (!isReviewer) {
+      return entries;
+    }
+
+    const filtered = entries.filter((entry) => {
+      if (
+        reviewerFilters.assignedUserId !== "all" &&
+        String(entry.assigned_user_id || "") !== reviewerFilters.assignedUserId
+      ) {
+        return false;
+      }
+
+      if (reviewerFilters.requestState === "contact-info" && !entry.needs_contact_info) {
+        return false;
+      }
+
+      if (reviewerFilters.requestState === "solicitor" && !entry.solicitor_requested) {
+        return false;
+      }
+
+      if (
+        reviewerFilters.requestState === "no-requests" &&
+        (entry.needs_contact_info || entry.solicitor_requested)
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const aHasRequest = a.needs_contact_info || a.solicitor_requested ? 1 : 0;
+      const bHasRequest = b.needs_contact_info || b.solicitor_requested ? 1 : 0;
+      const aTime = new Date(a.created_at || 0).getTime();
+      const bTime = new Date(b.created_at || 0).getTime();
+
+      switch (reviewerFilters.sortBy) {
+        case "newest":
+          return bTime - aTime;
+        case "oldest":
+          return aTime - bTime;
+        case "requests-first-oldest":
+          if (aHasRequest !== bHasRequest) return bHasRequest - aHasRequest;
+          return aTime - bTime;
+        case "mgo":
+          return (a.assigned_user_name || a.assigned_user_email || "").localeCompare(
+            b.assigned_user_name || b.assigned_user_email || "",
+          );
+        case "requests-first-newest":
+        default:
+          if (aHasRequest !== bHasRequest) return bHasRequest - aHasRequest;
+          return bTime - aTime;
+      }
+    });
+
+    return sorted;
+  }, [entries, isReviewer, reviewerFilters]);
 
   function setDraft(id, updates) {
     setDrafts((current) => ({
@@ -547,8 +611,106 @@ export default function ProspectPoolPage() {
           </form>
         ) : null}
 
+        {isReviewer ? (
+          <div
+            style={{
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              borderRadius: "18px",
+              padding: "18px",
+              marginBottom: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "14px",
+              }}
+            >
+              <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
+                Filter by MGO
+                <select
+                  value={reviewerFilters.assignedUserId}
+                  onChange={(event) =>
+                    setReviewerFilters((current) => ({
+                      ...current,
+                      assignedUserId: event.target.value,
+                    }))
+                  }
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    border: "1px solid #D1D5DB",
+                    backgroundColor: "white",
+                    fontSize: "14px",
+                  }}
+                >
+                  <option value="all">All MGOs</option>
+                  {mgos.map((mgo) => (
+                    <option key={mgo.id} value={mgo.id}>
+                      {mgo.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
+                Filter by request
+                <select
+                  value={reviewerFilters.requestState}
+                  onChange={(event) =>
+                    setReviewerFilters((current) => ({
+                      ...current,
+                      requestState: event.target.value,
+                    }))
+                  }
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    border: "1px solid #D1D5DB",
+                    backgroundColor: "white",
+                    fontSize: "14px",
+                  }}
+                >
+                  <option value="all">All entries</option>
+                  <option value="contact-info">Needs contact info</option>
+                  <option value="solicitor">Solicitor requested</option>
+                  <option value="no-requests">No requests</option>
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
+                Sort queue
+                <select
+                  value={reviewerFilters.sortBy}
+                  onChange={(event) =>
+                    setReviewerFilters((current) => ({
+                      ...current,
+                      sortBy: event.target.value,
+                    }))
+                  }
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    border: "1px solid #D1D5DB",
+                    backgroundColor: "white",
+                    fontSize: "14px",
+                  }}
+                >
+                  <option value="requests-first-newest">Requests first · Newest assigned</option>
+                  <option value="requests-first-oldest">Requests first · Oldest assigned</option>
+                  <option value="newest">Newest assigned</option>
+                  <option value="oldest">Oldest assigned</option>
+                  <option value="mgo">MGO name</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        ) : null}
+
         <div style={{ display: "grid", gap: "12px" }}>
-          {entries.length === 0 ? (
+          {visibleEntries.length === 0 ? (
             <div
               style={{
                 backgroundColor: "white",
@@ -566,7 +728,7 @@ export default function ProspectPoolPage() {
             </div>
           ) : null}
 
-          {entries.map((entry) => {
+          {visibleEntries.map((entry) => {
             const stateLabel = getRequestState(entry);
             const stateColors = getStateColors(stateLabel);
             const draft = drafts[entry.id];
