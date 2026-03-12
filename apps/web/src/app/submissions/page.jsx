@@ -17,6 +17,19 @@ const TYPE_LABELS = {
   constituent_suggestion: "Constituent Suggestion",
 };
 
+const LIST_REQUEST_STATUSES = [
+  "Pending",
+  "Needs Clarification",
+  "Ready for CRM",
+  "Approved",
+];
+
+const QUEUE_PRIORITY_LABELS = {
+  1: "Urgent",
+  2: "Normal",
+  3: "Backlog",
+};
+
 function formatDate(value) {
   if (!value) return "Unknown";
   const date = new Date(value);
@@ -46,18 +59,33 @@ function getEmailStatusMeta(status) {
   return map[status] || map.not_requested;
 }
 
+function getListRequestTitle(request) {
+  return (
+    request.purpose_other ||
+    request.purpose ||
+    request.output_type ||
+    "List request"
+  );
+}
+
 export default function SubmissionsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("submissions");
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(true);
+  const [listRequests, setListRequests] = useState([]);
+  const [listRequestsLoading, setListRequestsLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
+  const [updatingListRequestId, setUpdatingListRequestId] = useState(null);
   const [reviewFilter, setReviewFilter] = useState("Pending");
+  const [listRequestFilter, setListRequestFilter] = useState("Pending");
   const [reviewDrafts, setReviewDrafts] = useState({});
   const [clarificationDrafts, setClarificationDrafts] = useState({});
+  const [listRequestDrafts, setListRequestDrafts] = useState({});
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
@@ -142,6 +170,46 @@ export default function SubmissionsPage() {
     };
   }, [profile]);
 
+  useEffect(() => {
+    if (!profile) return;
+
+    let active = true;
+
+    async function loadListRequests() {
+      setListRequestsLoading(true);
+      setError("");
+      try {
+        const endpoint =
+          profile.role === "reviewer"
+            ? "/api/list-requests/all"
+            : "/api/list-requests/my-requests";
+        const response = await fetch(endpoint);
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || "Failed to load list requests");
+        }
+        const data = await response.json();
+        if (active) {
+          setListRequests(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        if (active) {
+          console.error(err);
+          setError("Could not load list requests.");
+        }
+      } finally {
+        if (active) {
+          setListRequestsLoading(false);
+        }
+      }
+    }
+
+    loadListRequests();
+    return () => {
+      active = false;
+    };
+  }, [profile]);
+
   const heading = useMemo(() => {
     if (profile?.role === "reviewer") {
       return {
@@ -166,6 +234,17 @@ export default function SubmissionsPage() {
       return counts;
     }, {});
   }, [profile, submissions]);
+
+  const reviewerListRequestCounts = useMemo(() => {
+    if (profile?.role !== "reviewer") return {};
+
+    return listRequests.reduce((counts, request) => {
+      const key = request.status || "Pending";
+      counts[key] = (counts[key] || 0) + 1;
+      counts.All = (counts.All || 0) + 1;
+      return counts;
+    }, {});
+  }, [profile, listRequests]);
 
   const visibleSubmissionGroups = useMemo(() => {
     let next = [...submissions];
@@ -216,6 +295,23 @@ export default function SubmissionsPage() {
     return groups;
   }, [profile, reviewFilter, submissions]);
 
+  const visibleListRequests = useMemo(() => {
+    let next = [...listRequests];
+
+    if (profile?.role === "reviewer" && listRequestFilter !== "All") {
+      next = next.filter((request) => (request.status || "Pending") === listRequestFilter);
+    }
+
+    return next.sort((a, b) => {
+      if (profile?.role === "reviewer" && a.queue_priority !== b.queue_priority) {
+        return a.queue_priority - b.queue_priority;
+      }
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [listRequests, listRequestFilter, profile]);
+
   function setReviewDraft(id, updates) {
     setReviewDrafts((current) => ({
       ...current,
@@ -231,6 +327,18 @@ export default function SubmissionsPage() {
     setClarificationDrafts((current) => ({
       ...current,
       [id]: value,
+    }));
+  }
+
+  function setListRequestDraft(id, updates) {
+    setListRequestDrafts((current) => ({
+      ...current,
+      [id]: {
+        status: current[id]?.status || "",
+        queuePriority: current[id]?.queuePriority || "",
+        reviewerNotes: current[id]?.reviewerNotes || "",
+        ...updates,
+      },
     }));
   }
 
@@ -312,6 +420,52 @@ export default function SubmissionsPage() {
       setError(err.message || "Could not resubmit submission.");
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function saveListRequestReview(id) {
+    setUpdatingListRequestId(id);
+    setActionMessage("");
+    setError("");
+
+    try {
+      const currentRequest = listRequests.find((item) => item.id === id);
+      const draft = listRequestDrafts[id] || {};
+      const response = await fetch("/api/list-requests/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          status: draft.status || currentRequest?.status || "Pending",
+          queuePriority:
+            Number(draft.queuePriority) ||
+            currentRequest?.queue_priority ||
+            2,
+          reviewerNotes:
+            draft.reviewerNotes ?? currentRequest?.reviewer_notes ?? "",
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to update list request");
+      }
+
+      const updated = await response.json();
+      setListRequests((current) =>
+        current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+      );
+      setListRequestDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setActionMessage(`List request #${updated.id} review saved.`);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Could not update list request.");
+    } finally {
+      setUpdatingListRequestId(null);
     }
   }
 
@@ -443,7 +597,44 @@ export default function SubmissionsPage() {
             padding: "18px",
           }}
         >
-          {profile?.role === "reviewer" ? (
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              flexWrap: "wrap",
+              padding: "4px 4px 16px",
+              borderBottom: "1px solid #E5E7EB",
+              marginBottom: "18px",
+            }}
+          >
+            {[
+              { id: "submissions", label: "Submissions", count: submissions.length },
+              { id: "listRequests", label: "List Requests", count: listRequests.length },
+            ].map((tab) => {
+              const selected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    borderRadius: "999px",
+                    border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
+                    backgroundColor: selected ? "#EDE9FE" : "white",
+                    color: selected ? "#5B21B6" : "#374151",
+                    padding: "10px 14px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {tab.label} ({tab.count})
+                </button>
+              );
+            })}
+          </div>
+
+          {profile?.role === "reviewer" && activeTab === "submissions" ? (
             <div
               style={{
                 display: "flex",
@@ -527,7 +718,92 @@ export default function SubmissionsPage() {
             </div>
           ) : null}
 
-          {submissionsLoading ? (
+          {profile?.role === "reviewer" && activeTab === "listRequests" ? (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "16px",
+                flexWrap: "wrap",
+                padding: "4px 4px 16px",
+                borderBottom: "1px solid #E5E7EB",
+                marginBottom: "18px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  Filter list queue
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {["Pending", "Needs Clarification", "Ready for CRM", "Approved", "All"].map(
+                    (status) => {
+                      const selected = listRequestFilter === status;
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setListRequestFilter(status)}
+                          style={{
+                            borderRadius: "999px",
+                            border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
+                            backgroundColor: selected ? "#EDE9FE" : "white",
+                            color: selected ? "#5B21B6" : "#374151",
+                            padding: "8px 12px",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {status} ({reviewerListRequestCounts[status] || 0})
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  minWidth: "220px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Queue snapshot
+                </div>
+                <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
+                  <div>Pending: {reviewerListRequestCounts.Pending || 0}</div>
+                  <div>Needs Clarification: {reviewerListRequestCounts["Needs Clarification"] || 0}</div>
+                  <div>Ready for CRM: {reviewerListRequestCounts["Ready for CRM"] || 0}</div>
+                  <div>Total: {reviewerListRequestCounts.All || 0}</div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "submissions" ? (
+          submissionsLoading ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
               Loading submissions...
             </div>
@@ -940,6 +1216,234 @@ export default function SubmissionsPage() {
                         );
                       })}
                     </div>
+                  </article>
+                );
+              })}
+            </div>
+          )) : listRequestsLoading ? (
+            <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
+              Loading list requests...
+            </div>
+          ) : visibleListRequests.length === 0 ? (
+            <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
+              {profile?.role === "reviewer"
+                ? "No list requests match the current filter."
+                : "No list requests yet."}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "12px" }}>
+              {visibleListRequests.map((request) => {
+                const colors = getStatusColors(request.status);
+                const draft = listRequestDrafts[request.id];
+                const selectedStatus = draft?.status || request.status || "Pending";
+                const reviewerNotes =
+                  draft?.reviewerNotes ?? request.reviewer_notes ?? "";
+                const queuePriority =
+                  draft?.queuePriority || request.queue_priority || 2;
+
+                return (
+                  <article
+                    key={request.id}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "16px",
+                      padding: "16px",
+                      backgroundColor: "#FFFFFF",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "14px",
+                        flexWrap: "wrap",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <h2 style={{ margin: 0, fontSize: "17px", color: "#111827" }}>
+                            {getListRequestTitle(request)}
+                          </h2>
+                          <span
+                            style={{
+                              backgroundColor: colors.bg,
+                              color: colors.fg,
+                              padding: "4px 10px",
+                              borderRadius: "999px",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {request.status}
+                          </span>
+                          {profile?.role === "reviewer" ? (
+                            <span
+                              style={{
+                                backgroundColor: "#F3F4F6",
+                                color: "#374151",
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {QUEUE_PRIORITY_LABELS[request.queue_priority] || "Normal"}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
+                          Requested {formatDate(request.created_at)}
+                        </div>
+                      </div>
+
+                      {profile?.role === "reviewer" ? (
+                        <div style={{ minWidth: "240px" }}>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                            Review status
+                          </label>
+                          <select
+                            value={selectedStatus}
+                            disabled={updatingListRequestId === request.id}
+                            onChange={(event) =>
+                              setListRequestDraft(request.id, { status: event.target.value })
+                            }
+                            style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", backgroundColor: "white", fontSize: "14px" }}
+                          >
+                            {LIST_REQUEST_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", margin: "12px 0 8px" }}>
+                            Queue priority
+                          </label>
+                          <select
+                            value={queuePriority}
+                            disabled={updatingListRequestId === request.id}
+                            onChange={(event) =>
+                              setListRequestDraft(request.id, { queuePriority: Number(event.target.value) })
+                            }
+                            style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", backgroundColor: "white", fontSize: "14px" }}
+                          >
+                            {Object.entries(QUEUE_PRIORITY_LABELS).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", margin: "12px 0 8px" }}>
+                            Reviewer notes
+                          </label>
+                          <textarea
+                            value={reviewerNotes}
+                            disabled={updatingListRequestId === request.id}
+                            onChange={(event) =>
+                              setListRequestDraft(request.id, { reviewerNotes: event.target.value })
+                            }
+                            rows={4}
+                            placeholder="Clarify scope, note priority, or share delivery context."
+                            style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", backgroundColor: "white", fontSize: "14px", resize: "vertical", boxSizing: "border-box" }}
+                          />
+                          <button
+                            type="button"
+                            disabled={updatingListRequestId === request.id}
+                            onClick={() => saveListRequestReview(request.id)}
+                            style={{ marginTop: "10px", width: "100%", padding: "10px 12px", borderRadius: "10px", border: "none", backgroundColor: "#6A5BFF", color: "white", fontSize: "14px", fontWeight: 700, cursor: updatingListRequestId === request.id ? "wait" : "pointer", opacity: updatingListRequestId === request.id ? 0.7 : 1 }}
+                          >
+                            {updatingListRequestId === request.id ? "Saving..." : "Save review"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "12px",
+                        marginTop: "16px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                          Requested by
+                        </div>
+                        <div style={{ fontSize: "14px", color: "#111827" }}>
+                          {request.requester_name || request.requester_user_name || "Unknown"}
+                        </div>
+                      </div>
+                      {request.date_needed ? (
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Date needed
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827" }}>
+                            {formatDate(request.date_needed)}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.output_type ? (
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Output type
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827" }}>
+                            {request.output_type}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.assigned_mgo ? (
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Assigned MGO
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827" }}>
+                            {request.assigned_mgo}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.reviewer_name ? (
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Reviewed by
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827" }}>
+                            {request.reviewer_name}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.reviewer_notes ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            Reviewer notes
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                            {request.reviewer_notes}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {request.special_instructions ? (
+                      <div
+                        style={{
+                          marginTop: "16px",
+                          padding: "12px 14px",
+                          borderRadius: "12px",
+                          backgroundColor: "#F9FAFB",
+                          border: "1px solid #E5E7EB",
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                          Special instructions
+                        </div>
+                        <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                          {request.special_instructions}
+                        </div>
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
