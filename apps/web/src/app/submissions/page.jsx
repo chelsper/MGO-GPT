@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useUser from "@/utils/useUser";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import useWorkspaceView from "@/utils/useWorkspaceView";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -94,7 +94,8 @@ export default function SubmissionsPage() {
   const [clarificationDrafts, setClarificationDrafts] = useState({});
   const [listRequestDrafts, setListRequestDrafts] = useState({});
   const [expandedSubmissionGroups, setExpandedSubmissionGroups] = useState({});
-  const isReviewer = isReviewerRole(profile?.role);
+  const { effectiveRole, isReviewerView } = useWorkspaceView(profile?.role);
+  const isReviewer = isReviewerView;
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
@@ -176,7 +177,7 @@ export default function SubmissionsPage() {
     return () => {
       active = false;
     };
-  }, [profile]);
+  }, [isReviewer, profile]);
 
   useEffect(() => {
     if (!profile) return;
@@ -215,7 +216,7 @@ export default function SubmissionsPage() {
     return () => {
       active = false;
     };
-  }, [profile]);
+  }, [isReviewer, profile]);
 
   const heading = useMemo(() => {
     if (isReviewer) {
@@ -229,7 +230,7 @@ export default function SubmissionsPage() {
       title: "My Submission Tracker",
       subtitle: "See what you submitted, when it was reviewed, and what needs follow-up.",
     };
-  }, [profile]);
+  }, [isReviewer]);
 
   const reviewerCounts = useMemo(() => {
     if (!isReviewer) return {};
@@ -563,7 +564,7 @@ export default function SubmissionsPage() {
                 {profile?.email || sessionUser?.email}
               </div>
               <div style={{ marginTop: "10px", fontSize: "13px", fontWeight: 600, color: "#6A5BFF", textTransform: "capitalize" }}>
-                Role: {profile?.role || "mgo"}
+                Role: {effectiveRole || profile?.role || "mgo"}
               </div>
             </div>
           </div>

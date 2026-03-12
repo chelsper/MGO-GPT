@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isAdminRole, isReviewerRole } from "@/utils/workspaceRoles";
+import useWorkspaceView from "@/utils/useWorkspaceView";
 
 const MGO_ACTIONS = [
   {
@@ -110,6 +110,17 @@ const ADMIN_NAV_ITEMS = [
   { label: "Access Management", href: "/access-management" },
 ];
 
+const ACCESS_MANAGEMENT_ITEM = {
+  label: "Access Management",
+  href: "/access-management",
+};
+
+const ACCESS_MANAGEMENT_ACTION = {
+  title: "Access Management",
+  href: "/access-management",
+  description: "Invite JU users and manage workspace roles.",
+};
+
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -184,14 +195,36 @@ export default function Page() {
     };
   }, [accountMenuOpen, menuOpen]);
 
-  const isAdmin = isAdminRole(profile?.role);
-  const isReviewer = isReviewerRole(profile?.role);
+  const { isAdmin, adminViewMode, effectiveRole, isMgoView, isReviewerView, setViewMode } = useWorkspaceView(
+    profile?.role,
+  );
+  const isReviewer = isReviewerView;
+  const roleLabel = isAdmin
+    ? `Admin · ${isReviewer ? "Advancement Services view" : "MGO view"}`
+    : effectiveRole || "mgo";
+
   const quickActions = useMemo(
-    () => (isAdmin ? ADMIN_ACTIONS : isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS),
+    () => {
+      if (!isAdmin) {
+        return isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS;
+      }
+
+      return isReviewer
+        ? ADMIN_ACTIONS
+        : [...MGO_ACTIONS, ACCESS_MANAGEMENT_ACTION];
+    },
     [isAdmin, isReviewer],
   );
   const navItems = useMemo(
-    () => (isAdmin ? ADMIN_NAV_ITEMS : isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS),
+    () => {
+      if (!isAdmin) {
+        return isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS;
+      }
+
+      return isReviewer
+        ? ADMIN_NAV_ITEMS
+        : [...MGO_NAV_ITEMS, ACCESS_MANAGEMENT_ITEM];
+    },
     [isAdmin, isReviewer],
   );
 
@@ -410,9 +443,69 @@ export default function Page() {
                   >
                     {profile?.email || user?.email || "No email available"}
                   </div>
-                  <div style={{ marginTop: "8px", fontSize: "12px", color: "#6A5BFF", fontWeight: 700, textTransform: "capitalize" }}>
-                    {profile?.role || "mgo"}
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      fontSize: "12px",
+                      color: "#6A5BFF",
+                      fontWeight: 700,
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {roleLabel}
                   </div>
+                  {isAdmin ? (
+                    <div style={{ marginTop: "10px" }}>
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                          color: "#6B7280",
+                          marginBottom: "6px",
+                        }}
+                      >
+                        View as
+                      </div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          border: "1px solid #E5E7EB",
+                          borderRadius: "999px",
+                          padding: "3px",
+                          gap: "4px",
+                          backgroundColor: "#F9FAFB",
+                        }}
+                      >
+                        {[
+                          { value: "reviewer", label: "Advancement Services" },
+                          { value: "mgo", label: "MGO" },
+                        ].map((option) => {
+                          const active = adminViewMode === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setViewMode(option.value)}
+                              style={{
+                                border: "none",
+                                borderRadius: "999px",
+                                padding: "6px 10px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                color: active ? "white" : "#4B5563",
+                                backgroundColor: active ? "#6A5BFF" : "transparent",
+                              }}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <a
@@ -468,7 +561,13 @@ export default function Page() {
             style={{ width: "30px", height: "30px", borderRadius: "8px" }}
           />
           <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>
-            {isAdmin ? "Workspace Administration" : isReviewer ? "Advancement Services Hub" : "MGO-GPT"}
+            {isAdmin
+              ? isReviewer
+                ? "Workspace Administration"
+                : "MGO Workspace"
+              : isReviewer
+                ? "Advancement Services Hub"
+                : "MGO-GPT"}
           </h1>
         </div>
 
@@ -477,7 +576,9 @@ export default function Page() {
         </p>
         <p style={{ margin: "0 0 22px", color: "#6B7280", fontSize: "14px" }}>
           {isAdmin
-            ? "Manage access, assign workspace roles, and oversee shared team operations."
+            ? isReviewer
+              ? "Manage access, assign workspace roles, and oversee shared team operations."
+              : "Work the app as an MGO while keeping administrative access available when you need it."
             : isReviewer
               ? "Review submissions, manage shared queues, and keep the knowledge base current."
               : "Capture field updates, request support, and track your work with Advancement Services."}
@@ -493,14 +594,28 @@ export default function Page() {
           }}
         >
           <div style={{ fontSize: "12px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B7280", marginBottom: "8px" }}>
-            {isAdmin ? "Admin focus" : isReviewer ? "Role focus" : "Today’s workflow"}
+            {isAdmin
+              ? isReviewer
+                ? "Admin focus"
+                : "Admin MGO view"
+              : isReviewer
+                ? "Role focus"
+                : "Today’s workflow"}
           </div>
           <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginBottom: "6px" }}>
-            {isAdmin ? "Access and workflow control" : isReviewer ? "Shared review operations" : "MGO submission workspace"}
+            {isAdmin
+              ? isReviewer
+                ? "Access and workflow control"
+                : "MGO submission workspace"
+              : isReviewer
+                ? "Shared review operations"
+                : "MGO submission workspace"}
           </div>
           <div style={{ fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
             {isAdmin
-              ? "You control who can access the workspace, what role they receive, and you can still work the shared Advancement Services queues."
+              ? isReviewer
+                ? "You control who can access the workspace, what role they receive, and you can still work the shared Advancement Services queues."
+                : "You are looking at the MGO workspace. Use the account toggle any time you want to return to Advancement Services or admin operations."
               : isReviewer
                 ? "Everything here is shared across Advancement Services users, so queue priority, notes, and knowledge base edits stay visible to the whole team."
                 : "Your forms flow into shared review queues, where Advancement Services can approve them or send them back with clarification notes."}
@@ -586,7 +701,7 @@ export default function Page() {
                 textTransform: "capitalize",
               }}
             >
-              {profile?.role || "mgo"}
+              {roleLabel}
             </div>
           </div>
 

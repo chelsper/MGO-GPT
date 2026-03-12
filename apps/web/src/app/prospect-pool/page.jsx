@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import useWorkspaceView from "@/utils/useWorkspaceView";
 
 function formatDate(value) {
   if (!value) return "Unknown";
@@ -58,12 +58,15 @@ export default function ProspectPoolPage() {
     }
   }, [loading, sessionUser]);
 
+  const { isReviewerView } = useWorkspaceView(profile?.role);
+  const isReviewer = isReviewerView;
+
   useEffect(() => {
     if (!sessionUser) return;
 
     let active = true;
 
-    async function load() {
+    async function loadProfile() {
       setLoadingData(true);
       setError("");
       try {
@@ -72,10 +75,39 @@ export default function ProspectPoolPage() {
           throw new Error("Failed to load profile");
         }
         const profileData = await profileResponse.json();
-        const user = profileData.user;
 
-        const requests = [fetch("/api/prospect-pool")];
-        if (isReviewerRole(user?.role)) {
+        if (active) {
+          setProfile(profileData.user || null);
+        }
+      } catch (err) {
+        if (active) {
+          console.error(err);
+          setError(err.message || "Could not load prospect pool.");
+        }
+      } finally {
+        if (active) {
+          setLoadingData(false);
+        }
+      }
+    }
+
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [sessionUser]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    let active = true;
+
+    async function loadPool() {
+      setLoadingData(true);
+      setError("");
+      try {
+        const requests = [fetch(`/api/prospect-pool?view=${isReviewer ? "reviewer" : "mgo"}`)];
+        if (isReviewer) {
           requests.push(fetch("/api/users/mgos"));
         }
 
@@ -88,7 +120,7 @@ export default function ProspectPoolPage() {
         const poolData = await poolResponse.json();
 
         let mgoData = [];
-        if (isReviewerRole(user?.role) && responses[1]) {
+        if (isReviewer && responses[1]) {
           if (!responses[1].ok) {
             const payload = await responses[1].json().catch(() => null);
             throw new Error(payload?.error || "Failed to load MGO accounts");
@@ -97,7 +129,6 @@ export default function ProspectPoolPage() {
         }
 
         if (active) {
-          setProfile(user);
           setEntries(Array.isArray(poolData) ? poolData : []);
           setMgos(Array.isArray(mgoData) ? mgoData : []);
           if (Array.isArray(mgoData) && mgoData.length > 0) {
@@ -120,13 +151,11 @@ export default function ProspectPoolPage() {
       }
     }
 
-    load();
+    loadPool();
     return () => {
       active = false;
     };
-  }, [sessionUser]);
-
-  const isReviewer = isReviewerRole(profile?.role);
+  }, [isReviewer, profile]);
 
   const summary = useMemo(() => {
     return entries.reduce(
@@ -266,7 +295,9 @@ export default function ProspectPoolPage() {
         mgos.find((item) => String(item.id) === String(created.assigned_user_id))?.name ||
         "selected MGO";
 
-      const refreshedResponse = await fetch("/api/prospect-pool");
+      const refreshedResponse = await fetch(
+        `/api/prospect-pool?view=${isReviewer ? "reviewer" : "mgo"}`,
+      );
       if (refreshedResponse.ok) {
         const refreshed = await refreshedResponse.json();
         setEntries(Array.isArray(refreshed) ? refreshed : []);

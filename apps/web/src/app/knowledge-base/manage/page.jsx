@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import useWorkspaceView from "@/utils/useWorkspaceView";
 
 function prettySections(sections) {
   try {
@@ -33,33 +33,62 @@ export default function KnowledgeBaseManagePage() {
     }
   }, [loading, sessionUser]);
 
+  const { isReviewerView } = useWorkspaceView(profile?.role);
+  const isReviewer = isReviewerView;
+
   useEffect(() => {
     if (!sessionUser) return;
 
     let active = true;
 
-    async function load() {
+    async function loadProfile() {
       setLoadingData(true);
       try {
-        const [profileResponse, articlesResponse] = await Promise.all([
-          fetch("/api/users/profile"),
-          fetch("/api/knowledge-base"),
-        ]);
-
+        const profileResponse = await fetch("/api/users/profile");
         if (!profileResponse.ok) {
           throw new Error("Failed to load profile");
         }
         const profileData = await profileResponse.json();
-        if (!isReviewerRole(profileData?.user?.role)) {
-          window.location.href = "/";
-          return;
+        if (active) {
+          setProfile(profileData.user || null);
         }
+      } catch (err) {
+        if (active) {
+          console.error(err);
+          setError(err.message || "Could not load knowledge base.");
+        }
+      } finally {
+        if (active) {
+          setLoadingData(false);
+        }
+      }
+    }
+
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [sessionUser]);
+
+  useEffect(() => {
+    if (!profile) return;
+    if (!isReviewer) {
+      window.location.href = "/";
+      return;
+    }
+
+    let active = true;
+
+    async function loadArticles() {
+      setLoadingData(true);
+      setError("");
+      try {
+        const articlesResponse = await fetch("/api/knowledge-base");
         if (!articlesResponse.ok) {
           throw new Error("Failed to load knowledge base");
         }
         const articleData = await articlesResponse.json();
         if (active) {
-          setProfile(profileData.user);
           setArticles(Array.isArray(articleData?.articles) ? articleData.articles : []);
         }
       } catch (err) {
@@ -74,11 +103,11 @@ export default function KnowledgeBaseManagePage() {
       }
     }
 
-    load();
+    loadArticles();
     return () => {
       active = false;
     };
-  }, [sessionUser]);
+  }, [isReviewer, profile]);
 
   const selectedArticle = useMemo(
     () => articles.find((article) => article.id === selectedId) || null,

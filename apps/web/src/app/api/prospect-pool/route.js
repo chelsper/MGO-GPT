@@ -9,7 +9,7 @@ function normalizeName(value) {
   return (value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
     await ensureAppSchema();
 
@@ -19,9 +19,13 @@ export async function GET() {
     }
 
     const currentUser = await getOrCreateUser(session);
+    const { searchParams } = new URL(request.url);
+    const requestedView = searchParams.get("view");
+    const treatAsReviewer =
+      isReviewerRole(currentUser.role) && requestedView !== "mgo";
 
     const rows =
-      isReviewerRole(currentUser.role)
+      treatAsReviewer
         ? await sql`
             SELECT
               pp.*,

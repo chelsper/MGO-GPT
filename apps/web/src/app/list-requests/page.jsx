@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import useWorkspaceView from "@/utils/useWorkspaceView";
 
 const REQUEST_STATUSES = [
   "Pending",
@@ -56,34 +56,63 @@ export default function ListRequestsQueuePage() {
     }
   }, [loading, sessionUser]);
 
+  const { isReviewerView } = useWorkspaceView(profile?.role);
+  const isReviewer = isReviewerView;
+
   useEffect(() => {
     if (!sessionUser) return;
 
     let active = true;
 
-    async function load() {
+    async function loadProfile() {
       setLoadingData(true);
       try {
-        const [profileResponse, requestsResponse] = await Promise.all([
-          fetch("/api/users/profile"),
-          fetch("/api/list-requests/all"),
-        ]);
-
+        const profileResponse = await fetch("/api/users/profile");
         if (!profileResponse.ok) {
           throw new Error("Failed to load profile");
         }
         const profileData = await profileResponse.json();
-        if (!isReviewerRole(profileData?.user?.role)) {
-          window.location.href = "/";
-          return;
+        if (active) {
+          setProfile(profileData.user || null);
         }
+      } catch (err) {
+        if (active) {
+          console.error(err);
+          setError(err.message || "Could not load list requests.");
+        }
+      } finally {
+        if (active) {
+          setLoadingData(false);
+        }
+      }
+    }
+
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [sessionUser]);
+
+  useEffect(() => {
+    if (!profile) return;
+    if (!isReviewer) {
+      window.location.href = "/";
+      return;
+    }
+
+    let active = true;
+
+    async function loadRequests() {
+      setLoadingData(true);
+      setError("");
+      try {
+        const requestsResponse = await fetch("/api/list-requests/all");
         if (!requestsResponse.ok) {
           const payload = await requestsResponse.json().catch(() => null);
           throw new Error(payload?.error || "Failed to load list requests");
         }
         const requestData = await requestsResponse.json();
         if (active) {
-          setProfile(profileData.user);
           setRequests(Array.isArray(requestData) ? requestData : []);
         }
       } catch (err) {
@@ -98,11 +127,11 @@ export default function ListRequestsQueuePage() {
       }
     }
 
-    load();
+    loadRequests();
     return () => {
       active = false;
     };
-  }, [sessionUser]);
+  }, [isReviewer, profile]);
 
   const queueSummary = useMemo(() => {
     return requests.reduce(
