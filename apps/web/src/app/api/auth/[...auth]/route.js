@@ -108,6 +108,7 @@ async function getAuthConfig() {
       config: {
         secret: process.env.AUTH_SECRET,
         trustHost: true,
+        debug: process.env.AUTH_DEBUG === "true",
         basePath: "/api/auth",
         skipCSRFCheck,
         adapter,
