@@ -27,10 +27,13 @@ Recommended rollout:
 | App entity | App field | Blackbaud object | Blackbaud field / endpoint | Selection rule | Direction | Source of truth | Notes |
 |---|---|---|---|---|---|---|---|
 | `constituents` | `blackbaud_constituent_id` | Constituent | `id` | Store exact NXT constituent ID | `pull` | Blackbaud NXT | Primary link key |
-| `constituents` | `name` | Constituent | Display / full name | Use the constituent's primary display name | `pull` | Blackbaud NXT | |
-| `constituents` | `email` | Constituent email addresses | Primary email | Pull only the email marked `Primary = true`; if none is primary, leave blank | `pull` | Blackbaud NXT | |
-| `constituents` | `phone` | Constituent phone numbers | Primary phone | Pull only the phone marked `Primary = true`; if none is primary, leave blank | `pull` | Blackbaud NXT | |
-| `constituents` | `organization` | Constituent / employment / organization link | TBD | Decide whether this should come from primary organization, employer, or another NXT field | `pull` | Blackbaud NXT | Needs decision |
+| `constituents` | `name` | Constituent | `name` | Use `Constituent.name`, which is Blackbaud's computed display/full name | `pull` | Blackbaud NXT | |
+| `constituents` | `lookup_id` | Constituent | `lookup_id` | Use the Blackbaud user-defined constituent identifier | `pull` | Blackbaud NXT | Optional secondary identifier |
+| `constituents` | `preferred_name` | Constituent | `preferred_name` | Use `Constituent.preferred_name` when present; otherwise fall back to first/display name in the app | `pull` | Blackbaud NXT | Individuals only |
+| `constituents` | `email` | Constituent | `email.address` | Use `Constituent.email.address` only when `Constituent.email.primary = true`; otherwise leave blank | `pull` | Blackbaud NXT | |
+| `constituents` | `phone` | Constituent | `phone.number` | Use `Constituent.phone.number` only when `Constituent.phone.primary = true`; otherwise leave blank | `pull` | Blackbaud NXT | |
+| `constituents` | `address` | Constituent | `address.formatted_address` | Use `Constituent.address.formatted_address` only when `Constituent.address.preferred = true`; otherwise leave blank | `pull` | Blackbaud NXT | Preferred mailing address only |
+| `constituents` | `organization` | Constituent / employment / organization link | TBD | `Constituent (Get)` does not expose a direct organization/employer field; decide whether this comes from another endpoint | `pull` | Blackbaud NXT | Needs decision |
 
 ## Prospect
 
@@ -66,8 +69,8 @@ Recommended rollout:
 |---|---|---|---|---|---|---|---|
 | `prospect_pool` | `blackbaud_constituent_id` | Constituent | `id` | Use when reviewer adds a known NXT person into the pool | `pull` | Blackbaud NXT | |
 | `prospect_pool` | `prospect_name` | Constituent | Display / full name | Pull from linked constituent if matched | `pull` | Blackbaud NXT | Otherwise manual |
-| `prospect_pool` | `email` | Constituent email addresses | Primary email | Use only the primary email if linked | `pull` | Blackbaud NXT | Otherwise local |
-| `prospect_pool` | `phone` | Constituent phone numbers | Primary phone | Use only the primary phone if linked | `pull` | Blackbaud NXT | Otherwise local |
+| `prospect_pool` | `email` | Constituent | `email.address` | Use `Constituent.email.address` only when `Constituent.email.primary = true` and the pool item is linked | `pull` | Blackbaud NXT | Otherwise local |
+| `prospect_pool` | `phone` | Constituent | `phone.number` | Use `Constituent.phone.number` only when `Constituent.phone.primary = true` and the pool item is linked | `pull` | Blackbaud NXT | Otherwise local |
 | `prospect_pool` | `note` | Local workflow | N/A | Internal note from Advancement Services | `local only` | App | |
 | `prospect_pool` | `needs_contact_info` | Local workflow | N/A | Internal request flag | `local only` | App | |
 | `prospect_pool` | `contact_info_request_note` | Local workflow | N/A | Internal request note | `local only` | App | |
@@ -100,7 +103,12 @@ Recommended rollout:
 | `action` | `category` | Action | `category` | Map interaction type to Blackbaud values: `call -> Phone Call`, `visit/event -> Meeting`, `email -> Email`, otherwise `Task/Other` | `push` | App | Required |
 | `action` | `direction` | Action | `direction` | Default to `Outbound` unless the app later captures inbound direction | `push` | App | |
 | `action` | `author` | Action | `author` | Use the signed-in user's display name when available | `push` | App | Optional |
+| `action` | `completed` | Action | `completed` | Set `true` only when the app intentionally marks the action complete; otherwise leave false or omit | `push` | App | Relevant for edit flow |
+| `action` | `completed_date` | Action | `completed_date` | When completed is true, send the completion timestamp in ISO-8601 format | `push` | App | Relevant for edit flow |
+| `action` | `outcome` | Action | `outcome` | Only send when the app can confidently map the result to `Successful` or `Unsuccessful` | `push` | App | Defer until outcome UX exists |
+| `action` | `type` | Action | `type` | Optional subtype that complements category; use only after confirming valid Action table values in NXT | `push` | App | Defer until taxonomy is defined |
 | `action` | `opportunity_id` | Action | `opportunity_id` | Only include once app opportunities are linked to NXT opportunity IDs | `push` | Blackbaud NXT | Phase 2 |
+| `action` | `update` | Action | `PATCH /constituent/v1/actions/{action_id}` | Use when a synced local submission is intentionally edited and the matching NXT action should be revised in place | `push` | App | Use stored `submissions.blackbaud_action_id` |
 | `action` | `delete` | Action | `DELETE /constituent/v1/actions/{action_id}` | Only delete when a synced local submission is explicitly removed or intentionally replaced | `push` | App | Use stored `submissions.blackbaud_action_id`; do not auto-delete on routine edits |
 
 ## Blackbaud Search Phase 1
