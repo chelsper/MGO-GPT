@@ -5,6 +5,8 @@ import sql from "@/app/api/utils/sql";
 
 const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization";
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
+const BLACKBAUD_CONSTITUENT_SEARCH_URL =
+  "https://api.sky.blackbaud.com/constituent/v1/constituents/search";
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -94,6 +96,20 @@ async function requestBlackbaudToken(params, config) {
       payload?.error_description ||
         payload?.error ||
         "Blackbaud token exchange failed",
+    );
+  }
+
+  return payload;
+}
+
+async function parseBlackbaudResponse(response) {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      payload?.message ||
+        payload?.error_description ||
+        payload?.error ||
+        "Blackbaud request failed",
     );
   }
 
@@ -222,6 +238,76 @@ export async function getValidBlackbaudConnection(userId, origin) {
     scope: refreshed.scope,
     expires_at: refreshed.expiresAt,
   };
+}
+
+export async function blackbaudApiFetch(path, { userId, origin, searchParams } = {}) {
+  const config = getBlackbaudConfig(origin);
+  const connection = await getValidBlackbaudConnection(userId, origin);
+
+  if (!connection?.access_token) {
+    throw new Error("Blackbaud is not connected for this user");
+  }
+
+  const url = new URL(path.startsWith("http") ? path : `https://api.sky.blackbaud.com${path}`);
+  if (searchParams) {
+    Object.entries(searchParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    });
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${connection.access_token}`,
+      "Bb-Api-Subscription-Key": config.subscriptionKey,
+      Accept: "application/json",
+    },
+  });
+
+  return parseBlackbaudResponse(response);
+}
+
+export async function searchBlackbaudConstituents({ userId, origin, query }) {
+  const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
+    userId,
+    origin,
+    searchParams: {
+      search_text: query,
+      limit: 10,
+    },
+  });
+
+  const rows = Array.isArray(payload?.value)
+    ? payload.value
+    : Array.isArray(payload)
+      ? payload
+      : [];
+
+  return rows.map((item) => ({
+    blackbaudConstituentId:
+      item?.id ||
+      item?.constituent_id ||
+      item?.constituentId ||
+      null,
+    name:
+      item?.name ||
+      [item?.first, item?.middle, item?.last].filter(Boolean).join(" ").trim() ||
+      item?.lookup_id ||
+      "Unnamed constituent",
+    email:
+      item?.address ||
+      item?.email?.address ||
+      item?.primary_email?.address ||
+      null,
+    phone:
+      item?.phone ||
+      item?.primary_phone?.number ||
+      item?.phones?.[0]?.number ||
+      null,
+    lookupId: item?.lookup_id || item?.lookupId || null,
+    raw: item,
+  }));
 }
 
 export function buildBlackbaudAuthorizeUrl({ origin, state }) {

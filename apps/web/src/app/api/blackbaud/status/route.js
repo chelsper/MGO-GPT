@@ -27,6 +27,12 @@ export async function GET(request) {
       subscriptionKeyConfigured: Boolean(config.subscriptionKey),
       connected: Boolean(connection),
       scope: connection?.scope || null,
+      hasDataScopes: Boolean(
+        connection?.scope &&
+          connection.scope
+            .split(/\s+/)
+            .some((value) => value && value !== "offline_access"),
+      ),
       expiresAt: connection?.expires_at || null,
       connectedAt: connection?.connected_at || null,
       updatedAt: connection?.updated_at || null,

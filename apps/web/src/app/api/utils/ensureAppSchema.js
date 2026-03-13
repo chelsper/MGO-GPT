@@ -34,6 +34,7 @@ export default async function ensureAppSchema() {
       CREATE TABLE IF NOT EXISTS constituents (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        blackbaud_constituent_id TEXT,
         name TEXT NOT NULL,
         normalized_name TEXT NOT NULL,
         organization TEXT,
@@ -42,6 +43,11 @@ export default async function ensureAppSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+
+    await sql`
+      ALTER TABLE constituents
+      ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT
     `;
 
     await sql`
@@ -210,6 +216,10 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
       ADD COLUMN IF NOT EXISTS prospect_name TEXT
     `;
     await sql`
@@ -272,6 +282,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospects
       ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospects
+      ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT
     `;
     await sql`
       ALTER TABLE prospects
