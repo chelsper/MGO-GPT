@@ -8,7 +8,7 @@ const ACCESS_DENIED_MESSAGE =
   "You don't have access to this workspace yet. Use a ju.edu email address and ask an administrator for an invitation.";
 
 export default function SignInPage() {
-  const { signInWithCredentials, signInWithOkta } = useAuth();
+  const { signInWithCredentials } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -112,9 +112,8 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
-      await signInWithOkta({
-        callbackUrl: "/",
-      });
+      const callbackUrl = "/";
+      window.location.href = `/api/auth/signin/okta?callbackUrl=${encodeURIComponent(callbackUrl)}`;
     } catch (err) {
       console.error("Okta sign in error:", err);
       setError("Unable to start Okta sign-in. Please try again.");
