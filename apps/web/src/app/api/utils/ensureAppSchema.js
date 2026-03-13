@@ -479,6 +479,63 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS blackbaud_field_mappings (
+        mapping_key TEXT PRIMARY KEY,
+        app_entity TEXT NOT NULL,
+        app_field TEXT NOT NULL,
+        blackbaud_object TEXT,
+        blackbaud_field TEXT,
+        selection_rule TEXT,
+        direction TEXT NOT NULL DEFAULT 'local only',
+        source_of_truth TEXT,
+        notes TEXT,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS app_entity TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS app_field TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS blackbaud_object TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS blackbaud_field TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS selection_rule TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'local only'
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS source_of_truth TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS notes TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
         article_id TEXT PRIMARY KEY,
         title TEXT,

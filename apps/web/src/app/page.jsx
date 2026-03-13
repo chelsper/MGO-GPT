@@ -74,6 +74,11 @@ const REVIEWER_ACTIONS = [
 const ADMIN_ACTIONS = [
   ...REVIEWER_ACTIONS,
   {
+    title: "Blackbaud Mapping",
+    href: "/blackbaud-mapping",
+    description: "Define which app fields should map to NXT and which system owns each field.",
+  },
+  {
     title: "Access Management",
     href: "/access-management",
     description: "Invite JU users and manage workspace roles.",
@@ -101,6 +106,7 @@ const REVIEWER_NAV_ITEMS = [
 
 const ADMIN_NAV_ITEMS = [
   ...REVIEWER_NAV_ITEMS,
+  { label: "Blackbaud Mapping", href: "/blackbaud-mapping" },
   { label: "Access Management", href: "/access-management" },
 ];
 
