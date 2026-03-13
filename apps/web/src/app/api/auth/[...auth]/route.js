@@ -98,6 +98,7 @@ async function getAuthConfig() {
               clientId: process.env.OKTA_CLIENT_ID,
               clientSecret: process.env.OKTA_CLIENT_SECRET,
               issuer: process.env.OKTA_ISSUER,
+              allowDangerousEmailAccountLinking: true,
             }),
           ]
         : []),
