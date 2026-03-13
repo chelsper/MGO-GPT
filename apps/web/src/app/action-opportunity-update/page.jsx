@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Mic, Square } from "lucide-react";
 import useUser from "@/utils/useUser";
 
 const UPDATE_MODES = [
@@ -48,6 +48,42 @@ function getSuccessLabel(mode) {
   return "Action update submitted successfully.";
 }
 
+function DictationButton({
+  target,
+  label,
+  dictationTarget,
+  isRecording,
+  onStart,
+  onStop,
+}) {
+  const active = isRecording && dictationTarget === target;
+
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
+      <button
+        type="button"
+        onClick={() => (active ? onStop() : onStart(target))}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 12px",
+          borderRadius: "999px",
+          border: active ? "1px solid #FCA5A5" : "1px solid #D1D5DB",
+          backgroundColor: active ? "#FEF2F2" : "white",
+          color: active ? "#B91C1C" : "#374151",
+          cursor: "pointer",
+          fontSize: "13px",
+          fontWeight: 700,
+        }}
+      >
+        {active ? <Square size={14} /> : <Mic size={14} />}
+        {active ? `Stop ${label}` : `Dictate ${label}`}
+      </button>
+    </div>
+  );
+}
+
 export default function ActionOpportunityUpdatePage() {
   const { data: user, loading } = useUser();
   const [updateMode, setUpdateMode] = useState("action");
@@ -70,9 +106,97 @@ export default function ActionOpportunityUpdatePage() {
   const [prospectPrompt, setProspectPrompt] = useState(null);
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [dictationTarget, setDictationTarget] = useState("");
+  const [dictationStatus, setDictationStatus] = useState("");
+  const [dictationError, setDictationError] = useState("");
+  const speechRecognitionRef = useRef(null);
+  const timerRef = useRef(null);
+  const recognitionTranscriptRef = useRef("");
+  const recognitionDisplayRef = useRef("");
+  const recognitionFinalizedRef = useRef(false);
+  const dictationBaseValueRef = useRef("");
 
   const includeAction = updateMode === "action" || updateMode === "both";
   const includeOpportunity = updateMode === "opportunity" || updateMode === "both";
+  const supportsSpeechRecognition =
+    typeof window !== "undefined" &&
+    (typeof window.SpeechRecognition !== "undefined" ||
+      typeof window.webkitSpeechRecognition !== "undefined");
+
+  function getFieldValue(target) {
+    switch (target) {
+      case "summary":
+        return sharedSummary;
+      case "actionNotes":
+        return actionNotes;
+      case "nextStep":
+        return nextStep;
+      case "opportunityNotes":
+        return opportunityNotes;
+      default:
+        return "";
+    }
+  }
+
+  function setFieldValue(target, value) {
+    switch (target) {
+      case "summary":
+        setSharedSummary(value);
+        break;
+      case "actionNotes":
+        setActionNotes(value);
+        break;
+      case "nextStep":
+        setNextStep(value);
+        break;
+      case "opportunityNotes":
+        setOpportunityNotes(value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function stopRecordingTimer() {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  function startRecordingTimer() {
+    stopRecordingTimer();
+    setRecordingDuration(0);
+    timerRef.current = setInterval(() => {
+      setRecordingDuration((prev) => prev + 1);
+    }, 1000);
+  }
+
+  function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  }
+
+  function finishDictation(text, targetOverride) {
+    const target = targetOverride || dictationTarget;
+    stopRecordingTimer();
+    setIsRecording(false);
+    setDictationTarget("");
+
+    const transcriptText = String(text || "").trim();
+    if (!transcriptText || !target) {
+      setDictationStatus("");
+      setDictationError("No speech was detected. Try again.");
+      return;
+    }
+
+    setFieldValue(target, transcriptText);
+    setDictationStatus("Transcript added.");
+    setDictationError("");
+  }
 
   useEffect(() => {
     const query = donorName.trim();
@@ -103,6 +227,18 @@ export default function ActionOpportunityUpdatePage() {
       clearTimeout(timeoutId);
     };
   }, [donorName]);
+
+  useEffect(() => {
+    return () => {
+      stopRecordingTimer();
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.onresult = null;
+        speechRecognitionRef.current.onerror = null;
+        speechRecognitionRef.current.onend = null;
+        speechRecognitionRef.current.stop();
+      }
+    };
+  }, []);
 
   const exactMatch = useMemo(
     () =>
@@ -178,6 +314,115 @@ export default function ActionOpportunityUpdatePage() {
       active = false;
     };
   }, [donorName, exactMatch, includeOpportunity, matchDecision]);
+
+  function startDictation(target) {
+    setError("");
+    setDictationError("");
+    setDictationStatus("");
+
+    if (!supportsSpeechRecognition) {
+      setDictationError("This browser does not support live dictation.");
+      return;
+    }
+
+    try {
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognitionTranscriptRef.current = "";
+      recognitionDisplayRef.current = "";
+      recognitionFinalizedRef.current = false;
+      dictationBaseValueRef.current = getFieldValue(target).trim();
+      speechRecognitionRef.current = recognition;
+      setDictationTarget(target);
+
+      recognition.onresult = (event) => {
+        let finalTranscript = "";
+        let interimTranscript = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const text = result[0]?.transcript || "";
+          if (result.isFinal) {
+            finalTranscript += text;
+          } else {
+            interimTranscript += text;
+          }
+        }
+
+        if (finalTranscript) {
+          recognitionTranscriptRef.current =
+            `${recognitionTranscriptRef.current} ${finalTranscript}`.trim();
+        }
+
+        const combinedTranscript =
+          `${recognitionTranscriptRef.current} ${interimTranscript}`.trim();
+        recognitionDisplayRef.current = combinedTranscript;
+        const baseValue = dictationBaseValueRef.current;
+        setFieldValue(
+          target,
+          baseValue ? `${baseValue}\n\n${combinedTranscript}` : combinedTranscript,
+        );
+      };
+
+      recognition.onerror = (event) => {
+        recognitionFinalizedRef.current = true;
+        speechRecognitionRef.current = null;
+        stopRecordingTimer();
+        setIsRecording(false);
+        setDictationTarget("");
+        setDictationStatus("");
+
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          setDictationError(
+            "Microphone access was blocked by the browser. Allow microphone access for this site.",
+          );
+          return;
+        }
+
+        if (event.error === "no-speech") {
+          setDictationError("No speech was detected. Try again.");
+          return;
+        }
+
+        setDictationError("Live dictation failed. Try again.");
+      };
+
+      recognition.onend = () => {
+        speechRecognitionRef.current = null;
+        if (recognitionFinalizedRef.current) return;
+        recognitionFinalizedRef.current = true;
+        finishDictation(
+          recognitionDisplayRef.current || recognitionTranscriptRef.current,
+          target,
+        );
+      };
+
+      recognition.start();
+      setIsRecording(true);
+      setDictationStatus("Listening and transcribing as you speak...");
+      startRecordingTimer();
+    } catch (dictationStartError) {
+      console.error("Speech recognition error:", dictationStartError);
+      setDictationError("Live dictation could not start in this browser.");
+    }
+  }
+
+  function stopDictation() {
+    if (!speechRecognitionRef.current || !isRecording) return;
+    recognitionFinalizedRef.current = true;
+    speechRecognitionRef.current.stop();
+    speechRecognitionRef.current = null;
+    finishDictation(
+      recognitionDisplayRef.current || recognitionTranscriptRef.current,
+      dictationTarget,
+    );
+  }
 
   const addProspectMutation = useMutation({
     mutationFn: async (data) => {
@@ -271,6 +516,9 @@ export default function ActionOpportunityUpdatePage() {
       setLinkedProspectContext(null);
       setOpportunityLinkMode("create");
       setSelectedOpportunityId("");
+      setDictationTarget("");
+      setDictationStatus("");
+      setDictationError("");
 
       try {
         const response = await fetch("/api/prospects");
@@ -487,6 +735,22 @@ export default function ActionOpportunityUpdatePage() {
       </header>
 
       <main style={{ maxWidth: "760px", margin: "0 auto", padding: "24px 24px 140px" }}>
+        {supportsSpeechRecognition ? (
+          <div
+            style={{
+              padding: "14px 16px",
+              backgroundColor: "#F5F3FF",
+              color: "#5B21B6",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              border: "1px solid #DDD6FE",
+            }}
+          >
+            Use the microphone buttons beside Summary, Action-specific notes, Next step, and Opportunity-specific notes to dictate directly into those fields.
+          </div>
+        ) : null}
+
         {submitMutation.isPending ? (
           <div
             style={{
@@ -627,6 +891,40 @@ export default function ActionOpportunityUpdatePage() {
             }}
           >
             {error}
+          </div>
+        ) : null}
+
+        {dictationError ? (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#FEF2F2",
+              color: "#991B1B",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+            }}
+          >
+            {dictationError}
+          </div>
+        ) : null}
+
+        {dictationStatus ? (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: "#EDE9FE",
+              color: "#5B21B6",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              fontWeight: 600,
+            }}
+          >
+            {dictationStatus}
+            {isRecording && dictationTarget
+              ? ` (${formatDuration(recordingDuration)} on ${dictationTarget})`
+              : ""}
           </div>
         ) : null}
 
@@ -924,6 +1222,16 @@ export default function ActionOpportunityUpdatePage() {
             >
               Shared summary
             </label>
+            {supportsSpeechRecognition ? (
+              <DictationButton
+                target="summary"
+                label="summary"
+                dictationTarget={dictationTarget}
+                isRecording={isRecording}
+                onStart={startDictation}
+                onStop={stopDictation}
+              />
+            ) : null}
             <textarea
               value={sharedSummary}
               onChange={(event) => setSharedSummary(event.target.value)}
@@ -998,6 +1306,16 @@ export default function ActionOpportunityUpdatePage() {
               >
                 Action-specific notes
               </label>
+              {supportsSpeechRecognition ? (
+                <DictationButton
+                  target="actionNotes"
+                  label="notes"
+                  dictationTarget={dictationTarget}
+                  isRecording={isRecording}
+                  onStart={startDictation}
+                  onStop={stopDictation}
+                />
+              ) : null}
               <textarea
                 value={actionNotes}
                 onChange={(event) => setActionNotes(event.target.value)}
@@ -1026,6 +1344,16 @@ export default function ActionOpportunityUpdatePage() {
               >
                 Next step
               </label>
+              {supportsSpeechRecognition ? (
+                <DictationButton
+                  target="nextStep"
+                  label="next step"
+                  dictationTarget={dictationTarget}
+                  isRecording={isRecording}
+                  onStart={startDictation}
+                  onStop={stopDictation}
+                />
+              ) : null}
               <textarea
                 value={nextStep}
                 onChange={(event) => setNextStep(event.target.value)}
@@ -1128,6 +1456,16 @@ export default function ActionOpportunityUpdatePage() {
               >
                 Opportunity-specific notes
               </label>
+              {supportsSpeechRecognition ? (
+                <DictationButton
+                  target="opportunityNotes"
+                  label="notes"
+                  dictationTarget={dictationTarget}
+                  isRecording={isRecording}
+                  onStart={startDictation}
+                  onStop={stopDictation}
+                />
+              ) : null}
               <textarea
                 value={opportunityNotes}
                 onChange={(event) => setOpportunityNotes(event.target.value)}
