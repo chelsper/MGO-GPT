@@ -35,6 +35,15 @@ function useAuth() {
 		},
 		[]
 	);
+	const signInWithOkta = useCallback(
+		(options) => {
+			return signIn('okta', {
+				...options,
+				callbackUrl: resolveCallbackUrl(options),
+			});
+		},
+		[]
+	);
 	const signInWithFacebook = useCallback((options) => {
 		return signIn('facebook', options);
 	}, []);
@@ -45,6 +54,7 @@ function useAuth() {
 	return {
 		signInWithCredentials,
 		signUpWithCredentials,
+		signInWithOkta,
 		signInWithGoogle,
 		signInWithFacebook,
 		signInWithTwitter,
