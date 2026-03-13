@@ -7,6 +7,10 @@ const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization"
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
 const BLACKBAUD_CONSTITUENT_SEARCH_URL =
   "https://api.sky.blackbaud.com/constituent/v1/constituents/search";
+const BLACKBAUD_CREATE_ACTION_URL =
+  "https://api.sky.blackbaud.com/constituent/v1/actions";
+const BLACKBAUD_ACTIONS_URL =
+  "https://api.sky.blackbaud.com/constituent/v1/actions";
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -240,7 +244,10 @@ export async function getValidBlackbaudConnection(userId, origin) {
   };
 }
 
-export async function blackbaudApiFetch(path, { userId, origin, searchParams } = {}) {
+export async function blackbaudApiFetch(
+  path,
+  { userId, origin, searchParams, method = "GET", body } = {},
+) {
   const config = getBlackbaudConfig(origin);
   const connection = await getValidBlackbaudConnection(userId, origin);
 
@@ -257,12 +264,20 @@ export async function blackbaudApiFetch(path, { userId, origin, searchParams } =
     });
   }
 
+  const headers = {
+    Authorization: `Bearer ${connection.access_token}`,
+    "Bb-Api-Subscription-Key": config.subscriptionKey,
+    Accept: "application/json",
+  };
+
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${connection.access_token}`,
-      "Bb-Api-Subscription-Key": config.subscriptionKey,
-      Accept: "application/json",
-    },
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   return parseBlackbaudResponse(response);
@@ -308,6 +323,80 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     lookupId: item?.lookup_id || item?.lookupId || null,
     raw: item,
   }));
+}
+
+function appendActionSection(label, value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return `${label}: ${text}`;
+}
+
+export function buildBlackbaudActionPayload({
+  blackbaudConstituentId,
+  actionDate,
+  summary,
+  actionNotes,
+  nextStep,
+  interactionType,
+  authorName,
+  opportunityId,
+}) {
+  if (!blackbaudConstituentId) {
+    throw new Error("A linked Blackbaud constituent ID is required");
+  }
+
+  if (!actionDate) {
+    throw new Error("An action date is required");
+  }
+
+  const categoryMap = {
+    call: "Phone Call",
+    visit: "Meeting",
+    email: "Email",
+    event: "Meeting",
+  };
+
+  const summaryText = String(summary || "").trim();
+  const descriptionParts = [
+    appendActionSection("Summary", summaryText),
+    appendActionSection("Notes", actionNotes),
+    appendActionSection("Next step", nextStep),
+  ].filter(Boolean);
+
+  return {
+    constituent_id: String(blackbaudConstituentId),
+    date: new Date(actionDate).toISOString(),
+    category: categoryMap[String(interactionType || "").toLowerCase()] || "Task/Other",
+    direction: "Outbound",
+    summary: summaryText || "Action update from JUMGOGPT",
+    description: descriptionParts.join("\n\n") || undefined,
+    author: String(authorName || "").trim() || undefined,
+    opportunity_id: opportunityId ? String(opportunityId) : undefined,
+  };
+}
+
+export async function createBlackbaudAction({ userId, origin, payload }) {
+  return blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
+    userId,
+    origin,
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function deleteBlackbaudAction({ userId, origin, actionId }) {
+  if (!actionId) {
+    throw new Error("A Blackbaud action ID is required to delete an action");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
+    {
+      userId,
+      origin,
+      method: "DELETE",
+    },
+  );
 }
 
 export function buildBlackbaudAuthorizeUrl({ origin, state }) {

@@ -85,6 +85,23 @@ Recommended rollout:
 | `submissions` | `next_step` | Local workflow | N/A | Internal reviewer + MGO workflow | `local only` | App | |
 | `submissions` | `status` | Local workflow | N/A | Review queue state | `local only` | App | |
 | `submissions` | `reviewer_notes` | Local workflow | N/A | Internal clarification loop | `local only` | App | |
+| `submissions` | `blackbaud_action_id` | Action | `id` | Store the created RE NXT action ID after successful write-back | `pull` | Blackbaud NXT | Future action sync |
+| `submissions` | `blackbaud_sync_status` | Action sync lifecycle | N/A | Track whether sync is pending, synced, skipped, or failed | `local only` | App | Operational state only |
+| `submissions` | `blackbaud_sync_error` | Action sync lifecycle | N/A | Store the latest Blackbaud sync error for troubleshooting | `local only` | App | Operational state only |
+
+## Action Write-Back (CreateAction)
+
+| App entity | App field | Blackbaud object | Blackbaud field / endpoint | Selection rule | Direction | Source of truth | Notes |
+|---|---|---|---|---|---|---|---|
+| `action` | `summary` | Action | `summary` | Map the combined update summary into the Blackbaud action summary | `push` | App | Character limit 255 |
+| `action` | `description` | Action | `description` | Concatenate action notes and next step into the Blackbaud action description | `push` | App | |
+| `action` | `constituent_id` | Action | `constituent_id` | Use the linked constituent's stored `blackbaud_constituent_id` | `push` | Blackbaud NXT | Required |
+| `action` | `date` | Action | `date` | Use the update submission date in ISO-8601 format | `push` | App | Required |
+| `action` | `category` | Action | `category` | Map interaction type to Blackbaud values: `call -> Phone Call`, `visit/event -> Meeting`, `email -> Email`, otherwise `Task/Other` | `push` | App | Required |
+| `action` | `direction` | Action | `direction` | Default to `Outbound` unless the app later captures inbound direction | `push` | App | |
+| `action` | `author` | Action | `author` | Use the signed-in user's display name when available | `push` | App | Optional |
+| `action` | `opportunity_id` | Action | `opportunity_id` | Only include once app opportunities are linked to NXT opportunity IDs | `push` | Blackbaud NXT | Phase 2 |
+| `action` | `delete` | Action | `DELETE /constituent/v1/actions/{action_id}` | Only delete when a synced local submission is explicitly removed or intentionally replaced | `push` | App | Use stored `submissions.blackbaud_action_id`; do not auto-delete on routine edits |
 
 ## Blackbaud Search Phase 1
 
@@ -114,3 +131,4 @@ Do **not** write updates back to NXT in phase 1.
 - Before real NXT data can flow, the Blackbaud app still needs data scopes beyond `offline_access`.
 - Once scopes are added, reauthorize and test the read-only route:
   - `/api/blackbaud/constituents/search?q=smith`
+- The first dormant write-back scaffold is prepared for `POST /constituent/v1/actions`, but it should remain off until Okta and data scopes are ready.
