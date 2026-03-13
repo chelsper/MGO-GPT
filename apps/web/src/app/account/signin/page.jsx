@@ -48,6 +48,18 @@ export default function SignInPage() {
           setOktaEnabled(false);
           setCredentialsEnabled(true);
         });
+
+      fetch("/api/auth/session", {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((session) => {
+          if (session?.user) {
+            window.location.replace("/");
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 

@@ -1,31 +1,61 @@
-import { useSession } from '@auth/create/react';
 import React from 'react';
 
 export const useUser = () => {
-	const { data: session, status } = useSession();
-	const id = session?.user?.id;
+	const [user, setUser] = React.useState(null);
+	const [loading, setLoading] = React.useState(true);
 
-	const [user, setUser] = React.useState(session?.user ?? null);
+	const fetchUser = React.useCallback(async () => {
+		const response = await fetch('/api/auth/session', {
+			credentials: 'include',
+			cache: 'no-store',
+		});
 
-	const fetchUser = React.useCallback(async (session) => {
-		return session?.user;
+		if (!response.ok) {
+			return null;
+		}
+
+		const session = await response.json();
+		return session?.user ?? null;
 	}, []);
 
 	const refetchUser = React.useCallback(() => {
-		if (id) {
-			fetchUser(session).then(setUser);
-		} else {
-			setUser(null);
-		}
-	}, [fetchUser, id]);
+		setLoading(true);
+		fetchUser()
+			.then(setUser)
+			.catch(() => {
+				setUser(null);
+			})
+			.finally(() => {
+				setLoading(false);
+			});
+	}, [fetchUser]);
 
-	React.useEffect(refetchUser, [refetchUser]);
+	React.useEffect(() => {
+		refetchUser();
+	}, [refetchUser]);
+
+	React.useEffect(() => {
+		const handleFocus = () => {
+			refetchUser();
+		};
+
+		window.addEventListener('focus', handleFocus);
+		return () => {
+			window.removeEventListener('focus', handleFocus);
+		};
+	}, [refetchUser]);
+
+	const clearUser = React.useCallback(() => {
+			setUser(null);
+			setLoading(false);
+	}, []);
 
 	return {
 		user,
 		data: user,
-		loading: status === 'loading' || (status === 'authenticated' && !user),
+		loading,
 		refetch: refetchUser,
+		clear: clearUser,
 	};
 };
 
