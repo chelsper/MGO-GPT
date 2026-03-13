@@ -68,7 +68,7 @@ async function getAuthConfig() {
       return null;
     }
 
-    const [{ Auth, skipCSRFCheck }, { default: Credentials }, oktaProviderModule, { Pool }, { default: NeonAdapter }] =
+    const [{ Auth }, { default: Credentials }, oktaProviderModule, { Pool }, { default: NeonAdapter }] =
       await Promise.all([
         import("@auth/core"),
         import("@auth/core/providers/credentials"),
@@ -110,7 +110,6 @@ async function getAuthConfig() {
         trustHost: true,
         debug: process.env.AUTH_DEBUG === "true",
         basePath: "/api/auth",
-        skipCSRFCheck,
         adapter,
         pages: {
           signIn: "/account/signin",
