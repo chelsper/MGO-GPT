@@ -22,14 +22,9 @@ const MGO_ACTIONS = [
     description: "See new names assigned to you and request missing contact details.",
   },
   {
-    title: "Log Donor Updates",
-    href: "/log-donor-update",
-    description: "Capture donor interactions with live dictation.",
-  },
-  {
-    title: "Update Opportunity",
-    href: "/update-opportunity",
-    description: "Update stage, amount, and solicitation notes.",
+    title: "Action & Opportunity Updates",
+    href: "/action-opportunity-update",
+    description: "Log relationship activity, opportunity changes, or both in one update.",
   },
   {
     title: "Suggest New Constituent",
@@ -90,8 +85,7 @@ const MGO_NAV_ITEMS = [
   { label: "My Top Prospects", href: "/my-top-prospects" },
   { label: "My Prospect Pool", href: "/prospect-pool" },
   { label: "Submissions", href: "/submissions" },
-  { label: "Log Donor Update", href: "/log-donor-update" },
-  { label: "Update Opportunity", href: "/update-opportunity" },
+  { label: "Action & Opportunity Updates", href: "/action-opportunity-update" },
   { label: "Suggest New Constituent", href: "/new-constituent" },
   { label: "Request List", href: "/request-list" },
 ];
