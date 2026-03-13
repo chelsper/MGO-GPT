@@ -110,17 +110,6 @@ const ADMIN_NAV_ITEMS = [
   { label: "Access Management", href: "/access-management" },
 ];
 
-const ACCESS_MANAGEMENT_ITEM = {
-  label: "Access Management",
-  href: "/access-management",
-};
-
-const ACCESS_MANAGEMENT_ACTION = {
-  title: "Access Management",
-  href: "/access-management",
-  description: "Invite JU users and manage workspace roles.",
-};
-
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -209,9 +198,7 @@ export default function Page() {
         return isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS;
       }
 
-      return isReviewer
-        ? ADMIN_ACTIONS
-        : [...MGO_ACTIONS, ACCESS_MANAGEMENT_ACTION];
+      return isReviewer ? ADMIN_ACTIONS : MGO_ACTIONS;
     },
     [isAdmin, isReviewer],
   );
@@ -221,9 +208,7 @@ export default function Page() {
         return isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS;
       }
 
-      return isReviewer
-        ? ADMIN_NAV_ITEMS
-        : [...MGO_NAV_ITEMS, ACCESS_MANAGEMENT_ITEM];
+      return isReviewer ? ADMIN_NAV_ITEMS : MGO_NAV_ITEMS;
     },
     [isAdmin, isReviewer],
   );
