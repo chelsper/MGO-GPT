@@ -35,6 +35,34 @@ Recommended rollout:
 | `constituents` | `address` | Constituent | `address.formatted_address` | Use `Constituent.address.formatted_address` only when `Constituent.address.preferred = true`; otherwise leave blank | `pull` | Blackbaud NXT | Preferred mailing address only |
 | `constituents` | `organization` | Constituent / employment / organization link | TBD | `Constituent (Get)` does not expose a direct organization/employer field; decide whether this comes from another endpoint | `pull` | Blackbaud NXT | Needs decision |
 
+## Lifetime Giving (LifetimeGivingRead)
+
+| App entity | App field | Blackbaud object | Blackbaud field / endpoint | Selection rule | Direction | Source of truth | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `constituent_lifetime_giving` | `total_giving` | LifetimeGivingRead | `total_giving.value` | Use the cumulative lifetime giving total as returned | `pull` | Blackbaud NXT | Good candidate for donor summary cards and constituent detail views |
+| `constituent_lifetime_giving` | `total_received_giving` | LifetimeGivingRead | `total_received_giving.value` | Use the received-only lifetime giving total as returned | `pull` | Blackbaud NXT | Useful if we separate committed vs received giving |
+| `constituent_lifetime_giving` | `total_pledge_balance` | LifetimeGivingRead | `total_pledge_balance.value` | Use pledge balance exactly as returned | `pull` | Blackbaud NXT | Read-only stewardship and planning metric |
+| `constituent_lifetime_giving` | `total_soft_credits` | LifetimeGivingRead | `total_soft_credits.value` | Use soft credits total exactly as returned | `pull` | Blackbaud NXT | Optional in the UI until needed |
+| `constituent_lifetime_giving` | `total_years_given` | LifetimeGivingRead | `total_years_given` | Use the Blackbaud computed value | `pull` | Blackbaud NXT | Good summary and affinity signal |
+| `constituent_lifetime_giving` | `consecutive_years_given` | LifetimeGivingRead | `consecutive_years_given` | Use the Blackbaud computed value | `pull` | Blackbaud NXT | Strong stewardship signal for MGO context |
+
+## Constituent Write-Back (ConstituentEdit)
+
+These fields are writable in RE NXT, but they should not all be turned on at once. Start with the low-risk identity fields and keep governance/privacy fields behind an admin-only workflow.
+
+| App entity | App field | Blackbaud object | Blackbaud field / endpoint | Selection rule | Direction | Source of truth | Notes |
+|---|---|---|---|---|---|---|---|
+| `constituent_edit` | `first` | ConstituentEdit | `first` | For linked individual constituents only; push only when intentionally editing the canonical first name in NXT | `push` | Blackbaud NXT | Individuals only; max 50 chars |
+| `constituent_edit` | `middle` | ConstituentEdit | `middle` | For linked individual constituents only; push only when intentionally editing the canonical middle name in NXT | `push` | Blackbaud NXT | Individuals only; max 50 chars |
+| `constituent_edit` | `last` | ConstituentEdit | `last` | For linked individual constituents only; push only when intentionally editing the canonical last name in NXT | `push` | Blackbaud NXT | Individuals only; max 100 chars |
+| `constituent_edit` | `preferred_name` | ConstituentEdit | `preferred_name` | For linked individual constituents only; push when the app is explicitly updating preferred name | `push` | Blackbaud NXT | Individuals only; max 50 chars |
+| `constituent_edit` | `lookup_id` | ConstituentEdit | `lookup_id` | Only push if the organization wants the app to manage constituent lookup IDs; otherwise leave NXT as the source of truth | `push` | Blackbaud NXT | High-governance field; likely admin-only |
+| `constituent_edit` | `inactive` | ConstituentEdit | `inactive` | Only push from an admin or reviewer workflow with explicit intent; do not infer from local app inactivity | `push` | Blackbaud NXT | High-risk write-back |
+| `constituent_edit` | `gives_anonymously` | ConstituentEdit | `gives_anonymously` | Only push from an explicit privacy/profile workflow, not from prospect workflow forms | `push` | Blackbaud NXT | Privacy-sensitive |
+| `constituent_edit` | `requests_no_email` | ConstituentEdit | `requests_no_email` | Only push from an explicit communications preferences workflow | `push` | Blackbaud NXT | Communications preference |
+| `constituent_edit` | `is_solicitor` | ConstituentEdit | `is_solicitor` | Do not push automatically from app solicitor-request workflows; require reviewer/admin confirmation | `push` | Blackbaud NXT | Keep a manual approval gate |
+| `constituent_edit` | `organization_name` | ConstituentEdit | `name` | For linked organization constituents only; push to `ConstituentEdit.name` because that field is editable only for organization records | `push` | Blackbaud NXT | Organizations only; do not use for individuals |
+
 ## Prospect
 
 | App entity | App field | Blackbaud object | Blackbaud field / endpoint | Selection rule | Direction | Source of truth | Notes |
