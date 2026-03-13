@@ -28,6 +28,20 @@ const selectStyle = {
   backgroundColor: "white",
 };
 
+const readOnlyInputStyle = {
+  ...inputStyle,
+  backgroundColor: "#F3F4F6",
+  color: "#6B7280",
+  cursor: "not-allowed",
+};
+
+const readOnlySelectStyle = {
+  ...selectStyle,
+  backgroundColor: "#F3F4F6",
+  color: "#6B7280",
+  cursor: "not-allowed",
+};
+
 const directions = ["pull", "push", "bidirectional", "local only"];
 
 export default function BlackbaudMappingPage() {
@@ -281,6 +295,10 @@ export default function BlackbaudMappingPage() {
                     backgroundColor: "#FAFAFF",
                   }}
                 >
+                  {(() => {
+                    const isReadOnly = mapping.direction === "pull";
+                    return (
+                      <>
                   <div
                     style={{
                       display: "flex",
@@ -299,24 +317,72 @@ export default function BlackbaudMappingPage() {
                         Mapping key: {mapping.mapping_key}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => saveMapping(mapping)}
-                      disabled={savingKey === mapping.mapping_key}
+                    <div
                       style={{
-                        border: "none",
-                        borderRadius: "10px",
-                        backgroundColor: "#6A5BFF",
-                        color: "white",
-                        fontWeight: 700,
-                        padding: "10px 16px",
-                        cursor: savingKey === mapping.mapping_key ? "wait" : "pointer",
-                        opacity: savingKey === mapping.mapping_key ? 0.7 : 1,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        flexWrap: "wrap",
                       }}
                     >
-                      {savingKey === mapping.mapping_key ? "Saving..." : "Save mapping"}
-                    </button>
+                      {isReadOnly ? (
+                        <span
+                          style={{
+                            borderRadius: "999px",
+                            backgroundColor: "#E0E7FF",
+                            color: "#4338CA",
+                            fontWeight: 700,
+                            fontSize: "12px",
+                            padding: "6px 10px",
+                          }}
+                        >
+                          Pull-only field
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => saveMapping(mapping)}
+                        disabled={isReadOnly || savingKey === mapping.mapping_key}
+                        style={{
+                          border: "none",
+                          borderRadius: "10px",
+                          backgroundColor: "#6A5BFF",
+                          color: "white",
+                          fontWeight: 700,
+                          padding: "10px 16px",
+                          cursor:
+                            isReadOnly || savingKey === mapping.mapping_key
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity:
+                            isReadOnly || savingKey === mapping.mapping_key ? 0.7 : 1,
+                        }}
+                      >
+                        {isReadOnly
+                          ? "Managed by Blackbaud"
+                          : savingKey === mapping.mapping_key
+                            ? "Saving..."
+                            : "Save mapping"}
+                      </button>
+                    </div>
                   </div>
+
+                  {isReadOnly ? (
+                    <div
+                      style={{
+                        marginBottom: "14px",
+                        borderRadius: "10px",
+                        backgroundColor: "#EEF2FF",
+                        color: "#4338CA",
+                        padding: "12px 14px",
+                        fontSize: "13px",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      This field is configured as a pull-only value from Blackbaud NXT and
+                      cannot be edited from the admin mapping UI.
+                    </div>
+                  ) : null}
 
                   <div
                     style={{
@@ -334,7 +400,8 @@ export default function BlackbaudMappingPage() {
                         onChange={(event) =>
                           updateMapping(mapping.mapping_key, "blackbaud_object", event.target.value)
                         }
-                        style={inputStyle}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyInputStyle : inputStyle}
                       />
                     </label>
 
@@ -347,7 +414,8 @@ export default function BlackbaudMappingPage() {
                         onChange={(event) =>
                           updateMapping(mapping.mapping_key, "blackbaud_field", event.target.value)
                         }
-                        style={inputStyle}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyInputStyle : inputStyle}
                       />
                     </label>
 
@@ -360,7 +428,8 @@ export default function BlackbaudMappingPage() {
                         onChange={(event) =>
                           updateMapping(mapping.mapping_key, "direction", event.target.value)
                         }
-                        style={selectStyle}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlySelectStyle : selectStyle}
                       >
                         {directions.map((direction) => (
                           <option key={direction} value={direction}>
@@ -379,7 +448,8 @@ export default function BlackbaudMappingPage() {
                         onChange={(event) =>
                           updateMapping(mapping.mapping_key, "source_of_truth", event.target.value)
                         }
-                        style={inputStyle}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyInputStyle : inputStyle}
                       />
                     </label>
                   </div>
@@ -395,7 +465,11 @@ export default function BlackbaudMappingPage() {
                           updateMapping(mapping.mapping_key, "selection_rule", event.target.value)
                         }
                         rows={2}
-                        style={{ ...inputStyle, resize: "vertical" }}
+                        disabled={isReadOnly}
+                        style={{
+                          ...(isReadOnly ? readOnlyInputStyle : inputStyle),
+                          resize: "vertical",
+                        }}
                       />
                     </label>
 
@@ -409,10 +483,17 @@ export default function BlackbaudMappingPage() {
                           updateMapping(mapping.mapping_key, "notes", event.target.value)
                         }
                         rows={2}
-                        style={{ ...inputStyle, resize: "vertical" }}
+                        disabled={isReadOnly}
+                        style={{
+                          ...(isReadOnly ? readOnlyInputStyle : inputStyle),
+                          resize: "vertical",
+                        }}
                       />
                     </label>
                   </div>
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

@@ -79,6 +79,17 @@ export async function PATCH(request) {
       );
     }
 
+    const defaultMappings = getDefaultBlackbaudFieldMappings();
+    const defaultMapping = defaultMappings.find(
+      (mapping) => mapping.mapping_key === mappingKey,
+    );
+    if (defaultMapping?.direction === "pull") {
+      return Response.json(
+        { error: "Pull-only mappings are read-only in the admin UI" },
+        { status: 403 },
+      );
+    }
+
     const rows = await sql`
       INSERT INTO blackbaud_field_mappings (
         mapping_key,
