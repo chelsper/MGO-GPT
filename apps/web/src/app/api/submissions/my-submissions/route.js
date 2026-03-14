@@ -37,9 +37,11 @@ export async function GET(request) {
     const submissions = await sql`
       SELECT 
         s.*,
-        r.name as reviewer_name
+        r.name as reviewer_name,
+        c.blackbaud_constituent_id
       FROM submissions s
       LEFT JOIN users r ON s.reviewed_by = r.id
+      LEFT JOIN constituents c ON c.id = s.constituent_id
       WHERE s.user_id = ${userId}
       ORDER BY s.date_submitted DESC
     `;

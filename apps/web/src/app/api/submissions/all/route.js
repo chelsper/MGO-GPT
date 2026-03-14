@@ -27,9 +27,11 @@ export async function GET(request) {
     const submissions = await sql`
       SELECT 
         s.*,
-        u.name as officer_name
+        u.name as officer_name,
+        c.blackbaud_constituent_id
       FROM submissions s
       LEFT JOIN users u ON s.user_id = u.id
+      LEFT JOIN constituents c ON c.id = s.constituent_id
       ORDER BY s.date_submitted DESC
     `;
 
