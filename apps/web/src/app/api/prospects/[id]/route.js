@@ -28,8 +28,12 @@ export async function GET(request, { params }) {
     const prospectId = params.id;
 
     const prospects = await sql`
-      SELECT * FROM prospects
-      WHERE id = ${prospectId} AND user_id = ${user.id}
+      SELECT
+        p.*,
+        COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) AS linked_blackbaud_constituent_id
+      FROM prospects p
+      LEFT JOIN constituents c ON c.id = p.constituent_id
+      WHERE p.id = ${prospectId} AND p.user_id = ${user.id}
       LIMIT 1
     `;
 

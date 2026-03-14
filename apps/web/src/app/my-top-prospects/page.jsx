@@ -93,6 +93,14 @@ function formatCurrency(amount) {
   return "$" + Number(amount).toLocaleString();
 }
 
+function formatBlackbaudCurrency(amount) {
+  if (amount == null) return "Unavailable";
+  return "$" + Number(amount).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function formatLongDate(value) {
   if (!value) return "";
   return new Date(value).toLocaleDateString("en-US", {
@@ -759,6 +767,30 @@ function ProspectDetailModal({ prospectId, onClose }) {
     enabled: !!prospectId,
   });
 
+  const linkedBlackbaudConstituentId =
+    data?.prospect?.linked_blackbaud_constituent_id ||
+    data?.prospect?.blackbaud_constituent_id ||
+    null;
+
+  const {
+    data: blackbaudSummary,
+    isLoading: blackbaudSummaryLoading,
+    isError: blackbaudSummaryError,
+  } = useQuery({
+    queryKey: ["blackbaud-summary", linkedBlackbaudConstituentId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/blackbaud/constituents/${linkedBlackbaudConstituentId}/summary`,
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to load Blackbaud summary");
+      }
+      return payload;
+    },
+    enabled: Boolean(linkedBlackbaudConstituentId),
+  });
+
   const addUpdateMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch(`/api/prospects/${prospectId}/updates`, {
@@ -845,6 +877,11 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
   const linkedSubmissions = data?.linkedSubmissions || [];
+  const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
+  const blackbaudLifetimeGiving =
+    blackbaudSummary?.mapped?.lifetimeGiving || null;
+  const blackbaudAssignments =
+    blackbaudSummary?.mapped?.fundraiserAssignments || [];
 
   if (isLoading) {
     return (
@@ -1650,6 +1687,258 @@ function ProspectDetailModal({ prospectId, onClose }) {
               )}
             </div>
           )}
+
+          {linkedBlackbaudConstituentId ? (
+            <div
+              style={{
+                marginBottom: "24px",
+                padding: "16px",
+                borderRadius: "12px",
+                border: "1px solid #BFDBFE",
+                backgroundColor: "#EFF6FF",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  alignItems: "flex-start",
+                  marginBottom: "10px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: "700",
+                      color: "#1D4ED8",
+                    }}
+                  >
+                    Blackbaud Summary
+                  </div>
+                  <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
+                    Linked Blackbaud ID: {linkedBlackbaudConstituentId}
+                    {blackbaudConstituent?.lookupId
+                      ? ` · Lookup ID: ${blackbaudConstituent.lookupId}`
+                      : ""}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    color: "#1D4ED8",
+                    backgroundColor: "#DBEAFE",
+                    border: "1px solid #93C5FD",
+                    borderRadius: "999px",
+                    padding: "4px 10px",
+                  }}
+                >
+                  Read-only NXT data
+                </div>
+              </div>
+
+              {blackbaudSummaryLoading ? (
+                <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                  Loading Blackbaud summary...
+                </div>
+              ) : blackbaudSummaryError ? (
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#991B1B",
+                    backgroundColor: "#FEF2F2",
+                    border: "1px solid #FECACA",
+                    borderRadius: "8px",
+                    padding: "10px 12px",
+                  }}
+                >
+                  Linked Blackbaud data could not be loaded right now.
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "14px",
+                    }}
+                  >
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Constituent Name
+                      </p>
+                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
+                        {blackbaudConstituent?.name || "Unavailable"}
+                      </p>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Preferred Name
+                      </p>
+                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
+                        {blackbaudConstituent?.preferredName || "Unavailable"}
+                      </p>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Email
+                      </p>
+                      <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                        {blackbaudConstituent?.email || "Unavailable"}
+                      </p>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Phone
+                      </p>
+                      <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                        {blackbaudConstituent?.phone || "Unavailable"}
+                      </p>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Lifetime Giving
+                      </p>
+                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
+                        {formatBlackbaudCurrency(
+                          blackbaudLifetimeGiving?.totalGiving,
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Years Given
+                      </p>
+                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
+                        {blackbaudLifetimeGiving?.totalYearsGiven ?? "Unavailable"}
+                      </p>
+                    </div>
+                  </div>
+                  {blackbaudConstituent?.address ? (
+                    <div style={{ marginTop: "14px" }}>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "2px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Preferred Address
+                      </p>
+                      <p
+                        style={{
+                          fontSize: "14px",
+                          color: "#374151",
+                          margin: 0,
+                          whiteSpace: "pre-line",
+                        }}
+                      >
+                        {blackbaudConstituent.address}
+                      </p>
+                    </div>
+                  ) : null}
+                  {blackbaudAssignments.length > 0 ? (
+                    <div style={{ marginTop: "14px" }}>
+                      <p
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#6B7280",
+                          marginBottom: "6px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        Active Fundraiser Assignment
+                      </p>
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          backgroundColor: "white",
+                          border: "1px solid #DBEAFE",
+                          fontSize: "13px",
+                          color: "#374151",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        <div>
+                          Type:{" "}
+                          <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
+                        </div>
+                        <div>
+                          Fundraiser ID:{" "}
+                          <strong>
+                            {blackbaudAssignments[0]?.fundraiserId || "Unavailable"}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
 
           {/* Action Buttons */}
           {!editMode && (
