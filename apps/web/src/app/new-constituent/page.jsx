@@ -296,6 +296,11 @@ export default function NewConstituentPage() {
       const { dataUpdate } = existingMatchActions;
       const shouldAddToProspects = addToProspects && !alreadyTrackedAsProspect;
       const requestAssignment = assignToMe === "yes";
+      const requestTypes = [];
+
+      if (dataUpdate) requestTypes.push("Data update");
+      if (requestAssignment) requestTypes.push("Assignment request");
+      if (shouldAddToProspects) requestTypes.push("Add to top prospects");
 
       if (!dataUpdate && !requestAssignment && !shouldAddToProspects) {
         setError(
@@ -323,7 +328,7 @@ export default function NewConstituentPage() {
       donorUpdateMutation.mutate(
         {
           donorName: activeBlackbaudMatch.name || name,
-          interactionType: dataUpdate ? "Data Update" : "Existing Constituent Request",
+          interactionType: requestTypes.join(" + "),
           transcript: null,
           notes: updateNotes || null,
           nextStep: requestAssignment ? "Please assign me to this constituent." : null,
