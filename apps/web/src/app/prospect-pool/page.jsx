@@ -12,6 +12,14 @@ function formatDate(value) {
   return date.toLocaleString();
 }
 
+function formatBlackbaudCurrency(amount) {
+  if (amount == null) return "Unavailable";
+  return "$" + Number(amount).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function getRequestState(entry) {
   if (entry.needs_contact_info) return "Needs contact info";
   if (entry.solicitor_requested) return "Solicitor requested";
@@ -45,6 +53,7 @@ export default function ProspectPoolPage() {
     phone: "",
   });
   const [drafts, setDrafts] = useState({});
+  const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
   const [reviewerFilters, setReviewerFilters] = useState({
     assignedUserId: "all",
     requestState: "all",
@@ -251,6 +260,61 @@ export default function ProspectPoolPage() {
 
     return sorted;
   }, [entries, isReviewer, reviewerFilters]);
+
+  useEffect(() => {
+    const entriesToLoad = visibleEntries.filter(
+      (entry) =>
+        entry.linked_blackbaud_constituent_id &&
+        !blackbaudSummaries[entry.linked_blackbaud_constituent_id],
+    );
+
+    if (entriesToLoad.length === 0) {
+      return;
+    }
+
+    let active = true;
+
+    async function loadBlackbaudSummaries() {
+      const results = await Promise.allSettled(
+        entriesToLoad.map(async (entry) => {
+          const constituentId = entry.linked_blackbaud_constituent_id;
+          const response = await fetch(
+            `/api/blackbaud/constituents/${constituentId}/summary`,
+          );
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(payload?.error || "Failed to load Blackbaud summary");
+          }
+          return [constituentId, payload];
+        }),
+      );
+
+      if (!active) return;
+
+      setBlackbaudSummaries((current) => {
+        const next = { ...current };
+        for (const [index, result] of results.entries()) {
+          const constituentId =
+            entriesToLoad[index]?.linked_blackbaud_constituent_id || null;
+          if (!constituentId) continue;
+
+          if (result.status === "fulfilled") {
+            const [, payload] = result.value;
+            next[constituentId] = { status: "ready", payload };
+          } else if (!next[constituentId]) {
+            next[constituentId] = { status: "error" };
+          }
+        }
+        return next;
+      });
+    }
+
+    loadBlackbaudSummaries();
+
+    return () => {
+      active = false;
+    };
+  }, [blackbaudSummaries, visibleEntries]);
 
   function setDraft(id, updates) {
     setDrafts((current) => ({
@@ -812,6 +876,15 @@ export default function ProspectPoolPage() {
             const solicitorRequested = draft?.solicitorRequested ?? entry.solicitor_requested;
             const contactInfoRequestNote =
               draft?.contactInfoRequestNote ?? entry.contact_info_request_note ?? "";
+            const blackbaudSummaryState = entry.linked_blackbaud_constituent_id
+              ? blackbaudSummaries[entry.linked_blackbaud_constituent_id]
+              : null;
+            const blackbaudConstituent =
+              blackbaudSummaryState?.payload?.mapped?.constituent || null;
+            const blackbaudLifetimeGiving =
+              blackbaudSummaryState?.payload?.mapped?.lifetimeGiving || null;
+            const blackbaudAssignments =
+              blackbaudSummaryState?.payload?.mapped?.fundraiserAssignments || [];
 
             return (
               <article
@@ -902,6 +975,140 @@ export default function ProspectPoolPage() {
                         <div>{entry.phone || "Not provided"}</div>
                       </div>
                     </div>
+
+                    {entry.linked_blackbaud_constituent_id ? (
+                      <div
+                        style={{
+                          marginTop: "16px",
+                          padding: "14px",
+                          borderRadius: "12px",
+                          border: "1px solid #BFDBFE",
+                          backgroundColor: "#EFF6FF",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            flexWrap: "wrap",
+                            alignItems: "flex-start",
+                            marginBottom: "10px",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "13px",
+                                fontWeight: 700,
+                                color: "#1D4ED8",
+                              }}
+                            >
+                              Blackbaud Summary
+                            </div>
+                            <div
+                              style={{
+                                marginTop: "4px",
+                                fontSize: "12px",
+                                color: "#4B5563",
+                              }}
+                            >
+                              Blackbaud ID: {entry.linked_blackbaud_constituent_id}
+                              {blackbaudConstituent?.lookupId
+                                ? ` · Lookup ID: ${blackbaudConstituent.lookupId}`
+                                : ""}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              color: "#1D4ED8",
+                              backgroundColor: "#DBEAFE",
+                              border: "1px solid #93C5FD",
+                              borderRadius: "999px",
+                              padding: "4px 10px",
+                            }}
+                          >
+                            Read-only NXT data
+                          </div>
+                        </div>
+
+                        {!blackbaudSummaryState ? (
+                          <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                            Loading Blackbaud summary...
+                          </div>
+                        ) : blackbaudSummaryState.status === "error" ? (
+                          <div
+                            style={{
+                              fontSize: "13px",
+                              color: "#991B1B",
+                              backgroundColor: "#FEF2F2",
+                              border: "1px solid #FECACA",
+                              borderRadius: "8px",
+                              padding: "10px 12px",
+                            }}
+                          >
+                            Linked Blackbaud data could not be loaded right now.
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns:
+                                  "repeat(auto-fit, minmax(180px, 1fr))",
+                                gap: "12px",
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                  Constituent
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                  {blackbaudConstituent?.name || "Unavailable"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                  Email
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                  {blackbaudConstituent?.email || "Unavailable"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                  Phone
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                  {blackbaudConstituent?.phone || "Unavailable"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                  Lifetime Giving
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                  {formatBlackbaudCurrency(blackbaudLifetimeGiving?.totalGiving)}
+                                </div>
+                              </div>
+                            </div>
+                            {blackbaudAssignments.length > 0 ? (
+                              <div style={{ marginTop: "12px", fontSize: "13px", color: "#374151" }}>
+                                Active assignment:{" "}
+                                <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
+                                {" · "}
+                                Fundraiser ID{" "}
+                                <strong>
+                                  {blackbaudAssignments[0]?.fundraiserId || "Unavailable"}
+                                </strong>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
 
                   {isReviewer ? (

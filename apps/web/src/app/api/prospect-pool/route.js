@@ -29,11 +29,13 @@ export async function GET(request) {
         ? await sql`
             SELECT
               pp.*,
+              COALESCE(pp.blackbaud_constituent_id, c.blackbaud_constituent_id) AS linked_blackbaud_constituent_id,
               assigned_user.name AS assigned_user_name,
               assigned_user.email AS assigned_user_email,
               creator.name AS created_by_name,
               creator.email AS created_by_email
             FROM prospect_pool pp
+            LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
             ORDER BY pp.updated_at DESC, pp.created_at DESC
@@ -41,11 +43,13 @@ export async function GET(request) {
         : await sql`
             SELECT
               pp.*,
+              COALESCE(pp.blackbaud_constituent_id, c.blackbaud_constituent_id) AS linked_blackbaud_constituent_id,
               assigned_user.name AS assigned_user_name,
               assigned_user.email AS assigned_user_email,
               creator.name AS created_by_name,
               creator.email AS created_by_email
             FROM prospect_pool pp
+            LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
             WHERE pp.assigned_user_id = ${currentUser.id}
