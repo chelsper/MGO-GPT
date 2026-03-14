@@ -53,6 +53,19 @@ function mapFundraiserAssignment(assignment) {
   };
 }
 
+async function loadBlackbaudSection(label, requestFactory) {
+  try {
+    const payload = await requestFactory();
+    return { ok: true, payload };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : `Failed to fetch ${label} from Blackbaud`,
+    };
+  }
+}
+
 export async function GET(request, { params }) {
   const session = await auth(request);
   if (!session?.user?.email) {
@@ -88,33 +101,63 @@ export async function GET(request, { params }) {
   try {
     const user = await getOrCreateUser(session);
 
-    const [constituent, lifetimeGiving, fundraiserAssignments] = await Promise.all([
-      blackbaudApiFetch(`/constituent/v1/constituents/${encodeURIComponent(constituentId)}`, {
-        userId: user.id,
-        origin,
-      }),
-      blackbaudApiFetch(
-        `/constituent/v1/constituents/${encodeURIComponent(
-          constituentId,
-        )}/givingsummary/lifetimegiving`,
+    const [constituentResult, lifetimeGivingResult, fundraiserAssignmentsResult] =
+      await Promise.all([
+        loadBlackbaudSection("constituent", () =>
+          blackbaudApiFetch(
+            `/constituent/v1/constituents/${encodeURIComponent(constituentId)}`,
+            {
+              userId: user.id,
+              origin,
+            },
+          ),
+        ),
+        loadBlackbaudSection("lifetimeGiving", () =>
+          blackbaudApiFetch(
+            `/constituent/v1/constituents/${encodeURIComponent(
+              constituentId,
+            )}/givingsummary/lifetimegiving`,
+            {
+              userId: user.id,
+              origin,
+            },
+          ),
+        ),
+        loadBlackbaudSection("fundraiserAssignments", () =>
+          blackbaudApiFetch(
+            `/constituent/v1/constituents/${encodeURIComponent(
+              constituentId,
+            )}/fundraiserassignments`,
+            {
+              userId: user.id,
+              origin,
+              searchParams: {
+                include_inactive: includeInactive,
+              },
+            },
+          ),
+        ),
+      ]);
+
+    if (!constituentResult.ok || !lifetimeGivingResult.ok || !fundraiserAssignmentsResult.ok) {
+      return Response.json(
         {
-          userId: user.id,
-          origin,
-        },
-      ),
-      blackbaudApiFetch(
-        `/constituent/v1/constituents/${encodeURIComponent(
-          constituentId,
-        )}/fundraiserassignments`,
-        {
-          userId: user.id,
-          origin,
-          searchParams: {
-            include_inactive: includeInactive,
+          error: "Blackbaud constituent summary request failed",
+          details: {
+            constituent: constituentResult.ok ? null : constituentResult.error,
+            lifetimeGiving: lifetimeGivingResult.ok ? null : lifetimeGivingResult.error,
+            fundraiserAssignments: fundraiserAssignmentsResult.ok
+              ? null
+              : fundraiserAssignmentsResult.error,
           },
         },
-      ),
-    ]);
+        { status: 502 },
+      );
+    }
+
+    const constituent = constituentResult.payload;
+    const lifetimeGiving = lifetimeGivingResult.payload;
+    const fundraiserAssignments = fundraiserAssignmentsResult.payload;
 
     const assignments = Array.isArray(fundraiserAssignments?.value)
       ? fundraiserAssignments.value

@@ -107,13 +107,25 @@ async function requestBlackbaudToken(params, config) {
 }
 
 async function parseBlackbaudResponse(response) {
-  const payload = await response.json().catch(() => null);
+  const responseText = await response.text().catch(() => "");
+  let payload = null;
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      payload = null;
+    }
+  }
   if (!response.ok) {
-    throw new Error(
+    const detail =
       payload?.message ||
-        payload?.error_description ||
-        payload?.error ||
-        "Blackbaud request failed",
+      payload?.error_description ||
+      payload?.error ||
+      responseText ||
+      response.statusText ||
+      "Blackbaud request failed";
+    throw new Error(
+      `Blackbaud ${response.status} ${response.statusText}: ${detail}`,
     );
   }
 
@@ -382,6 +394,27 @@ export async function createBlackbaudAction({ userId, origin, payload }) {
     method: "POST",
     body: payload,
   });
+}
+
+export async function updateBlackbaudAction({
+  userId,
+  origin,
+  actionId,
+  payload,
+}) {
+  if (!actionId) {
+    throw new Error("A Blackbaud action ID is required to update an action");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
+    {
+      userId,
+      origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
 export async function deleteBlackbaudAction({ userId, origin, actionId }) {
