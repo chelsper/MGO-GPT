@@ -76,6 +76,10 @@ export default function NewConstituentPage() {
   }, [user]);
 
   const normalizedName = normalizeName(name);
+  const blackbaudExactMatch =
+    normalizedName &&
+    blackbaudMatches.find((match) => normalizeName(match?.name) === normalizedName);
+  const activeBlackbaudMatch = selectedBlackbaudMatch || blackbaudExactMatch || null;
   const alreadyTrackedAsProspect =
     (activeBlackbaudMatch?.blackbaudConstituentId &&
       existingProspects.some(
@@ -87,10 +91,6 @@ export default function NewConstituentPage() {
       existingProspects.some(
         (prospect) => normalizeName(prospect.prospect_name) === normalizedName,
       ));
-  const blackbaudExactMatch =
-    normalizedName &&
-    blackbaudMatches.find((match) => normalizeName(match?.name) === normalizedName);
-  const activeBlackbaudMatch = selectedBlackbaudMatch || blackbaudExactMatch || null;
 
   useEffect(() => {
     const query = name.trim();
