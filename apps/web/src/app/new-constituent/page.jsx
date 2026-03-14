@@ -39,9 +39,9 @@ export default function NewConstituentPage() {
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [dataUpdateDetails, setDataUpdateDetails] = useState("");
   const [existingMatchActions, setExistingMatchActions] = useState({
     dataUpdate: false,
-    assignToMe: false,
     addToProspects: false,
   });
 
@@ -92,9 +92,9 @@ export default function NewConstituentPage() {
     if (query.length < 2) {
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
+      setDataUpdateDetails("");
       setExistingMatchActions({
         dataUpdate: false,
-        assignToMe: false,
         addToProspects: false,
       });
       return;
@@ -295,11 +295,8 @@ export default function NewConstituentPage() {
     }
 
     if (activeBlackbaudMatch) {
-      const {
-        dataUpdate,
-        assignToMe: requestAssignment,
-        addToProspects: shouldAddToProspects,
-      } = existingMatchActions;
+      const { dataUpdate, addToProspects: shouldAddToProspects } = existingMatchActions;
+      const requestAssignment = assignToMe === "yes";
 
       if (!dataUpdate && !requestAssignment && !shouldAddToProspects) {
         setError(
@@ -308,7 +305,13 @@ export default function NewConstituentPage() {
         return;
       }
 
+      if (dataUpdate && !dataUpdateDetails.trim()) {
+        setError("Enter the updated information about the constituent.");
+        return;
+      }
+
       const updateNotes = [
+        dataUpdateDetails.trim() || null,
         notes?.trim() || null,
         requestAssignment ? "Assignment request: please assign me to this constituent." : null,
       ]
@@ -360,9 +363,9 @@ export default function NewConstituentPage() {
             setUploadWarning("");
             setAddToProspects(false);
             setSelectedBlackbaudMatch(null);
+            setDataUpdateDetails("");
             setExistingMatchActions({
               dataUpdate: false,
-              assignToMe: false,
               addToProspects: false,
             });
           },
@@ -818,9 +821,9 @@ export default function NewConstituentPage() {
               onChange={(e) => {
                 setName(e.target.value);
                 setSelectedBlackbaudMatch(null);
+                setDataUpdateDetails("");
                 setExistingMatchActions({
                   dataUpdate: false,
-                  assignToMe: false,
                   addToProspects: false,
                 });
               }}
@@ -908,6 +911,7 @@ export default function NewConstituentPage() {
                               setName(match.name || name);
                               setEmail(match.email || email);
                               setPhone(match.phone || phone);
+                              setDataUpdateDetails("");
                             }}
                             style={{
                               padding: "7px 12px",
@@ -961,29 +965,49 @@ export default function NewConstituentPage() {
                       type="checkbox"
                       checked={existingMatchActions.dataUpdate}
                       onChange={(event) =>
-                        setExistingMatchActions((current) => ({
-                          ...current,
-                          dataUpdate: event.target.checked,
-                        }))
+                        {
+                          setExistingMatchActions((current) => ({
+                            ...current,
+                            dataUpdate: event.target.checked,
+                          }));
+                          if (!event.target.checked) {
+                            setDataUpdateDetails("");
+                          }
+                        }
                       }
                       style={{ marginTop: "2px" }}
                     />
                     <span>It&apos;s a data update</span>
                   </label>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                    <input
-                      type="checkbox"
-                      checked={existingMatchActions.assignToMe}
-                      onChange={(event) =>
-                        setExistingMatchActions((current) => ({
-                          ...current,
-                          assignToMe: event.target.checked,
-                        }))
-                      }
-                      style={{ marginTop: "2px" }}
-                    />
-                    <span>Assign me to them</span>
-                  </label>
+                  {existingMatchActions.dataUpdate ? (
+                    <label
+                      style={{
+                        display: "grid",
+                        gap: "8px",
+                        marginLeft: "24px",
+                        marginTop: "4px",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600 }}>
+                        Enter the updated information about the constituent
+                      </span>
+                      <textarea
+                        value={dataUpdateDetails}
+                        onChange={(event) => setDataUpdateDetails(event.target.value)}
+                        rows={4}
+                        placeholder="Describe the constituent information that needs to be updated."
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "10px",
+                          border: "1px solid #D1D5DB",
+                          fontSize: "13px",
+                          resize: "vertical",
+                          fontFamily: "inherit",
+                          color: "#111827",
+                        }}
+                      />
+                    </label>
+                  ) : null}
                   <label style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                     <input
                       type="checkbox"
