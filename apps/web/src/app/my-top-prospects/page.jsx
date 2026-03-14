@@ -228,6 +228,52 @@ function AddProspectModal({ onClose, onSubmit, isPending }) {
   const [fy, setFy] = useState("FY26");
   const [amount, setAmount] = useState("");
   const [askType, setAskType] = useState("Major Gift");
+  const [blackbaudMatches, setBlackbaudMatches] = useState([]);
+  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+
+  useEffect(() => {
+    const query = name.trim();
+    if (query.length < 2) {
+      setBlackbaudMatches([]);
+      setSelectedBlackbaudMatch(null);
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+        if (!response.ok) {
+          if (active) setBlackbaudMatches([]);
+          return;
+        }
+
+        const data = await response.json();
+        if (!active) return;
+
+        const results = Array.isArray(data?.results) ? data.results.slice(0, 3) : [];
+        setBlackbaudMatches(results);
+        setSelectedBlackbaudMatch((current) =>
+          results.find(
+            (match) =>
+              match.blackbaudConstituentId === current?.blackbaudConstituentId,
+          ) || null,
+        );
+      } catch (searchError) {
+        console.error("Blackbaud prospect search error:", searchError);
+        if (active) {
+          setBlackbaudMatches([]);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [name]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -237,6 +283,8 @@ function AddProspectModal({ onClose, onSubmit, isPending }) {
       expectedCloseFY: fy,
       askAmount: amount ? parseFloat(amount) : null,
       askType,
+      blackbaudConstituentId:
+        selectedBlackbaudMatch?.blackbaudConstituentId || null,
     });
   };
 
@@ -313,7 +361,10 @@ function AddProspectModal({ onClose, onSubmit, isPending }) {
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setSelectedBlackbaudMatch(null);
+              }}
               placeholder="Enter prospect name"
               required
               style={{
@@ -325,6 +376,127 @@ function AddProspectModal({ onClose, onSubmit, isPending }) {
                 boxSizing: "border-box",
               }}
             />
+            {blackbaudMatches.length > 0 ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    color: "#1D4ED8",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Blackbaud matches
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {blackbaudMatches.map((match) => {
+                    const selected =
+                      selectedBlackbaudMatch?.blackbaudConstituentId ===
+                      match.blackbaudConstituentId;
+                    return (
+                      <div
+                        key={match.blackbaudConstituentId || match.name}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          border: selected
+                            ? "2px solid #2563EB"
+                            : "1px solid #DBEAFE",
+                          backgroundColor: selected ? "#DBEAFE" : "white",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: "700",
+                            color: "#111827",
+                          }}
+                        >
+                          {match.name || "Unnamed constituent"}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: "4px",
+                            fontSize: "12px",
+                            color: "#4B5563",
+                          }}
+                        >
+                          Blackbaud ID: {match.blackbaudConstituentId || "Unknown"}
+                        </div>
+                        {match.lookupId ? (
+                          <div
+                            style={{
+                              marginTop: "2px",
+                              fontSize: "12px",
+                              color: "#4B5563",
+                            }}
+                          >
+                            Lookup ID: {match.lookupId}
+                          </div>
+                        ) : null}
+                        {match.email ? (
+                          <div
+                            style={{
+                              marginTop: "2px",
+                              fontSize: "12px",
+                              color: "#4B5563",
+                            }}
+                          >
+                            Email: {match.email}
+                          </div>
+                        ) : null}
+                        <div style={{ marginTop: "10px" }}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBlackbaudMatch(match)}
+                            style={{
+                              padding: "7px 12px",
+                              borderRadius: "999px",
+                              border: selected
+                                ? "1px solid #1D4ED8"
+                                : "1px solid #93C5FD",
+                              backgroundColor: selected ? "#1D4ED8" : "white",
+                              color: selected ? "white" : "#1D4ED8",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {selected
+                              ? "Blackbaud match selected"
+                              : "Use this Blackbaud match"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {selectedBlackbaudMatch ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #93C5FD",
+                  backgroundColor: "#EFF6FF",
+                  fontSize: "13px",
+                  color: "#1F2937",
+                }}
+              >
+                {selectedBlackbaudMatch.name} will be linked with Blackbaud ID{" "}
+                <strong>{selectedBlackbaudMatch.blackbaudConstituentId}</strong>.
+              </div>
+            ) : null}
           </div>
 
           <div style={{ marginBottom: "20px" }}>

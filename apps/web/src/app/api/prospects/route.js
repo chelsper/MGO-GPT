@@ -144,7 +144,14 @@ export async function POST(request) {
 
     const user = await getOrCreateUser(session);
     const body = await request.json();
-    const { prospectName, expectedCloseFY, askAmount, askType, constituentId } =
+    const {
+      prospectName,
+      expectedCloseFY,
+      askAmount,
+      askType,
+      constituentId,
+      blackbaudConstituentId,
+    } =
       body;
 
     if (!prospectName || !expectedCloseFY || !askType) {
@@ -166,6 +173,7 @@ export async function POST(request) {
       userId: user.id,
       name: prospectName,
       constituentId,
+      blackbaudConstituentId,
       createNew: false,
     });
 
