@@ -38,6 +38,7 @@ export default function NewConstituentPage() {
   const [addToProspects, setAddToProspects] = useState(false);
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
+  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -84,6 +85,7 @@ export default function NewConstituentPage() {
     const query = name.trim();
     if (query.length < 2) {
       setBlackbaudMatches([]);
+      setSelectedBlackbaudMatch(null);
       return;
     }
 
@@ -100,7 +102,14 @@ export default function NewConstituentPage() {
 
         const data = await response.json();
         if (active) {
-          setBlackbaudMatches(Array.isArray(data?.results) ? data.results : []);
+          const results = Array.isArray(data?.results) ? data.results : [];
+          setBlackbaudMatches(results);
+          setSelectedBlackbaudMatch((current) =>
+            results.find(
+              (match) =>
+                match.blackbaudConstituentId === current?.blackbaudConstituentId,
+            ) || null,
+          );
         }
       } catch (searchError) {
         console.error("Blackbaud constituent lookup error:", searchError);
@@ -186,6 +195,10 @@ export default function NewConstituentPage() {
         askAmount: null,
         expectedCloseFY: getDefaultFY(),
         askType: "Major Gift",
+        blackbaudConstituentId:
+          data?.blackbaud_constituent_id ||
+          selectedBlackbaudMatch?.blackbaudConstituentId ||
+          null,
       };
       setName("");
       setOrganization("");
@@ -197,6 +210,7 @@ export default function NewConstituentPage() {
       setBusinessCardPreview(null);
       setUploadWarning("");
       setAddToProspects(false);
+      setSelectedBlackbaudMatch(null);
 
       if (shouldAddToProspects) {
         try {
@@ -258,6 +272,8 @@ export default function NewConstituentPage() {
       notes,
       assignToMe,
       businessCardUrl,
+      blackbaudConstituentId:
+        selectedBlackbaudMatch?.blackbaudConstituentId || null,
     });
   };
 
@@ -680,7 +696,10 @@ export default function NewConstituentPage() {
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setSelectedBlackbaudMatch(null);
+              }}
               placeholder="Full name"
               style={{
                 width: "100%",
@@ -713,15 +732,22 @@ export default function NewConstituentPage() {
                 </div>
                 <div style={{ display: "grid", gap: "8px" }}>
                   {blackbaudMatches.slice(0, 3).map((match) => {
-                    const exact = blackbaudExactMatch?.blackbaudConstituentId === match.blackbaudConstituentId;
+                    const selected =
+                      selectedBlackbaudMatch?.blackbaudConstituentId ===
+                        match.blackbaudConstituentId ||
+                      (!selectedBlackbaudMatch &&
+                        blackbaudExactMatch?.blackbaudConstituentId ===
+                          match.blackbaudConstituentId);
                     return (
                       <div
                         key={match.blackbaudConstituentId || match.name}
                         style={{
                           padding: "10px 12px",
                           borderRadius: "8px",
-                          border: exact ? "1px solid #60A5FA" : "1px solid #DBEAFE",
-                          backgroundColor: exact ? "#DBEAFE" : "white",
+                          border: selected
+                            ? "2px solid #2563EB"
+                            : "1px solid #DBEAFE",
+                          backgroundColor: selected ? "#DBEAFE" : "white",
                         }}
                       >
                         <div style={{ fontSize: "13px", fontWeight: 700, color: "#111827" }}>
@@ -750,13 +776,53 @@ export default function NewConstituentPage() {
                             Address: {match.address}
                           </div>
                         ) : null}
+                        <div style={{ marginTop: "10px" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedBlackbaudMatch(match);
+                              setName(match.name || name);
+                              setEmail(match.email || email);
+                              setPhone(match.phone || phone);
+                            }}
+                            style={{
+                              padding: "7px 12px",
+                              borderRadius: "999px",
+                              border: selected
+                                ? "1px solid #1D4ED8"
+                                : "1px solid #93C5FD",
+                              backgroundColor: selected ? "#1D4ED8" : "white",
+                              color: selected ? "white" : "#1D4ED8",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {selected
+                              ? "Blackbaud match selected"
+                              : "Use this Blackbaud match"}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-                <div style={{ marginTop: "8px", fontSize: "12px", color: "#4B5563" }}>
-                  These are read-only Blackbaud search results for verification. Submission still creates a local suggestion.
-                </div>
+              </div>
+            ) : null}
+            {selectedBlackbaudMatch ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #93C5FD",
+                  backgroundColor: "#EFF6FF",
+                  fontSize: "13px",
+                  color: "#1F2937",
+                }}
+              >
+                {selectedBlackbaudMatch.name} will be linked with Blackbaud ID{" "}
+                <strong>{selectedBlackbaudMatch.blackbaudConstituentId}</strong>.
               </div>
             ) : null}
           </div>

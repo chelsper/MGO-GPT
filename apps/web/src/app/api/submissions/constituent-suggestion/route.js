@@ -23,6 +23,7 @@ export async function POST(request) {
       assignToMe,
       businessCardUrl,
       attachments,
+      blackbaudConstituentId,
     } = body;
 
     if (!name) {
@@ -33,6 +34,7 @@ export async function POST(request) {
       userId: user.id,
       name,
       createNew: false,
+      blackbaudConstituentId,
     });
 
     const result = await sql`
