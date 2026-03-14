@@ -738,8 +738,7 @@ export default function NewConstituentPage() {
               Top Prospects
             </label>
 
-            {activeBlackbaudMatch ? (
-              alreadyTrackedAsProspect ? (
+            {alreadyTrackedAsProspect ? (
               <div
                 style={{
                   padding: "12px 14px",
