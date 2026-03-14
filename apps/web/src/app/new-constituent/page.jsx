@@ -312,6 +312,9 @@ export default function NewConstituentPage() {
 
       const updateNotes = [
         dataUpdateDetails.trim() || null,
+        email?.trim() ? `Email on request: ${email.trim()}` : null,
+        phone?.trim() ? `Phone on request: ${phone.trim()}` : null,
+        organization?.trim() ? `Organization on request: ${organization.trim()}` : null,
         notes?.trim() || null,
         requestAssignment ? "Assignment request: please assign me to this constituent." : null,
       ]
@@ -1049,13 +1052,17 @@ export default function NewConstituentPage() {
                 marginBottom: "8px",
               }}
             >
-              Organization
+              {activeBlackbaudMatch ? "Organization update" : "Organization"}
             </label>
             <input
               type="text"
               value={organization}
               onChange={(e) => setOrganization(e.target.value)}
-              placeholder="Company or organization"
+              placeholder={
+                activeBlackbaudMatch
+                  ? "Enter updated company or organization"
+                  : "Company or organization"
+              }
               style={{
                 width: "100%",
                 padding: "10px 14px",
@@ -1076,13 +1083,15 @@ export default function NewConstituentPage() {
                 marginBottom: "8px",
               }}
             >
-              Email
+              {activeBlackbaudMatch ? "Email update" : "Email"}
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="email@example.com"
+              placeholder={
+                activeBlackbaudMatch ? "Enter updated email" : "email@example.com"
+              }
               style={{
                 width: "100%",
                 padding: "10px 14px",
@@ -1103,13 +1112,15 @@ export default function NewConstituentPage() {
                 marginBottom: "8px",
               }}
             >
-              Phone
+              {activeBlackbaudMatch ? "Phone update" : "Phone"}
             </label>
             <input
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 555-5555"
+              placeholder={
+                activeBlackbaudMatch ? "Enter updated phone number" : "(555) 555-5555"
+              }
               style={{
                 width: "100%",
                 padding: "10px 14px",
@@ -1121,43 +1132,45 @@ export default function NewConstituentPage() {
             />
           </div>
 
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              border: "1px solid #E5E7EB",
-              padding: "24px",
-              marginBottom: "20px",
-            }}
-          >
-            <label
+          {!activeBlackbaudMatch ? (
+            <div
               style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#374151",
-                marginBottom: "8px",
+                backgroundColor: "white",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+                padding: "24px",
+                marginBottom: "20px",
               }}
             >
-              Notes
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="How did you meet them? Why should they be added?"
-              rows={4}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1px solid #D1D5DB",
-                borderRadius: "8px",
-                fontSize: "14px",
-                resize: "vertical",
-                boxSizing: "border-box",
-                fontFamily: "inherit",
-              }}
-            />
-          </div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: "8px",
+                }}
+              >
+                Notes
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="How did you meet them? Why should they be added?"
+                rows={4}
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  border: "1px solid #D1D5DB",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
+          ) : null}
 
           <div
             style={{
