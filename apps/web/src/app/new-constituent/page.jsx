@@ -77,10 +77,16 @@ export default function NewConstituentPage() {
 
   const normalizedName = normalizeName(name);
   const alreadyTrackedAsProspect =
-    normalizedName &&
-    existingProspects.some(
-      (prospect) => normalizeName(prospect.prospect_name) === normalizedName,
-    );
+    (activeBlackbaudMatch?.blackbaudConstituentId &&
+      existingProspects.some(
+        (prospect) =>
+          prospect.linked_blackbaud_constituent_id ===
+          activeBlackbaudMatch.blackbaudConstituentId,
+      )) ||
+    (normalizedName &&
+      existingProspects.some(
+        (prospect) => normalizeName(prospect.prospect_name) === normalizedName,
+      ));
   const blackbaudExactMatch =
     normalizedName &&
     blackbaudMatches.find((match) => normalizeName(match?.name) === normalizedName);

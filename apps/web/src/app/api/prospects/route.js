@@ -102,6 +102,7 @@ export async function GET(request) {
       )
       SELECT
         up.*,
+        c.blackbaud_constituent_id AS linked_blackbaud_constituent_id,
         COALESCE(os.linked_opportunity_count, 0) AS linked_opportunity_count,
         COALESCE(os.active_opportunity_count, 0) AS active_opportunity_count,
         COALESCE(os.secured_opportunity_count, 0) AS secured_opportunity_count,
@@ -113,6 +114,7 @@ export async function GET(request) {
         ls.latest_submission_reviewer_notes,
         ls.latest_submission_updated_at
       FROM user_prospects up
+      LEFT JOIN constituents c ON c.id = up.constituent_id
       LEFT JOIN opportunity_summary os ON os.prospect_id = up.id
       LEFT JOIN latest_activity la ON la.prospect_id = up.id
       LEFT JOIN latest_submission ls ON ls.prospect_id = up.id
@@ -176,6 +178,32 @@ export async function POST(request) {
       blackbaudConstituentId,
       createNew: false,
     });
+
+    const existingProspect = await sql`
+      SELECT
+        p.*,
+        c.blackbaud_constituent_id AS linked_blackbaud_constituent_id
+      FROM prospects p
+      LEFT JOIN constituents c ON c.id = p.constituent_id
+      WHERE
+        p.user_id = ${user.id}
+        AND (
+          (${constituent?.id || null} IS NOT NULL AND p.constituent_id = ${constituent?.id || null})
+          OR (
+            ${blackbaudConstituentId || null} IS NOT NULL
+            AND c.blackbaud_constituent_id = ${blackbaudConstituentId || null}
+          )
+        )
+      ORDER BY p.updated_at DESC, p.created_at DESC
+      LIMIT 1
+    `;
+
+    if (existingProspect.length > 0) {
+      return Response.json(
+        { error: "This constituent is already on your top prospects list." },
+        { status: 409 },
+      );
+    }
 
     const result = await sql`
       INSERT INTO prospects (
