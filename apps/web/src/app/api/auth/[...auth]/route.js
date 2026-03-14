@@ -2,6 +2,25 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 let authConfigPromise;
 
+function isRetriablePoolError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.includes("pooled connection closed at inconsistent state");
+}
+
+async function resetAuthConfig() {
+  const pool = globalThis.__mgoAuthPool;
+  globalThis.__mgoAuthPool = undefined;
+  authConfigPromise = undefined;
+
+  if (pool?.end) {
+    try {
+      await pool.end();
+    } catch {
+      // Ignore cleanup failures; the next request will build a fresh pool.
+    }
+  }
+}
+
 function isAllowedWorkspaceEmail(email) {
   if (typeof email !== "string") return false;
   const allowedDomain =
@@ -238,7 +257,7 @@ function misconfigured() {
   );
 }
 
-async function handle(request, params) {
+async function handle(request, params, attempt = 0) {
   try {
     const authSetup = await getAuthConfig();
     if (!authSetup) return misconfigured();
@@ -246,6 +265,11 @@ async function handle(request, params) {
     const authRequest = rebuildAuthRequest(request, params?.auth);
     return await authSetup.Auth(authRequest, authSetup.config);
   } catch (error) {
+    if (attempt === 0 && isRetriablePoolError(error)) {
+      await resetAuthConfig();
+      return handle(request, params, 1);
+    }
+
     return new Response(
       JSON.stringify({
         error: "Auth route crashed",
