@@ -98,6 +98,7 @@ export default function ActionOpportunityUpdatePage() {
   const [newOpportunityTitle, setNewOpportunityTitle] = useState("");
   const [constituentMatches, setConstituentMatches] = useState([]);
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
+  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
   const [matchDecision, setMatchDecision] = useState("");
   const [linkedProspectContext, setLinkedProspectContext] = useState(null);
   const [opportunityLinkMode, setOpportunityLinkMode] = useState("create");
@@ -204,6 +205,7 @@ export default function ActionOpportunityUpdatePage() {
     if (query.length < 2) {
       setConstituentMatches([]);
       setBlackbaudMatches([]);
+      setSelectedBlackbaudMatch(null);
       setMatchDecision("");
       return;
     }
@@ -536,6 +538,8 @@ export default function ActionOpportunityUpdatePage() {
       setOpportunityNotes("");
       setNewOpportunityTitle("");
       setConstituentMatches([]);
+      setBlackbaudMatches([]);
+      setSelectedBlackbaudMatch(null);
       setMatchDecision("");
       setLinkedProspectContext(null);
       setOpportunityLinkMode("create");
@@ -636,6 +640,8 @@ export default function ActionOpportunityUpdatePage() {
     }
 
     const constituentId = matchDecision === "link" ? exactMatch?.id || null : null;
+    const blackbaudConstituentId =
+      selectedBlackbaudMatch?.blackbaudConstituentId || null;
     const createNewConstituent = matchDecision === "new";
     const combinedOpportunityNotes = [sharedSummary.trim(), opportunityNotes.trim()]
       .filter(Boolean)
@@ -651,6 +657,7 @@ export default function ActionOpportunityUpdatePage() {
         ? {
             donorName,
             constituentId,
+            blackbaudConstituentId,
             createNewConstituent,
             interactionType,
             notes: combinedActionNotes,
@@ -664,6 +671,7 @@ export default function ActionOpportunityUpdatePage() {
         ? {
             donorName,
             constituentId,
+            blackbaudConstituentId,
             createNewConstituent,
             opportunityStage,
             estimatedAmount: estimatedAmount ? parseFloat(estimatedAmount) : null,
@@ -1020,6 +1028,7 @@ export default function ActionOpportunityUpdatePage() {
               value={donorName}
               onChange={(event) => {
                 setDonorName(event.target.value);
+                setSelectedBlackbaudMatch(null);
                 setMatchDecision("");
               }}
               placeholder="Enter donor name"
@@ -1109,15 +1118,28 @@ export default function ActionOpportunityUpdatePage() {
                 </div>
                 <div style={{ display: "grid", gap: "8px" }}>
                   {blackbaudMatches.slice(0, 3).map((match) => {
-                    const exact = blackbaudExactMatch?.blackbaudConstituentId === match.blackbaudConstituentId;
+                    const exact =
+                      blackbaudExactMatch?.blackbaudConstituentId ===
+                      match.blackbaudConstituentId;
+                    const selected =
+                      selectedBlackbaudMatch?.blackbaudConstituentId ===
+                      match.blackbaudConstituentId;
                     return (
                       <div
                         key={match.blackbaudConstituentId || match.name}
                         style={{
                           padding: "10px 12px",
                           borderRadius: "8px",
-                          border: exact ? "1px solid #60A5FA" : "1px solid #DBEAFE",
-                          backgroundColor: exact ? "#DBEAFE" : "white",
+                          border: selected
+                            ? "2px solid #2563EB"
+                            : exact
+                              ? "1px solid #60A5FA"
+                              : "1px solid #DBEAFE",
+                          backgroundColor: selected
+                            ? "#DBEAFE"
+                            : exact
+                              ? "#DBEAFE"
+                              : "white",
                         }}
                       >
                         <div style={{ fontSize: "13px", fontWeight: 700, color: "#111827" }}>
@@ -1146,12 +1168,50 @@ export default function ActionOpportunityUpdatePage() {
                             Address: {match.address}
                           </div>
                         ) : null}
+                        <div style={{ marginTop: "10px" }}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBlackbaudMatch(match)}
+                            style={{
+                              padding: "7px 12px",
+                              borderRadius: "999px",
+                              border: selected ? "1px solid #1D4ED8" : "1px solid #93C5FD",
+                              backgroundColor: selected ? "#1D4ED8" : "white",
+                              color: selected ? "white" : "#1D4ED8",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {selected ? "Blackbaud match selected" : "Use this Blackbaud match"}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
                 <div style={{ marginTop: "8px", fontSize: "12px", color: "#4B5563" }}>
-                  These are read-only Blackbaud search results for verification. They do not link the update yet.
+                  Choose a match to save its Blackbaud constituent ID onto the local constituent.
+                </div>
+              </div>
+            ) : null}
+
+            {selectedBlackbaudMatch ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #93C5FD",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#1D4ED8" }}>
+                  Selected Blackbaud match
+                </div>
+                <div style={{ marginTop: "6px", fontSize: "13px", color: "#1F2937" }}>
+                  {selectedBlackbaudMatch.name} will be linked with Blackbaud ID{" "}
+                  <strong>{selectedBlackbaudMatch.blackbaudConstituentId}</strong>.
                 </div>
               </div>
             ) : null}

@@ -22,11 +22,40 @@ async function hasProspectsTable() {
 
 async function verifyOwnedConstituent(userId, constituentId) {
   const result = await sql`
-    SELECT id, user_id, name, normalized_name
+    SELECT id, user_id, name, normalized_name, blackbaud_constituent_id
     FROM constituents
     WHERE id = ${constituentId} AND user_id = ${userId}
     LIMIT 1
   `;
+  return result[0] || null;
+}
+
+async function findConstituentByBlackbaudId(userId, blackbaudConstituentId) {
+  if (!blackbaudConstituentId) return null;
+
+  const result = await sql`
+    SELECT id, user_id, name, normalized_name, blackbaud_constituent_id
+    FROM constituents
+    WHERE user_id = ${userId} AND blackbaud_constituent_id = ${blackbaudConstituentId}
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT 1
+  `;
+
+  return result[0] || null;
+}
+
+async function linkBlackbaudConstituentId(userId, constituentId, blackbaudConstituentId) {
+  if (!constituentId || !blackbaudConstituentId) return null;
+
+  const result = await sql`
+    UPDATE constituents
+    SET
+      blackbaud_constituent_id = ${blackbaudConstituentId},
+      updated_at = NOW()
+    WHERE id = ${constituentId} AND user_id = ${userId}
+    RETURNING id, user_id, name, normalized_name, blackbaud_constituent_id
+  `;
+
   return result[0] || null;
 }
 
@@ -36,7 +65,7 @@ export async function findExistingConstituent(userId, name) {
   if (!normalizedName) return null;
 
   const result = await sql`
-    SELECT id, user_id, name, normalized_name
+    SELECT id, user_id, name, normalized_name, blackbaud_constituent_id
     FROM constituents
     WHERE user_id = ${userId} AND normalized_name = ${normalizedName}
     ORDER BY updated_at DESC, created_at DESC
@@ -46,7 +75,7 @@ export async function findExistingConstituent(userId, name) {
   return result[0] || null;
 }
 
-export async function createConstituent(userId, name) {
+export async function createConstituent(userId, name, blackbaudConstituentId = null) {
   await ensureAppSchema();
   const cleanName = String(name || "").trim().replace(/\s+/g, " ");
   const normalizedName = normalizeConstituentName(cleanName);
@@ -56,16 +85,18 @@ export async function createConstituent(userId, name) {
       user_id,
       name,
       normalized_name,
+      blackbaud_constituent_id,
       created_at,
       updated_at
     ) VALUES (
       ${userId},
       ${cleanName},
       ${normalizedName},
+      ${blackbaudConstituentId || null},
       NOW(),
       NOW()
     )
-    RETURNING id, user_id, name, normalized_name
+    RETURNING id, user_id, name, normalized_name, blackbaud_constituent_id
   `;
 
   return result[0] || null;
@@ -105,6 +136,7 @@ export async function resolveConstituent({
   userId,
   name,
   constituentId,
+  blackbaudConstituentId,
   createNew = false,
 }) {
   await ensureAppSchema();
@@ -115,23 +147,45 @@ export async function resolveConstituent({
   }
 
   if (constituentId) {
-    const existing = await verifyOwnedConstituent(userId, constituentId);
+    let existing = await verifyOwnedConstituent(userId, constituentId);
     if (!existing) {
       throw new Error("Selected constituent could not be found.");
+    }
+    if (blackbaudConstituentId && existing.blackbaud_constituent_id !== blackbaudConstituentId) {
+      existing =
+        (await linkBlackbaudConstituentId(userId, existing.id, blackbaudConstituentId)) ||
+        existing;
     }
     await linkHistoricalRecords(userId, existing.name, existing.id);
     return existing;
   }
 
+  if (blackbaudConstituentId) {
+    const linked = await findConstituentByBlackbaudId(userId, blackbaudConstituentId);
+    if (linked) {
+      await linkHistoricalRecords(userId, linked.name, linked.id);
+      return linked;
+    }
+  }
+
   if (!createNew) {
-    const matched = await findExistingConstituent(userId, cleanName);
+    let matched = await findExistingConstituent(userId, cleanName);
     if (matched) {
+      if (blackbaudConstituentId && matched.blackbaud_constituent_id !== blackbaudConstituentId) {
+        matched =
+          (await linkBlackbaudConstituentId(userId, matched.id, blackbaudConstituentId)) ||
+          matched;
+      }
       await linkHistoricalRecords(userId, matched.name, matched.id);
       return matched;
     }
   }
 
-  const created = await createConstituent(userId, cleanName);
+  const created = await createConstituent(
+    userId,
+    cleanName,
+    blackbaudConstituentId || null,
+  );
   if (created) {
     await linkHistoricalRecords(userId, cleanName, created.id);
   }

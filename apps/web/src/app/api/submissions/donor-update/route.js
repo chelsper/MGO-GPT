@@ -23,6 +23,7 @@ export async function POST(request) {
       estimatedAmount,
       attachments,
       constituentId,
+      blackbaudConstituentId,
       createNewConstituent,
     } = body;
 
@@ -37,6 +38,7 @@ export async function POST(request) {
       userId: user.id,
       name: donorName,
       constituentId,
+      blackbaudConstituentId,
       createNew: Boolean(createNewConstituent),
     });
 

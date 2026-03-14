@@ -22,6 +22,7 @@ export async function POST(request) {
       notes,
       attachments,
       constituentId,
+      blackbaudConstituentId,
       createNewConstituent,
       linkedProspectId,
       linkedOpportunityId,
@@ -40,6 +41,7 @@ export async function POST(request) {
       userId: user.id,
       name: donorName,
       constituentId,
+      blackbaudConstituentId,
       createNew: Boolean(createNewConstituent),
     });
 
