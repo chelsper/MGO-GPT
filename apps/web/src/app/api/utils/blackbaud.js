@@ -323,14 +323,20 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
       item?.lookup_id ||
       "Unnamed constituent",
     email:
-      item?.address ||
+      item?.email ||
       item?.email?.address ||
+      item?.primary_email ||
       item?.primary_email?.address ||
       null,
     phone:
       item?.phone ||
       item?.primary_phone?.number ||
       item?.phones?.[0]?.number ||
+      null,
+    address:
+      item?.address ||
+      item?.formatted_address ||
+      item?.primary_address?.formatted_address ||
       null,
     lookupId: item?.lookup_id || item?.lookupId || null,
     raw: item,

@@ -745,6 +745,11 @@ export default function NewConstituentPage() {
                             Phone: {match.phone}
                           </div>
                         ) : null}
+                        {match.address ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563", whiteSpace: "pre-line" }}>
+                            Address: {match.address}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
