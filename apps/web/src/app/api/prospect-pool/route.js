@@ -89,6 +89,7 @@ export async function POST(request) {
     const note = body?.note?.trim() || null;
     const email = body?.email?.trim().toLowerCase() || null;
     const phone = body?.phone?.trim() || null;
+    const blackbaudConstituentId = body?.blackbaudConstituentId?.trim() || null;
 
     if (!prospectName) {
       return Response.json(
@@ -121,9 +122,9 @@ export async function POST(request) {
     const constituent = await resolveConstituent({
       userId: assignedUserId,
       name: prospectName,
-      organization: null,
       email,
       phone,
+      blackbaudConstituentId,
     });
 
     const result = await sql`
@@ -131,6 +132,7 @@ export async function POST(request) {
         assigned_user_id,
         created_by,
         constituent_id,
+        blackbaud_constituent_id,
         prospect_name,
         normalized_name,
         note,
@@ -143,6 +145,7 @@ export async function POST(request) {
         ${assignedUserId},
         ${reviewer.id},
         ${constituent?.id || null},
+        ${blackbaudConstituentId},
         ${prospectName},
         ${normalizeName(prospectName)},
         ${note},
