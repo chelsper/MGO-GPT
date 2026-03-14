@@ -33,6 +33,7 @@ export default function NewConstituentPage() {
   const [uploadWarning, setUploadWarning] = useState("");
   const [success, setSuccess] = useState(false);
   const [existingProspects, setExistingProspects] = useState([]);
+  const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [loadingProspects, setLoadingProspects] = useState(true);
   const [addToProspects, setAddToProspects] = useState(false);
   const [prospectError, setProspectError] = useState("");
@@ -75,6 +76,43 @@ export default function NewConstituentPage() {
     existingProspects.some(
       (prospect) => normalizeName(prospect.prospect_name) === normalizedName,
     );
+  const blackbaudExactMatch =
+    normalizedName &&
+    blackbaudMatches.find((match) => normalizeName(match?.name) === normalizedName);
+
+  useEffect(() => {
+    const query = name.trim();
+    if (query.length < 2) {
+      setBlackbaudMatches([]);
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+        if (!response.ok) {
+          if (active) setBlackbaudMatches([]);
+          return;
+        }
+
+        const data = await response.json();
+        if (active) {
+          setBlackbaudMatches(Array.isArray(data?.results) ? data.results : []);
+        }
+      } catch (searchError) {
+        console.error("Blackbaud constituent lookup error:", searchError);
+        if (active) setBlackbaudMatches([]);
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [name]);
 
   const handleFileSelected = async (file) => {
     if (!file) return;
@@ -297,7 +335,7 @@ export default function NewConstituentPage() {
         </div>
       </header>
 
-      <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px" }}>
+      <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px 24px 140px" }}>
         {submitMutation.isPending && (
           <div
             style={{
@@ -653,6 +691,69 @@ export default function NewConstituentPage() {
                 boxSizing: "border-box",
               }}
             />
+            {blackbaudMatches.length > 0 ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#1D4ED8",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Blackbaud matches
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {blackbaudMatches.slice(0, 3).map((match) => {
+                    const exact = blackbaudExactMatch?.blackbaudConstituentId === match.blackbaudConstituentId;
+                    return (
+                      <div
+                        key={match.blackbaudConstituentId || match.name}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          border: exact ? "1px solid #60A5FA" : "1px solid #DBEAFE",
+                          backgroundColor: exact ? "#DBEAFE" : "white",
+                        }}
+                      >
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+                          {match.name || "Unnamed constituent"}
+                        </div>
+                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
+                          Blackbaud ID: {match.blackbaudConstituentId || "Unknown"}
+                        </div>
+                        {match.lookupId ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                            Lookup ID: {match.lookupId}
+                          </div>
+                        ) : null}
+                        {match.email ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                            Email: {match.email}
+                          </div>
+                        ) : null}
+                        {match.phone ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                            Phone: {match.phone}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: "8px", fontSize: "12px", color: "#4B5563" }}>
+                  These are read-only Blackbaud search results for verification. Submission still creates a local suggestion.
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div
@@ -830,29 +931,83 @@ export default function NewConstituentPage() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={submitMutation.isPending || isProcessing}
+          <div
             style={{
-              width: "100%",
-              padding: "14px",
-              backgroundColor:
-                submitMutation.isPending || isProcessing
-                  ? "#9CA3AF"
-                  : "#6A5BFF",
-              color: "white",
-              border: "none",
-              borderRadius: "12px",
-              fontSize: "16px",
-              fontWeight: "600",
-              cursor:
-                submitMutation.isPending || isProcessing
-                  ? "not-allowed"
-                  : "pointer",
+              position: "sticky",
+              bottom: "16px",
+              marginTop: "20px",
+              padding: "14px 16px",
+              borderRadius: "16px",
+              border: "1px solid #E5E7EB",
+              backgroundColor: "rgba(255,255,255,0.96)",
+              backdropFilter: "blur(10px)",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "14px",
+              flexWrap: "wrap",
             }}
           >
-            {submitMutation.isPending ? "Submitting..." : "Submit Suggestion"}
-          </button>
+            <div style={{ minWidth: "220px" }}>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  color: "#6B7280",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: "4px",
+                }}
+              >
+                Ready to send
+              </div>
+              <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.5 }}>
+                Submit this constituent suggestion into the shared review queue.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginLeft: "auto" }}>
+              <a
+                href="/"
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  border: "1px solid #D1D5DB",
+                  backgroundColor: "white",
+                  color: "#374151",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  textDecoration: "none",
+                }}
+              >
+                Cancel
+              </a>
+              <button
+                type="submit"
+                disabled={submitMutation.isPending || isProcessing}
+                style={{
+                  minWidth: "180px",
+                  padding: "12px 18px",
+                  backgroundColor:
+                    submitMutation.isPending || isProcessing
+                      ? "#9CA3AF"
+                      : "#6A5BFF",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "12px",
+                  fontSize: "15px",
+                  fontWeight: "700",
+                  cursor:
+                    submitMutation.isPending || isProcessing
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+              >
+                {submitMutation.isPending ? "Submitting..." : "Submit Suggestion"}
+              </button>
+            </div>
+          </div>
         </form>
       </main>
 

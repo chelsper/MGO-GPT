@@ -46,6 +46,20 @@ Recommended rollout:
 | `constituent_lifetime_giving` | `total_years_given` | LifetimeGivingRead | `total_years_given` | Use the Blackbaud computed value | `pull` | Blackbaud NXT | Good summary and affinity signal |
 | `constituent_lifetime_giving` | `consecutive_years_given` | LifetimeGivingRead | `consecutive_years_given` | Use the Blackbaud computed value | `pull` | Blackbaud NXT | Strong stewardship signal for MGO context |
 
+## Fundraiser Assignments (FundraiserAssignmentRead)
+
+| App entity | App field | Blackbaud object | Blackbaud field / endpoint | Selection rule | Direction | Source of truth | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `constituent_fundraiser_assignments` | `assignment_id` | FundraiserAssignmentRead | `id` | Pull assignment record ID from `GET /constituents/{id}/fundraiserassignments` with `include_inactive=false` by default | `pull` | Blackbaud NXT | Read-only identifier for linked assignment records |
+| `constituent_fundraiser_assignments` | `fundraiser_id` | FundraiserAssignmentRead | `fundraiser_id` | Pull active fundraiser IDs from `GET /constituents/{id}/fundraiserassignments?include_inactive=false` unless an admin history view needs inactive rows too | `pull` | Blackbaud NXT | Best candidate for showing NXT fundraiser ownership |
+| `constituent_fundraiser_assignments` | `amount` | FundraiserAssignmentRead | `amount.value` | Use the assignment amount exactly as returned | `pull` | Blackbaud NXT | Read-only planning context |
+| `constituent_fundraiser_assignments` | `appeal_id` | FundraiserAssignmentRead | `appeal_id` | Pull linked appeal ID when present | `pull` | Blackbaud NXT | Optional context only |
+| `constituent_fundraiser_assignments` | `campaign_id` | FundraiserAssignmentRead | `campaign_id` | Pull linked campaign ID when present | `pull` | Blackbaud NXT | Optional context only |
+| `constituent_fundraiser_assignments` | `fund_id` | FundraiserAssignmentRead | `fund_id` | Pull linked fund ID when present | `pull` | Blackbaud NXT | Optional restricted-fund context |
+| `constituent_fundraiser_assignments` | `start` | FundraiserAssignmentRead | `start` | Use assignment start date exactly as returned | `pull` | Blackbaud NXT | Useful for assignment age and active-range displays |
+| `constituent_fundraiser_assignments` | `end` | FundraiserAssignmentRead | `end` | Use assignment end date when present; leave blank for open-ended active assignments | `pull` | Blackbaud NXT | Mostly useful in historical/admin views |
+| `constituent_fundraiser_assignments` | `type` | FundraiserAssignmentRead | `type` | Use solicitor-type label exactly as returned | `pull` | Blackbaud NXT | Examples include Major Donor, Fund, or Volunteer |
+
 ## Constituent Write-Back (ConstituentEdit)
 
 These fields are writable in RE NXT, but they should not all be turned on at once. Start with the low-risk identity fields and keep governance/privacy fields behind an admin-only workflow.
@@ -159,7 +173,7 @@ Do **not** write updates back to NXT in phase 1.
 - Which NXT field should drive `constituents.organization`?
 - Do you want to sync NXT opportunities later, or keep app opportunities local?
 - Should the app ever write contact reports/actions back to NXT?
-- Should prospect owner / fundraiser assignment come from NXT or stay local?
+- Should prospect owner / fundraiser assignment come from `GET /constituents/{id}/fundraiserassignments` in NXT or stay local?
 
 ## Notes
 

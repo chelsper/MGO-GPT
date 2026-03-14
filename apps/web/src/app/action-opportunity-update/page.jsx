@@ -97,6 +97,7 @@ export default function ActionOpportunityUpdatePage() {
   const [opportunityNotes, setOpportunityNotes] = useState("");
   const [newOpportunityTitle, setNewOpportunityTitle] = useState("");
   const [constituentMatches, setConstituentMatches] = useState([]);
+  const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [matchDecision, setMatchDecision] = useState("");
   const [linkedProspectContext, setLinkedProspectContext] = useState(null);
   const [opportunityLinkMode, setOpportunityLinkMode] = useState("create");
@@ -202,6 +203,7 @@ export default function ActionOpportunityUpdatePage() {
     const query = donorName.trim();
     if (query.length < 2) {
       setConstituentMatches([]);
+      setBlackbaudMatches([]);
       setMatchDecision("");
       return;
     }
@@ -209,13 +211,27 @@ export default function ActionOpportunityUpdatePage() {
     let active = true;
     const timeoutId = setTimeout(async () => {
       try {
-        const response = await fetch(
-          `/api/constituents/search?q=${encodeURIComponent(query)}`,
-        );
-        if (!response.ok) return;
-        const data = await response.json();
-        if (active) {
-          setConstituentMatches(Array.isArray(data) ? data : []);
+        const [localResponse, blackbaudResponse] = await Promise.allSettled([
+          fetch(`/api/constituents/search?q=${encodeURIComponent(query)}`),
+          fetch(`/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`),
+        ]);
+
+        if (!active) return;
+
+        if (localResponse.status === "fulfilled" && localResponse.value.ok) {
+          const data = await localResponse.value.json();
+          if (active) {
+            setConstituentMatches(Array.isArray(data) ? data : []);
+          }
+        }
+
+        if (blackbaudResponse.status === "fulfilled" && blackbaudResponse.value.ok) {
+          const data = await blackbaudResponse.value.json();
+          if (active) {
+            setBlackbaudMatches(Array.isArray(data?.results) ? data.results : []);
+          }
+        } else if (active) {
+          setBlackbaudMatches([]);
         }
       } catch (searchError) {
         console.error("Constituent lookup error:", searchError);
@@ -246,6 +262,14 @@ export default function ActionOpportunityUpdatePage() {
         (item) => item.normalized_name === normalizeName(donorName),
       ),
     [constituentMatches, donorName],
+  );
+
+  const blackbaudExactMatch = useMemo(
+    () =>
+      blackbaudMatches.find(
+        (item) => normalizeName(item?.name) === normalizeName(donorName),
+      ),
+    [blackbaudMatches, donorName],
   );
 
   useEffect(() => {
@@ -1059,6 +1083,70 @@ export default function ActionOpportunityUpdatePage() {
                   >
                     Treat as new person
                   </button>
+                </div>
+              </div>
+            ) : null}
+
+            {blackbaudMatches.length > 0 ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#1D4ED8",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Blackbaud matches
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {blackbaudMatches.slice(0, 3).map((match) => {
+                    const exact = blackbaudExactMatch?.blackbaudConstituentId === match.blackbaudConstituentId;
+                    return (
+                      <div
+                        key={match.blackbaudConstituentId || match.name}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          border: exact ? "1px solid #60A5FA" : "1px solid #DBEAFE",
+                          backgroundColor: exact ? "#DBEAFE" : "white",
+                        }}
+                      >
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+                          {match.name || "Unnamed constituent"}
+                        </div>
+                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
+                          Blackbaud ID: {match.blackbaudConstituentId || "Unknown"}
+                        </div>
+                        {match.lookupId ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                            Lookup ID: {match.lookupId}
+                          </div>
+                        ) : null}
+                        {match.email ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                            Email: {match.email}
+                          </div>
+                        ) : null}
+                        {match.phone ? (
+                          <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                            Phone: {match.phone}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: "8px", fontSize: "12px", color: "#4B5563" }}>
+                  These are read-only Blackbaud search results for verification. They do not link the update yet.
                 </div>
               </div>
             ) : null}
