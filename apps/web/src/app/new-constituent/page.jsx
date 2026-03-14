@@ -39,6 +39,11 @@ export default function NewConstituentPage() {
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [existingMatchActions, setExistingMatchActions] = useState({
+    dataUpdate: false,
+    assignToMe: false,
+    addToProspects: false,
+  });
 
   useEffect(() => {
     if (!user) return;
@@ -80,12 +85,18 @@ export default function NewConstituentPage() {
   const blackbaudExactMatch =
     normalizedName &&
     blackbaudMatches.find((match) => normalizeName(match?.name) === normalizedName);
+  const activeBlackbaudMatch = selectedBlackbaudMatch || blackbaudExactMatch || null;
 
   useEffect(() => {
     const query = name.trim();
     if (query.length < 2) {
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
+      setExistingMatchActions({
+        dataUpdate: false,
+        assignToMe: false,
+        addToProspects: false,
+      });
       return;
     }
 
@@ -252,6 +263,25 @@ export default function NewConstituentPage() {
     },
   });
 
+  const donorUpdateMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await fetch("/api/submissions/donor-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error || "Failed to submit donor update");
+      }
+      return res.json();
+    },
+    onError: (err) => {
+      console.error(err);
+      setError(err?.message || "Failed to submit. Please try again.");
+    },
+  });
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
@@ -264,6 +294,83 @@ export default function NewConstituentPage() {
       return;
     }
 
+    if (activeBlackbaudMatch) {
+      const {
+        dataUpdate,
+        assignToMe: requestAssignment,
+        addToProspects: shouldAddToProspects,
+      } = existingMatchActions;
+
+      if (!dataUpdate && !requestAssignment && !shouldAddToProspects) {
+        setError(
+          "This person may already exist in Raiser's Edge NXT. Select at least one action or clear the existing match.",
+        );
+        return;
+      }
+
+      const updateNotes = [
+        notes?.trim() || null,
+        requestAssignment ? "Assignment request: please assign me to this constituent." : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      donorUpdateMutation.mutate(
+        {
+          donorName: activeBlackbaudMatch.name || name,
+          interactionType: dataUpdate ? "Data Update" : "Existing Constituent Request",
+          transcript: null,
+          notes: updateNotes || null,
+          nextStep: requestAssignment ? "Please assign me to this constituent." : null,
+          estimatedAmount: null,
+          blackbaudConstituentId: activeBlackbaudMatch.blackbaudConstituentId,
+          createNewConstituent: false,
+        },
+        {
+          onSuccess: async (data) => {
+            setSuccess(true);
+            setProspectError("");
+            setProspectAdded(false);
+
+            if (shouldAddToProspects && !alreadyTrackedAsProspect) {
+              try {
+                const createdProspect = await addProspectMutation.mutateAsync({
+                  prospectName: activeBlackbaudMatch.name || name.trim(),
+                  constituentId: data?.constituent_id || null,
+                  askAmount: null,
+                  expectedCloseFY: getDefaultFY(),
+                  askType: "Major Gift",
+                  blackbaudConstituentId: activeBlackbaudMatch.blackbaudConstituentId,
+                });
+                setProspectAdded(true);
+                setExistingProspects((current) => [...current, createdProspect]);
+              } catch {
+                // handled in mutation onError
+              }
+            }
+
+            setName("");
+            setOrganization("");
+            setEmail("");
+            setPhone("");
+            setNotes("");
+            setAssignToMe("yes");
+            setBusinessCardUrl(null);
+            setBusinessCardPreview(null);
+            setUploadWarning("");
+            setAddToProspects(false);
+            setSelectedBlackbaudMatch(null);
+            setExistingMatchActions({
+              dataUpdate: false,
+              assignToMe: false,
+              addToProspects: false,
+            });
+          },
+        },
+      );
+      return;
+    }
+
     submitMutation.mutate({
       name,
       organization,
@@ -272,8 +379,7 @@ export default function NewConstituentPage() {
       notes,
       assignToMe,
       businessCardUrl,
-      blackbaudConstituentId:
-        selectedBlackbaudMatch?.blackbaudConstituentId || null,
+      blackbaudConstituentId: null,
     });
   };
 
@@ -352,7 +458,7 @@ export default function NewConstituentPage() {
       </header>
 
       <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px 24px 140px" }}>
-        {submitMutation.isPending && (
+        {(submitMutation.isPending || donorUpdateMutation.isPending) && (
           <div
             style={{
               padding: "16px",
@@ -364,7 +470,7 @@ export default function NewConstituentPage() {
               fontWeight: "600",
             }}
           >
-            Sending your constituent suggestion to the submission tracker...
+            Sending your submission to the review queue...
           </div>
         )}
 
@@ -628,7 +734,20 @@ export default function NewConstituentPage() {
               Top Prospects
             </label>
 
-            {alreadyTrackedAsProspect ? (
+            {activeBlackbaudMatch ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                  color: "#6B7280",
+                  fontSize: "14px",
+                }}
+              >
+                Use the existing NXT options in the match warning below if this person should also be added to top prospects.
+              </div>
+            ) : alreadyTrackedAsProspect ? (
               <div
                 style={{
                   padding: "12px 14px",
@@ -699,6 +818,11 @@ export default function NewConstituentPage() {
               onChange={(e) => {
                 setName(e.target.value);
                 setSelectedBlackbaudMatch(null);
+                setExistingMatchActions({
+                  dataUpdate: false,
+                  assignToMe: false,
+                  addToProspects: false,
+                });
               }}
               placeholder="Full name"
               style={{
@@ -799,8 +923,8 @@ export default function NewConstituentPage() {
                             }}
                           >
                             {selected
-                              ? "Blackbaud match selected"
-                              : "Use this Blackbaud match"}
+                              ? "Existing NXT match selected"
+                              : "Use this existing NXT constituent"}
                           </button>
                         </div>
                       </div>
@@ -809,20 +933,76 @@ export default function NewConstituentPage() {
                 </div>
               </div>
             ) : null}
-            {selectedBlackbaudMatch ? (
+            {activeBlackbaudMatch ? (
               <div
                 style={{
                   marginTop: "12px",
                   padding: "12px",
                   borderRadius: "10px",
-                  border: "1px solid #93C5FD",
-                  backgroundColor: "#EFF6FF",
+                  border: "1px solid #FDE68A",
+                  backgroundColor: "#FFFBEB",
                   fontSize: "13px",
-                  color: "#1F2937",
+                  color: "#92400E",
                 }}
               >
-                {selectedBlackbaudMatch.name} will be linked with Blackbaud ID{" "}
-                <strong>{selectedBlackbaudMatch.blackbaudConstituentId}</strong>.
+                <div style={{ fontWeight: 700, marginBottom: "8px" }}>
+                  This person may already exist in Raiser's Edge NXT.
+                </div>
+                <div style={{ marginBottom: "10px" }}>
+                  Selected match: <strong>{activeBlackbaudMatch.name}</strong>{" "}
+                  ({activeBlackbaudMatch.blackbaudConstituentId})
+                </div>
+                <div style={{ marginBottom: "8px", fontWeight: 600 }}>
+                  Do you have an update to add on this constituent?
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={existingMatchActions.dataUpdate}
+                      onChange={(event) =>
+                        setExistingMatchActions((current) => ({
+                          ...current,
+                          dataUpdate: event.target.checked,
+                        }))
+                      }
+                      style={{ marginTop: "2px" }}
+                    />
+                    <span>It&apos;s a data update</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={existingMatchActions.assignToMe}
+                      onChange={(event) =>
+                        setExistingMatchActions((current) => ({
+                          ...current,
+                          assignToMe: event.target.checked,
+                        }))
+                      }
+                      style={{ marginTop: "2px" }}
+                    />
+                    <span>Assign me to them</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={existingMatchActions.addToProspects}
+                      disabled={alreadyTrackedAsProspect}
+                      onChange={(event) =>
+                        setExistingMatchActions((current) => ({
+                          ...current,
+                          addToProspects: event.target.checked,
+                        }))
+                      }
+                      style={{ marginTop: "2px" }}
+                    />
+                    <span>
+                      Add to top prospects
+                      {alreadyTrackedAsProspect ? " (already on your list)" : ""}
+                    </span>
+                  </label>
+                </div>
               </div>
             ) : null}
           </div>
@@ -1056,12 +1236,18 @@ export default function NewConstituentPage() {
               </a>
               <button
                 type="submit"
-                disabled={submitMutation.isPending || isProcessing}
+                disabled={
+                  submitMutation.isPending ||
+                  donorUpdateMutation.isPending ||
+                  isProcessing
+                }
                 style={{
                   minWidth: "180px",
                   padding: "12px 18px",
                   backgroundColor:
-                    submitMutation.isPending || isProcessing
+                    submitMutation.isPending ||
+                    donorUpdateMutation.isPending ||
+                    isProcessing
                       ? "#9CA3AF"
                       : "#6A5BFF",
                   color: "white",
@@ -1070,12 +1256,18 @@ export default function NewConstituentPage() {
                   fontSize: "15px",
                   fontWeight: "700",
                   cursor:
-                    submitMutation.isPending || isProcessing
+                    submitMutation.isPending ||
+                    donorUpdateMutation.isPending ||
+                    isProcessing
                       ? "not-allowed"
                       : "pointer",
                 }}
               >
-                {submitMutation.isPending ? "Submitting..." : "Submit Suggestion"}
+                {submitMutation.isPending || donorUpdateMutation.isPending
+                  ? "Submitting..."
+                  : activeBlackbaudMatch
+                    ? "Submit Existing Constituent Request"
+                    : "Submit Suggestion"}
               </button>
             </div>
           </div>
