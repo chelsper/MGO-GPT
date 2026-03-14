@@ -42,7 +42,6 @@ export default function NewConstituentPage() {
   const [dataUpdateDetails, setDataUpdateDetails] = useState("");
   const [existingMatchActions, setExistingMatchActions] = useState({
     dataUpdate: false,
-    addToProspects: false,
   });
 
   useEffect(() => {
@@ -95,7 +94,6 @@ export default function NewConstituentPage() {
       setDataUpdateDetails("");
       setExistingMatchActions({
         dataUpdate: false,
-        addToProspects: false,
       });
       return;
     }
@@ -295,7 +293,8 @@ export default function NewConstituentPage() {
     }
 
     if (activeBlackbaudMatch) {
-      const { dataUpdate, addToProspects: shouldAddToProspects } = existingMatchActions;
+      const { dataUpdate } = existingMatchActions;
+      const shouldAddToProspects = addToProspects && !alreadyTrackedAsProspect;
       const requestAssignment = assignToMe === "yes";
 
       if (!dataUpdate && !requestAssignment && !shouldAddToProspects) {
@@ -369,7 +368,6 @@ export default function NewConstituentPage() {
             setDataUpdateDetails("");
             setExistingMatchActions({
               dataUpdate: false,
-              addToProspects: false,
             });
           },
         },
@@ -741,19 +739,7 @@ export default function NewConstituentPage() {
             </label>
 
             {activeBlackbaudMatch ? (
-              <div
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: "10px",
-                  backgroundColor: "#F9FAFB",
-                  border: "1px solid #E5E7EB",
-                  color: "#6B7280",
-                  fontSize: "14px",
-                }}
-              >
-                Use the existing NXT options in the match warning below if this person should also be added to top prospects.
-              </div>
-            ) : alreadyTrackedAsProspect ? (
+              alreadyTrackedAsProspect ? (
               <div
                 style={{
                   padding: "12px 14px",
@@ -827,7 +813,6 @@ export default function NewConstituentPage() {
                 setDataUpdateDetails("");
                 setExistingMatchActions({
                   dataUpdate: false,
-                  addToProspects: false,
                 });
               }}
               placeholder="Full name"
@@ -1011,24 +996,6 @@ export default function NewConstituentPage() {
                       />
                     </label>
                   ) : null}
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                    <input
-                      type="checkbox"
-                      checked={existingMatchActions.addToProspects}
-                      disabled={alreadyTrackedAsProspect}
-                      onChange={(event) =>
-                        setExistingMatchActions((current) => ({
-                          ...current,
-                          addToProspects: event.target.checked,
-                        }))
-                      }
-                      style={{ marginTop: "2px" }}
-                    />
-                    <span>
-                      Add to top prospects
-                      {alreadyTrackedAsProspect ? " (already on your list)" : ""}
-                    </span>
-                  </label>
                 </div>
               </div>
             ) : null}
