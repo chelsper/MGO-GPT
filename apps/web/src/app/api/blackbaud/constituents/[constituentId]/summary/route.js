@@ -139,12 +139,12 @@ export async function GET(request, { params }) {
         ),
       ]);
 
-    if (!constituentResult.ok || !lifetimeGivingResult.ok || !fundraiserAssignmentsResult.ok) {
+    if (!constituentResult.ok) {
       return Response.json(
         {
           error: "Blackbaud constituent summary request failed",
           details: {
-            constituent: constituentResult.ok ? null : constituentResult.error,
+            constituent: constituentResult.error,
             lifetimeGiving: lifetimeGivingResult.ok ? null : lifetimeGivingResult.error,
             fundraiserAssignments: fundraiserAssignmentsResult.ok
               ? null
@@ -156,8 +156,12 @@ export async function GET(request, { params }) {
     }
 
     const constituent = constituentResult.payload;
-    const lifetimeGiving = lifetimeGivingResult.payload;
-    const fundraiserAssignments = fundraiserAssignmentsResult.payload;
+    const lifetimeGiving = lifetimeGivingResult.ok
+      ? lifetimeGivingResult.payload
+      : null;
+    const fundraiserAssignments = fundraiserAssignmentsResult.ok
+      ? fundraiserAssignmentsResult.payload
+      : null;
 
     const assignments = Array.isArray(fundraiserAssignments?.value)
       ? fundraiserAssignments.value
@@ -170,6 +174,12 @@ export async function GET(request, { params }) {
         constituent: mapConstituent(constituent),
         lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
         fundraiserAssignments: assignments.map(mapFundraiserAssignment),
+      },
+      warnings: {
+        lifetimeGiving: lifetimeGivingResult.ok ? null : lifetimeGivingResult.error,
+        fundraiserAssignments: fundraiserAssignmentsResult.ok
+          ? null
+          : fundraiserAssignmentsResult.error,
       },
       ...(includeRaw
         ? {
