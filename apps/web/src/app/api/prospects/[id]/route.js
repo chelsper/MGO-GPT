@@ -113,13 +113,17 @@ export async function PUT(request, { params }) {
     const prospectId = params.id;
     const body = await request.json();
 
-    // Verify ownership
+    // Verify ownership and capture current state for status transitions
     const existing = await sql`
-      SELECT id FROM prospects WHERE id = ${prospectId} AND user_id = ${user.id} LIMIT 1
+      SELECT id, status
+      FROM prospects
+      WHERE id = ${prospectId} AND user_id = ${user.id}
+      LIMIT 1
     `;
     if (existing.length === 0) {
       return Response.json({ error: "Prospect not found" }, { status: 404 });
     }
+    const currentProspect = existing[0];
 
     const setClauses = [];
     const values = [];
@@ -145,6 +149,20 @@ export async function PUT(request, { params }) {
         setClauses.push(`${dbColumn} = $${paramCount}`);
         values.push(body[jsKey]);
       }
+    }
+
+    if (
+      body.status === "Active" &&
+      currentProspect.status === "Archived"
+    ) {
+      const maxOrder = await sql`
+        SELECT COALESCE(MAX(priority_order), 0) AS max_order
+        FROM prospects
+        WHERE user_id = ${user.id} AND status = 'Active'
+      `;
+      paramCount++;
+      setClauses.push(`priority_order = $${paramCount}`);
+      values.push((maxOrder[0]?.max_order || 0) + 1);
     }
 
     if (setClauses.length === 0) {
@@ -193,13 +211,44 @@ export async function DELETE(request, { params }) {
 
     const prospectId = params.id;
 
+    const lockedProspect = await sql`
+      SELECT
+        p.id,
+        p.closed_amount,
+        EXISTS (
+          SELECT 1
+          FROM prospect_opportunities po
+          WHERE po.prospect_id = p.id
+            AND (
+              COALESCE(po.closed_amount, 0) > 0
+              OR po.opportunity_status = 'Closed – Gift Secured'
+            )
+        ) AS has_closed_revenue
+      FROM prospects p
+      WHERE p.id = ${prospectId} AND p.user_id = ${user.id}
+      LIMIT 1
+    `;
+
+    if (lockedProspect.length === 0) {
+      return Response.json({ error: "Prospect not found" }, { status: 404 });
+    }
+
+    if (
+      Number(lockedProspect[0]?.closed_amount || 0) > 0 ||
+      lockedProspect[0]?.has_closed_revenue
+    ) {
+      return Response.json(
+        {
+          error:
+            "Prospects with closed revenue can only be archived, not deleted.",
+        },
+        { status: 409 },
+      );
+    }
+
     const result = await sql`
       DELETE FROM prospects WHERE id = ${prospectId} AND user_id = ${user.id} RETURNING id
     `;
-
-    if (result.length === 0) {
-      return Response.json({ error: "Prospect not found" }, { status: 404 });
-    }
 
     return Response.json({ success: true });
   } catch (error) {

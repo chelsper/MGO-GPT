@@ -34,6 +34,7 @@ const STATUS_COLORS = {
     border: "#BFDBFE",
   },
   "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
+  Archived: { bg: "#F3F4F6", text: "#4B5563", border: "#D1D5DB" },
 };
 
 const OPPORTUNITY_STATUS_COLORS = {
@@ -925,6 +926,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const [editingOpportunityId, setEditingOpportunityId] = useState(null);
   const [opportunityEditData, setOpportunityEditData] = useState({});
   const [opportunityEditError, setOpportunityEditError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["prospect", prospectId],
@@ -1014,6 +1016,39 @@ function ProspectDetailModal({ prospectId, onClose }) {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setEditMode(false);
+      setActionError("");
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to update prospect",
+      );
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/prospects/${prospectId}`, {
+        method: "DELETE",
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to delete prospect");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      onClose();
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to delete prospect",
+      );
     },
   });
 
@@ -1210,6 +1245,30 @@ function ProspectDetailModal({ prospectId, onClose }) {
   };
 
   const isActive = prospect.status === "Active";
+  const isArchived = prospect.status === "Archived";
+  const hasClosedRevenue = Number(prospect.closed_amount || 0) > 0;
+
+  const archiveProspect = () => {
+    setActionError("");
+    editMutation.mutate({ status: "Archived" });
+  };
+
+  const reactivateProspect = () => {
+    setActionError("");
+    editMutation.mutate({ status: "Active" });
+  };
+
+  const deleteProspect = () => {
+    setActionError("");
+    if (
+      !window.confirm(
+        "Delete this prospect permanently? This should only be used for records added by mistake.",
+      )
+    ) {
+      return;
+    }
+    deleteMutation.mutate();
+  };
   const timelineEvents = [
     ...updates.map((update) => ({
       id: `progress-${update.id}`,
@@ -2169,8 +2228,80 @@ function ProspectDetailModal({ prospectId, onClose }) {
                   Mark Closed
                 </button>
               )}
+              {!isArchived ? (
+                <button
+                  onClick={archiveProspect}
+                  disabled={editMutation.isPending || deleteMutation.isPending}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#4B5563",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: editMutation.isPending || deleteMutation.isPending ? "not-allowed" : "pointer",
+                    opacity: editMutation.isPending || deleteMutation.isPending ? 0.7 : 1,
+                  }}
+                >
+                  Archive
+                </button>
+              ) : (
+                <button
+                  onClick={reactivateProspect}
+                  disabled={editMutation.isPending}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#ECFDF5",
+                    color: "#065F46",
+                    border: "1px solid #A7F3D0",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: editMutation.isPending ? "not-allowed" : "pointer",
+                    opacity: editMutation.isPending ? 0.7 : 1,
+                  }}
+                >
+                  Reactivate
+                </button>
+              )}
+              {!hasClosedRevenue ? (
+                <button
+                  onClick={deleteProspect}
+                  disabled={deleteMutation.isPending || editMutation.isPending}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#FEF2F2",
+                    color: "#991B1B",
+                    border: "1px solid #FECACA",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: deleteMutation.isPending || editMutation.isPending ? "not-allowed" : "pointer",
+                    opacity: deleteMutation.isPending || editMutation.isPending ? 0.7 : 1,
+                  }}
+                >
+                  Delete
+                </button>
+              ) : null}
             </div>
           )}
+
+          {actionError ? (
+            <div
+              style={{
+                marginBottom: "16px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                backgroundColor: "#FEF2F2",
+                border: "1px solid #FECACA",
+                color: "#991B1B",
+                fontSize: "13px",
+              }}
+            >
+              {actionError}
+            </div>
+          ) : null}
 
           {/* Add Update Form */}
           {showUpdateForm && (
@@ -3003,6 +3134,7 @@ export default function MyTopProspectsPage() {
   const closedDeclined = prospects.filter(
     (p) => p.status === "Closed – Declined",
   );
+  const archivedProspects = prospects.filter((p) => p.status === "Archived");
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredActiveProspects = activeProspects.filter((prospect) => {
     const nextAction = getProspectNextAction(prospect);
@@ -3914,6 +4046,84 @@ export default function MyTopProspectsPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {archivedProspects.length > 0 && (
+          <div style={{ marginTop: "28px" }}>
+            <h2
+              style={{
+                fontSize: "16px",
+                fontWeight: "700",
+                color: "#111827",
+                margin: "0 0 16px 0",
+              }}
+            >
+              Archived Prospects
+            </h2>
+            {archivedProspects.map((p) => (
+              <div
+                key={p.id}
+                style={{
+                  backgroundColor: "white",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  padding: "16px 20px",
+                  marginBottom: "8px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  cursor: "pointer",
+                  borderLeft: "4px solid #9CA3AF",
+                }}
+                onClick={() => setSelectedProspectId(p.id)}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      flexWrap: "wrap",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: "600",
+                        color: "#111827",
+                      }}
+                    >
+                      {p.prospect_name}
+                    </span>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      fontSize: "13px",
+                      color: "#6B7280",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span>{p.expected_close_fy}</span>
+                    <span>·</span>
+                    <span style={{ fontWeight: "600" }}>{p.ask_type}</span>
+                    {p.closed_amount != null ? (
+                      <>
+                        <span>·</span>
+                        <span style={{ color: "#059669", fontWeight: "600" }}>
+                          {formatCurrency(p.closed_amount)} closed
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </main>
