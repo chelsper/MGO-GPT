@@ -23,6 +23,7 @@ export default function NewConstituentPage() {
 
   const [name, setName] = useState("");
   const [organization, setOrganization] = useState("");
+  const [organizationTouched, setOrganizationTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
@@ -138,6 +139,39 @@ export default function NewConstituentPage() {
     };
   }, [name]);
 
+  useEffect(() => {
+    const constituentId = activeBlackbaudMatch?.blackbaudConstituentId;
+    if (!constituentId) return;
+
+    let active = true;
+
+    async function loadPrimaryBusinessRelationship() {
+      try {
+        const response = await fetch(
+          `/api/blackbaud/constituents/${encodeURIComponent(constituentId)}/summary`,
+        );
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        const organizationName =
+          data?.mapped?.primaryBusinessRelationship?.organizationName || "";
+        if (active && organizationName && !organizationTouched) {
+          setOrganization(organizationName);
+        }
+      } catch (summaryError) {
+        console.error("Blackbaud constituent summary lookup error:", summaryError);
+      }
+    }
+
+    loadPrimaryBusinessRelationship();
+
+    return () => {
+      active = false;
+    };
+  }, [activeBlackbaudMatch?.blackbaudConstituentId, organizationTouched]);
+
   const handleFileSelected = async (file) => {
     if (!file) return;
     setError("");
@@ -217,6 +251,7 @@ export default function NewConstituentPage() {
       };
       setName("");
       setOrganization("");
+      setOrganizationTouched(false);
       setEmail("");
       setPhone("");
       setNotes("");
@@ -367,6 +402,7 @@ export default function NewConstituentPage() {
 
             setName("");
             setOrganization("");
+            setOrganizationTouched(false);
             setEmail("");
             setPhone("");
             setNotes("");
@@ -820,6 +856,7 @@ export default function NewConstituentPage() {
               onChange={(e) => {
                 setName(e.target.value);
                 setSelectedBlackbaudMatch(null);
+                setOrganizationTouched(false);
                 setDataUpdateDetails("");
                 setExistingMatchActions({
                   dataUpdate: false,
@@ -907,6 +944,7 @@ export default function NewConstituentPage() {
                             onClick={() => {
                               setSelectedBlackbaudMatch(match);
                               setName(match.name || name);
+                              setOrganizationTouched(false);
                               setEmail(match.email || email);
                               setPhone(match.phone || phone);
                               setDataUpdateDetails("");
@@ -1034,10 +1072,13 @@ export default function NewConstituentPage() {
             <input
               type="text"
               value={organization}
-              onChange={(e) => setOrganization(e.target.value)}
+              onChange={(e) => {
+                setOrganizationTouched(true);
+                setOrganization(e.target.value);
+              }}
               placeholder={
                 activeBlackbaudMatch
-                  ? "Enter updated company or organization"
+                  ? "Primary business will auto-fill when available, or enter an updated organization"
                   : "Company or organization"
               }
               style={{

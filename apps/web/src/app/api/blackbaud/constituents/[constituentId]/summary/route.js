@@ -53,6 +53,29 @@ function mapFundraiserAssignment(assignment) {
   };
 }
 
+function mapPrimaryBusinessRelationship(relationships) {
+  const rows = Array.isArray(relationships?.value)
+    ? relationships.value
+    : Array.isArray(relationships)
+      ? relationships
+      : [];
+
+  const primaryBusiness = rows.find((relationship) => relationship?.is_primary_business);
+  if (!primaryBusiness) {
+    return null;
+  }
+
+  return {
+    relationshipId: primaryBusiness?.id || null,
+    organizationConstituentId: primaryBusiness?.relation_id || null,
+    organizationName: primaryBusiness?.name || null,
+    position: primaryBusiness?.position || null,
+    type: primaryBusiness?.type || null,
+    start: primaryBusiness?.start || null,
+    end: primaryBusiness?.end || null,
+  };
+}
+
 async function loadBlackbaudSection(label, requestFactory) {
   try {
     const payload = await requestFactory();
@@ -101,7 +124,12 @@ export async function GET(request, { params }) {
   try {
     const user = await getOrCreateUser(session);
 
-    const [constituentResult, lifetimeGivingResult, fundraiserAssignmentsResult] =
+    const [
+      constituentResult,
+      lifetimeGivingResult,
+      fundraiserAssignmentsResult,
+      relationshipsResult,
+    ] =
       await Promise.all([
         loadBlackbaudSection("constituent", () =>
           blackbaudApiFetch(
@@ -137,6 +165,15 @@ export async function GET(request, { params }) {
             },
           ),
         ),
+        loadBlackbaudSection("relationships", () =>
+          blackbaudApiFetch(
+            `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/relationships`,
+            {
+              userId: user.id,
+              origin,
+            },
+          ),
+        ),
       ]);
 
     if (!constituentResult.ok) {
@@ -149,6 +186,7 @@ export async function GET(request, { params }) {
             fundraiserAssignments: fundraiserAssignmentsResult.ok
               ? null
               : fundraiserAssignmentsResult.error,
+            relationships: relationshipsResult.ok ? null : relationshipsResult.error,
           },
         },
         { status: 502 },
@@ -162,6 +200,7 @@ export async function GET(request, { params }) {
     const fundraiserAssignments = fundraiserAssignmentsResult.ok
       ? fundraiserAssignmentsResult.payload
       : null;
+    const relationships = relationshipsResult.ok ? relationshipsResult.payload : null;
 
     const assignments = Array.isArray(fundraiserAssignments?.value)
       ? fundraiserAssignments.value
@@ -174,12 +213,14 @@ export async function GET(request, { params }) {
         constituent: mapConstituent(constituent),
         lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
         fundraiserAssignments: assignments.map(mapFundraiserAssignment),
+        primaryBusinessRelationship: mapPrimaryBusinessRelationship(relationships),
       },
       warnings: {
         lifetimeGiving: lifetimeGivingResult.ok ? null : lifetimeGivingResult.error,
         fundraiserAssignments: fundraiserAssignmentsResult.ok
           ? null
           : fundraiserAssignmentsResult.error,
+        relationships: relationshipsResult.ok ? null : relationshipsResult.error,
       },
       ...(includeRaw
         ? {
@@ -187,6 +228,7 @@ export async function GET(request, { params }) {
               constituent,
               lifetimeGiving,
               fundraiserAssignments,
+              relationships,
             },
           }
         : {}),
