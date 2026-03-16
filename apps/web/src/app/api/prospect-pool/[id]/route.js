@@ -56,7 +56,8 @@ export async function PATCH(request, { params }) {
         const assigned = await sql`
           SELECT id
           FROM users
-          WHERE id = ${assignedUserId} AND role = 'mgo'
+          WHERE id = ${assignedUserId}
+            AND (role = 'mgo' OR id = ${currentUser.id})
           LIMIT 1
         `;
         if (assigned.length === 0) {

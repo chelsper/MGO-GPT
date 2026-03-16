@@ -106,9 +106,10 @@ export async function POST(request) {
     }
 
     const assignedUser = await sql`
-      SELECT id, name, email
+      SELECT id, name, email, role
       FROM users
-      WHERE id = ${assignedUserId} AND role = 'mgo'
+      WHERE id = ${assignedUserId}
+        AND (role = 'mgo' OR id = ${reviewer.id})
       LIMIT 1
     `;
 

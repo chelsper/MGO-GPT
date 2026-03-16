@@ -28,7 +28,19 @@ export async function GET() {
       ORDER BY LOWER(name) ASC, LOWER(email) ASC
     `;
 
-    return Response.json(users);
+    const assignableUsers =
+      users.some((user) => user.id === currentUser.id)
+        ? users
+        : [
+            {
+              id: currentUser.id,
+              name: currentUser.name,
+              email: currentUser.email,
+            },
+            ...users,
+          ];
+
+    return Response.json(assignableUsers);
   } catch (error) {
     console.error("Error fetching MGO users:", error);
     return Response.json(
