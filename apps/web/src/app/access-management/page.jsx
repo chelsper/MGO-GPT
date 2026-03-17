@@ -31,6 +31,10 @@ export default function AccessManagementPage() {
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("mgo");
+  const [blackbaudQuery, setBlackbaudQuery] = useState("");
+  const [blackbaudMatches, setBlackbaudMatches] = useState([]);
+  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [searchingBlackbaud, setSearchingBlackbaud] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -90,6 +94,60 @@ export default function AccessManagementPage() {
     };
   }, [sessionUser]);
 
+  useEffect(() => {
+    if (role !== "mgo") {
+      setBlackbaudMatches([]);
+      setSelectedBlackbaudMatch(null);
+      return;
+    }
+
+    const query = blackbaudQuery.trim();
+    if (query.length < 2) {
+      setBlackbaudMatches([]);
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      try {
+        setSearchingBlackbaud(true);
+        const response = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+        if (!response.ok) {
+          if (active) setBlackbaudMatches([]);
+          return;
+        }
+
+        const data = await response.json().catch(() => null);
+        if (!active) return;
+
+        const results = Array.isArray(data?.results) ? data.results.slice(0, 5) : [];
+        setBlackbaudMatches(results);
+        setSelectedBlackbaudMatch((current) =>
+          results.find(
+            (match) =>
+              match.blackbaudConstituentId === current?.blackbaudConstituentId,
+          ) || null,
+        );
+      } catch (err) {
+        console.error(err);
+        if (active) {
+          setBlackbaudMatches([]);
+        }
+      } finally {
+        if (active) {
+          setSearchingBlackbaud(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [blackbaudQuery, role]);
+
   const pendingInvitations = useMemo(
     () => invitations.filter((invitation) => !invitation.accepted_at && !invitation.revoked_at),
     [invitations],
@@ -105,7 +163,16 @@ export default function AccessManagementPage() {
       const response = await fetch("/api/admin/access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, role }),
+        body: JSON.stringify({
+          email,
+          role,
+          blackbaudConstituentId:
+            role === "mgo" ? selectedBlackbaudMatch?.blackbaudConstituentId || null : null,
+          blackbaudLookupId:
+            role === "mgo" ? selectedBlackbaudMatch?.lookupId || null : null,
+          blackbaudName:
+            role === "mgo" ? selectedBlackbaudMatch?.name || null : null,
+        }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
@@ -114,6 +181,9 @@ export default function AccessManagementPage() {
 
       setEmail("");
       setRole("mgo");
+      setBlackbaudQuery("");
+      setBlackbaudMatches([]);
+      setSelectedBlackbaudMatch(null);
       setStatusMessage(
         data?.mode === "user-updated"
           ? "Existing user role updated."
@@ -297,7 +367,7 @@ export default function AccessManagementPage() {
           <h2 style={{ margin: "0 0 16px", fontSize: "18px", color: "#111827" }}>
             Invite a user
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: "12px", alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "12px", alignItems: "end" }}>
             <div>
               <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Email
@@ -320,6 +390,100 @@ export default function AccessManagementPage() {
                 <option value="reviewer">Advancement Services</option>
               </select>
             </div>
+          </div>
+          {role === "mgo" ? (
+            <div style={{ marginTop: "16px" }}>
+              <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+                Connect to Blackbaud user
+              </label>
+              <input
+                type="text"
+                value={blackbaudQuery}
+                onChange={(event) => {
+                  setBlackbaudQuery(event.target.value);
+                  setSelectedBlackbaudMatch(null);
+                }}
+                placeholder="Search by name or Lookup ID"
+                style={inputStyle}
+              />
+              <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280" }}>
+                Link the invited MGO to their Raiser's Edge NXT record so portfolio bootstrap uses the right user.
+              </div>
+              {searchingBlackbaud ? (
+                <div style={{ marginTop: "10px", fontSize: "13px", color: "#6B7280" }}>
+                  Searching Blackbaud...
+                </div>
+              ) : null}
+              {blackbaudMatches.length > 0 ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    display: "grid",
+                    gap: "8px",
+                    padding: "12px",
+                    borderRadius: "10px",
+                    border: "1px solid #E5E7EB",
+                    backgroundColor: "#F9FAFB",
+                  }}
+                >
+                  {blackbaudMatches.map((match) => {
+                    const selected =
+                      selectedBlackbaudMatch?.blackbaudConstituentId ===
+                      match.blackbaudConstituentId;
+                    return (
+                      <button
+                        key={match.blackbaudConstituentId || match.lookupId || match.name}
+                        type="button"
+                        onClick={() => setSelectedBlackbaudMatch(match)}
+                        style={{
+                          textAlign: "left",
+                          borderRadius: "10px",
+                          border: selected ? "2px solid #6A5BFF" : "1px solid #E5E7EB",
+                          backgroundColor: selected ? "#EEF2FF" : "white",
+                          padding: "12px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                          {match.name || "Unnamed constituent"}
+                        </div>
+                        {match.lookupId ? (
+                          <div style={{ marginTop: "4px", fontSize: "13px", color: "#4B5563" }}>
+                            Lookup ID: {match.lookupId}
+                          </div>
+                        ) : null}
+                        {match.email ? (
+                          <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                            {match.email}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {selectedBlackbaudMatch ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "12px 14px",
+                    borderRadius: "10px",
+                    backgroundColor: "#ECFDF5",
+                    border: "1px solid #A7F3D0",
+                    color: "#065F46",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                  }}
+                >
+                  Connected to {selectedBlackbaudMatch.name}
+                  {selectedBlackbaudMatch.lookupId
+                    ? ` (Lookup ID: ${selectedBlackbaudMatch.lookupId})`
+                    : ""}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
             <button
               type="submit"
               disabled={saving}
@@ -361,6 +525,11 @@ export default function AccessManagementPage() {
                   <div>
                     <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{user.name}</div>
                     <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>{user.email}</div>
+                    {user.blackbaud_lookup_id ? (
+                      <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
+                        Lookup ID: {user.blackbaud_lookup_id}
+                      </div>
+                    ) : null}
                     <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px" }}>
                       Joined {new Date(user.created_at).toLocaleDateString()}
                     </div>
@@ -412,6 +581,12 @@ export default function AccessManagementPage() {
                     <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px" }}>
                       Role: {invitation.role === "reviewer" ? "Advancement Services" : "MGO"}
                     </div>
+                    {invitation.blackbaud_lookup_id ? (
+                      <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
+                        Linked Lookup ID: {invitation.blackbaud_lookup_id}
+                        {invitation.blackbaud_name ? ` (${invitation.blackbaud_name})` : ""}
+                      </div>
+                    ) : null}
                     <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
                       Invited {new Date(invitation.created_at).toLocaleString()}
                       {invitation.invited_by_name

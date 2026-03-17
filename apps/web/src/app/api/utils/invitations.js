@@ -27,7 +27,17 @@ export async function getPendingInvitationByEmail(email) {
   if (!normalizedEmail) return null;
 
   const rows = await sql`
-    SELECT id, email, role, invited_by, created_at, accepted_at, revoked_at
+    SELECT
+      id,
+      email,
+      role,
+      blackbaud_constituent_id,
+      blackbaud_lookup_id,
+      blackbaud_name,
+      invited_by,
+      created_at,
+      accepted_at,
+      revoked_at
     FROM user_invitations
     WHERE email = ${normalizedEmail}
       AND accepted_at IS NULL
@@ -77,6 +87,9 @@ export async function getProvisioningDecision(email) {
       role: invitation.role,
       email: normalizedEmail,
       invitation,
+      blackbaudConstituentId: invitation.blackbaud_constituent_id || null,
+      blackbaudLookupId: invitation.blackbaud_lookup_id || null,
+      blackbaudName: invitation.blackbaud_name || null,
     };
   }
 

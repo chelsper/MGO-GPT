@@ -65,9 +65,26 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
         : fallbackRole;
 
   const created = await sql`
-    INSERT INTO users (name, email, role, created_at)
-    VALUES (${name}, ${email}, ${assignedRole}, NOW())
-    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+    INSERT INTO users (
+      name,
+      email,
+      role,
+      blackbaud_constituent_id,
+      blackbaud_lookup_id,
+      created_at
+    )
+    VALUES (
+      ${name},
+      ${email},
+      ${assignedRole},
+      ${decision.kind === "invited" ? decision.blackbaudConstituentId || null : null},
+      ${decision.kind === "invited" ? decision.blackbaudLookupId || null : null},
+      NOW()
+    )
+    ON CONFLICT (email) DO UPDATE SET
+      name = EXCLUDED.name,
+      blackbaud_constituent_id = COALESCE(users.blackbaud_constituent_id, EXCLUDED.blackbaud_constituent_id),
+      blackbaud_lookup_id = COALESCE(users.blackbaud_lookup_id, EXCLUDED.blackbaud_lookup_id)
     RETURNING
       id,
       name,

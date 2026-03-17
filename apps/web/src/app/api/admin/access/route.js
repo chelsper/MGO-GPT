@@ -34,7 +34,14 @@ export async function GET() {
 
     const [users, invitations] = await Promise.all([
       sql`
-        SELECT id, name, email, role, created_at, updated_at
+        SELECT
+          id,
+          name,
+          email,
+          role,
+          blackbaud_lookup_id,
+          created_at,
+          updated_at
         FROM users
         ORDER BY
           CASE WHEN email = ${getBootstrapAdminEmail() || ""} THEN 0 ELSE 1 END,
@@ -46,6 +53,9 @@ export async function GET() {
           inv.id,
           inv.email,
           inv.role,
+          inv.blackbaud_constituent_id,
+          inv.blackbaud_lookup_id,
+          inv.blackbaud_name,
           inv.accepted_at,
           inv.revoked_at,
           inv.created_at,
@@ -80,6 +90,15 @@ export async function POST(request) {
     const body = await request.json();
     const email = normalizeEmail(body?.email);
     const role = body?.role;
+    const blackbaudConstituentId = body?.blackbaudConstituentId
+      ? String(body.blackbaudConstituentId).trim()
+      : null;
+    const blackbaudLookupId = body?.blackbaudLookupId
+      ? String(body.blackbaudLookupId).trim()
+      : null;
+    const blackbaudName = body?.blackbaudName
+      ? String(body.blackbaudName).trim()
+      : null;
 
     if (!email) {
       return Response.json({ error: "Email is required" }, { status: 400 });
@@ -97,9 +116,13 @@ export async function POST(request) {
     if (existingUser.length > 0) {
       const updatedUser = await sql`
         UPDATE users
-        SET role = ${role}, updated_at = NOW()
+        SET
+          role = ${role},
+          blackbaud_constituent_id = COALESCE(${blackbaudConstituentId}, blackbaud_constituent_id),
+          blackbaud_lookup_id = COALESCE(${blackbaudLookupId}, blackbaud_lookup_id),
+          updated_at = NOW()
         WHERE id = ${existingUser[0].id}
-        RETURNING id, name, email, role, created_at, updated_at
+        RETURNING id, name, email, role, blackbaud_lookup_id, created_at, updated_at
       `;
 
       return Response.json({
@@ -109,11 +132,36 @@ export async function POST(request) {
     }
 
     const invitation = await sql`
-      INSERT INTO user_invitations (email, role, invited_by, accepted_at, revoked_at, created_at, updated_at)
-      VALUES (${email}, ${role}, ${user.id}, NULL, NULL, NOW(), NOW())
+      INSERT INTO user_invitations (
+        email,
+        role,
+        blackbaud_constituent_id,
+        blackbaud_lookup_id,
+        blackbaud_name,
+        invited_by,
+        accepted_at,
+        revoked_at,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${email},
+        ${role},
+        ${blackbaudConstituentId},
+        ${blackbaudLookupId},
+        ${blackbaudName},
+        ${user.id},
+        NULL,
+        NULL,
+        NOW(),
+        NOW()
+      )
       ON CONFLICT (email)
       DO UPDATE SET
         role = EXCLUDED.role,
+        blackbaud_constituent_id = EXCLUDED.blackbaud_constituent_id,
+        blackbaud_lookup_id = EXCLUDED.blackbaud_lookup_id,
+        blackbaud_name = EXCLUDED.blackbaud_name,
         invited_by = EXCLUDED.invited_by,
         accepted_at = NULL,
         revoked_at = NULL,

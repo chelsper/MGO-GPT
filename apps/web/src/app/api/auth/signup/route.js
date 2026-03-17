@@ -61,9 +61,23 @@ export async function POST(request) {
 
     // Create user in users table
     const result = await sql`
-      INSERT INTO users (name, email, role, created_at)
-      VALUES (${name}, ${email}, ${decision.kind === "bootstrap-admin" ? "admin" : userRole}, NOW())
-      RETURNING id, name, email, role
+      INSERT INTO users (
+        name,
+        email,
+        role,
+        blackbaud_constituent_id,
+        blackbaud_lookup_id,
+        created_at
+      )
+      VALUES (
+        ${name},
+        ${email},
+        ${decision.kind === "bootstrap-admin" ? "admin" : userRole},
+        ${decision.kind === "invited" ? decision.blackbaudConstituentId || null : null},
+        ${decision.kind === "invited" ? decision.blackbaudLookupId || null : null},
+        NOW()
+      )
+      RETURNING id, name, email, role, blackbaud_constituent_id, blackbaud_lookup_id
     `;
 
     // Create auth user (this is handled by the platform's auth system)

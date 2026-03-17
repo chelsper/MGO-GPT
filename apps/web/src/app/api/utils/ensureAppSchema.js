@@ -48,6 +48,9 @@ export default async function ensureAppSchema() {
         id BIGSERIAL PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,
         role TEXT NOT NULL DEFAULT 'mgo',
+        blackbaud_constituent_id TEXT,
+        blackbaud_lookup_id TEXT,
+        blackbaud_name TEXT,
         invited_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         accepted_at TIMESTAMPTZ,
         revoked_at TIMESTAMPTZ,
@@ -56,6 +59,18 @@ export default async function ensureAppSchema() {
       )
     `;
 
+    await sql`
+      ALTER TABLE user_invitations
+      ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT
+    `;
+    await sql`
+      ALTER TABLE user_invitations
+      ADD COLUMN IF NOT EXISTS blackbaud_lookup_id TEXT
+    `;
+    await sql`
+      ALTER TABLE user_invitations
+      ADD COLUMN IF NOT EXISTS blackbaud_name TEXT
+    `;
     await sql`
       CREATE TABLE IF NOT EXISTS constituents (
         id BIGSERIAL PRIMARY KEY,
