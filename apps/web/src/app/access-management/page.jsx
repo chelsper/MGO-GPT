@@ -353,18 +353,24 @@ export default function AccessManagementPage() {
     setError("");
 
     try {
+      const payload = {
+        userId: user.id,
+        blackbaudConstituentId:
+          updates.blackbaudConstituentId ?? selectedUserBlackbaudMatch?.blackbaudConstituentId ?? null,
+        blackbaudLookupId:
+          updates.blackbaudLookupId ?? selectedUserBlackbaudMatch?.lookupId ?? null,
+      };
+      if (updates.role !== undefined) {
+        payload.role = updates.role;
+      }
+      if (updates.active !== undefined) {
+        payload.active = updates.active;
+      }
+
       const response = await fetch("/api/admin/access", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user.id,
-          role: updates.role ?? user.role,
-          active: updates.active ?? user.active,
-          blackbaudConstituentId:
-            updates.blackbaudConstituentId ?? selectedUserBlackbaudMatch?.blackbaudConstituentId ?? null,
-          blackbaudLookupId:
-            updates.blackbaudLookupId ?? selectedUserBlackbaudMatch?.lookupId ?? null,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
