@@ -62,6 +62,13 @@ export default function ProspectPoolPage() {
     assignedDateRange: "all",
     sortBy: "requests-first-newest",
   });
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timeoutId = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   useEffect(() => {
     if (!loading && !sessionUser) {
@@ -428,9 +435,12 @@ export default function ProspectPoolPage() {
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
       setActionMessage(`${created.prospect_name} added to ${assignedName}'s prospect pool.`);
+      setToast({ tone: "success", message: "Prospect added to the pool." });
     } catch (err) {
       console.error(err);
-      setError(err.message || "Could not create prospect pool entry.");
+      const message = err.message || "Could not create prospect pool entry.";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setCreating(false);
     }
@@ -468,9 +478,12 @@ export default function ProspectPoolPage() {
         return next;
       });
       setActionMessage(`Saved updates for ${updated.prospect_name}.`);
+      setToast({ tone: "success", message: `Saved updates for ${updated.prospect_name}.` });
     } catch (err) {
       console.error(err);
-      setError(err.message || "Could not save your request.");
+      const message = err.message || "Could not save your request.";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setSavingId(null);
     }
@@ -502,6 +515,30 @@ export default function ProspectPoolPage() {
       }}
     >
       <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "24px 18px 48px" }}>
+        {toast ? (
+          <div
+            style={{
+              position: "fixed",
+              right: "24px",
+              bottom: "24px",
+              zIndex: 30,
+              maxWidth: "320px",
+              padding: "14px 16px",
+              borderRadius: "14px",
+              border:
+                toast.tone === "success" ? "1px solid #86EFAC" : "1px solid #FCA5A5",
+              backgroundColor:
+                toast.tone === "success" ? "rgba(236,253,245,0.98)" : "rgba(254,242,242,0.98)",
+              color: toast.tone === "success" ? "#166534" : "#991B1B",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.14)",
+              fontSize: "14px",
+              fontWeight: 700,
+            }}
+          >
+            {toast.message}
+          </div>
+        ) : null}
+
         <a
           href="/"
           style={{
@@ -595,6 +632,7 @@ export default function ProspectPoolPage() {
               fontWeight: 600,
             }}
           >
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "4px" }}>Saved</div>
             {actionMessage}
           </div>
         ) : null}
@@ -612,6 +650,7 @@ export default function ProspectPoolPage() {
               fontWeight: 600,
             }}
           >
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "4px" }}>Action needed</div>
             {error}
           </div>
         ) : null}

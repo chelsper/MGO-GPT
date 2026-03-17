@@ -113,12 +113,19 @@ export default function ActionOpportunityUpdatePage() {
   const [dictationTarget, setDictationTarget] = useState("");
   const [dictationStatus, setDictationStatus] = useState("");
   const [dictationError, setDictationError] = useState("");
+  const [toast, setToast] = useState(null);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
   const recognitionDisplayRef = useRef("");
   const recognitionFinalizedRef = useRef(false);
   const dictationBaseValueRef = useRef("");
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timeoutId = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   const includeAction = updateMode === "action" || updateMode === "both";
   const includeOpportunity = updateMode === "opportunity" || updateMode === "both";
@@ -467,10 +474,13 @@ export default function ActionOpportunityUpdatePage() {
       setProspectAdded(true);
       setProspectError("");
       setProspectPrompt(null);
+      setToast({ tone: "success", message: "Prospect added to My Top Prospects." });
     },
     onError: (err) => {
       console.error(err);
-      setProspectError(err?.message || "Failed to add prospect.");
+      const message = err?.message || "Failed to add prospect.";
+      setProspectError(message);
+      setToast({ tone: "error", message });
     },
   });
 
@@ -519,6 +529,7 @@ export default function ActionOpportunityUpdatePage() {
     },
     onSuccess: async (data) => {
       setSuccessMessage(getSuccessLabel(updateMode));
+      setToast({ tone: "success", message: getSuccessLabel(updateMode) });
       setProspectError("");
       setProspectAdded(false);
 
@@ -585,7 +596,9 @@ export default function ActionOpportunityUpdatePage() {
     },
     onError: (err) => {
       console.error(err);
-      setError(err?.message || "Failed to submit. Please try again.");
+      const message = err?.message || "Failed to submit. Please try again.";
+      setError(message);
+      setToast({ tone: "error", message });
     },
   });
 
@@ -767,6 +780,30 @@ export default function ActionOpportunityUpdatePage() {
       </header>
 
       <main style={{ maxWidth: "760px", margin: "0 auto", padding: "24px 24px 140px" }}>
+        {toast ? (
+          <div
+            style={{
+              position: "fixed",
+              right: "24px",
+              bottom: "24px",
+              zIndex: 30,
+              maxWidth: "320px",
+              padding: "14px 16px",
+              borderRadius: "14px",
+              border:
+                toast.tone === "success" ? "1px solid #86EFAC" : "1px solid #FCA5A5",
+              backgroundColor:
+                toast.tone === "success" ? "rgba(236,253,245,0.98)" : "rgba(254,242,242,0.98)",
+              color: toast.tone === "success" ? "#166534" : "#991B1B",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.14)",
+              fontSize: "14px",
+              fontWeight: 700,
+            }}
+          >
+            {toast.message}
+          </div>
+        ) : null}
+
         {supportsSpeechRecognition ? (
           <div
             style={{
@@ -811,6 +848,9 @@ export default function ActionOpportunityUpdatePage() {
               fontWeight: 600,
             }}
           >
+            <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+              Submission received
+            </div>
             {successMessage}{" "}
             <a
               href="/submissions"
@@ -922,6 +962,9 @@ export default function ActionOpportunityUpdatePage() {
               fontSize: "14px",
             }}
           >
+            <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+              Action needed
+            </div>
             {error}
           </div>
         ) : null}

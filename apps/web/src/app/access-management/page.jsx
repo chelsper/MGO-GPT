@@ -46,6 +46,13 @@ export default function AccessManagementPage() {
   const [userBlackbaudMatches, setUserBlackbaudMatches] = useState([]);
   const [selectedUserBlackbaudMatch, setSelectedUserBlackbaudMatch] = useState(null);
   const [searchingUserBlackbaud, setSearchingUserBlackbaud] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timeoutId = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   async function loadAccessState() {
     const [profileResponse, accessResponse] = await Promise.all([
@@ -249,10 +256,17 @@ export default function AccessManagementPage() {
           ? "Existing user role updated."
           : "Invitation saved. The invited user can now sign in with this email to claim access.",
       );
+      setToast({
+        tone: "success",
+        message:
+          data?.mode === "user-updated" ? "Existing user updated." : "Invitation saved.",
+      });
       await loadAccessState();
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to save invitation");
+      const message = err instanceof Error ? err.message : "Failed to save invitation";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setSaving(false);
     }
@@ -278,9 +292,12 @@ export default function AccessManagementPage() {
         current.map((user) => (user.id === userId ? data.user : user)),
       );
       setStatusMessage("User role updated.");
+      setToast({ tone: "success", message: "User role updated." });
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to update user role");
+      const message = err instanceof Error ? err.message : "Failed to update user role";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setUpdatingUserId(null);
     }
@@ -308,9 +325,12 @@ export default function AccessManagementPage() {
         ),
       );
       setStatusMessage("Invitation revoked.");
+      setToast({ tone: "success", message: "Invitation revoked." });
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to revoke invitation");
+      const message = err instanceof Error ? err.message : "Failed to revoke invitation";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setRevokingInvitationId(null);
     }
@@ -338,10 +358,13 @@ export default function AccessManagementPage() {
       }
 
       setStatusMessage("Invitation refreshed and ready to resend.");
+      setToast({ tone: "success", message: "Invitation refreshed." });
       await loadAccessState();
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to resend invitation");
+      const message = err instanceof Error ? err.message : "Failed to resend invitation";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setResendingInvitationId(null);
     }
@@ -385,9 +408,12 @@ export default function AccessManagementPage() {
       setUserBlackbaudMatches([]);
       setSelectedUserBlackbaudMatch(null);
       setStatusMessage("User updated.");
+      setToast({ tone: "success", message: "User updated." });
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to update user");
+      const message = err instanceof Error ? err.message : "Failed to update user";
+      setError(message);
+      setToast({ tone: "error", message });
     } finally {
       setUpdatingUserId(null);
     }
@@ -446,6 +472,30 @@ export default function AccessManagementPage() {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <main style={{ maxWidth: "860px", margin: "0 auto", padding: "24px 18px 48px" }}>
+        {toast ? (
+          <div
+            style={{
+              position: "fixed",
+              right: "24px",
+              bottom: "24px",
+              zIndex: 30,
+              maxWidth: "320px",
+              padding: "14px 16px",
+              borderRadius: "14px",
+              border:
+                toast.tone === "success" ? "1px solid #86EFAC" : "1px solid #FCA5A5",
+              backgroundColor:
+                toast.tone === "success" ? "rgba(236,253,245,0.98)" : "rgba(254,242,242,0.98)",
+              color: toast.tone === "success" ? "#166534" : "#991B1B",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.14)",
+              fontSize: "14px",
+              fontWeight: 700,
+            }}
+          >
+            {toast.message}
+          </div>
+        ) : null}
+
         <a
           href="/"
           style={{
@@ -491,11 +541,13 @@ export default function AccessManagementPage() {
 
         {statusMessage ? (
           <div style={{ ...cardStyle, marginBottom: "12px", padding: "14px 18px", backgroundColor: "#ECFDF5", border: "1px solid #A7F3D0", color: "#065F46", fontWeight: 600 }}>
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "4px" }}>Saved</div>
             {statusMessage}
           </div>
         ) : null}
         {error ? (
           <div style={{ ...cardStyle, marginBottom: "12px", padding: "14px 18px", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", fontWeight: 600 }}>
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "4px" }}>Action needed</div>
             {error}
           </div>
         ) : null}
