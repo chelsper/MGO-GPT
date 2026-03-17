@@ -7,6 +7,7 @@ import {
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 import { resolveConstituent } from "@/app/api/utils/constituents";
+import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
 
 const ALLOWED_OPPORTUNITY_STATUSES = new Set([
   "Identification",
@@ -255,7 +256,13 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
   await ensureAppSchema();
 
   const user = await getUserById(userId);
-  if (!user || user.role !== "mgo") {
+  const bootstrapAdminEmail = getBootstrapAdminEmail();
+  const canSeedBootstrapAdmin =
+    Boolean(bootstrapAdminEmail) &&
+    user?.email === bootstrapAdminEmail &&
+    Boolean(user?.blackbaud_constituent_id);
+
+  if (!user || (user.role !== "mgo" && !canSeedBootstrapAdmin)) {
     return { skipped: true, reason: "not-mgo" };
   }
 
