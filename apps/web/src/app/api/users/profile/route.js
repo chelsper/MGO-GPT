@@ -3,8 +3,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { isAllowedWorkspaceEmail, workspaceEmailAccessMessage } from "@/utils/authDomain";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
+import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 
-export async function GET() {
+export async function GET(request) {
   try {
     await ensureAppSchema();
 
@@ -14,7 +16,32 @@ export async function GET() {
     }
 
     const user = await getOrCreateUser(session);
-    return Response.json({ user });
+    const origin = request?.url ? new URL(request.url).origin : null;
+
+    if (user?.role === "mgo") {
+      const hasBlackbaudConnection = await getValidBlackbaudConnection(user.id, origin).catch(
+        () => null,
+      );
+
+      if (hasBlackbaudConnection && !user.blackbaud_portfolio_seeded_at) {
+        try {
+          await bootstrapMgoPortfolioFromBlackbaud({
+            userId: user.id,
+            origin,
+          });
+        } catch (bootstrapError) {
+          console.error("Profile Blackbaud bootstrap error:", bootstrapError);
+        }
+      }
+    }
+
+    const refreshedUser = await sql`
+      SELECT *
+      FROM users
+      WHERE id = ${user.id}
+      LIMIT 1
+    `;
+    return Response.json({ user: refreshedUser[0] || user });
   } catch (error) {
     console.error("Get profile error:", error);
     const message =

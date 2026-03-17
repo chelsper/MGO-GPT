@@ -7,10 +7,14 @@ const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization"
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
 const BLACKBAUD_CONSTITUENT_SEARCH_URL =
   "https://api.sky.blackbaud.com/constituent/v1/constituents/search";
+const BLACKBAUD_CONSTITUENT_CUSTOMSEARCH_URL =
+  "https://api.sky.blackbaud.com/nxt-data-integration/v1/re/constituents/customsearch";
 const BLACKBAUD_CREATE_ACTION_URL =
   "https://api.sky.blackbaud.com/constituent/v1/actions";
 const BLACKBAUD_ACTIONS_URL =
   "https://api.sky.blackbaud.com/constituent/v1/actions";
+const BLACKBAUD_OPPORTUNITIES_URL =
+  "https://api.sky.blackbaud.com/opportunity/v1/opportunities";
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -341,6 +345,92 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     lookupId: item?.lookup_id || item?.lookupId || null,
     raw: item,
   }));
+}
+
+export async function findBlackbaudConstituentByEmail({
+  userId,
+  origin,
+  email,
+}) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_CUSTOMSEARCH_URL, {
+    userId,
+    origin,
+    searchParams: {
+      email: normalizedEmail,
+      limit: 10,
+    },
+  });
+
+  const rows = Array.isArray(payload?.results) ? payload.results : [];
+  const exactMatch =
+    rows.find((item) => {
+      const emails = [
+        item?.primary_email,
+        item?.matched_email,
+      ]
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean);
+      return emails.includes(normalizedEmail);
+    }) || rows[0];
+
+  if (!exactMatch) {
+    return null;
+  }
+
+  return {
+    blackbaudConstituentId:
+      exactMatch?.constituent_id || exactMatch?.id || null,
+    lookupId: exactMatch?.lookup_id || exactMatch?.record_id?.toString() || null,
+    name:
+      [exactMatch?.first_name, exactMatch?.middle_name, exactMatch?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || null,
+    email: exactMatch?.primary_email || exactMatch?.matched_email || null,
+    raw: exactMatch,
+  };
+}
+
+export async function listBlackbaudOpportunities({
+  userId,
+  origin,
+  searchParams,
+  pageLimit = 500,
+  maxPages = 20,
+} = {}) {
+  const results = [];
+  let nextPath = BLACKBAUD_OPPORTUNITIES_URL;
+  let nextSearchParams = {
+    limit: pageLimit,
+    ...searchParams,
+  };
+  let pageCount = 0;
+
+  while (nextPath && pageCount < maxPages) {
+    const payload = await blackbaudApiFetch(nextPath, {
+      userId,
+      origin,
+      searchParams: nextPath === BLACKBAUD_OPPORTUNITIES_URL ? nextSearchParams : undefined,
+    });
+
+    const rows = Array.isArray(payload?.value)
+      ? payload.value
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    results.push(...rows);
+
+    nextPath = payload?.next_link || null;
+    nextSearchParams = undefined;
+    pageCount += 1;
+  }
+
+  return results;
 }
 
 function appendActionSection(label, value) {

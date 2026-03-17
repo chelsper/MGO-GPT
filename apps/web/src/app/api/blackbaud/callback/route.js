@@ -1,4 +1,5 @@
 import { consumeBlackbaudState, exchangeBlackbaudCode, saveBlackbaudConnection } from "@/app/api/utils/blackbaud";
+import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 
 function redirectWithStatus(origin, redirectPath, params) {
   const url = new URL(redirectPath || "/settings", origin);
@@ -43,6 +44,15 @@ export async function GET(request) {
   try {
     const connection = await exchangeBlackbaudCode({ code, origin });
     await saveBlackbaudConnection(stateRow.user_id, connection);
+    try {
+      await bootstrapMgoPortfolioFromBlackbaud({
+        userId: stateRow.user_id,
+        origin,
+        force: true,
+      });
+    } catch (bootstrapError) {
+      console.error("Blackbaud portfolio bootstrap error:", bootstrapError);
+    }
 
     return redirectWithStatus(origin, stateRow.redirect_path || "/settings", {
       blackbaud: "connected",

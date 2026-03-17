@@ -13,7 +13,16 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
   const name = session.user.name || email;
 
   const existing = await sql`
-    SELECT id, name, email, role
+    SELECT
+      id,
+      name,
+      email,
+      role,
+      blackbaud_constituent_id,
+      blackbaud_lookup_id,
+      blackbaud_portfolio_seeded_at,
+      blackbaud_portfolio_seed_attempted_at,
+      blackbaud_portfolio_seed_error
     FROM users
     WHERE email = ${email}
     LIMIT 1
@@ -25,7 +34,16 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
         UPDATE users
         SET role = 'admin', updated_at = NOW()
         WHERE id = ${existing[0].id}
-        RETURNING id, name, email, role
+        RETURNING
+          id,
+          name,
+          email,
+          role,
+          blackbaud_constituent_id,
+          blackbaud_lookup_id,
+          blackbaud_portfolio_seeded_at,
+          blackbaud_portfolio_seed_attempted_at,
+          blackbaud_portfolio_seed_error
       `;
       return elevated[0] || existing[0];
     }
@@ -50,7 +68,16 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
     INSERT INTO users (name, email, role, created_at)
     VALUES (${name}, ${email}, ${assignedRole}, NOW())
     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id, name, email, role
+    RETURNING
+      id,
+      name,
+      email,
+      role,
+      blackbaud_constituent_id,
+      blackbaud_lookup_id,
+      blackbaud_portfolio_seeded_at,
+      blackbaud_portfolio_seed_attempted_at,
+      blackbaud_portfolio_seed_error
   `;
 
   if (created.length === 0) {

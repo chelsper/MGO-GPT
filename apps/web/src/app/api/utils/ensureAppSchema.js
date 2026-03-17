@@ -12,9 +12,35 @@ export default async function ensureAppSchema() {
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         role TEXT NOT NULL DEFAULT 'mgo',
+        blackbaud_constituent_id TEXT,
+        blackbaud_lookup_id TEXT,
+        blackbaud_portfolio_seeded_at TIMESTAMPTZ,
+        blackbaud_portfolio_seed_attempted_at TIMESTAMPTZ,
+        blackbaud_portfolio_seed_error TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_lookup_id TEXT
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_portfolio_seeded_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_portfolio_seed_attempted_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_portfolio_seed_error TEXT
     `;
 
     await sql`
@@ -119,6 +145,22 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE submissions
       ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS blackbaud_action_id TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS blackbaud_sync_status TEXT NOT NULL DEFAULT 'not_requested'
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS blackbaud_sync_error TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS blackbaud_synced_at TIMESTAMPTZ
     `;
 
     await sql`
@@ -338,6 +380,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS last_submission_id BIGINT REFERENCES submissions(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS blackbaud_opportunity_id TEXT
     `;
     await sql`
       ALTER TABLE prospect_opportunities
