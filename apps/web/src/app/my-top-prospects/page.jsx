@@ -3276,36 +3276,58 @@ export default function MyTopProspectsPage() {
               backgroundColor: "white",
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              padding: "18px 20px",
+              padding: "16px 18px",
               marginBottom: "24px",
               display: "flex",
               justifyContent: "space-between",
               gap: "16px",
               flexWrap: "wrap",
-              alignItems: "center",
+              alignItems: "flex-start",
             }}
           >
-            <div style={{ display: "grid", gap: "6px" }}>
+            <div style={{ display: "grid", gap: "10px", flex: 1, minWidth: "260px" }}>
               <div style={{ fontSize: "14px", fontWeight: "700", color: "#111827" }}>
                 Blackbaud opportunity sync
               </div>
-              <div style={{ fontSize: "13px", color: "#4B5563" }}>
-                Linked Lookup ID: {profileStatus.blackbaud_lookup_id}
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <div
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "999px",
+                    backgroundColor: "#EEF2FF",
+                    color: "#4338CA",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                  }}
+                >
+                  Lookup ID: {profileStatus.blackbaud_lookup_id}
+                </div>
+                <div
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "999px",
+                    backgroundColor: "#F9FAFB",
+                    border: "1px solid #E5E7EB",
+                    color: "#4B5563",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                  }}
+                >
+                  Last success:{" "}
+                  {profileStatus.blackbaud_portfolio_seeded_at
+                    ? formatLongDate(profileStatus.blackbaud_portfolio_seeded_at)
+                    : "Never"}
+                </div>
               </div>
-              <div style={{ fontSize: "13px", color: "#6B7280" }}>
+              <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                Pulls qualifying NXT opportunities into your ranked portfolio on demand.
                 Last attempted:{" "}
                 {profileStatus.blackbaud_portfolio_seed_attempted_at
                   ? formatLongDate(profileStatus.blackbaud_portfolio_seed_attempted_at)
-                  : "Never"}
-              </div>
-              <div style={{ fontSize: "13px", color: "#6B7280" }}>
-                Last successful:{" "}
-                {profileStatus.blackbaud_portfolio_seeded_at
-                  ? formatLongDate(profileStatus.blackbaud_portfolio_seeded_at)
-                  : "Never"}
+                  : "Never"}.
               </div>
               {profileStatus.blackbaud_portfolio_seed_error ? (
-                <div style={{ fontSize: "13px", color: "#B91C1C" }}>
+                <div style={{ fontSize: "12px", color: "#B91C1C" }}>
                   Last error: {profileStatus.blackbaud_portfolio_seed_error}
                 </div>
               ) : null}
@@ -3494,8 +3516,7 @@ export default function MyTopProspectsPage() {
                 Filter Top Prospects
               </h2>
               <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
-                Promote or demote prospects with the arrow controls on each card to
-                keep your ranked list current.
+                Refine the ranked list by prospect, status, fiscal year, or next-action state.
               </p>
             </div>
             <div
@@ -3715,12 +3736,12 @@ export default function MyTopProspectsPage() {
                               alignItems: "center",
                               gap: "10px",
                               flexWrap: "wrap",
-                              marginBottom: "6px",
+                              marginBottom: "8px",
                             }}
                           >
                             <span
                               style={{
-                                fontSize: "16px",
+                                fontSize: "18px",
                                 fontWeight: "700",
                                 color: "#111827",
                               }}
@@ -3741,18 +3762,19 @@ export default function MyTopProspectsPage() {
                             >
                               {nextAction.label}
                             </span>
-                            {nextAction.meta ? (
-                              <span
-                                style={{
-                                  fontSize: "12px",
-                                  color: "#6B7280",
-                                  fontWeight: "600",
-                                }}
-                              >
-                                {nextAction.meta}
-                              </span>
-                            ) : null}
                           </div>
+                          {nextAction.meta ? (
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                color: "#6B7280",
+                                fontWeight: "600",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              {nextAction.meta}
+                            </div>
+                          ) : null}
                           <div
                             style={{
                               display: "flex",
@@ -3763,7 +3785,9 @@ export default function MyTopProspectsPage() {
                               flexWrap: "wrap",
                             }}
                           >
-                            <span>{p.expected_close_fy}</span>
+                            <span style={{ fontWeight: "700", color: "#374151" }}>
+                              {p.expected_close_fy}
+                            </span>
                             <span>·</span>
                             <span style={{ fontWeight: "600" }}>{p.ask_type}</span>
                             <span>·</span>
@@ -3779,7 +3803,14 @@ export default function MyTopProspectsPage() {
                             minWidth: "240px",
                           }}
                         >
-                          <div>
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "12px",
+                              backgroundColor: "#F9FAFB",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
                             <div
                               style={{
                                 fontSize: "11px",
@@ -3796,7 +3827,14 @@ export default function MyTopProspectsPage() {
                               {formatCurrency(p.ask_amount)}
                             </div>
                           </div>
-                          <div>
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "12px",
+                              backgroundColor: "#F9FAFB",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
                             <div
                               style={{
                                 fontSize: "11px",
@@ -3813,7 +3851,14 @@ export default function MyTopProspectsPage() {
                               {formatCurrency(p.closed_amount)}
                             </div>
                           </div>
-                          <div>
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "12px",
+                              backgroundColor: "#F9FAFB",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
                             <div
                               style={{
                                 fontSize: "11px",
@@ -3830,7 +3875,14 @@ export default function MyTopProspectsPage() {
                               {p.active_opportunity_count || 0} active / {p.linked_opportunity_count || 0} total
                             </div>
                           </div>
-                          <div>
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "12px",
+                              backgroundColor: "#F9FAFB",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
                             <div
                               style={{
                                 fontSize: "11px",
@@ -3873,12 +3925,25 @@ export default function MyTopProspectsPage() {
                       style={{
                         display: "flex",
                         flexDirection: "column",
-                        gap: "2px",
+                        gap: "6px",
                         flexShrink: 0,
+                        alignItems: "center",
                       }}
                       onClick={(e) => e.stopPropagation()}
                       aria-label={`Reorder ${p.prospect_name}`}
                     >
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: "#6B7280",
+                          fontWeight: "700",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        Rank
+                      </span>
                       <button
                         onClick={() =>
                           reorderMutation.mutate({
@@ -3903,17 +3968,6 @@ export default function MyTopProspectsPage() {
                       >
                         <ChevronUp size={14} color="#374151" />
                       </button>
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          color: "#6B7280",
-                          fontWeight: "700",
-                          textAlign: "center",
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Promote
-                      </span>
                       <button
                         onClick={() =>
                           reorderMutation.mutate({
@@ -3940,17 +3994,6 @@ export default function MyTopProspectsPage() {
                       >
                         <ChevronDown size={14} color="#374151" />
                       </button>
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          color: "#6B7280",
-                          fontWeight: "700",
-                          textAlign: "center",
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Demote
-                      </span>
                     </div>
                   </div>
                 );
