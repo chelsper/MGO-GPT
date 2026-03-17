@@ -231,7 +231,18 @@ export async function PATCH(request) {
       return Response.json({ error: "User id is required" }, { status: 400 });
     }
 
-    if (role !== undefined) {
+    const existingUser = await sql`
+      SELECT role
+      FROM users
+      WHERE id = ${userId}
+      LIMIT 1
+    `;
+
+    if (existingUser.length === 0) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (role !== undefined && role !== existingUser[0].role) {
       assertAssignableRole(role);
     }
 
@@ -251,10 +262,6 @@ export async function PATCH(request) {
       WHERE id = ${userId}
       RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
     `;
-
-    if (updatedUser.length === 0) {
-      return Response.json({ error: "User not found" }, { status: 404 });
-    }
 
     return Response.json({ user: updatedUser[0] });
   } catch (error) {
