@@ -114,6 +114,9 @@ export default function ActionOpportunityUpdatePage() {
   const [dictationStatus, setDictationStatus] = useState("");
   const [dictationError, setDictationError] = useState("");
   const [toast, setToast] = useState(null);
+  const [sharedSummaryOpen, setSharedSummaryOpen] = useState(true);
+  const [actionDetailsOpen, setActionDetailsOpen] = useState(true);
+  const [opportunityDetailsOpen, setOpportunityDetailsOpen] = useState(false);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
@@ -188,6 +191,22 @@ export default function ActionOpportunityUpdatePage() {
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   }
+
+  useEffect(() => {
+    setSharedSummaryOpen(true);
+    if (updateMode === "action") {
+      setActionDetailsOpen(true);
+      setOpportunityDetailsOpen(false);
+      return;
+    }
+    if (updateMode === "opportunity") {
+      setActionDetailsOpen(false);
+      setOpportunityDetailsOpen(true);
+      return;
+    }
+    setActionDetailsOpen(true);
+    setOpportunityDetailsOpen(false);
+  }, [updateMode]);
 
   function finishDictation(text, targetOverride) {
     const target = targetOverride || dictationTarget;
@@ -280,6 +299,28 @@ export default function ActionOpportunityUpdatePage() {
       ),
     [blackbaudMatches, donorName],
   );
+
+  const hasConfirmedMatch = Boolean(
+    selectedBlackbaudMatch ||
+      matchDecision === "link" ||
+      matchDecision === "new" ||
+      (!exactMatch && donorName.trim().length >= 2),
+  );
+  const hasUpdateDetails = Boolean(
+    sharedSummary.trim() ||
+      (includeAction && (actionNotes.trim() || nextStep.trim())) ||
+      (includeOpportunity && (opportunityNotes.trim() || estimatedAmount.trim())),
+  );
+  const steps = [
+    { label: "Identify donor", done: Boolean(donorName.trim()) },
+    { label: "Confirm match", done: hasConfirmedMatch },
+    { label: "Add update", done: hasUpdateDetails },
+    {
+      label: "Submit",
+      done: Boolean(successMessage),
+      current: Boolean(donorName.trim()) && hasConfirmedMatch && hasUpdateDetails && !successMessage,
+    },
+  ];
 
   useEffect(() => {
     if (!includeOpportunity || !exactMatch || matchDecision === "new") {
@@ -950,6 +991,28 @@ export default function ActionOpportunityUpdatePage() {
                 </div>
               ) : null}
             </div>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px" }}>
+              {steps.map((step, index) => (
+                <div
+                  key={step.label}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    backgroundColor: step.done
+                      ? "#DCFCE7"
+                      : step.current
+                        ? "#EEF2FF"
+                        : "#F9FAFB",
+                    color: step.done ? "#166534" : step.current ? "#4338CA" : "#6B7280",
+                    border: step.current ? "1px solid #C7D2FE" : "1px solid #E5E7EB",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                  }}
+                >
+                  {index + 1}. {step.label}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div
@@ -1416,60 +1479,84 @@ export default function ActionOpportunityUpdatePage() {
               marginBottom: "20px",
             }}
           >
-            <div style={{ marginBottom: "16px" }}>
-              <div
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "#6B7280",
-                  marginBottom: "6px",
-                }}
-              >
-                Shared context
-              </div>
-              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
-                Capture the high-level update once here so reviewers can understand the full
-                story before they look at action-specific or opportunity-specific details.
-              </div>
-            </div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: 600,
-                color: "#374151",
-                marginBottom: "8px",
-              }}
-            >
-              Shared summary
-            </label>
-            {supportsSpeechRecognition ? (
-              <DictationButton
-                target="summary"
-                label="summary"
-                dictationTarget={dictationTarget}
-                isRecording={isRecording}
-                onStart={startDictation}
-                onStop={stopDictation}
-              />
-            ) : null}
-            <textarea
-              value={sharedSummary}
-              onChange={(event) => setSharedSummary(event.target.value)}
-              placeholder="What happened, what changed, and what should the team know?"
-              rows={5}
+            <button
+              type="button"
+              onClick={() => setSharedSummaryOpen((current) => !current)}
               style={{
                 width: "100%",
-                padding: "10px 14px",
-                border: "1px solid #D1D5DB",
-                borderRadius: "8px",
-                fontSize: "14px",
-                resize: "vertical",
-                boxSizing: "border-box",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                padding: 0,
+                border: "none",
+                backgroundColor: "transparent",
+                cursor: "pointer",
+                textAlign: "left",
               }}
-            />
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Shared context
+                </div>
+                <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                  Capture the high-level update once here so reviewers can understand the full
+                  story before they look at detail fields.
+                </div>
+              </div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>
+                {sharedSummaryOpen ? "Hide" : "Show"}
+              </div>
+            </button>
+            {sharedSummaryOpen ? (
+              <div style={{ marginTop: "16px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "#374151",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Shared summary
+                </label>
+                {supportsSpeechRecognition ? (
+                  <DictationButton
+                    target="summary"
+                    label="summary"
+                    dictationTarget={dictationTarget}
+                    isRecording={isRecording}
+                    onStart={startDictation}
+                    onStop={stopDictation}
+                  />
+                ) : null}
+                <textarea
+                  value={sharedSummary}
+                  onChange={(event) => setSharedSummary(event.target.value)}
+                  placeholder="What happened, what changed, and what should the team know?"
+                  rows={5}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
 
           {includeAction ? (
@@ -1478,136 +1565,161 @@ export default function ActionOpportunityUpdatePage() {
                 backgroundColor: "white",
                 borderRadius: "12px",
                 border: "1px solid #E5E7EB",
-                padding: "24px",
-                marginBottom: "20px",
-              }}
+              padding: "24px",
+              marginBottom: "20px",
+            }}
             >
-              <div
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "#6B7280",
-                  marginBottom: "6px",
-                }}
-              >
-                Action update
-              </div>
-              <h2 style={{ margin: "0 0 8px", fontSize: "18px", color: "#111827" }}>
-                Action details
-              </h2>
-              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5, marginBottom: "16px" }}>
-                Record the interaction itself, then capture any follow-up the team should carry
-                forward.
-              </div>
-
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#374151",
-                  marginBottom: "8px",
-                }}
-              >
-                Interaction type
-              </label>
-              <select
-                value={interactionType}
-                onChange={(event) => setInteractionType(event.target.value)}
+              <button
+                type="button"
+                onClick={() => setActionDetailsOpen((current) => !current)}
                 style={{
                   width: "100%",
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  backgroundColor: "white",
-                  boxSizing: "border-box",
-                  marginBottom: "16px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: 0,
+                  border: "none",
+                  backgroundColor: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
                 }}
               >
-                {INTERACTION_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </option>
-                ))}
-              </select>
+                <div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      color: "#6B7280",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    Action update
+                  </div>
+                  <h2 style={{ margin: "0 0 8px", fontSize: "18px", color: "#111827" }}>
+                    Action details
+                  </h2>
+                  <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                    Record the interaction itself, then capture any follow-up the team should
+                    carry forward.
+                  </div>
+                </div>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>
+                  {actionDetailsOpen ? "Hide" : "Show"}
+                </div>
+              </button>
+              {actionDetailsOpen ? (
+                <div style={{ marginTop: "16px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Interaction type
+                  </label>
+                  <select
+                    value={interactionType}
+                    onChange={(event) => setInteractionType(event.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      backgroundColor: "white",
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    {INTERACTION_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </option>
+                    ))}
+                  </select>
 
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#374151",
-                  marginBottom: "8px",
-                }}
-              >
-                Action-specific notes
-              </label>
-              {supportsSpeechRecognition ? (
-                <DictationButton
-                  target="actionNotes"
-                  label="notes"
-                  dictationTarget={dictationTarget}
-                  isRecording={isRecording}
-                  onStart={startDictation}
-                  onStop={stopDictation}
-                />
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Action-specific notes
+                  </label>
+                  {supportsSpeechRecognition ? (
+                    <DictationButton
+                      target="actionNotes"
+                      label="notes"
+                      dictationTarget={dictationTarget}
+                      isRecording={isRecording}
+                      onStart={startDictation}
+                      onStop={stopDictation}
+                    />
+                  ) : null}
+                  <textarea
+                    value={actionNotes}
+                    onChange={(event) => setActionNotes(event.target.value)}
+                    placeholder="Relationship details, meeting notes, or context that belongs on the action update."
+                    rows={4}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  />
+
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Next step
+                  </label>
+                  {supportsSpeechRecognition ? (
+                    <DictationButton
+                      target="nextStep"
+                      label="next step"
+                      dictationTarget={dictationTarget}
+                      isRecording={isRecording}
+                      onStart={startDictation}
+                      onStop={stopDictation}
+                    />
+                  ) : null}
+                  <textarea
+                    value={nextStep}
+                    onChange={(event) => setNextStep(event.target.value)}
+                    placeholder="What follow-up should happen next?"
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
               ) : null}
-              <textarea
-                value={actionNotes}
-                onChange={(event) => setActionNotes(event.target.value)}
-                placeholder="Relationship details, meeting notes, or context that belongs on the action update."
-                rows={4}
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  resize: "vertical",
-                  boxSizing: "border-box",
-                  marginBottom: "16px",
-                }}
-              />
-
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#374151",
-                  marginBottom: "8px",
-                }}
-              >
-                Next step
-              </label>
-              {supportsSpeechRecognition ? (
-                <DictationButton
-                  target="nextStep"
-                  label="next step"
-                  dictationTarget={dictationTarget}
-                  isRecording={isRecording}
-                  onStart={startDictation}
-                  onStop={stopDictation}
-                />
-              ) : null}
-              <textarea
-                value={nextStep}
-                onChange={(event) => setNextStep(event.target.value)}
-                placeholder="What follow-up should happen next?"
-                rows={3}
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  resize: "vertical",
-                  boxSizing: "border-box",
-                }}
-              />
             </div>
           ) : null}
 
@@ -1617,125 +1729,150 @@ export default function ActionOpportunityUpdatePage() {
                 backgroundColor: "white",
                 borderRadius: "12px",
                 border: "1px solid #E5E7EB",
-                padding: "24px",
-                marginBottom: "20px",
-              }}
+              padding: "24px",
+              marginBottom: "20px",
+            }}
             >
-              <div
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "#6B7280",
-                  marginBottom: "6px",
-                }}
-              >
-                Opportunity update
-              </div>
-              <h2 style={{ margin: "0 0 8px", fontSize: "18px", color: "#111827" }}>
-                Opportunity details
-              </h2>
-              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5, marginBottom: "16px" }}>
-                Update the current stage, value, and any solicitation context that should change
-                the opportunity record.
-              </div>
-
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#374151",
-                  marginBottom: "8px",
-                }}
-              >
-                Opportunity stage
-              </label>
-              <select
-                value={opportunityStage}
-                onChange={(event) => setOpportunityStage(event.target.value)}
+              <button
+                type="button"
+                onClick={() => setOpportunityDetailsOpen((current) => !current)}
                 style={{
                   width: "100%",
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  backgroundColor: "white",
-                  boxSizing: "border-box",
-                  marginBottom: "16px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: 0,
+                  border: "none",
+                  backgroundColor: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
                 }}
               >
-                {STAGES.map((stage) => (
-                  <option key={stage} value={stage}>
-                    {stage}
-                  </option>
-                ))}
-              </select>
+                <div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      color: "#6B7280",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    Opportunity update
+                  </div>
+                  <h2 style={{ margin: "0 0 8px", fontSize: "18px", color: "#111827" }}>
+                    Opportunity details
+                  </h2>
+                  <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                    Update the current stage, value, and any solicitation context that should
+                    change the opportunity record.
+                  </div>
+                </div>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>
+                  {opportunityDetailsOpen ? "Hide" : "Show"}
+                </div>
+              </button>
+              {opportunityDetailsOpen ? (
+                <div style={{ marginTop: "16px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Opportunity stage
+                  </label>
+                  <select
+                    value={opportunityStage}
+                    onChange={(event) => setOpportunityStage(event.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      backgroundColor: "white",
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    {STAGES.map((stage) => (
+                      <option key={stage} value={stage}>
+                        {stage}
+                      </option>
+                    ))}
+                  </select>
 
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#374151",
-                  marginBottom: "8px",
-                }}
-              >
-                Estimated amount
-              </label>
-              <input
-                type="number"
-                value={estimatedAmount}
-                onChange={(event) => setEstimatedAmount(event.target.value)}
-                placeholder="Enter amount"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                  marginBottom: "16px",
-                }}
-              />
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Estimated amount
+                  </label>
+                  <input
+                    type="number"
+                    value={estimatedAmount}
+                    onChange={(event) => setEstimatedAmount(event.target.value)}
+                    placeholder="Enter amount"
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  />
 
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#374151",
-                  marginBottom: "8px",
-                }}
-              >
-                Opportunity-specific notes
-              </label>
-              {supportsSpeechRecognition ? (
-                <DictationButton
-                  target="opportunityNotes"
-                  label="notes"
-                  dictationTarget={dictationTarget}
-                  isRecording={isRecording}
-                  onStart={startDictation}
-                  onStop={stopDictation}
-                />
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Opportunity-specific notes
+                  </label>
+                  {supportsSpeechRecognition ? (
+                    <DictationButton
+                      target="opportunityNotes"
+                      label="notes"
+                      dictationTarget={dictationTarget}
+                      isRecording={isRecording}
+                      onStart={startDictation}
+                      onStop={stopDictation}
+                    />
+                  ) : null}
+                  <textarea
+                    value={opportunityNotes}
+                    onChange={(event) => setOpportunityNotes(event.target.value)}
+                    placeholder="Stage changes, objection notes, ask framing, or timing details."
+                    rows={4}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
               ) : null}
-              <textarea
-                value={opportunityNotes}
-                onChange={(event) => setOpportunityNotes(event.target.value)}
-                placeholder="Stage changes, objection notes, ask framing, or timing details."
-                rows={4}
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  resize: "vertical",
-                  boxSizing: "border-box",
-                }}
-              />
             </div>
           ) : null}
 
