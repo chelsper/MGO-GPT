@@ -820,51 +820,6 @@ export default function ActionOpportunityUpdatePage() {
           </div>
         ) : null}
 
-        {submitMutation.isPending ? (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#EDE9FE",
-              color: "#5B21B6",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            Sending your update to the submission tracker...
-          </div>
-        ) : null}
-
-        {successMessage ? (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#D1FAE5",
-              color: "#065F46",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
-              Submission received
-            </div>
-            {successMessage}{" "}
-            <a
-              href="/submissions"
-              style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
-            >
-              View submission tracker
-            </a>
-            or{" "}
-            <a href="/" style={{ color: "#065F46", textDecoration: "underline" }}>
-              Back to dashboard
-            </a>
-          </div>
-        ) : null}
-
         {prospectPrompt ? (
           <div
             style={{
@@ -1895,6 +1850,49 @@ export default function ActionOpportunityUpdatePage() {
               Submit one combined update and route it into the shared review queue. The summary
               above will be shared across any action and opportunity details you included.
             </div>
+            {submitMutation.isPending ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#EDE9FE",
+                  color: "#5B21B6",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                Sending your update to the submission tracker...
+              </div>
+            ) : null}
+            {successMessage ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#D1FAE5",
+                  color: "#065F46",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+                  Submission received
+                </div>
+                {successMessage}{" "}
+                <a
+                  href="/submissions"
+                  style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
+                >
+                  View submission tracker
+                </a>
+                or{" "}
+                <a href="/" style={{ color: "#065F46", textDecoration: "underline" }}>
+                  Back to dashboard
+                </a>
+              </div>
+            ) : null}
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <a
                 href="/"
