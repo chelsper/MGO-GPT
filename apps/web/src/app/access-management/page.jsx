@@ -668,10 +668,10 @@ export default function AccessManagementPage() {
                       Joined {new Date(user.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                  {isBootstrapAdmin ? (
-                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
+                  <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
+                    {isBootstrapAdmin ? (
+                      <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
+                    ) : (
                       <select
                         value={user.role}
                         onChange={(event) => handleRoleChange(user.id, event.target.value)}
@@ -681,27 +681,29 @@ export default function AccessManagementPage() {
                         <option value="mgo">MGO</option>
                         <option value="reviewer">Advancement Services</option>
                       </select>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingUserId((current) => (current === user.id ? null : user.id));
-                            setUserBlackbaudQuery("");
-                            setUserBlackbaudMatches([]);
-                            setSelectedUserBlackbaudMatch(null);
-                          }}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: "10px",
-                            border: "1px solid #D1D5DB",
-                            backgroundColor: "white",
-                            color: "#111827",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {editingUserId === user.id ? "Close edit" : "Edit"}
-                        </button>
+                    )}
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingUserId((current) => (current === user.id ? null : user.id));
+                          setUserBlackbaudQuery("");
+                          setUserBlackbaudMatches([]);
+                          setSelectedUserBlackbaudMatch(null);
+                        }}
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: "10px",
+                          border: "1px solid #D1D5DB",
+                          backgroundColor: "white",
+                          color: "#111827",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {editingUserId === user.id ? "Close edit" : "Edit"}
+                      </button>
+                      {isBootstrapAdmin ? null : (
                         <button
                           type="button"
                           onClick={() => handleUpdateUser(user, { active: !user.active })}
@@ -718,9 +720,9 @@ export default function AccessManagementPage() {
                         >
                           {user.active ? "Deactivate" : "Reactivate"}
                         </button>
-                      </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
