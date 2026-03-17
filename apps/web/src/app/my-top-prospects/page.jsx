@@ -3075,6 +3075,17 @@ export default function MyTopProspectsPage() {
     enabled: !!user,
   });
 
+  const { data: profileStatus } = useQuery({
+    queryKey: ["profile-sync-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/users/profile");
+      if (!res.ok) throw new Error("Failed to fetch profile");
+      const data = await res.json();
+      return data.user;
+    },
+    enabled: !!user,
+  });
+
   const addMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch("/api/prospects", {
@@ -3104,6 +3115,24 @@ export default function MyTopProspectsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/users/profile/blackbaud-sync", {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to sync from Blackbaud");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
     },
   });
 
@@ -3241,6 +3270,66 @@ export default function MyTopProspectsPage() {
       </header>
 
       <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "24px" }}>
+        {profileStatus?.blackbaud_lookup_id ? (
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              padding: "18px 20px",
+              marginBottom: "24px",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "16px",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ display: "grid", gap: "6px" }}>
+              <div style={{ fontSize: "14px", fontWeight: "700", color: "#111827" }}>
+                Blackbaud opportunity sync
+              </div>
+              <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                Linked Lookup ID: {profileStatus.blackbaud_lookup_id}
+              </div>
+              <div style={{ fontSize: "13px", color: "#6B7280" }}>
+                Last attempted:{" "}
+                {profileStatus.blackbaud_portfolio_seed_attempted_at
+                  ? formatLongDate(profileStatus.blackbaud_portfolio_seed_attempted_at)
+                  : "Never"}
+              </div>
+              <div style={{ fontSize: "13px", color: "#6B7280" }}>
+                Last successful:{" "}
+                {profileStatus.blackbaud_portfolio_seeded_at
+                  ? formatLongDate(profileStatus.blackbaud_portfolio_seeded_at)
+                  : "Never"}
+              </div>
+              {profileStatus.blackbaud_portfolio_seed_error ? (
+                <div style={{ fontSize: "13px", color: "#B91C1C" }}>
+                  Last error: {profileStatus.blackbaud_portfolio_seed_error}
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              style={{
+                padding: "10px 16px",
+                backgroundColor: syncMutation.isPending ? "#C7D2FE" : "#6A5BFF",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "14px",
+                fontWeight: "700",
+                cursor: syncMutation.isPending ? "not-allowed" : "pointer",
+              }}
+            >
+              {syncMutation.isPending ? "Syncing..." : "Sync from Blackbaud opportunities"}
+            </button>
+          </div>
+        ) : null}
+
         {/* Summary Stats */}
         {summary && (
           <div
