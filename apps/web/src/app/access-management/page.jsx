@@ -648,216 +648,219 @@ export default function AccessManagementPage() {
                     borderRadius: "12px",
                     padding: "16px",
                     display: "grid",
-                    gridTemplateColumns: "1fr auto",
                     gap: "12px",
-                    alignItems: "center",
                   }}
                 >
-                  <div>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{user.name}</div>
-                    <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>{user.email}</div>
-                    <div style={{ fontSize: "12px", color: user.active ? "#6B7280" : "#B91C1C", marginTop: "6px", fontWeight: 600 }}>
-                      {user.active ? "Active" : "Deactivated"}
-                    </div>
-                    {user.blackbaud_lookup_id ? (
-                      <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
-                        Lookup ID: {user.blackbaud_lookup_id}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: "12px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{user.name}</div>
+                      <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>{user.email}</div>
+                      <div style={{ fontSize: "12px", color: user.active ? "#6B7280" : "#B91C1C", marginTop: "6px", fontWeight: 600 }}>
+                        {user.active ? "Active" : "Deactivated"}
                       </div>
-                    ) : null}
-                    <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px" }}>
-                      Joined {new Date(user.created_at).toLocaleDateString()}
+                      {user.blackbaud_lookup_id ? (
+                        <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
+                          Lookup ID: {user.blackbaud_lookup_id}
+                        </div>
+                      ) : null}
+                      <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px" }}>
+                        Joined {new Date(user.created_at).toLocaleDateString()}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
-                    {isBootstrapAdmin ? (
-                      <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
-                    ) : (
-                      <select
-                        value={user.role}
-                        onChange={(event) => handleRoleChange(user.id, event.target.value)}
-                        disabled={updatingUserId === user.id}
-                        style={{ ...inputStyle, minWidth: "180px" }}
-                      >
-                        <option value="mgo">MGO</option>
-                        <option value="reviewer">Advancement Services</option>
-                      </select>
-                    )}
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingUserId((current) => (current === user.id ? null : user.id));
-                          setUserBlackbaudQuery("");
-                          setUserBlackbaudMatches([]);
-                          setSelectedUserBlackbaudMatch(null);
-                        }}
-                        style={{
-                          padding: "8px 12px",
-                          borderRadius: "10px",
-                          border: "1px solid #D1D5DB",
-                          backgroundColor: "white",
-                          color: "#111827",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {editingUserId === user.id ? "Close edit" : "Edit"}
-                      </button>
-                      {isBootstrapAdmin ? null : (
+                    <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
+                      {isBootstrapAdmin ? (
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
+                      ) : (
+                        <select
+                          value={user.role}
+                          onChange={(event) => handleRoleChange(user.id, event.target.value)}
+                          disabled={updatingUserId === user.id}
+                          style={{ ...inputStyle, minWidth: "180px" }}
+                        >
+                          <option value="mgo">MGO</option>
+                          <option value="reviewer">Advancement Services</option>
+                        </select>
+                      )}
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <button
                           type="button"
-                          onClick={() => handleUpdateUser(user, { active: !user.active })}
-                          disabled={updatingUserId === user.id}
+                          onClick={() => {
+                            setEditingUserId((current) => (current === user.id ? null : user.id));
+                            setUserBlackbaudQuery("");
+                            setUserBlackbaudMatches([]);
+                            setSelectedUserBlackbaudMatch(null);
+                          }}
                           style={{
                             padding: "8px 12px",
                             borderRadius: "10px",
-                            border: user.active ? "1px solid #FCA5A5" : "1px solid #86EFAC",
+                            border: "1px solid #D1D5DB",
                             backgroundColor: "white",
-                            color: user.active ? "#B91C1C" : "#166534",
+                            color: "#111827",
                             fontWeight: 700,
-                            cursor: updatingUserId === user.id ? "not-allowed" : "pointer",
+                            cursor: "pointer",
                           }}
                         >
-                          {user.active ? "Deactivate" : "Reactivate"}
+                          {editingUserId === user.id ? "Close edit" : "Edit"}
                         </button>
-                      )}
+                        {isBootstrapAdmin ? null : (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateUser(user, { active: !user.active })}
+                            disabled={updatingUserId === user.id}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "10px",
+                              border: user.active ? "1px solid #FCA5A5" : "1px solid #86EFAC",
+                              backgroundColor: "white",
+                              color: user.active ? "#B91C1C" : "#166534",
+                              fontWeight: 700,
+                              cursor: updatingUserId === user.id ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {user.active ? "Deactivate" : "Reactivate"}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  {editingUserId === user.id ? (
+                    <div
+                      style={{
+                        border: "1px solid #E5E7EB",
+                        borderRadius: "12px",
+                        padding: "16px",
+                        backgroundColor: "#F9FAFB",
+                      }}
+                    >
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "8px" }}>
+                        Edit {user.name}
+                      </div>
+                      <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+                        Connect to Blackbaud user
+                      </label>
+                      <input
+                        type="text"
+                        value={userBlackbaudQuery}
+                        onChange={(event) => {
+                          setUserBlackbaudQuery(event.target.value);
+                          setSelectedUserBlackbaudMatch(null);
+                        }}
+                        placeholder="Search by name or Lookup ID"
+                        style={inputStyle}
+                      />
+                      {searchingUserBlackbaud ? (
+                        <div style={{ marginTop: "10px", fontSize: "13px", color: "#6B7280" }}>
+                          Searching Blackbaud...
+                        </div>
+                      ) : null}
+                      {userBlackbaudMatches.length > 0 ? (
+                        <div
+                          style={{
+                            marginTop: "12px",
+                            display: "grid",
+                            gap: "8px",
+                          }}
+                        >
+                          {userBlackbaudMatches.map((match) => {
+                            const selected =
+                              selectedUserBlackbaudMatch?.blackbaudConstituentId ===
+                              match.blackbaudConstituentId;
+                            return (
+                              <button
+                                key={match.blackbaudConstituentId || match.lookupId || match.name}
+                                type="button"
+                                onClick={() => setSelectedUserBlackbaudMatch(match)}
+                                style={{
+                                  textAlign: "left",
+                                  borderRadius: "10px",
+                                  border: selected ? "2px solid #6A5BFF" : "1px solid #E5E7EB",
+                                  backgroundColor: selected ? "#EEF2FF" : "white",
+                                  padding: "12px",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                                  {match.name || "Unnamed constituent"}
+                                </div>
+                                {match.lookupId ? (
+                                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#4B5563" }}>
+                                    Lookup ID: {match.lookupId}
+                                  </div>
+                                ) : null}
+                                {match.email ? (
+                                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                                    {match.email}
+                                  </div>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280" }}>
+                        Current Lookup ID: {user.blackbaud_lookup_id || "Not linked"}
+                      </div>
+                      <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingUserId(null);
+                            setUserBlackbaudQuery("");
+                            setUserBlackbaudMatches([]);
+                            setSelectedUserBlackbaudMatch(null);
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            color: "#111827",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleUpdateUser(user, {
+                              blackbaudConstituentId:
+                                selectedUserBlackbaudMatch?.blackbaudConstituentId || null,
+                              blackbaudLookupId:
+                                selectedUserBlackbaudMatch?.lookupId || null,
+                            })
+                          }
+                          disabled={updatingUserId === user.id || !selectedUserBlackbaudMatch}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: "none",
+                            backgroundColor: "#6A5BFF",
+                            color: "white",
+                            fontWeight: 700,
+                            cursor:
+                              updatingUserId === user.id || !selectedUserBlackbaudMatch
+                                ? "not-allowed"
+                                : "pointer",
+                          }}
+                        >
+                          Save Blackbaud link
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
           </div>
-          {users.map((user) =>
-            editingUserId === user.id ? (
-              <div
-                key={`editor-${user.id}`}
-                style={{
-                  marginTop: "12px",
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "12px",
-                  padding: "16px",
-                  backgroundColor: "#F9FAFB",
-                }}
-              >
-                <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "8px" }}>
-                  Edit {user.name}
-                </div>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
-                  Connect to Blackbaud user
-                </label>
-                <input
-                  type="text"
-                  value={userBlackbaudQuery}
-                  onChange={(event) => {
-                    setUserBlackbaudQuery(event.target.value);
-                    setSelectedUserBlackbaudMatch(null);
-                  }}
-                  placeholder="Search by name or Lookup ID"
-                  style={inputStyle}
-                />
-                {searchingUserBlackbaud ? (
-                  <div style={{ marginTop: "10px", fontSize: "13px", color: "#6B7280" }}>
-                    Searching Blackbaud...
-                  </div>
-                ) : null}
-                {userBlackbaudMatches.length > 0 ? (
-                  <div
-                    style={{
-                      marginTop: "12px",
-                      display: "grid",
-                      gap: "8px",
-                    }}
-                  >
-                    {userBlackbaudMatches.map((match) => {
-                      const selected =
-                        selectedUserBlackbaudMatch?.blackbaudConstituentId ===
-                        match.blackbaudConstituentId;
-                      return (
-                        <button
-                          key={match.blackbaudConstituentId || match.lookupId || match.name}
-                          type="button"
-                          onClick={() => setSelectedUserBlackbaudMatch(match)}
-                          style={{
-                            textAlign: "left",
-                            borderRadius: "10px",
-                            border: selected ? "2px solid #6A5BFF" : "1px solid #E5E7EB",
-                            backgroundColor: selected ? "#EEF2FF" : "white",
-                            padding: "12px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
-                            {match.name || "Unnamed constituent"}
-                          </div>
-                          {match.lookupId ? (
-                            <div style={{ marginTop: "4px", fontSize: "13px", color: "#4B5563" }}>
-                              Lookup ID: {match.lookupId}
-                            </div>
-                          ) : null}
-                          {match.email ? (
-                            <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
-                              {match.email}
-                            </div>
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280" }}>
-                  Current Lookup ID: {user.blackbaud_lookup_id || "Not linked"}
-                </div>
-                <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingUserId(null);
-                      setUserBlackbaudQuery("");
-                      setUserBlackbaudMatches([]);
-                      setSelectedUserBlackbaudMatch(null);
-                    }}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: "10px",
-                      border: "1px solid #D1D5DB",
-                      backgroundColor: "white",
-                      color: "#111827",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleUpdateUser(user, {
-                        blackbaudConstituentId:
-                          selectedUserBlackbaudMatch?.blackbaudConstituentId || null,
-                        blackbaudLookupId:
-                          selectedUserBlackbaudMatch?.lookupId || null,
-                      })
-                    }
-                    disabled={updatingUserId === user.id || !selectedUserBlackbaudMatch}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: "10px",
-                      border: "none",
-                      backgroundColor: "#6A5BFF",
-                      color: "white",
-                      fontWeight: 700,
-                      cursor:
-                        updatingUserId === user.id || !selectedUserBlackbaudMatch
-                          ? "not-allowed"
-                          : "pointer",
-                    }}
-                  >
-                    Save Blackbaud link
-                  </button>
-                </div>
-              </div>
-            ) : null,
-          )}
         </div>
 
         <div style={cardStyle}>
