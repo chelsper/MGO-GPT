@@ -10,6 +10,30 @@ async function getUser(session) {
   return null;
 }
 
+async function normalizeActiveProspectOrder(userId) {
+  const activeProspects = await sql`
+    SELECT id
+    FROM prospects
+    WHERE user_id = ${userId} AND status = 'Active'
+    ORDER BY
+      CASE WHEN priority_order IS NULL THEN 1 ELSE 0 END,
+      priority_order ASC,
+      created_at ASC
+  `;
+
+  if (activeProspects.length === 0) {
+    return;
+  }
+
+  await sql.transaction(
+    activeProspects.map((prospect, index) => sql`
+      UPDATE prospects
+      SET priority_order = ${index + 1}
+      WHERE id = ${prospect.id}
+    `),
+  );
+}
+
 // POST reorder prospects (swap two positions)
 export async function POST(request) {
   try {
@@ -23,6 +47,8 @@ export async function POST(request) {
     const user = await getUser(session);
     if (!user)
       return Response.json({ error: "User not found" }, { status: 404 });
+
+    await normalizeActiveProspectOrder(user.id);
 
     const body = await request.json();
     const { prospectId, direction } = body;

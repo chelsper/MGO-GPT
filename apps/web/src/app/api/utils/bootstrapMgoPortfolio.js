@@ -248,6 +248,16 @@ async function rankExistingProspects(userId, prospectIdsInOrder) {
   }
 }
 
+async function getNextActivePriorityOrder(userId) {
+  const rows = await sql`
+    SELECT COALESCE(MAX(priority_order), 0) AS max_order
+    FROM prospects
+    WHERE user_id = ${userId} AND status = 'Active'
+  `;
+
+  return Number(rows[0]?.max_order || 0);
+}
+
 export async function bootstrapMgoPortfolioFromBlackbaud({
   userId,
   origin,
@@ -373,7 +383,7 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
     ORDER BY priority_order ASC, created_at ASC
   `;
   const hadActiveProspects = activeProspects.length > 0;
-  let nextPriorityOrder = activeProspects.length;
+  let nextPriorityOrder = await getNextActivePriorityOrder(userId);
   const seededProspectIds = [];
   let createdProspects = 0;
   let createdOpportunities = 0;
