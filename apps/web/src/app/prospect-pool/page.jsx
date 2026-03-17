@@ -709,15 +709,6 @@ export default function ProspectPoolPage() {
                             >
                               {match.name || "Unnamed constituent"}
                             </div>
-                            <div
-                              style={{
-                                marginTop: "4px",
-                                fontSize: "12px",
-                                color: "#4B5563",
-                              }}
-                            >
-                              Blackbaud ID: {match.blackbaudConstituentId || "Unknown"}
-                            </div>
                             {match.lookupId ? (
                               <div
                                 style={{
@@ -799,8 +790,14 @@ export default function ProspectPoolPage() {
                       color: "#1F2937",
                     }}
                   >
-                    {selectedBlackbaudMatch.name} will be linked with Blackbaud ID{" "}
-                    <strong>{selectedBlackbaudMatch.blackbaudConstituentId}</strong>.
+                    {selectedBlackbaudMatch.name} will be linked
+                    {selectedBlackbaudMatch.lookupId ? (
+                      <>
+                        {" "}with Lookup ID <strong>{selectedBlackbaudMatch.lookupId}</strong>.
+                      </>
+                    ) : (
+                      "."
+                    )}
                   </div>
                 ) : null}
               </label>
@@ -1202,18 +1199,17 @@ export default function ProspectPoolPage() {
                             >
                               Blackbaud Summary
                             </div>
-                            <div
-                              style={{
-                                marginTop: "4px",
-                                fontSize: "12px",
-                                color: "#4B5563",
-                              }}
-                            >
-                              Blackbaud ID: {entry.linked_blackbaud_constituent_id}
-                              {blackbaudConstituent?.lookupId
-                                ? ` · Lookup ID: ${blackbaudConstituent.lookupId}`
-                                : ""}
-                            </div>
+                            {blackbaudConstituent?.lookupId ? (
+                              <div
+                                style={{
+                                  marginTop: "4px",
+                                  fontSize: "12px",
+                                  color: "#4B5563",
+                                }}
+                              >
+                                Lookup ID: {blackbaudConstituent.lookupId}
+                              </div>
+                            ) : null}
                           </div>
                           <div
                             style={{

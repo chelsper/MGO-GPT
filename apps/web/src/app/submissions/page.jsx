@@ -1091,18 +1091,17 @@ export default function SubmissionsPage() {
                             >
                               Blackbaud Summary
                             </div>
-                            <div
-                              style={{
-                                marginTop: "4px",
-                                fontSize: "12px",
-                                color: "#4B5563",
-                              }}
-                            >
-                              Blackbaud ID: {group.linkedBlackbaudConstituentId}
-                              {blackbaudConstituent?.lookupId
-                                ? ` · Lookup ID: ${blackbaudConstituent.lookupId}`
-                                : ""}
-                            </div>
+                            {blackbaudConstituent?.lookupId ? (
+                              <div
+                                style={{
+                                  marginTop: "4px",
+                                  fontSize: "12px",
+                                  color: "#4B5563",
+                                }}
+                              >
+                                Lookup ID: {blackbaudConstituent.lookupId}
+                              </div>
+                            ) : null}
                           </div>
                           <div
                             style={{
@@ -1545,14 +1544,6 @@ export default function SubmissionsPage() {
                                     </div>
                                     <div style={{ fontSize: "14px", color: "#111827" }}>
                                       {matchedConstituentRequest.requestTypes.join(" + ")}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                                      Blackbaud ID
-                                    </div>
-                                    <div style={{ fontSize: "14px", color: "#111827" }}>
-                                      {matchedConstituentRequest.blackbaudId}
                                     </div>
                                   </div>
                                   {matchedConstituentRequest.lookupId ? (

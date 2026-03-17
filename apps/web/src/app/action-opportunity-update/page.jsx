@@ -1145,9 +1145,6 @@ export default function ActionOpportunityUpdatePage() {
                         <div style={{ fontSize: "13px", fontWeight: 700, color: "#111827" }}>
                           {match.name || "Unnamed constituent"}
                         </div>
-                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
-                          Blackbaud ID: {match.blackbaudConstituentId || "Unknown"}
-                        </div>
                         {match.lookupId ? (
                           <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
                             Lookup ID: {match.lookupId}
@@ -1210,8 +1207,14 @@ export default function ActionOpportunityUpdatePage() {
                   Selected Blackbaud match
                 </div>
                 <div style={{ marginTop: "6px", fontSize: "13px", color: "#1F2937" }}>
-                  {selectedBlackbaudMatch.name} will be linked with Blackbaud ID{" "}
-                  <strong>{selectedBlackbaudMatch.blackbaudConstituentId}</strong>.
+                  {selectedBlackbaudMatch.name} will be linked
+                  {selectedBlackbaudMatch.lookupId ? (
+                    <>
+                      {" "}with Lookup ID <strong>{selectedBlackbaudMatch.lookupId}</strong>.
+                    </>
+                  ) : (
+                    "."
+                  )}
                 </div>
               </div>
             ) : null}

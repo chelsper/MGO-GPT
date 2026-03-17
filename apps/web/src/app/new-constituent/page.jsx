@@ -915,9 +915,6 @@ export default function NewConstituentPage() {
                         <div style={{ fontSize: "13px", fontWeight: 700, color: "#111827" }}>
                           {match.name || "Unnamed constituent"}
                         </div>
-                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
-                          Blackbaud ID: {match.blackbaudConstituentId || "Unknown"}
-                        </div>
                         {match.lookupId ? (
                           <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
                             Lookup ID: {match.lookupId}
@@ -990,7 +987,9 @@ export default function NewConstituentPage() {
                 </div>
                 <div style={{ marginBottom: "10px" }}>
                   Selected match: <strong>{activeBlackbaudMatch.name}</strong>{" "}
-                  ({activeBlackbaudMatch.blackbaudConstituentId})
+                  {activeBlackbaudMatch.lookupId
+                    ? `(${activeBlackbaudMatch.lookupId})`
+                    : ""}
                 </div>
                 <div style={{ marginBottom: "8px", fontWeight: 600 }}>
                   Do you have an update to add on this constituent?
