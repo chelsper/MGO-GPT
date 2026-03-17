@@ -5,6 +5,7 @@ import { isAllowedWorkspaceEmail, workspaceEmailAccessMessage } from "@/utils/au
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
+import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
 
 export async function GET(request) {
   try {
@@ -17,8 +18,13 @@ export async function GET(request) {
 
     const user = await getOrCreateUser(session);
     const origin = request?.url ? new URL(request.url).origin : null;
+    const bootstrapAdminEmail = getBootstrapAdminEmail();
+    const canSeedBootstrapAdmin =
+      Boolean(bootstrapAdminEmail) &&
+      user?.email === bootstrapAdminEmail &&
+      Boolean(user?.blackbaud_constituent_id);
 
-    if (user?.role === "mgo") {
+    if (user?.role === "mgo" || canSeedBootstrapAdmin) {
       const hasBlackbaudConnection = await getValidBlackbaudConnection(user.id, origin).catch(
         () => null,
       );
