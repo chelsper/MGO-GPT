@@ -967,6 +967,7 @@ export default function SubmissionsPage() {
                 const blackbaudSummaryState = group.linkedBlackbaudConstituentId
                   ? blackbaudSummaries[group.linkedBlackbaudConstituentId]
                   : null;
+                const blackbaudSummary = blackbaudSummaryState?.payload || null;
                 const blackbaudConstituent =
                   blackbaudSummaryState?.payload?.mapped?.constituent || null;
                 const blackbaudLifetimeGiving =
