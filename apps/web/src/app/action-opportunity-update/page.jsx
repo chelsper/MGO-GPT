@@ -1009,10 +1009,99 @@ export default function ActionOpportunityUpdatePage() {
               backgroundColor: "white",
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
+              padding: "20px 24px",
+              marginBottom: "20px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                color: "#6B7280",
+                marginBottom: "10px",
+              }}
+            >
+              Update snapshot
+            </div>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "999px",
+                  backgroundColor: "#EEF2FF",
+                  color: "#4338CA",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                }}
+              >
+                {UPDATE_MODES.find((option) => option.value === updateMode)?.label || "Update"}
+              </div>
+              {donorName.trim() ? (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#111827",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                  }}
+                >
+                  Donor: {donorName.trim()}
+                </div>
+              ) : null}
+              {selectedBlackbaudMatch?.lookupId ? (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    backgroundColor: "#EFF6FF",
+                    color: "#1D4ED8",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                  }}
+                >
+                  Lookup ID: {selectedBlackbaudMatch.lookupId}
+                </div>
+              ) : null}
+              {linkedProspectContext?.prospect?.prospect_name ? (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    backgroundColor: "#ECFDF5",
+                    color: "#047857",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                  }}
+                >
+                  Linked prospect: {linkedProspectContext.prospect.prospect_name}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
               padding: "24px",
               marginBottom: "20px",
             }}
           >
+            <div style={{ marginBottom: "18px" }}>
+              <h2 style={{ margin: "0 0 6px", fontSize: "18px", color: "#111827" }}>
+                Who is this update about?
+              </h2>
+              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                Start with the donor, then decide whether this update should link to an
+                existing workflow person, a Blackbaud constituent, or a current opportunity.
+              </div>
+            </div>
+
             <div style={{ marginBottom: "18px" }}>
               <div
                 style={{
@@ -1095,6 +1184,18 @@ export default function ActionOpportunityUpdatePage() {
                   backgroundColor: "#F5F3FF",
                 }}
               >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Workflow match
+                </div>
                 <div style={{ fontSize: "13px", fontWeight: 700, color: "#5B21B6", marginBottom: "6px" }}>
                   Existing workflow match found
                 </div>
@@ -1149,6 +1250,18 @@ export default function ActionOpportunityUpdatePage() {
                   backgroundColor: "#EFF6FF",
                 }}
               >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Blackbaud match
+                </div>
                 <div
                   style={{
                     fontSize: "13px",
@@ -1246,6 +1359,18 @@ export default function ActionOpportunityUpdatePage() {
                   backgroundColor: "#EFF6FF",
                 }}
               >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Selected match
+                </div>
                 <div style={{ fontSize: "13px", fontWeight: 700, color: "#1D4ED8" }}>
                   Selected Blackbaud match
                 </div>
@@ -1272,6 +1397,18 @@ export default function ActionOpportunityUpdatePage() {
                   backgroundColor: "#EFF6FF",
                 }}
               >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Linked opportunity context
+                </div>
                 <div
                   style={{
                     fontSize: "13px",
@@ -1410,6 +1547,24 @@ export default function ActionOpportunityUpdatePage() {
               marginBottom: "20px",
             }}
           >
+            <div style={{ marginBottom: "16px" }}>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                Shared context
+              </div>
+              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                Capture the high-level update once here so reviewers can understand the full
+                story before they look at action-specific or opportunity-specific details.
+              </div>
+            </div>
             <label
               style={{
                 display: "block",
@@ -1458,9 +1613,25 @@ export default function ActionOpportunityUpdatePage() {
                 marginBottom: "20px",
               }}
             >
-              <h2 style={{ margin: "0 0 16px", fontSize: "18px", color: "#111827" }}>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                Action update
+              </div>
+              <h2 style={{ margin: "0 0 8px", fontSize: "18px", color: "#111827" }}>
                 Action details
               </h2>
+              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5, marginBottom: "16px" }}>
+                Record the interaction itself, then capture any follow-up the team should carry
+                forward.
+              </div>
 
               <label
                 style={{
@@ -1581,9 +1752,25 @@ export default function ActionOpportunityUpdatePage() {
                 marginBottom: "20px",
               }}
             >
-              <h2 style={{ margin: "0 0 16px", fontSize: "18px", color: "#111827" }}>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                Opportunity update
+              </div>
+              <h2 style={{ margin: "0 0 8px", fontSize: "18px", color: "#111827" }}>
                 Opportunity details
               </h2>
+              <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5, marginBottom: "16px" }}>
+                Update the current stage, value, and any solicitation context that should change
+                the opportunity record.
+              </div>
 
               <label
                 style={{
@@ -1685,23 +1872,28 @@ export default function ActionOpportunityUpdatePage() {
 
           <div
             style={{
-              position: "sticky",
-              bottom: "18px",
-              zIndex: 9,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              padding: "14px 16px",
-              borderRadius: "16px",
-              backgroundColor: "rgba(255, 255, 255, 0.96)",
+              backgroundColor: "white",
+              borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.12)",
-              backdropFilter: "blur(12px)",
+              padding: "24px",
+              marginBottom: "12px",
             }}
           >
-            <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-              Submit one combined update and route it into the shared review queue.
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                color: "#6B7280",
+                marginBottom: "6px",
+              }}
+            >
+              Review and submit
+            </div>
+            <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5, marginBottom: "16px" }}>
+              Submit one combined update and route it into the shared review queue. The summary
+              above will be shared across any action and opportunity details you included.
             </div>
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <a
