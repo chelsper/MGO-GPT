@@ -3664,27 +3664,6 @@ export default function MyTopProspectsPage() {
           </div>
         ) : (
           <div style={{ marginBottom: "32px" }}>
-            {/* Table header (desktop only) */}
-            <div
-              className="hidden md:flex"
-              style={{
-                display: "none",
-                padding: "8px 20px",
-                fontSize: "12px",
-                fontWeight: "600",
-                color: "#6B7280",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              <span style={{ width: "50px" }}>#</span>
-              <span style={{ flex: 2 }}>Prospect</span>
-              <span style={{ flex: 1 }}>FY</span>
-              <span style={{ flex: 1 }}>Ask Amount</span>
-              <span style={{ flex: 1 }}>Ask Type</span>
-              <span style={{ width: "80px" }}>Priority</span>
-            </div>
-
             {filteredActiveProspects.map((p, idx) => (
               (() => {
                 const nextAction = getProspectNextAction(p);
@@ -3696,24 +3675,29 @@ export default function MyTopProspectsPage() {
                       backgroundColor: "white",
                       borderRadius: "16px",
                       border: "1px solid #E5E7EB",
-                      padding: "18px 20px",
-                      marginBottom: "10px",
+                      padding: "16px 18px",
+                      marginBottom: "12px",
                       display: "flex",
                       alignItems: "flex-start",
-                      gap: "14px",
+                      gap: "16px",
                       cursor: "pointer",
                     }}
                     onClick={() => setSelectedProspectId(p.id)}
                   >
                     <span
                       style={{
-                        fontSize: "16px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "13px",
                         fontWeight: "700",
-                        color: "#6A5BFF",
-                        width: "28px",
+                        color: "#4338CA",
+                        width: "32px",
+                        height: "32px",
+                        borderRadius: "999px",
+                        backgroundColor: "#EEF2FF",
                         flexShrink: 0,
                         textAlign: "center",
-                        paddingTop: "4px",
                       }}
                     >
                       {idx + 1}
@@ -3769,7 +3753,7 @@ export default function MyTopProspectsPage() {
                                 fontSize: "12px",
                                 color: "#6B7280",
                                 fontWeight: "600",
-                                marginBottom: "8px",
+                                marginBottom: "10px",
                               }}
                             >
                               {nextAction.meta}
@@ -3779,19 +3763,44 @@ export default function MyTopProspectsPage() {
                             style={{
                               display: "flex",
                               alignItems: "center",
-                              gap: "12px",
-                              fontSize: "13px",
-                              color: "#6B7280",
+                              gap: "8px",
                               flexWrap: "wrap",
                             }}
                           >
-                            <span style={{ fontWeight: "700", color: "#374151" }}>
+                            <span
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: "999px",
+                                backgroundColor: "#F9FAFB",
+                                border: "1px solid #E5E7EB",
+                                fontSize: "12px",
+                                fontWeight: "700",
+                                color: "#374151",
+                              }}
+                            >
                               {p.expected_close_fy}
                             </span>
-                            <span>·</span>
-                            <span style={{ fontWeight: "600" }}>{p.ask_type}</span>
-                            <span>·</span>
-                            <span>{formatRelativeDays(p.latest_activity_at)}</span>
+                            <span
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: "999px",
+                                backgroundColor: "#F9FAFB",
+                                border: "1px solid #E5E7EB",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#4B5563",
+                              }}
+                            >
+                              {p.ask_type}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                color: "#6B7280",
+                              }}
+                            >
+                              {formatRelativeDays(p.latest_activity_at)}
+                            </span>
                           </div>
                         </div>
 
@@ -3799,7 +3808,7 @@ export default function MyTopProspectsPage() {
                           style={{
                             display: "grid",
                             gridTemplateColumns: "repeat(2, minmax(110px, 1fr))",
-                            gap: "10px 14px",
+                            gap: "8px 10px",
                             minWidth: "240px",
                           }}
                         >
@@ -3823,7 +3832,7 @@ export default function MyTopProspectsPage() {
                             >
                               Open Pipeline
                             </div>
-                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+                            <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>
                               {formatCurrency(p.ask_amount)}
                             </div>
                           </div>
@@ -3847,7 +3856,7 @@ export default function MyTopProspectsPage() {
                             >
                               Closed So Far
                             </div>
-                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#059669" }}>
+                            <div style={{ fontSize: "16px", fontWeight: 700, color: "#059669" }}>
                               {formatCurrency(p.closed_amount)}
                             </div>
                           </div>
@@ -3871,8 +3880,11 @@ export default function MyTopProspectsPage() {
                             >
                               Opportunities
                             </div>
-                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
-                              {p.active_opportunity_count || 0} active / {p.linked_opportunity_count || 0} total
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                              {p.active_opportunity_count || 0} active
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#6B7280" }}>
+                              {p.linked_opportunity_count || 0} total linked
                             </div>
                           </div>
                           <div
@@ -3910,7 +3922,7 @@ export default function MyTopProspectsPage() {
                             borderRadius: "10px",
                             backgroundColor: "#F9FAFB",
                             border: "1px solid #E5E7EB",
-                            fontSize: "13px",
+                            fontSize: "12px",
                             color: "#374151",
                             lineHeight: 1.5,
                           }}
