@@ -83,6 +83,69 @@ function formatList(value) {
   return String(value);
 }
 
+function parseMatchedConstituentRequest(submission, blackbaudSummary) {
+  const interaction = String(submission?.interaction_type || "").trim();
+  const isMatchedRequest =
+    submission?.submission_type === "donor_update" &&
+    /Data update|Assignment request|Add to top prospects/i.test(interaction) &&
+    submission?.blackbaud_constituent_id;
+
+  if (!isMatchedRequest) return null;
+
+  const requestTypes = interaction
+    .split("+")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const noteBlocks = String(submission?.notes || "")
+    .split(/\n\s*\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const parsed = {
+    requestTypes,
+    blackbaudId: submission.blackbaud_constituent_id || null,
+    lookupId: blackbaudSummary?.mapped?.constituent?.lookupId || null,
+    emailUpdate: null,
+    phoneUpdate: null,
+    organizationUpdate: null,
+    dataUpdateDetails: null,
+    assignmentRequest: null,
+    additionalNotes: [],
+  };
+
+  for (const block of noteBlocks) {
+    if (block.startsWith("Email on request:")) {
+      parsed.emailUpdate = block.replace("Email on request:", "").trim() || null;
+      continue;
+    }
+    if (block.startsWith("Phone on request:")) {
+      parsed.phoneUpdate = block.replace("Phone on request:", "").trim() || null;
+      continue;
+    }
+    if (block.startsWith("Organization on request:")) {
+      parsed.organizationUpdate =
+        block.replace("Organization on request:", "").trim() || null;
+      continue;
+    }
+    if (block.startsWith("Assignment request:")) {
+      parsed.assignmentRequest =
+        block.replace("Assignment request:", "").trim() || null;
+      continue;
+    }
+    if (
+      !parsed.dataUpdateDetails &&
+      requestTypes.some((value) => value.toLowerCase() === "data update")
+    ) {
+      parsed.dataUpdateDetails = block;
+      continue;
+    }
+    parsed.additionalNotes.push(block);
+  }
+
+  return parsed;
+}
+
 export default function SubmissionsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -1147,6 +1210,13 @@ export default function SubmissionsPage() {
                           draft?.reviewerNotes ?? submission.reviewer_notes ?? "";
                         const clarificationResponse =
                           clarificationDrafts[submission.id] ?? "";
+                        const matchedConstituentRequest = parseMatchedConstituentRequest(
+                          submission,
+                          blackbaudSummary,
+                        );
+                        const displayNotes = matchedConstituentRequest?.additionalNotes?.length
+                          ? matchedConstituentRequest.additionalNotes.join("\n\n")
+                          : submission.notes;
 
                         return (
                           <div
@@ -1448,6 +1518,106 @@ export default function SubmissionsPage() {
                               ) : null}
                             </div>
 
+                            {matchedConstituentRequest ? (
+                              <div
+                                style={{
+                                  marginTop: "16px",
+                                  padding: "12px 14px",
+                                  borderRadius: "12px",
+                                  backgroundColor: "#F8FAFC",
+                                  border: "1px solid #CBD5E1",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "10px" }}>
+                                  Constituent update summary
+                                </div>
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                    gap: "12px",
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                      Request type
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {matchedConstituentRequest.requestTypes.join(" + ")}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                      Blackbaud ID
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {matchedConstituentRequest.blackbaudId}
+                                    </div>
+                                  </div>
+                                  {matchedConstituentRequest.lookupId ? (
+                                    <div>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                        Lookup ID
+                                      </div>
+                                      <div style={{ fontSize: "14px", color: "#111827" }}>
+                                        {matchedConstituentRequest.lookupId}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {matchedConstituentRequest.emailUpdate ? (
+                                    <div>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                        Email update
+                                      </div>
+                                      <div style={{ fontSize: "14px", color: "#111827" }}>
+                                        {matchedConstituentRequest.emailUpdate}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {matchedConstituentRequest.phoneUpdate ? (
+                                    <div>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                        Phone update
+                                      </div>
+                                      <div style={{ fontSize: "14px", color: "#111827" }}>
+                                        {matchedConstituentRequest.phoneUpdate}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {matchedConstituentRequest.organizationUpdate ? (
+                                    <div>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                        Organization update
+                                      </div>
+                                      <div style={{ fontSize: "14px", color: "#111827" }}>
+                                        {matchedConstituentRequest.organizationUpdate}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {matchedConstituentRequest.assignmentRequest ? (
+                                    <div style={{ gridColumn: "1 / -1" }}>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                        Assignment request
+                                      </div>
+                                      <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6 }}>
+                                        {matchedConstituentRequest.assignmentRequest}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {matchedConstituentRequest.dataUpdateDetails ? (
+                                    <div style={{ gridColumn: "1 / -1" }}>
+                                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                                        Data update details
+                                      </div>
+                                      <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                        {matchedConstituentRequest.dataUpdateDetails}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+
                             {submission.notes ? (
                               <div
                                 style={{
@@ -1459,10 +1629,10 @@ export default function SubmissionsPage() {
                                 }}
                               >
                                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
-                                  Notes
+                                  {matchedConstituentRequest ? "Additional notes" : "Notes"}
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                                  {submission.notes}
+                                  {displayNotes}
                                 </div>
                               </div>
                             ) : null}
