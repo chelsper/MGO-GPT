@@ -32,7 +32,8 @@ export default function NewConstituentPage() {
   const [businessCardPreview, setBusinessCardPreview] = useState(null);
   const [error, setError] = useState("");
   const [uploadWarning, setUploadWarning] = useState("");
-  const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [toast, setToast] = useState(null);
   const [existingProspects, setExistingProspects] = useState([]);
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [loadingProspects, setLoadingProspects] = useState(true);
@@ -44,6 +45,12 @@ export default function NewConstituentPage() {
   const [existingMatchActions, setExistingMatchActions] = useState({
     dataUpdate: false,
   });
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timeoutId = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
 
   useEffect(() => {
     if (!user) return;
@@ -176,7 +183,7 @@ export default function NewConstituentPage() {
     if (!file) return;
     setError("");
     setUploadWarning("");
-    setSuccess(false);
+    setSuccessMessage("");
 
     const previewUrl = URL.createObjectURL(file);
     setBusinessCardPreview(previewUrl);
@@ -233,7 +240,8 @@ export default function NewConstituentPage() {
       return res.json();
     },
     onSuccess: async (data) => {
-      setSuccess(true);
+      setSuccessMessage("Suggestion submitted successfully.");
+      setToast({ tone: "success", message: "Suggestion submitted successfully." });
       setProspectError("");
       setProspectAdded(false);
       const submittedConstituentId = data?.constituent_id || null;
@@ -276,7 +284,9 @@ export default function NewConstituentPage() {
     },
     onError: (err) => {
       console.error(err);
-      setError(err?.message || "Failed to submit. Please try again.");
+      const message = err?.message || "Failed to submit. Please try again.";
+      setError(message);
+      setToast({ tone: "error", message });
     },
   });
 
@@ -298,7 +308,9 @@ export default function NewConstituentPage() {
     },
     onError: (err) => {
       console.error(err);
-      setProspectError(err?.message || "Failed to add prospect.");
+      const message = err?.message || "Failed to add prospect.";
+      setProspectError(message);
+      setToast({ tone: "error", message });
     },
   });
 
@@ -317,14 +329,16 @@ export default function NewConstituentPage() {
     },
     onError: (err) => {
       console.error(err);
-      setError(err?.message || "Failed to submit. Please try again.");
+      const message = err?.message || "Failed to submit. Please try again.";
+      setError(message);
+      setToast({ tone: "error", message });
     },
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
-    setSuccess(false);
+    setSuccessMessage("");
     setProspectError("");
     setProspectAdded(false);
 
@@ -379,7 +393,11 @@ export default function NewConstituentPage() {
         },
         {
           onSuccess: async (data) => {
-            setSuccess(true);
+            setSuccessMessage("Existing constituent request submitted successfully.");
+            setToast({
+              tone: "success",
+              message: "Existing constituent request submitted successfully.",
+            });
             setProspectError("");
             setProspectAdded(false);
 
@@ -509,6 +527,30 @@ export default function NewConstituentPage() {
       </header>
 
       <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px 24px 140px" }}>
+        {toast ? (
+          <div
+            style={{
+              position: "fixed",
+              right: "24px",
+              bottom: "24px",
+              zIndex: 30,
+              maxWidth: "320px",
+              padding: "14px 16px",
+              borderRadius: "14px",
+              border:
+                toast.tone === "success" ? "1px solid #86EFAC" : "1px solid #FCA5A5",
+              backgroundColor:
+                toast.tone === "success" ? "rgba(236, 253, 245, 0.98)" : "rgba(254, 242, 242, 0.98)",
+              color: toast.tone === "success" ? "#166534" : "#991B1B",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.14)",
+              fontSize: "14px",
+              fontWeight: "700",
+            }}
+          >
+            {toast.message}
+          </div>
+        ) : null}
+
         {(submitMutation.isPending || donorUpdateMutation.isPending) && (
           <div
             style={{
@@ -525,7 +567,7 @@ export default function NewConstituentPage() {
           </div>
         )}
 
-        {success && (
+        {successMessage && (
           <div
             style={{
               padding: "16px",
@@ -535,9 +577,13 @@ export default function NewConstituentPage() {
               marginBottom: "20px",
               fontSize: "14px",
               fontWeight: "600",
+              border: "1px solid #86EFAC",
             }}
           >
-            Constituent suggestion submitted successfully.{" "}
+            <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+              Submission received
+            </div>
+            {successMessage}{" "}
             <a
               href="/submissions"
               style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
@@ -1238,23 +1284,16 @@ export default function NewConstituentPage() {
 
           <div
             style={{
-              position: "sticky",
-              bottom: "16px",
               marginTop: "20px",
-              padding: "14px 16px",
-              borderRadius: "16px",
+              padding: "20px",
+              borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              backgroundColor: "rgba(255,255,255,0.96)",
-              backdropFilter: "blur(10px)",
-              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.12)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "14px",
-              flexWrap: "wrap",
+              backgroundColor: "white",
+              display: "grid",
+              gap: "16px",
             }}
           >
-            <div style={{ minWidth: "220px" }}>
+            <div>
               <div
                 style={{
                   fontSize: "12px",
@@ -1265,14 +1304,51 @@ export default function NewConstituentPage() {
                   marginBottom: "4px",
                 }}
               >
-                Ready to send
+                Review and submit
               </div>
               <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.5 }}>
-                Submit this constituent suggestion into the shared review queue.
+                {activeBlackbaudMatch
+                  ? "This will create an update request for the existing NXT constituent."
+                  : "This will submit a new constituent suggestion into the shared review queue."}
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginLeft: "auto" }}>
+            <div
+              style={{
+                padding: "14px 16px",
+                borderRadius: "12px",
+                backgroundColor: "#F9FAFB",
+                border: "1px solid #E5E7EB",
+                display: "grid",
+                gap: "6px",
+              }}
+            >
+              <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>
+                Submission summary
+              </div>
+              <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                Name: {name.trim() || "Not entered yet"}
+              </div>
+              {activeBlackbaudMatch ? (
+                <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                  Existing NXT match: {activeBlackbaudMatch.name}
+                  {activeBlackbaudMatch.lookupId ? ` (${activeBlackbaudMatch.lookupId})` : ""}
+                </div>
+              ) : null}
+              <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                Assign to me: {assignToMe === "yes" ? "Yes" : "No"}
+              </div>
+              <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                Add to top prospects: {addToProspects && !alreadyTrackedAsProspect ? "Yes" : "No"}
+              </div>
+              {existingMatchActions.dataUpdate ? (
+                <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                  Includes constituent data update
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
               <a
                 href="/"
                 style={{
