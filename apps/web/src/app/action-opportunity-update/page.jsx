@@ -820,92 +820,6 @@ export default function ActionOpportunityUpdatePage() {
           </div>
         ) : null}
 
-        {prospectPrompt ? (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#FEF3C7",
-              color: "#92400E",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-            }}
-          >
-            Would you like to add <strong>{prospectPrompt.prospectName}</strong> to My Top Prospects?
-            <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => addProspectMutation.mutate(prospectPrompt)}
-                disabled={addProspectMutation.isPending}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "10px",
-                  border: "none",
-                  backgroundColor: "#92400E",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: addProspectMutation.isPending ? "not-allowed" : "pointer",
-                }}
-              >
-                {addProspectMutation.isPending ? "Adding..." : "Add to Top Prospects"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setProspectPrompt(null);
-                  setProspectError("");
-                }}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "10px",
-                  border: "1px solid #D6D3D1",
-                  backgroundColor: "white",
-                  color: "#57534E",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Not now
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {prospectAdded ? (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#DBEAFE",
-              color: "#1D4ED8",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            Prospect added to{" "}
-            <a href="/my-top-prospects" style={{ color: "#1D4ED8", textDecoration: "underline" }}>
-              My Top Prospects
-            </a>
-            .
-          </div>
-        ) : null}
-
-        {prospectError ? (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#FEF2F2",
-              color: "#991B1B",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-            }}
-          >
-            {prospectError}
-          </div>
-        ) : null}
-
         {error ? (
           <div
             style={{
@@ -1891,6 +1805,90 @@ export default function ActionOpportunityUpdatePage() {
                 <a href="/" style={{ color: "#065F46", textDecoration: "underline" }}>
                   Back to dashboard
                 </a>
+              </div>
+            ) : null}
+            {prospectPrompt ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#FEF3C7",
+                  color: "#92400E",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                }}
+              >
+                Would you like to add <strong>{prospectPrompt.prospectName}</strong> to My Top
+                Prospects?
+                <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => addProspectMutation.mutate(prospectPrompt)}
+                    disabled={addProspectMutation.isPending}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      border: "none",
+                      backgroundColor: "#92400E",
+                      color: "white",
+                      fontWeight: 600,
+                      cursor: addProspectMutation.isPending ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {addProspectMutation.isPending ? "Adding..." : "Add to Top Prospects"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProspectPrompt(null);
+                      setProspectError("");
+                    }}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      border: "1px solid #D6D3D1",
+                      backgroundColor: "white",
+                      color: "#57534E",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Not now
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {prospectAdded ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#DBEAFE",
+                  color: "#1D4ED8",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                Prospect added to{" "}
+                <a href="/my-top-prospects" style={{ color: "#1D4ED8", textDecoration: "underline" }}>
+                  My Top Prospects
+                </a>
+                .
+              </div>
+            ) : null}
+            {prospectError ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#FEF2F2",
+                  color: "#991B1B",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                }}
+              >
+                {prospectError}
               </div>
             ) : null}
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
