@@ -2,20 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-
-async function getOrCreateUser(session) {
-  const email = session.user.email;
-  const name = session.user.name || email;
-  const existing =
-    await sql`SELECT id, name FROM users WHERE email = ${email} LIMIT 1`;
-  if (existing.length > 0) return existing[0];
-  const created = await sql`
-    INSERT INTO users (name, email, role)
-    VALUES (${name}, ${email}, 'mgo')
-    RETURNING id, name
-  `;
-  return created[0];
-}
+import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 
 // GET all prospects for current user
 export async function GET(request) {

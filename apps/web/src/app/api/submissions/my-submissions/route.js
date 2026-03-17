@@ -1,6 +1,7 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 
 export async function GET(request) {
   try {
@@ -11,27 +12,8 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user from users table
-    let userResult = await sql`
-      SELECT id FROM users WHERE email = ${session.user.email} LIMIT 1
-    `;
-
-    // Auto-create user if not found (complete-signup may have failed)
-    if (userResult.length === 0) {
-      const userName = session.user.name || session.user.email.split("@")[0];
-      userResult = await sql`
-        INSERT INTO users (name, email, role, created_at)
-        VALUES (${userName}, ${session.user.email}, 'mgo', NOW())
-        ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-      `;
-    }
-
-    if (userResult.length === 0) {
-      return Response.json([]);
-    }
-
-    const userId = userResult[0].id;
+    const user = await getOrCreateUser(session);
+    const userId = user.id;
 
     // Get submissions with reviewer info
     const submissions = await sql`

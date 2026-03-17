@@ -46,7 +46,11 @@ export async function GET(request) {
     console.error("Get profile error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to get profile";
-    const status = message.includes("invite this email address") ? 403 : 500;
+    const status =
+      message.includes("invite this email address") ||
+      message.includes("deactivated")
+        ? 403
+        : 500;
     return Response.json({ error: message }, { status });
   }
 }

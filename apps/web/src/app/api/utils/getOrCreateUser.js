@@ -18,6 +18,8 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
       name,
       email,
       role,
+      active,
+      deactivated_at,
       blackbaud_constituent_id,
       blackbaud_lookup_id,
       blackbaud_portfolio_seeded_at,
@@ -29,6 +31,9 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
   `;
 
   if (existing.length > 0) {
+    if (existing[0].active === false) {
+      throw new Error("This account has been deactivated. Contact an administrator.");
+    }
     if (isBootstrapAdminEmail(email) && existing[0].role !== "admin") {
       const elevated = await sql`
         UPDATE users
@@ -39,6 +44,8 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
           name,
           email,
           role,
+          active,
+          deactivated_at,
           blackbaud_constituent_id,
           blackbaud_lookup_id,
           blackbaud_portfolio_seeded_at,
@@ -90,6 +97,8 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
       name,
       email,
       role,
+      active,
+      deactivated_at,
       blackbaud_constituent_id,
       blackbaud_lookup_id,
       blackbaud_portfolio_seeded_at,

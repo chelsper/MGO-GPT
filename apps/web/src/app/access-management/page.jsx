@@ -40,6 +40,12 @@ export default function AccessManagementPage() {
   const [saving, setSaving] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState(null);
   const [revokingInvitationId, setRevokingInvitationId] = useState(null);
+  const [resendingInvitationId, setResendingInvitationId] = useState(null);
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [userBlackbaudQuery, setUserBlackbaudQuery] = useState("");
+  const [userBlackbaudMatches, setUserBlackbaudMatches] = useState([]);
+  const [selectedUserBlackbaudMatch, setSelectedUserBlackbaudMatch] = useState(null);
+  const [searchingUserBlackbaud, setSearchingUserBlackbaud] = useState(false);
 
   async function loadAccessState() {
     const [profileResponse, accessResponse] = await Promise.all([
@@ -148,6 +154,60 @@ export default function AccessManagementPage() {
     };
   }, [blackbaudQuery, role]);
 
+  useEffect(() => {
+    if (!editingUserId) {
+      setUserBlackbaudMatches([]);
+      setSelectedUserBlackbaudMatch(null);
+      return;
+    }
+
+    const query = userBlackbaudQuery.trim();
+    if (query.length < 2) {
+      setUserBlackbaudMatches([]);
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      try {
+        setSearchingUserBlackbaud(true);
+        const response = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+        if (!response.ok) {
+          if (active) setUserBlackbaudMatches([]);
+          return;
+        }
+
+        const data = await response.json().catch(() => null);
+        if (!active) return;
+
+        const results = Array.isArray(data?.results) ? data.results.slice(0, 5) : [];
+        setUserBlackbaudMatches(results);
+        setSelectedUserBlackbaudMatch((current) =>
+          results.find(
+            (match) =>
+              match.blackbaudConstituentId === current?.blackbaudConstituentId,
+          ) || null,
+        );
+      } catch (err) {
+        console.error(err);
+        if (active) {
+          setUserBlackbaudMatches([]);
+        }
+      } finally {
+        if (active) {
+          setSearchingUserBlackbaud(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [editingUserId, userBlackbaudQuery]);
+
   const pendingInvitations = useMemo(
     () => invitations.filter((invitation) => !invitation.accepted_at && !invitation.revoked_at),
     [invitations],
@@ -253,6 +313,77 @@ export default function AccessManagementPage() {
       setError(err instanceof Error ? err.message : "Failed to revoke invitation");
     } finally {
       setRevokingInvitationId(null);
+    }
+  }
+
+  async function handleResendInvitation(invitation) {
+    setResendingInvitationId(invitation.id);
+    setStatusMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/access", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invitationId: invitation.id,
+          blackbaudConstituentId: invitation.blackbaud_constituent_id || null,
+          blackbaudLookupId: invitation.blackbaud_lookup_id || null,
+          blackbaudName: invitation.blackbaud_name || null,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to resend invitation");
+      }
+
+      setStatusMessage("Invitation refreshed and ready to resend.");
+      await loadAccessState();
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to resend invitation");
+    } finally {
+      setResendingInvitationId(null);
+    }
+  }
+
+  async function handleUpdateUser(user, updates) {
+    setUpdatingUserId(user.id);
+    setStatusMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/access", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          role: updates.role ?? user.role,
+          active: updates.active ?? user.active,
+          blackbaudConstituentId:
+            updates.blackbaudConstituentId ?? selectedUserBlackbaudMatch?.blackbaudConstituentId ?? null,
+          blackbaudLookupId:
+            updates.blackbaudLookupId ?? selectedUserBlackbaudMatch?.lookupId ?? null,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to update user");
+      }
+
+      setUsers((current) =>
+        current.map((entry) => (entry.id === user.id ? data.user : entry)),
+      );
+      setEditingUserId(null);
+      setUserBlackbaudQuery("");
+      setUserBlackbaudMatches([]);
+      setSelectedUserBlackbaudMatch(null);
+      setStatusMessage("User updated.");
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to update user");
+    } finally {
+      setUpdatingUserId(null);
     }
   }
 
@@ -525,6 +656,9 @@ export default function AccessManagementPage() {
                   <div>
                     <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{user.name}</div>
                     <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>{user.email}</div>
+                    <div style={{ fontSize: "12px", color: user.active ? "#6B7280" : "#B91C1C", marginTop: "6px", fontWeight: 600 }}>
+                      {user.active ? "Active" : "Deactivated"}
+                    </div>
                     {user.blackbaud_lookup_id ? (
                       <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
                         Lookup ID: {user.blackbaud_lookup_id}
@@ -537,20 +671,191 @@ export default function AccessManagementPage() {
                   {isBootstrapAdmin ? (
                     <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
                   ) : (
-                    <select
-                      value={user.role}
-                      onChange={(event) => handleRoleChange(user.id, event.target.value)}
-                      disabled={updatingUserId === user.id}
-                      style={{ ...inputStyle, minWidth: "180px" }}
-                    >
-                      <option value="mgo">MGO</option>
-                      <option value="reviewer">Advancement Services</option>
-                    </select>
+                    <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
+                      <select
+                        value={user.role}
+                        onChange={(event) => handleRoleChange(user.id, event.target.value)}
+                        disabled={updatingUserId === user.id}
+                        style={{ ...inputStyle, minWidth: "180px" }}
+                      >
+                        <option value="mgo">MGO</option>
+                        <option value="reviewer">Advancement Services</option>
+                      </select>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingUserId((current) => (current === user.id ? null : user.id));
+                            setUserBlackbaudQuery("");
+                            setUserBlackbaudMatches([]);
+                            setSelectedUserBlackbaudMatch(null);
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            color: "#111827",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {editingUserId === user.id ? "Close edit" : "Edit"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateUser(user, { active: !user.active })}
+                          disabled={updatingUserId === user.id}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: user.active ? "1px solid #FCA5A5" : "1px solid #86EFAC",
+                            backgroundColor: "white",
+                            color: user.active ? "#B91C1C" : "#166534",
+                            fontWeight: 700,
+                            cursor: updatingUserId === user.id ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {user.active ? "Deactivate" : "Reactivate"}
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
+          {users.map((user) =>
+            editingUserId === user.id ? (
+              <div
+                key={`editor-${user.id}`}
+                style={{
+                  marginTop: "12px",
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "12px",
+                  padding: "16px",
+                  backgroundColor: "#F9FAFB",
+                }}
+              >
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "8px" }}>
+                  Edit {user.name}
+                </div>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+                  Connect to Blackbaud user
+                </label>
+                <input
+                  type="text"
+                  value={userBlackbaudQuery}
+                  onChange={(event) => {
+                    setUserBlackbaudQuery(event.target.value);
+                    setSelectedUserBlackbaudMatch(null);
+                  }}
+                  placeholder="Search by name or Lookup ID"
+                  style={inputStyle}
+                />
+                {searchingUserBlackbaud ? (
+                  <div style={{ marginTop: "10px", fontSize: "13px", color: "#6B7280" }}>
+                    Searching Blackbaud...
+                  </div>
+                ) : null}
+                {userBlackbaudMatches.length > 0 ? (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    {userBlackbaudMatches.map((match) => {
+                      const selected =
+                        selectedUserBlackbaudMatch?.blackbaudConstituentId ===
+                        match.blackbaudConstituentId;
+                      return (
+                        <button
+                          key={match.blackbaudConstituentId || match.lookupId || match.name}
+                          type="button"
+                          onClick={() => setSelectedUserBlackbaudMatch(match)}
+                          style={{
+                            textAlign: "left",
+                            borderRadius: "10px",
+                            border: selected ? "2px solid #6A5BFF" : "1px solid #E5E7EB",
+                            backgroundColor: selected ? "#EEF2FF" : "white",
+                            padding: "12px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                            {match.name || "Unnamed constituent"}
+                          </div>
+                          {match.lookupId ? (
+                            <div style={{ marginTop: "4px", fontSize: "13px", color: "#4B5563" }}>
+                              Lookup ID: {match.lookupId}
+                            </div>
+                          ) : null}
+                          {match.email ? (
+                            <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                              {match.email}
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280" }}>
+                  Current Lookup ID: {user.blackbaud_lookup_id || "Not linked"}
+                </div>
+                <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingUserId(null);
+                      setUserBlackbaudQuery("");
+                      setUserBlackbaudMatches([]);
+                      setSelectedUserBlackbaudMatch(null);
+                    }}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#111827",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleUpdateUser(user, {
+                        blackbaudConstituentId:
+                          selectedUserBlackbaudMatch?.blackbaudConstituentId || null,
+                        blackbaudLookupId:
+                          selectedUserBlackbaudMatch?.lookupId || null,
+                      })
+                    }
+                    disabled={updatingUserId === user.id || !selectedUserBlackbaudMatch}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "10px",
+                      border: "none",
+                      backgroundColor: "#6A5BFF",
+                      color: "white",
+                      fontWeight: 700,
+                      cursor:
+                        updatingUserId === user.id || !selectedUserBlackbaudMatch
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    Save Blackbaud link
+                  </button>
+                </div>
+              </div>
+            ) : null,
+          )}
         </div>
 
         <div style={cardStyle}>
@@ -594,22 +899,40 @@ export default function AccessManagementPage() {
                         : ""}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRevokeInvitation(invitation.id)}
-                    disabled={revokingInvitationId === invitation.id}
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      border: "1px solid #FCA5A5",
-                      backgroundColor: "white",
-                      color: "#B91C1C",
-                      fontWeight: 700,
-                      cursor: revokingInvitationId === invitation.id ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {revokingInvitationId === invitation.id ? "Revoking..." : "Revoke"}
-                  </button>
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleResendInvitation(invitation)}
+                      disabled={resendingInvitationId === invitation.id}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: "10px",
+                        border: "1px solid #BFDBFE",
+                        backgroundColor: "white",
+                        color: "#1D4ED8",
+                        fontWeight: 700,
+                        cursor: resendingInvitationId === invitation.id ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {resendingInvitationId === invitation.id ? "Refreshing..." : "Re-send"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRevokeInvitation(invitation.id)}
+                      disabled={revokingInvitationId === invitation.id}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: "10px",
+                        border: "1px solid #FCA5A5",
+                        backgroundColor: "white",
+                        color: "#B91C1C",
+                        fontWeight: 700,
+                        cursor: revokingInvitationId === invitation.id ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {revokingInvitationId === invitation.id ? "Revoking..." : "Revoke"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

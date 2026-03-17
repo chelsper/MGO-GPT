@@ -12,6 +12,8 @@ export default async function ensureAppSchema() {
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         role TEXT NOT NULL DEFAULT 'mgo',
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        deactivated_at TIMESTAMPTZ,
         blackbaud_constituent_id TEXT,
         blackbaud_lookup_id TEXT,
         blackbaud_portfolio_seeded_at TIMESTAMPTZ,
@@ -22,6 +24,14 @@ export default async function ensureAppSchema() {
       )
     `;
 
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ
+    `;
     await sql`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT

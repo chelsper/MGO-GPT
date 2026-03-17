@@ -39,6 +39,9 @@ export async function GET() {
           name,
           email,
           role,
+          active,
+          deactivated_at,
+          blackbaud_constituent_id,
           blackbaud_lookup_id,
           created_at,
           updated_at
@@ -191,20 +194,62 @@ export async function PATCH(request) {
     if (error) return error;
 
     const body = await request.json();
+    const invitationId = Number(body?.invitationId);
+    if (Number.isInteger(invitationId) && invitationId > 0) {
+      const resentInvitation = await sql`
+        UPDATE user_invitations
+        SET
+          blackbaud_constituent_id = COALESCE(${body?.blackbaudConstituentId ? String(body.blackbaudConstituentId).trim() : null}, blackbaud_constituent_id),
+          blackbaud_lookup_id = COALESCE(${body?.blackbaudLookupId ? String(body.blackbaudLookupId).trim() : null}, blackbaud_lookup_id),
+          blackbaud_name = COALESCE(${body?.blackbaudName ? String(body.blackbaudName).trim() : null}, blackbaud_name),
+          accepted_at = NULL,
+          revoked_at = NULL,
+          updated_at = NOW()
+        WHERE id = ${invitationId}
+        RETURNING *
+      `;
+
+      if (resentInvitation.length === 0) {
+        return Response.json({ error: "Invitation not found" }, { status: 404 });
+      }
+
+      return Response.json({ invitation: resentInvitation[0], mode: "invitation-resent" });
+    }
+
     const userId = Number(body?.userId);
     const role = body?.role;
+    const active =
+      body?.active === undefined ? undefined : Boolean(body.active);
+    const blackbaudConstituentId = body?.blackbaudConstituentId
+      ? String(body.blackbaudConstituentId).trim()
+      : null;
+    const blackbaudLookupId = body?.blackbaudLookupId
+      ? String(body.blackbaudLookupId).trim()
+      : null;
 
     if (!Number.isInteger(userId) || userId <= 0) {
       return Response.json({ error: "User id is required" }, { status: 400 });
     }
 
-    assertAssignableRole(role);
+    if (role !== undefined) {
+      assertAssignableRole(role);
+    }
 
     const updatedUser = await sql`
       UPDATE users
-      SET role = ${role}, updated_at = NOW()
+      SET
+        role = COALESCE(${role || null}, role),
+        active = COALESCE(${active}, active),
+        deactivated_at = CASE
+          WHEN ${active} = FALSE THEN COALESCE(deactivated_at, NOW())
+          WHEN ${active} = TRUE THEN NULL
+          ELSE deactivated_at
+        END,
+        blackbaud_constituent_id = COALESCE(${blackbaudConstituentId}, blackbaud_constituent_id),
+        blackbaud_lookup_id = COALESCE(${blackbaudLookupId}, blackbaud_lookup_id),
+        updated_at = NOW()
       WHERE id = ${userId}
-      RETURNING id, name, email, role, created_at, updated_at
+      RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
     `;
 
     if (updatedUser.length === 0) {

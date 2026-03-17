@@ -36,10 +36,13 @@ async function getProvisioningDecision(email) {
     process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || "";
 
   const { rows: existingRows } = await globalThis.__mgoAuthPool.query(
-    "SELECT id, role FROM users WHERE email = $1 LIMIT 1",
+    "SELECT id, role, active FROM users WHERE email = $1 LIMIT 1",
     [normalizedEmail],
   );
   if (existingRows.length > 0) {
+    if (existingRows[0].active === false) {
+      return { kind: "none" };
+    }
     return { kind: "existing", role: existingRows[0].role };
   }
 
