@@ -48,6 +48,15 @@ function getSuccessLabel(mode) {
   return "Action update submitted successfully.";
 }
 
+function buildOutlookCalendarUrl({ subject, notes, dueDate }) {
+  if (!dueDate) return null;
+
+  const start = new Date(`${dueDate}T09:00:00`);
+  const end = new Date(`${dueDate}T09:30:00`);
+
+  return `https://outlook.office.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(notes || "")}&startdt=${encodeURIComponent(start.toISOString())}&enddt=${encodeURIComponent(end.toISOString())}`;
+}
+
 function DictationButton({
   target,
   label,
@@ -117,6 +126,10 @@ export default function ActionOpportunityUpdatePage() {
   const [sharedSummaryOpen, setSharedSummaryOpen] = useState(true);
   const [actionDetailsOpen, setActionDetailsOpen] = useState(true);
   const [opportunityDetailsOpen, setOpportunityDetailsOpen] = useState(false);
+  const [nextStepPrompt, setNextStepPrompt] = useState(null);
+  const [nextStepDueDate, setNextStepDueDate] = useState("");
+  const [nextStepSaved, setNextStepSaved] = useState(false);
+  const [nextStepError, setNextStepError] = useState("");
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
@@ -511,16 +524,55 @@ export default function ActionOpportunityUpdatePage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (createdProspect) => {
       setProspectAdded(true);
       setProspectError("");
       setProspectPrompt(null);
       setToast({ tone: "success", message: "Prospect added to My Top Prospects." });
+      if (nextStepPrompt?.nextActionText && createdProspect?.id) {
+        setNextStepPrompt((current) =>
+          current
+            ? {
+                ...current,
+                prospectId: createdProspect.id,
+              }
+            : current,
+        );
+      }
     },
     onError: (err) => {
       console.error(err);
       const message = err?.message || "Failed to add prospect.";
       setProspectError(message);
+      setToast({ tone: "error", message });
+    },
+  });
+
+  const saveNextStepMutation = useMutation({
+    mutationFn: async ({ prospectId, nextActionText, nextActionDueDate }) => {
+      const res = await fetch(`/api/prospects/${prospectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nextActionText,
+          nextActionDueDate: nextActionDueDate || null,
+          nextActionCompletedAt: null,
+        }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to save next step");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      setNextStepSaved(true);
+      setNextStepError("");
+      setToast({ tone: "success", message: "Next step saved to My Top Prospects." });
+    },
+    onError: (err) => {
+      const message = err?.message || "Failed to save next step.";
+      setNextStepError(message);
       setToast({ tone: "error", message });
     },
   });
@@ -573,9 +625,12 @@ export default function ActionOpportunityUpdatePage() {
       setToast({ tone: "success", message: getSuccessLabel(updateMode) });
       setProspectError("");
       setProspectAdded(false);
+      setNextStepSaved(false);
+      setNextStepError("");
 
       const submittedName = donorName.trim();
       const submittedAmount = estimatedAmount ? parseFloat(estimatedAmount) : null;
+      const submittedNextStep = nextStep.trim();
       const submittedConstituentId =
         data?.opportunity?.constituent_id || data?.action?.constituent_id || null;
       const alreadyTracked = Boolean(data?.opportunity?.prospect_id);
@@ -604,20 +659,23 @@ export default function ActionOpportunityUpdatePage() {
         const response = await fetch("/api/prospects");
         if (!response.ok) {
           setProspectPrompt(null);
+          setNextStepPrompt(null);
           return;
         }
 
         const prospects = await response.json();
         const normalizedSubmittedName = normalizeName(submittedName);
+        const matchedProspect =
+          Array.isArray(prospects) &&
+          prospects.find((prospect) => {
+            if (submittedConstituentId && prospect.constituent_id) {
+              return Number(prospect.constituent_id) === Number(submittedConstituentId);
+            }
+            return normalizeName(prospect.prospect_name) === normalizedSubmittedName;
+          });
         const trackedInList =
           alreadyTracked ||
-          (Array.isArray(prospects) &&
-            prospects.some((prospect) => {
-              if (submittedConstituentId && prospect.constituent_id) {
-                return Number(prospect.constituent_id) === Number(submittedConstituentId);
-              }
-              return normalizeName(prospect.prospect_name) === normalizedSubmittedName;
-            }));
+          Boolean(matchedProspect);
 
         setProspectPrompt(
           trackedInList
@@ -628,11 +686,23 @@ export default function ActionOpportunityUpdatePage() {
                 askAmount: submittedAmount,
                 expectedCloseFY: getDefaultFY(),
                 askType: "Major Gift",
+                nextActionText: submittedNextStep || null,
+                nextActionDueDate: nextStepDueDate || null,
               },
+        );
+        setNextStepPrompt(
+          submittedNextStep
+            ? {
+                prospectId: matchedProspect?.id || null,
+                prospectName: submittedName,
+                nextActionText: submittedNextStep,
+              }
+            : null,
         );
       } catch (prospectLookupError) {
         console.error("Prospect lookup error:", prospectLookupError);
         setProspectPrompt(null);
+        setNextStepPrompt(null);
       }
     },
     onError: (err) => {
@@ -650,6 +720,9 @@ export default function ActionOpportunityUpdatePage() {
     setProspectPrompt(null);
     setProspectError("");
     setProspectAdded(false);
+    setNextStepPrompt(null);
+    setNextStepSaved(false);
+    setNextStepError("");
 
     if (!donorName.trim()) {
       setError("Please enter a donor name.");
@@ -1960,7 +2033,12 @@ export default function ActionOpportunityUpdatePage() {
                 <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"
-                    onClick={() => addProspectMutation.mutate(prospectPrompt)}
+                    onClick={() =>
+                      addProspectMutation.mutate({
+                        ...prospectPrompt,
+                        nextActionDueDate: nextStepDueDate || prospectPrompt.nextActionDueDate || null,
+                      })
+                    }
                     disabled={addProspectMutation.isPending}
                     style={{
                       padding: "10px 14px",
@@ -1993,6 +2071,133 @@ export default function ActionOpportunityUpdatePage() {
                     Not now
                   </button>
                 </div>
+              </div>
+            ) : null}
+            {nextStepPrompt ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#EEF2FF",
+                  color: "#3730A3",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                }}
+              >
+                <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+                  Make this next step actionable
+                </div>
+                <div style={{ lineHeight: 1.5, marginBottom: "12px" }}>
+                  Save <strong>{nextStepPrompt.nextActionText}</strong> as a follow-up for{" "}
+                  <strong>{nextStepPrompt.prospectName}</strong>, add a due date, and open it in
+                  Outlook if you want a calendar reminder.
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                    alignItems: "end",
+                    marginBottom: "12px",
+                  }}
+                >
+                  <label style={{ display: "grid", gap: "6px", minWidth: "180px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#4C1D95" }}>
+                      Due date
+                    </span>
+                    <input
+                      type="date"
+                      value={nextStepDueDate}
+                      onChange={(event) => setNextStepDueDate(event.target.value)}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #C7D2FE",
+                        fontSize: "14px",
+                        backgroundColor: "white",
+                      }}
+                    />
+                  </label>
+                  {nextStepPrompt.prospectId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        saveNextStepMutation.mutate({
+                          prospectId: nextStepPrompt.prospectId,
+                          nextActionText: nextStepPrompt.nextActionText,
+                          nextActionDueDate: nextStepDueDate || null,
+                        })
+                      }
+                      disabled={saveNextStepMutation.isPending}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: "10px",
+                        border: "none",
+                        backgroundColor: saveNextStepMutation.isPending ? "#C7D2FE" : "#4F46E5",
+                        color: "white",
+                        fontWeight: 700,
+                        cursor: saveNextStepMutation.isPending ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {saveNextStepMutation.isPending ? "Saving..." : "Save reminder"}
+                    </button>
+                  ) : null}
+                  {nextStepDueDate ? (
+                    <a
+                      href={buildOutlookCalendarUrl({
+                        subject: `${nextStepPrompt.prospectName} follow-up`,
+                        notes: nextStepPrompt.nextActionText,
+                        dueDate: nextStepDueDate,
+                      })}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: "10px",
+                        border: "1px solid #C7D2FE",
+                        backgroundColor: "white",
+                        color: "#4338CA",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                      }}
+                    >
+                      Add to Outlook
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNextStepPrompt(null);
+                      setNextStepError("");
+                      setNextStepSaved(false);
+                    }}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      border: "1px solid #C7D2FE",
+                      backgroundColor: "white",
+                      color: "#4338CA",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Not now
+                  </button>
+                </div>
+                {!nextStepPrompt.prospectId ? (
+                  <div style={{ fontSize: "12px", color: "#5B21B6" }}>
+                    Add this person to My Top Prospects first if you want the next step to show in
+                    your follow-up list.
+                  </div>
+                ) : null}
+                {nextStepSaved ? (
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#166534" }}>
+                    Reminder saved. It will now appear on My Top Prospects as the next action.
+                  </div>
+                ) : null}
+                {nextStepError ? (
+                  <div style={{ fontSize: "12px", color: "#991B1B" }}>{nextStepError}</div>
+                ) : null}
               </div>
             ) : null}
             {prospectAdded ? (

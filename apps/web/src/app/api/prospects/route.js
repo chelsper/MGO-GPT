@@ -140,6 +140,8 @@ export async function POST(request) {
       askType,
       constituentId,
       blackbaudConstituentId,
+      nextActionText,
+      nextActionDueDate,
     } =
       body;
 
@@ -195,10 +197,10 @@ export async function POST(request) {
     const result = await sql`
       INSERT INTO prospects (
         user_id, constituent_id, prospect_name, expected_close_fy,
-        ask_amount, ask_type, priority_order
+        ask_amount, ask_type, priority_order, next_action_text, next_action_due_date
       ) VALUES (
         ${user.id}, ${constituent?.id || null}, ${prospectName}, ${expectedCloseFY},
-        ${askAmount || null}, ${askType}, ${nextOrder}
+        ${askAmount || null}, ${askType}, ${nextOrder}, ${nextActionText || null}, ${nextActionDueDate || null}
       )
       RETURNING *
     `;
