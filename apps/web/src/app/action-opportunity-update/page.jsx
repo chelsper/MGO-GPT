@@ -130,6 +130,10 @@ export default function ActionOpportunityUpdatePage() {
   const [nextStepDueDate, setNextStepDueDate] = useState("");
   const [nextStepSaved, setNextStepSaved] = useState(false);
   const [nextStepError, setNextStepError] = useState("");
+  const [createActionItem, setCreateActionItem] = useState(false);
+  const [actionItemText, setActionItemText] = useState("");
+  const [actionItemTextEdited, setActionItemTextEdited] = useState(false);
+  const [createOutlookReminder, setCreateOutlookReminder] = useState(false);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
@@ -220,6 +224,30 @@ export default function ActionOpportunityUpdatePage() {
     setActionDetailsOpen(true);
     setOpportunityDetailsOpen(false);
   }, [updateMode]);
+
+  useEffect(() => {
+    if (!includeAction) {
+      setCreateActionItem(false);
+      setActionItemText("");
+      setActionItemTextEdited(false);
+      setCreateOutlookReminder(false);
+      setNextStepDueDate("");
+      return;
+    }
+
+    if (!nextStep.trim()) {
+      setActionItemText("");
+      setActionItemTextEdited(false);
+      setCreateActionItem(false);
+      setCreateOutlookReminder(false);
+      setNextStepDueDate("");
+      return;
+    }
+
+    if (!actionItemTextEdited) {
+      setActionItemText(nextStep.trim());
+    }
+  }, [actionItemTextEdited, includeAction, nextStep]);
 
   function finishDictation(text, targetOverride) {
     const target = targetOverride || dictationTarget;
@@ -631,6 +659,10 @@ export default function ActionOpportunityUpdatePage() {
       const submittedName = donorName.trim();
       const submittedAmount = estimatedAmount ? parseFloat(estimatedAmount) : null;
       const submittedNextStep = nextStep.trim();
+      const submittedActionItemText =
+        createActionItem && actionItemText.trim() ? actionItemText.trim() : "";
+      const submittedActionItemDueDate = nextStepDueDate || null;
+      const submittedOutlookReminder = createOutlookReminder;
       const submittedConstituentId =
         data?.opportunity?.constituent_id || data?.action?.constituent_id || null;
       const alreadyTracked = Boolean(data?.opportunity?.prospect_id);
@@ -654,6 +686,11 @@ export default function ActionOpportunityUpdatePage() {
       setDictationTarget("");
       setDictationStatus("");
       setDictationError("");
+      setCreateActionItem(false);
+      setActionItemText("");
+      setActionItemTextEdited(false);
+      setCreateOutlookReminder(false);
+      setNextStepDueDate("");
 
       try {
         const response = await fetch("/api/prospects");
@@ -686,16 +723,18 @@ export default function ActionOpportunityUpdatePage() {
                 askAmount: submittedAmount,
                 expectedCloseFY: getDefaultFY(),
                 askType: "Major Gift",
-                nextActionText: submittedNextStep || null,
-                nextActionDueDate: nextStepDueDate || null,
+                nextActionText: submittedActionItemText || null,
+                nextActionDueDate: submittedActionItemDueDate,
               },
         );
         setNextStepPrompt(
-          submittedNextStep
+          submittedActionItemText
             ? {
                 prospectId: matchedProspect?.id || null,
                 prospectName: submittedName,
-                nextActionText: submittedNextStep,
+                nextActionText: submittedActionItemText,
+                nextActionDueDate: submittedActionItemDueDate,
+                shouldOpenOutlook: submittedOutlookReminder,
               }
             : null,
         );
@@ -738,6 +777,11 @@ export default function ActionOpportunityUpdatePage() {
 
     if (includeAction && !sharedSummary.trim() && !actionNotes.trim()) {
       setError("Please add a summary or action note for the action update.");
+      return;
+    }
+
+    if (includeAction && createActionItem && !actionItemText.trim()) {
+      setError("Please enter the action item you want to save as a reminder.");
       return;
     }
 
@@ -1949,6 +1993,157 @@ export default function ActionOpportunityUpdatePage() {
             </div>
           ) : null}
 
+          {includeAction ? (
+            <div
+              style={{
+                backgroundColor: "white",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+                padding: "24px",
+                marginBottom: "20px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                Action items
+              </div>
+              <div
+                style={{
+                  fontSize: "14px",
+                  color: "#6B7280",
+                  lineHeight: 1.5,
+                  marginBottom: "16px",
+                }}
+              >
+                Turn the follow-up into a reminder before you submit so it can land in your to-do
+                flow and, if you want, in Outlook too.
+              </div>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  fontSize: "14px",
+                  color: "#111827",
+                  fontWeight: 600,
+                  marginBottom: createActionItem ? "16px" : 0,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={createActionItem}
+                  onChange={(event) => setCreateActionItem(event.target.checked)}
+                  style={{ marginTop: "2px" }}
+                />
+                Create a follow-up reminder from this update
+              </label>
+              {createActionItem ? (
+                <div style={{ display: "grid", gap: "16px" }}>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: "#374151",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Action item
+                    </label>
+                    <textarea
+                      value={actionItemText}
+                      onChange={(event) => {
+                        setActionItemText(event.target.value);
+                        setActionItemTextEdited(true);
+                      }}
+                      placeholder="Example: Call donor next Tuesday to confirm visit date."
+                      rows={3}
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "8px",
+                        fontSize: "14px",
+                        resize: "vertical",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {nextStep.trim() && !actionItemTextEdited ? (
+                      <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280" }}>
+                        Pulled from the <strong>Next step</strong> field. Edit it here if the
+                        reminder should be shorter or more specific.
+                      </div>
+                    ) : null}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(180px, 220px) 1fr",
+                      gap: "16px",
+                      alignItems: "end",
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "14px",
+                          fontWeight: 600,
+                          color: "#374151",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Due date
+                      </label>
+                      <input
+                        type="date"
+                        value={nextStepDueDate}
+                        onChange={(event) => setNextStepDueDate(event.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          border: "1px solid #D1D5DB",
+                          fontSize: "14px",
+                          boxSizing: "border-box",
+                          backgroundColor: "white",
+                        }}
+                      />
+                    </div>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        fontSize: "14px",
+                        color: "#111827",
+                        fontWeight: 600,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createOutlookReminder}
+                        onChange={(event) =>
+                          setCreateOutlookReminder(event.target.checked)
+                        }
+                      />
+                      Add an Outlook calendar reminder after submit
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             style={{
               backgroundColor: "white",
@@ -2036,7 +2231,7 @@ export default function ActionOpportunityUpdatePage() {
                     onClick={() =>
                       addProspectMutation.mutate({
                         ...prospectPrompt,
-                        nextActionDueDate: nextStepDueDate || prospectPrompt.nextActionDueDate || null,
+                        nextActionDueDate: prospectPrompt.nextActionDueDate || null,
                       })
                     }
                     disabled={addProspectMutation.isPending}
@@ -2089,9 +2284,20 @@ export default function ActionOpportunityUpdatePage() {
                 </div>
                 <div style={{ lineHeight: 1.5, marginBottom: "12px" }}>
                   Save <strong>{nextStepPrompt.nextActionText}</strong> as a follow-up for{" "}
-                  <strong>{nextStepPrompt.prospectName}</strong>, add a due date, and open it in
-                  Outlook if you want a calendar reminder.
+                  <strong>{nextStepPrompt.prospectName}</strong>.
                 </div>
+                {nextStepPrompt.nextActionDueDate ? (
+                  <div
+                    style={{
+                      marginBottom: "12px",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "#4338CA",
+                    }}
+                  >
+                    Due date: {nextStepPrompt.nextActionDueDate}
+                  </div>
+                ) : null}
                 <div
                   style={{
                     display: "flex",
@@ -2101,23 +2307,6 @@ export default function ActionOpportunityUpdatePage() {
                     marginBottom: "12px",
                   }}
                 >
-                  <label style={{ display: "grid", gap: "6px", minWidth: "180px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#4C1D95" }}>
-                      Due date
-                    </span>
-                    <input
-                      type="date"
-                      value={nextStepDueDate}
-                      onChange={(event) => setNextStepDueDate(event.target.value)}
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: "10px",
-                        border: "1px solid #C7D2FE",
-                        fontSize: "14px",
-                        backgroundColor: "white",
-                      }}
-                    />
-                  </label>
                   {nextStepPrompt.prospectId ? (
                     <button
                       type="button"
@@ -2125,7 +2314,7 @@ export default function ActionOpportunityUpdatePage() {
                         saveNextStepMutation.mutate({
                           prospectId: nextStepPrompt.prospectId,
                           nextActionText: nextStepPrompt.nextActionText,
-                          nextActionDueDate: nextStepDueDate || null,
+                          nextActionDueDate: nextStepPrompt.nextActionDueDate || null,
                         })
                       }
                       disabled={saveNextStepMutation.isPending}
@@ -2142,12 +2331,12 @@ export default function ActionOpportunityUpdatePage() {
                       {saveNextStepMutation.isPending ? "Saving..." : "Save reminder"}
                     </button>
                   ) : null}
-                  {nextStepDueDate ? (
+                  {nextStepPrompt.shouldOpenOutlook && nextStepPrompt.nextActionDueDate ? (
                     <a
                       href={buildOutlookCalendarUrl({
                         subject: `${nextStepPrompt.prospectName} follow-up`,
                         notes: nextStepPrompt.nextActionText,
-                        dueDate: nextStepDueDate,
+                        dueDate: nextStepPrompt.nextActionDueDate,
                       })}
                       target="_blank"
                       rel="noreferrer"
