@@ -108,6 +108,11 @@ export default function ActionOpportunityUpdatePage() {
   const [constituentMatches, setConstituentMatches] = useState([]);
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [selectedBlackbaudSummary, setSelectedBlackbaudSummary] = useState(null);
+  const [selectedBlackbaudSummaryLoading, setSelectedBlackbaudSummaryLoading] =
+    useState(false);
+  const [selectedBlackbaudSummaryError, setSelectedBlackbaudSummaryError] =
+    useState("");
   const [matchDecision, setMatchDecision] = useState("");
   const [linkedProspectContext, setLinkedProspectContext] = useState(null);
   const [opportunityLinkMode, setOpportunityLinkMode] = useState("create");
@@ -273,6 +278,9 @@ export default function ActionOpportunityUpdatePage() {
       setConstituentMatches([]);
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
+      setSelectedBlackbaudSummary(null);
+      setSelectedBlackbaudSummaryLoading(false);
+      setSelectedBlackbaudSummaryError("");
       setMatchDecision("");
       return;
     }
@@ -312,6 +320,58 @@ export default function ActionOpportunityUpdatePage() {
       clearTimeout(timeoutId);
     };
   }, [donorName]);
+
+  useEffect(() => {
+    const constituentId = selectedBlackbaudMatch?.blackbaudConstituentId;
+    if (!constituentId) {
+      setSelectedBlackbaudSummary(null);
+      setSelectedBlackbaudSummaryLoading(false);
+      setSelectedBlackbaudSummaryError("");
+      return;
+    }
+
+    let active = true;
+    setSelectedBlackbaudSummaryLoading(true);
+    setSelectedBlackbaudSummaryError("");
+
+    async function loadBlackbaudSummary() {
+      try {
+        const response = await fetch(
+          `/api/blackbaud/constituents/${encodeURIComponent(constituentId)}/summary`,
+        );
+        const data = await response.json().catch(() => null);
+
+        if (!active) return;
+
+        if (!response.ok) {
+          setSelectedBlackbaudSummary(null);
+          setSelectedBlackbaudSummaryError(
+            data?.error || "Could not load constituent data from Raiser's Edge NXT.",
+          );
+          return;
+        }
+
+        setSelectedBlackbaudSummary(data || null);
+      } catch (summaryError) {
+        if (!active) return;
+        console.error("Blackbaud constituent summary lookup error:", summaryError);
+        setSelectedBlackbaudSummary(null);
+        setSelectedBlackbaudSummaryError(
+          "Could not load constituent data from Raiser's Edge NXT.",
+        );
+      } finally {
+        if (active) {
+          setSelectedBlackbaudSummaryLoading(false);
+        }
+      }
+    }
+
+    loadBlackbaudSummary();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedBlackbaudMatch?.blackbaudConstituentId]);
 
   useEffect(() => {
     return () => {
@@ -362,6 +422,12 @@ export default function ActionOpportunityUpdatePage() {
       current: Boolean(donorName.trim()) && hasConfirmedMatch && hasUpdateDetails && !successMessage,
     },
   ];
+  const blackbaudConstituent =
+    selectedBlackbaudSummary?.mapped?.constituent || null;
+  const blackbaudLifetimeGiving =
+    selectedBlackbaudSummary?.mapped?.lifetimeGiving || null;
+  const blackbaudFundraiserAssignments =
+    selectedBlackbaudSummary?.mapped?.fundraiserAssignments || [];
 
   useEffect(() => {
     if (!includeOpportunity || !exactMatch || matchDecision === "new") {
@@ -1433,6 +1499,116 @@ export default function ActionOpportunityUpdatePage() {
                     "."
                   )}
                 </div>
+              </div>
+            ) : null}
+
+            {selectedBlackbaudMatch ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "14px",
+                  borderRadius: "10px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "#F8FBFF",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Blackbaud Summary
+                </div>
+                {selectedBlackbaudSummaryLoading ? (
+                  <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                    Loading constituent data from Raiser's Edge NXT...
+                  </div>
+                ) : selectedBlackbaudSummaryError ? (
+                  <div style={{ fontSize: "13px", color: "#991B1B" }}>
+                    {selectedBlackbaudSummaryError}
+                  </div>
+                ) : blackbaudConstituent ? (
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: "4px",
+                        fontSize: "13px",
+                        color: "#1F2937",
+                      }}
+                    >
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
+                        {blackbaudConstituent.name || selectedBlackbaudMatch.name}
+                      </div>
+                      {blackbaudConstituent.lookupId ? (
+                        <div>
+                          Lookup ID: <strong>{blackbaudConstituent.lookupId}</strong>
+                        </div>
+                      ) : null}
+                      {blackbaudConstituent.email ? (
+                        <div>Email: {blackbaudConstituent.email}</div>
+                      ) : null}
+                      {blackbaudConstituent.phone ? (
+                        <div>Phone: {blackbaudConstituent.phone}</div>
+                      ) : null}
+                      {blackbaudConstituent.address ? (
+                        <div style={{ whiteSpace: "pre-line" }}>
+                          Address: {blackbaudConstituent.address}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {(blackbaudLifetimeGiving ||
+                      blackbaudFundraiserAssignments.length > 0) ? (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "8px",
+                          paddingTop: "12px",
+                          borderTop: "1px solid #DBEAFE",
+                          fontSize: "13px",
+                          color: "#1F2937",
+                        }}
+                      >
+                        {blackbaudLifetimeGiving ? (
+                          <div>
+                            Lifetime giving:{" "}
+                            <strong>
+                              {blackbaudLifetimeGiving.totalGiving == null
+                                ? "Unavailable"
+                                : `$${Number(
+                                    blackbaudLifetimeGiving.totalGiving,
+                                  ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}`}
+                            </strong>
+                          </div>
+                        ) : null}
+                        {blackbaudFundraiserAssignments.length > 0 ? (
+                          <div>
+                            Assigned fundraiser:{" "}
+                            <strong>
+                              {blackbaudFundraiserAssignments[0]?.fundraiserId || "Assigned"}
+                            </strong>
+                            {blackbaudFundraiserAssignments[0]?.type
+                              ? ` (${blackbaudFundraiserAssignments[0].type})`
+                              : ""}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                    No Raiser's Edge NXT summary is available for this constituent yet.
+                  </div>
+                )}
               </div>
             ) : null}
 
