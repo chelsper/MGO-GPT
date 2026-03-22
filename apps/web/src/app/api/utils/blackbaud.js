@@ -15,6 +15,8 @@ const BLACKBAUD_ACTIONS_URL =
   "https://api.sky.blackbaud.com/constituent/v1/actions";
 const BLACKBAUD_OPPORTUNITIES_URL =
   "https://api.sky.blackbaud.com/opportunity/v1/opportunities";
+const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
+const BLACKBAUD_MAX_RETRIES = 2;
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -134,6 +136,27 @@ async function parseBlackbaudResponse(response) {
   }
 
   return payload;
+}
+
+function getRetryDelayMs(response, attempt) {
+  const retryAfter = response.headers.get("retry-after");
+  const retryAfterSeconds = Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.min(retryAfterSeconds * 1000, 10000);
+  }
+
+  return Math.min(1000 * 2 ** attempt, 5000);
+}
+
+function shouldRetryBlackbaudResponse(response) {
+  if (response.status === 429) return true;
+  if (response.status >= 500) return true;
+  if (response.status === 403 && response.headers.get("retry-after")) return true;
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getExpiresAt(expiresIn) {
@@ -290,13 +313,48 @@ export async function blackbaudApiFetch(
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  for (let attempt = 0; attempt <= BLACKBAUD_MAX_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), BLACKBAUD_REQUEST_TIMEOUT_MS);
 
-  return parseBlackbaudResponse(response);
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+
+      if (shouldRetryBlackbaudResponse(response) && attempt < BLACKBAUD_MAX_RETRIES) {
+        const delayMs = getRetryDelayMs(response, attempt);
+        clearTimeout(timeoutId);
+        await sleep(delayMs);
+        continue;
+      }
+
+      clearTimeout(timeoutId);
+      return parseBlackbaudResponse(response);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const timedOut =
+        error instanceof Error &&
+        (error.name === "AbortError" ||
+          /aborted|timeout/i.test(error.message || ""));
+
+      if (timedOut && attempt < BLACKBAUD_MAX_RETRIES) {
+        await sleep(getRetryDelayMs(new Response(null, { status: 504 }), attempt));
+        continue;
+      }
+
+      if (timedOut) {
+        throw new Error("Blackbaud request timed out");
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error("Blackbaud request failed after retries");
 }
 
 export async function searchBlackbaudConstituents({ userId, origin, query }) {
@@ -375,8 +433,37 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
       const customRows = Array.isArray(customPayload?.results)
         ? customPayload.results
         : [];
+      const filteredCustomRows = customRows.filter((item) => {
+        if (item?.is_constituent === false) {
+          return false;
+        }
 
-      customMappedRows = customRows.map((item) => ({
+        if (firstName) {
+          const candidateNames = [
+            item?.first_name,
+            item?.preferred_name,
+            item?.matched_alias,
+          ]
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean);
+
+          const normalizedFirstName = firstName.toLowerCase();
+          const firstNameMatches = candidateNames.some(
+            (value) =>
+              value === normalizedFirstName ||
+              value.startsWith(normalizedFirstName) ||
+              normalizedFirstName.startsWith(value),
+          );
+
+          if (!firstNameMatches) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      customMappedRows = filteredCustomRows.map((item) => ({
         blackbaudConstituentId:
           item?.constituent_id || item?.id || item?.record_id?.toString() || null,
         name:
