@@ -49,12 +49,26 @@ export async function GET(request) {
     });
   } catch (error) {
     console.error("Blackbaud constituent search error:", error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to search Blackbaud constituents";
+    if (
+      /Blackbaud request timed out/i.test(message) ||
+      /Blackbaud 5\d\d/i.test(message)
+    ) {
+      return Response.json({
+        query,
+        count: 0,
+        results: [],
+        warning:
+          "Live Raiser's Edge NXT search is temporarily unavailable. Existing linked records can still be used.",
+      });
+    }
+
     return Response.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to search Blackbaud constituents",
+        error: message,
       },
       { status: 500 },
     );

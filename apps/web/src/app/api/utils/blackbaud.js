@@ -380,8 +380,6 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
           searchParams: {
             first_name: firstName || undefined,
             last_name: lastName || undefined,
-            include_alias: true,
-            include_maiden_name: true,
             limit: 10,
           },
         },

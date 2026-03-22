@@ -110,6 +110,7 @@ export default function ActionOpportunityUpdatePage() {
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
   const [blackbaudSearchLoading, setBlackbaudSearchLoading] = useState(false);
   const [blackbaudSearchError, setBlackbaudSearchError] = useState("");
+  const [blackbaudSearchWarning, setBlackbaudSearchWarning] = useState("");
   const [selectedBlackbaudSummary, setSelectedBlackbaudSummary] = useState(null);
   const [selectedBlackbaudSummaryLoading, setSelectedBlackbaudSummaryLoading] =
     useState(false);
@@ -282,6 +283,7 @@ export default function ActionOpportunityUpdatePage() {
       setSelectedBlackbaudMatch(null);
       setBlackbaudSearchLoading(false);
       setBlackbaudSearchError("");
+      setBlackbaudSearchWarning("");
       setSelectedBlackbaudSummary(null);
       setSelectedBlackbaudSummaryLoading(false);
       setSelectedBlackbaudSummaryError("");
@@ -292,43 +294,60 @@ export default function ActionOpportunityUpdatePage() {
     let active = true;
     setBlackbaudSearchLoading(true);
     setBlackbaudSearchError("");
+    setBlackbaudSearchWarning("");
     const timeoutId = setTimeout(async () => {
       try {
-        const [localResponse, blackbaudResponse] = await Promise.allSettled([
-          fetch(`/api/constituents/search?q=${encodeURIComponent(query)}`),
-          fetch(`/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`),
-        ]);
+        const localResponse = await fetch(
+          `/api/constituents/search?q=${encodeURIComponent(query)}`,
+        );
 
         if (!active) return;
 
-        if (localResponse.status === "fulfilled" && localResponse.value.ok) {
-          const data = await localResponse.value.json();
-          if (active) {
-            setConstituentMatches(Array.isArray(data) ? data : []);
-          }
+        let localMatches = [];
+        if (localResponse.ok) {
+          const data = await localResponse.json();
+          localMatches = Array.isArray(data) ? data : [];
+          setConstituentMatches(localMatches);
         }
 
-        if (blackbaudResponse.status === "fulfilled" && blackbaudResponse.value.ok) {
-          const data = await blackbaudResponse.value.json();
-          if (active) {
-            setBlackbaudMatches(Array.isArray(data?.results) ? data.results : []);
-          }
-        } else if (active) {
+        const exactLocalLinkedMatch = localMatches.find(
+          (item) =>
+            item?.blackbaudConstituentId &&
+            item.normalized_name === normalizeName(query),
+        );
+
+        if (exactLocalLinkedMatch) {
           setBlackbaudMatches([]);
-          if (blackbaudResponse.status === "fulfilled") {
-            const errorPayload = await blackbaudResponse.value.json().catch(() => null);
-            setBlackbaudSearchError(
-              errorPayload?.error || "Could not search Raiser's Edge NXT right now.",
-            );
-          } else {
-            setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
-          }
+          setBlackbaudSearchError("");
+          setBlackbaudSearchWarning(
+            "Using the linked Raiser's Edge NXT record from your existing workflow history.",
+          );
+          return;
+        }
+
+        const blackbaudResponse = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+
+        if (!active) return;
+
+        if (blackbaudResponse.ok) {
+          const data = await blackbaudResponse.json();
+          setBlackbaudMatches(Array.isArray(data?.results) ? data.results : []);
+          setBlackbaudSearchWarning(data?.warning || "");
+        } else {
+          setBlackbaudMatches([]);
+          const errorPayload = await blackbaudResponse.json().catch(() => null);
+          setBlackbaudSearchError(
+            errorPayload?.error || "Could not search Raiser's Edge NXT right now.",
+          );
         }
       } catch (searchError) {
         console.error("Constituent lookup error:", searchError);
         if (active) {
           setBlackbaudMatches([]);
           setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
+          setBlackbaudSearchWarning("");
         }
       } finally {
         if (active) {
@@ -1513,7 +1532,9 @@ export default function ActionOpportunityUpdatePage() {
               </div>
             ) : null}
 
-            {!blackbaudMatches.length && donorName.trim().length >= 2 ? (
+            {!blackbaudMatches.length &&
+            !selectedBlackbaudMatch &&
+            donorName.trim().length >= 2 ? (
               <div
                 style={{
                   marginTop: "12px",
@@ -1538,7 +1559,9 @@ export default function ActionOpportunityUpdatePage() {
                 <div style={{ fontSize: "13px", color: "#4B5563" }}>
                   {blackbaudSearchLoading
                     ? "Searching Raiser's Edge NXT..."
-                    : blackbaudSearchError || "No Raiser's Edge NXT match found yet."}
+                    : blackbaudSearchError ||
+                      blackbaudSearchWarning ||
+                      "No Raiser's Edge NXT match found yet."}
                 </div>
               </div>
             ) : null}
@@ -1568,6 +1591,17 @@ export default function ActionOpportunityUpdatePage() {
                 <div style={{ fontSize: "13px", fontWeight: 700, color: "#1D4ED8" }}>
                   Selected Blackbaud match
                 </div>
+                {blackbaudSearchWarning ? (
+                  <div
+                    style={{
+                      marginTop: "6px",
+                      fontSize: "12px",
+                      color: "#1D4ED8",
+                    }}
+                  >
+                    {blackbaudSearchWarning}
+                  </div>
+                ) : null}
                 <div style={{ marginTop: "6px", fontSize: "13px", color: "#1F2937" }}>
                   {selectedBlackbaudMatch.name} will be linked
                   {selectedBlackbaudMatch.lookupId ? (
