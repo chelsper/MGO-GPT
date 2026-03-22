@@ -108,6 +108,8 @@ export default function ActionOpportunityUpdatePage() {
   const [constituentMatches, setConstituentMatches] = useState([]);
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [blackbaudSearchLoading, setBlackbaudSearchLoading] = useState(false);
+  const [blackbaudSearchError, setBlackbaudSearchError] = useState("");
   const [selectedBlackbaudSummary, setSelectedBlackbaudSummary] = useState(null);
   const [selectedBlackbaudSummaryLoading, setSelectedBlackbaudSummaryLoading] =
     useState(false);
@@ -278,6 +280,8 @@ export default function ActionOpportunityUpdatePage() {
       setConstituentMatches([]);
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
+      setBlackbaudSearchLoading(false);
+      setBlackbaudSearchError("");
       setSelectedBlackbaudSummary(null);
       setSelectedBlackbaudSummaryLoading(false);
       setSelectedBlackbaudSummaryError("");
@@ -286,6 +290,8 @@ export default function ActionOpportunityUpdatePage() {
     }
 
     let active = true;
+    setBlackbaudSearchLoading(true);
+    setBlackbaudSearchError("");
     const timeoutId = setTimeout(async () => {
       try {
         const [localResponse, blackbaudResponse] = await Promise.allSettled([
@@ -309,9 +315,18 @@ export default function ActionOpportunityUpdatePage() {
           }
         } else if (active) {
           setBlackbaudMatches([]);
+          setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
         }
       } catch (searchError) {
         console.error("Constituent lookup error:", searchError);
+        if (active) {
+          setBlackbaudMatches([]);
+          setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
+        }
+      } finally {
+        if (active) {
+          setBlackbaudSearchLoading(false);
+        }
       }
     }, 180);
 
@@ -428,6 +443,19 @@ export default function ActionOpportunityUpdatePage() {
     selectedBlackbaudSummary?.mapped?.lifetimeGiving || null;
   const blackbaudFundraiserAssignments =
     selectedBlackbaudSummary?.mapped?.fundraiserAssignments || [];
+
+  useEffect(() => {
+    if (selectedBlackbaudMatch || blackbaudMatches.length === 0) return;
+
+    if (blackbaudExactMatch) {
+      setSelectedBlackbaudMatch(blackbaudExactMatch);
+      return;
+    }
+
+    if (blackbaudMatches.length === 1) {
+      setSelectedBlackbaudMatch(blackbaudMatches[0]);
+    }
+  }, [blackbaudExactMatch, blackbaudMatches, selectedBlackbaudMatch]);
 
   useEffect(() => {
     if (!includeOpportunity || !exactMatch || matchDecision === "new") {
@@ -1460,6 +1488,36 @@ export default function ActionOpportunityUpdatePage() {
                 </div>
                 <div style={{ marginTop: "8px", fontSize: "12px", color: "#4B5563" }}>
                   Choose a match to save its Blackbaud constituent ID onto the local constituent.
+                </div>
+              </div>
+            ) : null}
+
+            {!blackbaudMatches.length && donorName.trim().length >= 2 ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  border: "1px solid #E5E7EB",
+                  backgroundColor: "#F9FAFB",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Blackbaud match
+                </div>
+                <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                  {blackbaudSearchLoading
+                    ? "Searching Raiser's Edge NXT..."
+                    : blackbaudSearchError || "No Raiser's Edge NXT match found yet."}
                 </div>
               </div>
             ) : null}
