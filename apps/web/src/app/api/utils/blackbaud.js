@@ -315,7 +315,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
       ? payload
       : [];
 
-  return rows.map((item) => ({
+  const mappedRows = rows.map((item) => ({
     blackbaudConstituentId:
       item?.id ||
       item?.constituent_id ||
@@ -345,6 +345,83 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     lookupId: item?.lookup_id || item?.lookupId || null,
     raw: item,
   }));
+
+  const queryParts = String(query || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const firstName = queryParts[0] || "";
+  const lastName = queryParts.length > 1 ? queryParts.slice(1).join(" ") : "";
+
+  let customMappedRows = [];
+
+  if (firstName || lastName) {
+    try {
+      const customPayload = await blackbaudApiFetch(
+        BLACKBAUD_CONSTITUENT_CUSTOMSEARCH_URL,
+        {
+          userId,
+          origin,
+          searchParams: {
+            first_name: firstName || undefined,
+            last_name: lastName || undefined,
+            include_alias: true,
+            include_maiden_name: true,
+            limit: 10,
+          },
+        },
+      );
+
+      const customRows = Array.isArray(customPayload?.results)
+        ? customPayload.results
+        : [];
+
+      customMappedRows = customRows.map((item) => ({
+        blackbaudConstituentId:
+          item?.constituent_id || item?.id || item?.record_id?.toString() || null,
+        name:
+          [
+            item?.first_name,
+            item?.middle_name,
+            item?.last_name,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .trim() ||
+          item?.preferred_name ||
+          item?.display_name ||
+          item?.org_name ||
+          "Unnamed constituent",
+        email: item?.primary_email || item?.matched_email || null,
+        phone: item?.primary_phone || item?.matched_phone || null,
+        address:
+          [
+            item?.address_block,
+            item?.address_city_state,
+            item?.address_post_code,
+          ]
+            .filter(Boolean)
+            .join("\n") || null,
+        lookupId: item?.record_id?.toString() || null,
+        raw: item,
+      }));
+    } catch (error) {
+      console.error("Blackbaud custom constituent search error:", error);
+    }
+  }
+
+  const merged = [...mappedRows, ...customMappedRows];
+  const deduped = [];
+  const seen = new Set();
+
+  for (const item of merged) {
+    const key = item.blackbaudConstituentId || item.lookupId || item.name;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 export async function findBlackbaudConstituentByEmail({
