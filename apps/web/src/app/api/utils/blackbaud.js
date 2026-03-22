@@ -358,51 +358,56 @@ export async function blackbaudApiFetch(
 }
 
 export async function searchBlackbaudConstituents({ userId, origin, query }) {
-  const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
-    userId,
-    origin,
-    searchParams: {
-      search_text: query,
-      limit: 10,
-    },
-  });
+  let mappedRows = [];
+  try {
+    const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
+      userId,
+      origin,
+      searchParams: {
+        search_text: query,
+        limit: 10,
+      },
+    });
 
-  const rows = Array.isArray(payload?.value)
-    ? payload.value
-    : Array.isArray(payload)
-      ? payload
-      : [];
+    const rows = Array.isArray(payload?.value)
+      ? payload.value
+      : Array.isArray(payload)
+        ? payload
+        : [];
 
-  const mappedRows = rows.map((item) => ({
-    blackbaudConstituentId:
-      item?.id ||
-      item?.constituent_id ||
-      item?.constituentId ||
-      null,
-    name:
-      item?.name ||
-      [item?.first, item?.middle, item?.last].filter(Boolean).join(" ").trim() ||
-      item?.lookup_id ||
-      "Unnamed constituent",
-    email:
-      item?.email ||
-      item?.email?.address ||
-      item?.primary_email ||
-      item?.primary_email?.address ||
-      null,
-    phone:
-      item?.phone ||
-      item?.primary_phone?.number ||
-      item?.phones?.[0]?.number ||
-      null,
-    address:
-      item?.address ||
-      item?.formatted_address ||
-      item?.primary_address?.formatted_address ||
-      null,
-    lookupId: item?.lookup_id || item?.lookupId || null,
-    raw: item,
-  }));
+    mappedRows = rows.map((item) => ({
+      blackbaudConstituentId:
+        item?.id ||
+        item?.constituent_id ||
+        item?.constituentId ||
+        null,
+      name:
+        item?.name ||
+        [item?.first, item?.middle, item?.last].filter(Boolean).join(" ").trim() ||
+        item?.lookup_id ||
+        "Unnamed constituent",
+      email:
+        item?.email ||
+        item?.email?.address ||
+        item?.primary_email ||
+        item?.primary_email?.address ||
+        null,
+      phone:
+        item?.phone ||
+        item?.primary_phone?.number ||
+        item?.phones?.[0]?.number ||
+        null,
+      address:
+        item?.address ||
+        item?.formatted_address ||
+        item?.primary_address?.formatted_address ||
+        null,
+      lookupId: item?.lookup_id || item?.lookupId || null,
+      raw: item,
+    }));
+  } catch (error) {
+    console.error("Blackbaud constituent search error:", error);
+  }
 
   const queryParts = String(query || "")
     .trim()
@@ -506,6 +511,14 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     deduped.push(item);
+  }
+
+  if (deduped.length > 0) {
+    return deduped;
+  }
+
+  if (mappedRows.length === 0 && customMappedRows.length === 0) {
+    throw new Error("Failed to search Blackbaud constituents");
   }
 
   return deduped;
