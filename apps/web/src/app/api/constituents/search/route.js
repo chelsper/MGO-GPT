@@ -38,6 +38,7 @@ export async function GET(request) {
         c.id AS constituent_id,
         c.name,
         c.normalized_name,
+        c.blackbaud_constituent_id,
         'constituent'::text AS source
       FROM constituents c
       WHERE
@@ -52,8 +53,10 @@ export async function GET(request) {
           p.constituent_id,
           p.prospect_name AS name,
           LOWER(TRIM(REGEXP_REPLACE(p.prospect_name, '\s+', ' ', 'g'))) AS normalized_name,
+          COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) AS blackbaud_constituent_id,
           'prospect'::text AS source
         FROM prospects p
+        LEFT JOIN constituents c ON c.id = p.constituent_id
         WHERE
           p.user_id = ${user.id}
           AND p.prospect_name IS NOT NULL
@@ -67,8 +70,10 @@ export async function GET(request) {
         s.constituent_id,
         s.donor_name AS name,
         LOWER(TRIM(REGEXP_REPLACE(s.donor_name, '\s+', ' ', 'g'))) AS normalized_name,
+        c.blackbaud_constituent_id,
         'submission'::text AS source
       FROM submissions s
+      LEFT JOIN constituents c ON c.id = s.constituent_id
       WHERE
         s.user_id = ${user.id}
         AND s.donor_name IS NOT NULL
@@ -85,6 +90,7 @@ export async function GET(request) {
           id: row.constituent_id || null,
           name: row.name,
           normalized_name: row.normalized_name,
+          blackbaudConstituentId: row.blackbaud_constituent_id || null,
           match_count: 0,
           sources: new Set(),
         });
@@ -93,6 +99,9 @@ export async function GET(request) {
       const entry = grouped.get(key);
       if (!entry.id && row.constituent_id) {
         entry.id = row.constituent_id;
+      }
+      if (!entry.blackbaudConstituentId && row.blackbaud_constituent_id) {
+        entry.blackbaudConstituentId = row.blackbaud_constituent_id;
       }
       entry.match_count += 1;
       entry.sources.add(row.source);

@@ -452,6 +452,20 @@ export default function ActionOpportunityUpdatePage() {
     selectedBlackbaudSummary?.mapped?.fundraiserAssignments || [];
 
   useEffect(() => {
+    if (selectedBlackbaudMatch) return;
+    if (!exactMatch?.blackbaudConstituentId) return;
+
+    setSelectedBlackbaudMatch({
+      blackbaudConstituentId: exactMatch.blackbaudConstituentId,
+      name: exactMatch.name,
+      lookupId: null,
+      email: null,
+      phone: null,
+      address: null,
+    });
+  }, [exactMatch, selectedBlackbaudMatch]);
+
+  useEffect(() => {
     if (selectedBlackbaudMatch || blackbaudMatches.length === 0) return;
 
     if (blackbaudExactMatch) {
