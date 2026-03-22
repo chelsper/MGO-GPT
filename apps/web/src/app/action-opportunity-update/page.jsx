@@ -315,7 +315,14 @@ export default function ActionOpportunityUpdatePage() {
           }
         } else if (active) {
           setBlackbaudMatches([]);
-          setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
+          if (blackbaudResponse.status === "fulfilled") {
+            const errorPayload = await blackbaudResponse.value.json().catch(() => null);
+            setBlackbaudSearchError(
+              errorPayload?.error || "Could not search Raiser's Edge NXT right now.",
+            );
+          } else {
+            setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
+          }
         }
       } catch (searchError) {
         console.error("Constituent lookup error:", searchError);

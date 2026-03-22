@@ -358,6 +358,7 @@ export async function blackbaudApiFetch(
 }
 
 export async function searchBlackbaudConstituents({ userId, origin, query }) {
+  let primarySearchFailed = false;
   let mappedRows = [];
   try {
     const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
@@ -406,6 +407,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
       raw: item,
     }));
   } catch (error) {
+    primarySearchFailed = true;
     console.error("Blackbaud constituent search error:", error);
   }
 
@@ -417,6 +419,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
   const lastName = queryParts.length > 1 ? queryParts.slice(1).join(" ") : "";
 
   let customMappedRows = [];
+  let customSearchFailed = false;
 
   if (firstName || lastName) {
     try {
@@ -498,6 +501,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
         raw: item,
       }));
     } catch (error) {
+      customSearchFailed = true;
       console.error("Blackbaud custom constituent search error:", error);
     }
   }
@@ -517,7 +521,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     return deduped;
   }
 
-  if (mappedRows.length === 0 && customMappedRows.length === 0) {
+  if (primarySearchFailed && customSearchFailed) {
     throw new Error("Failed to search Blackbaud constituents");
   }
 
