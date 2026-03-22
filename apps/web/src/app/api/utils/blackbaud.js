@@ -358,59 +358,6 @@ export async function blackbaudApiFetch(
 }
 
 export async function searchBlackbaudConstituents({ userId, origin, query }) {
-  let primarySearchFailed = false;
-  let mappedRows = [];
-  try {
-    const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
-      userId,
-      origin,
-      searchParams: {
-        search_text: query,
-        limit: 10,
-      },
-    });
-
-    const rows = Array.isArray(payload?.value)
-      ? payload.value
-      : Array.isArray(payload)
-        ? payload
-        : [];
-
-    mappedRows = rows.map((item) => ({
-      blackbaudConstituentId:
-        item?.id ||
-        item?.constituent_id ||
-        item?.constituentId ||
-        null,
-      name:
-        item?.name ||
-        [item?.first, item?.middle, item?.last].filter(Boolean).join(" ").trim() ||
-        item?.lookup_id ||
-        "Unnamed constituent",
-      email:
-        item?.email ||
-        item?.email?.address ||
-        item?.primary_email ||
-        item?.primary_email?.address ||
-        null,
-      phone:
-        item?.phone ||
-        item?.primary_phone?.number ||
-        item?.phones?.[0]?.number ||
-        null,
-      address:
-        item?.address ||
-        item?.formatted_address ||
-        item?.primary_address?.formatted_address ||
-        null,
-      lookupId: item?.lookup_id || item?.lookupId || null,
-      raw: item,
-    }));
-  } catch (error) {
-    primarySearchFailed = true;
-    console.error("Blackbaud constituent search error:", error);
-  }
-
   const queryParts = String(query || "")
     .trim()
     .split(/\s+/)
@@ -418,7 +365,9 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
   const firstName = queryParts[0] || "";
   const lastName = queryParts.length > 1 ? queryParts.slice(1).join(" ") : "";
 
+  let mappedRows = [];
   let customMappedRows = [];
+  let primarySearchFailed = false;
   let customSearchFailed = false;
 
   if (firstName || lastName) {
@@ -503,6 +452,59 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     } catch (error) {
       customSearchFailed = true;
       console.error("Blackbaud custom constituent search error:", error);
+    }
+  }
+
+  if (customMappedRows.length === 0) {
+    try {
+      const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
+        userId,
+        origin,
+        searchParams: {
+          search_text: query,
+          limit: 10,
+        },
+      });
+
+      const rows = Array.isArray(payload?.value)
+        ? payload.value
+        : Array.isArray(payload)
+          ? payload
+          : [];
+
+      mappedRows = rows.map((item) => ({
+        blackbaudConstituentId:
+          item?.id ||
+          item?.constituent_id ||
+          item?.constituentId ||
+          null,
+        name:
+          item?.name ||
+          [item?.first, item?.middle, item?.last].filter(Boolean).join(" ").trim() ||
+          item?.lookup_id ||
+          "Unnamed constituent",
+        email:
+          item?.email ||
+          item?.email?.address ||
+          item?.primary_email ||
+          item?.primary_email?.address ||
+          null,
+        phone:
+          item?.phone ||
+          item?.primary_phone?.number ||
+          item?.phones?.[0]?.number ||
+          null,
+        address:
+          item?.address ||
+          item?.formatted_address ||
+          item?.primary_address?.formatted_address ||
+          null,
+        lookupId: item?.lookup_id || item?.lookupId || null,
+        raw: item,
+      }));
+    } catch (error) {
+      primarySearchFailed = true;
+      console.error("Blackbaud constituent search error:", error);
     }
   }
 
