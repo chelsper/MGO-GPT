@@ -4384,99 +4384,113 @@ export default function MyTopProspectsPage() {
           style={{
             maxWidth: "1000px",
             margin: "0 auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
+            display: "grid",
+            gap: "10px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <a
-              href="/"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "36px",
-                height: "36px",
-                borderRadius: "8px",
-                backgroundColor: "#F3F4F6",
-                border: "1px solid #E5E7EB",
-                textDecoration: "none",
-              }}
-            >
-              <ArrowLeft size={18} color="#374151" />
-            </a>
-            <h1
-              style={{
-                fontSize: "18px",
-                fontWeight: "700",
-                color: "#111827",
-                margin: 0,
-              }}
-            >
-              My Top Prospects
-            </h1>
-          </div>
-          <button
-            onClick={() => setShowAddModal(true)}
+          <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "6px",
-              padding: "8px 16px",
-              backgroundColor: "#6A5BFF",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              fontSize: "14px",
-              fontWeight: "600",
-              cursor: "pointer",
+              justifyContent: "space-between",
+              gap: "12px",
+              flexWrap: "wrap",
             }}
           >
-            <Plus size={16} />
-            Add Prospect
-          </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <a
+                href="/"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "8px",
+                  backgroundColor: "#F3F4F6",
+                  border: "1px solid #E5E7EB",
+                  textDecoration: "none",
+                }}
+              >
+                <ArrowLeft size={18} color="#374151" />
+              </a>
+              <div>
+                <h1
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: "700",
+                    color: "#111827",
+                    margin: 0,
+                  }}
+                >
+                  My Top Prospects
+                </h1>
+                {profileStatus?.actingAsUser ? (
+                  <div style={{ fontSize: "13px", color: "#0F766E", marginTop: "3px", fontWeight: 700 }}>
+                    Viewing as {profileStatus.actingAsUser.name}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <button
+              onClick={() => setShowAddModal(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 16px",
+                backgroundColor: "#6A5BFF",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={16} />
+              Add Prospect
+            </button>
+          </div>
+          {profileStatus?.actingAsUser ? (
+            <div
+              style={{
+                backgroundColor: "#ECFEFF",
+                borderRadius: "12px",
+                border: "1px solid #A5F3FC",
+                padding: "12px 14px",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
+                You are editing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace and portfolio.
+              </div>
+              <button
+                type="button"
+                onClick={() => stopViewingMutation.mutate()}
+                disabled={stopViewingMutation.isPending}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid #67E8F9",
+                  backgroundColor: "white",
+                  color: "#0F766E",
+                  fontWeight: "700",
+                  cursor: stopViewingMutation.isPending ? "not-allowed" : "pointer",
+                }}
+              >
+                {stopViewingMutation.isPending ? "Returning..." : "Return to admin view"}
+              </button>
+            </div>
+          ) : null}
         </div>
       </header>
 
       <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "24px" }}>
-        {profileStatus?.actingAsUser ? (
-          <div
-            style={{
-              backgroundColor: "#ECFEFF",
-              borderRadius: "12px",
-              border: "1px solid #A5F3FC",
-              padding: "14px 16px",
-              marginBottom: "18px",
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "12px",
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
-              Viewing this portfolio as <strong>{profileStatus.actingAsUser.name}</strong> ({profileStatus.actingAsUser.email}).
-            </div>
-            <button
-              type="button"
-              onClick={() => stopViewingMutation.mutate()}
-              disabled={stopViewingMutation.isPending}
-              style={{
-                padding: "8px 14px",
-                borderRadius: "10px",
-                border: "1px solid #67E8F9",
-                backgroundColor: "white",
-                color: "#0F766E",
-                fontWeight: "700",
-                cursor: stopViewingMutation.isPending ? "not-allowed" : "pointer",
-              }}
-            >
-              {stopViewingMutation.isPending ? "Returning..." : "Return to admin view"}
-            </button>
-          </div>
-        ) : null}
-
         {profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
           <div
             style={{

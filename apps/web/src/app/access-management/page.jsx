@@ -919,14 +919,14 @@ export default function AccessManagementPage() {
                             style={{
                               padding: "8px 12px",
                               borderRadius: "10px",
-                              border: "1px solid #BFDBFE",
-                              backgroundColor: "white",
-                              color: "#1D4ED8",
+                              border: "1px solid #C7D2FE",
+                              backgroundColor: "#EEF2FF",
+                              color: "#4338CA",
                               fontWeight: 700,
                               cursor: "pointer",
                             }}
                           >
-                            View as MGO
+                            Open workspace
                           </button>
                         ) : null}
                         <button
@@ -982,6 +982,41 @@ export default function AccessManagementPage() {
                       <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "8px" }}>
                         Edit {user.name}
                       </div>
+                      {user.role === "mgo" ? (
+                        <div
+                          style={{
+                            marginBottom: "12px",
+                            padding: "12px 14px",
+                            borderRadius: "10px",
+                            backgroundColor: "#EEF2FF",
+                            border: "1px solid #C7D2FE",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ fontSize: "13px", color: "#4338CA", lineHeight: 1.5 }}>
+                            Build this MGO's portfolio and dashboard before they sign in.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchWorkspace(user)}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid #A5B4FC",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Open workspace
+                          </button>
+                        </div>
+                      ) : null}
                       <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                         Connect to Blackbaud user
                       </label>
