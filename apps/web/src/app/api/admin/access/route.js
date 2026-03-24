@@ -59,6 +59,8 @@ export async function GET() {
           inv.blackbaud_constituent_id,
           inv.blackbaud_lookup_id,
           inv.blackbaud_name,
+          existing_user.id AS existing_user_id,
+          existing_user.name AS existing_user_name,
           inv.accepted_at,
           inv.revoked_at,
           inv.created_at,
@@ -66,6 +68,7 @@ export async function GET() {
           inviter.email AS invited_by_email
         FROM user_invitations inv
         LEFT JOIN users inviter ON inviter.id = inv.invited_by
+        LEFT JOIN users existing_user ON LOWER(existing_user.email) = LOWER(inv.email)
         ORDER BY inv.created_at DESC
       `,
     ]);

@@ -355,6 +355,59 @@ export default function AccessManagementPage() {
     }
   }
 
+  function getWorkspaceSeedName(record) {
+    if (record?.name) return record.name;
+    if (record?.blackbaud_name) return record.blackbaud_name;
+    const emailValue = String(record?.email || "").trim();
+    if (!emailValue.includes("@")) return emailValue || "New MGO";
+    const local = emailValue.split("@")[0];
+    return local
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  async function handleCreateWorkspaceFromInvitation(invitation) {
+    setSaving(true);
+    setStatusMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: getWorkspaceSeedName(invitation),
+          email: invitation.email,
+          role: invitation.role,
+          provisionOnly: true,
+          blackbaudConstituentId: invitation.blackbaud_constituent_id || null,
+          blackbaudLookupId: invitation.blackbaud_lookup_id || null,
+          blackbaudName: invitation.blackbaud_name || null,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to create workspace");
+      }
+
+      setStatusMessage("Workspace created from pending invitation.");
+      setToast({ tone: "success", message: "Workspace created." });
+      await loadAccessState();
+      if (data?.user) {
+        await handleSwitchWorkspace(data.user);
+      }
+    } catch (err) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : "Failed to create workspace";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleRoleChange(userId, nextRole) {
     setUpdatingUserId(userId);
     setStatusMessage("");
@@ -1192,8 +1245,56 @@ export default function AccessManagementPage() {
                           ? ` by ${invitation.invited_by_name}`
                           : ""}
                       </div>
+                      {invitation.existing_user_id ? (
+                        <div style={{ fontSize: "12px", color: "#4338CA", marginTop: "8px", fontWeight: 700 }}>
+                          Workspace ready as {invitation.existing_user_name || invitation.email}
+                        </div>
+                      ) : null}
                     </div>
                     <div style={{ display: "grid", gap: "8px" }}>
+                      {invitation.role === "mgo" ? (
+                        invitation.existing_user_id ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSwitchWorkspace({
+                                id: invitation.existing_user_id,
+                                name: invitation.existing_user_name || getWorkspaceSeedName(invitation),
+                                email: invitation.email,
+                                role: "mgo",
+                              })
+                            }
+                            style={{
+                              padding: "10px 14px",
+                              borderRadius: "10px",
+                              border: "1px solid #C7D2FE",
+                              backgroundColor: "#EEF2FF",
+                              color: "#4338CA",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Open workspace
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleCreateWorkspaceFromInvitation(invitation)}
+                            disabled={saving}
+                            style={{
+                              padding: "10px 14px",
+                              borderRadius: "10px",
+                              border: "1px solid #C7D2FE",
+                              backgroundColor: "#EEF2FF",
+                              color: "#4338CA",
+                              fontWeight: 700,
+                              cursor: saving ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {saving ? "Creating..." : "Create workspace"}
+                          </button>
+                        )
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => handleResendInvitation(invitation)}
