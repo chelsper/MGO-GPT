@@ -355,6 +355,18 @@ export default function ActionOpportunityUpdatePage() {
   }, [includeOpportunity, isJointSolicitation, jointMgoLoaded, jointMgoLoading, user?.id]);
 
   useEffect(() => {
+    if (!jointMgoLoading) return undefined;
+
+    const failsafeId = window.setTimeout(() => {
+      setJointMgoLoading(false);
+      setJointMgoLoaded(true);
+      setJointMgoError((current) => current || "Timed out loading MGO list.");
+    }, 10000);
+
+    return () => window.clearTimeout(failsafeId);
+  }, [jointMgoLoading]);
+
+  useEffect(() => {
     if (!includeAction) {
       setCreateActionItem(false);
       setActionItemText("");
@@ -1686,7 +1698,19 @@ export default function ActionOpportunityUpdatePage() {
                         <div style={{ marginTop: "10px" }}>
                           <button
                             type="button"
-                            onClick={() => setSelectedBlackbaudMatch(match)}
+                            onClick={() => {
+                              setSelectedBlackbaudMatch(match);
+                              if (match.name) {
+                                setDonorName(match.name);
+                                if (
+                                  !opportunityTitle.trim() ||
+                                  normalizeName(opportunityTitle) ===
+                                    `${normalizeName(donorName)} opportunity`
+                                ) {
+                                  setOpportunityTitle(`${match.name} opportunity`);
+                                }
+                              }
+                            }}
                             style={{
                               padding: "7px 12px",
                               borderRadius: "999px",
