@@ -80,6 +80,13 @@ function prettifyFieldName(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function mappingNeedsGovernance(mapping) {
+  return (
+    !String(mapping?.source_of_truth || "").trim() ||
+    !String(mapping?.selection_rule || "").trim()
+  );
+}
+
 export default function BlackbaudMappingPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -91,6 +98,8 @@ export default function BlackbaudMappingPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [directionFilter, setDirectionFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
+  const [showOnlyIncomplete, setShowOnlyIncomplete] = useState(false);
+  const [showOnlyEditable, setShowOnlyEditable] = useState(false);
 
   async function loadMappings() {
     const [profileResponse, mappingResponse] = await Promise.all([
@@ -152,7 +161,11 @@ export default function BlackbaudMappingPage() {
         entityFilter === "all" ? true : mapping.app_entity === entityFilter;
       const matchesDirection =
         directionFilter === "all" ? true : mapping.direction === directionFilter;
-      if (!matchesEntity || !matchesDirection) return false;
+      const matchesCompleteness = showOnlyIncomplete ? mappingNeedsGovernance(mapping) : true;
+      const matchesEditable = showOnlyEditable ? mapping.direction !== "pull" : true;
+      if (!matchesEntity || !matchesDirection || !matchesCompleteness || !matchesEditable) {
+        return false;
+      }
       if (!query) return true;
 
       const haystack = [
@@ -171,7 +184,7 @@ export default function BlackbaudMappingPage() {
 
       return haystack.includes(query);
     });
-  }, [directionFilter, entityFilter, mappings, searchQuery]);
+  }, [directionFilter, entityFilter, mappings, searchQuery, showOnlyEditable, showOnlyIncomplete]);
 
   const groupedMappings = useMemo(() => {
     const groups = new Map();
@@ -181,7 +194,19 @@ export default function BlackbaudMappingPage() {
       }
       groups.get(mapping.app_entity).push(mapping);
     }
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([entity, rows]) => [
+        entity,
+        [...rows].sort((left, right) => {
+          const governanceDelta =
+            Number(mappingNeedsGovernance(right)) - Number(mappingNeedsGovernance(left));
+          if (governanceDelta !== 0) return governanceDelta;
+          const reviewDelta = Number(Boolean(left.reviewed_at)) - Number(Boolean(right.reviewed_at));
+          if (reviewDelta !== 0) return reviewDelta;
+          return left.app_field.localeCompare(right.app_field);
+        }),
+      ]);
   }, [filteredMappings]);
 
   const mappingSummary = useMemo(() => {
@@ -202,7 +227,7 @@ export default function BlackbaudMappingPage() {
 
   const governanceSummary = useMemo(() => {
     const incomplete = mappings.filter(
-      (mapping) => !String(mapping.source_of_truth || "").trim() || !String(mapping.selection_rule || "").trim(),
+      (mapping) => mappingNeedsGovernance(mapping),
     );
     return {
       incompleteCount: incomplete.length,
@@ -243,6 +268,39 @@ export default function BlackbaudMappingPage() {
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to save Blackbaud mapping");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  async function markMappingReviewed(mapping) {
+    setSavingKey(`${mapping.mapping_key}:review`);
+    setError("");
+    setStatusMessage("");
+
+    try {
+      const response = await fetch("/api/admin/blackbaud-mappings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...mapping,
+          mark_reviewed: true,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to mark mapping reviewed");
+      }
+
+      setMappings((current) =>
+        current.map((item) =>
+          item.mapping_key === mapping.mapping_key ? { ...item, ...data.mapping } : item,
+        ),
+      );
+      setStatusMessage(`Marked ${mapping.app_entity}.${mapping.app_field} as reviewed`);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to mark mapping reviewed");
     } finally {
       setSavingKey(null);
     }
@@ -560,6 +618,40 @@ export default function BlackbaudMappingPage() {
               </select>
             </div>
           </div>
+          <div style={{ marginTop: "14px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setShowOnlyIncomplete((current) => !current)}
+              style={{
+                borderRadius: "999px",
+                padding: "8px 12px",
+                border: showOnlyIncomplete ? "1px solid #D97706" : "1px solid #D1D5DB",
+                backgroundColor: showOnlyIncomplete ? "#FFF7ED" : "white",
+                color: showOnlyIncomplete ? "#B45309" : "#374151",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {showOnlyIncomplete ? "Showing incomplete only" : "Show only incomplete"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowOnlyEditable((current) => !current)}
+              style={{
+                borderRadius: "999px",
+                padding: "8px 12px",
+                border: showOnlyEditable ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                backgroundColor: showOnlyEditable ? "#EEF2FF" : "white",
+                color: showOnlyEditable ? "#4338CA" : "#374151",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {showOnlyEditable ? "Showing editable only" : "Show only editable"}
+            </button>
+          </div>
           <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280" }}>
             Showing {filteredMappings.length} of {mappings.length} mappings.
           </div>
@@ -618,7 +710,7 @@ export default function BlackbaudMappingPage() {
                     const tone = directionTone[mapping.direction] || directionTone["local only"];
                     const missingSourceOfTruth = !String(mapping.source_of_truth || "").trim();
                     const missingSelectionRule = !String(mapping.selection_rule || "").trim();
-                    const needsGovernance = missingSourceOfTruth || missingSelectionRule;
+                    const needsGovernance = mappingNeedsGovernance(mapping);
                     return (
                       <>
                   <div
@@ -630,8 +722,8 @@ export default function BlackbaudMappingPage() {
                       marginBottom: "14px",
                       flexWrap: "wrap",
                     }}
-                  >
-                    <div>
+                    >
+                      <div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                         <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827" }}>
                           {prettifyFieldName(mapping.app_field)}
@@ -697,6 +789,11 @@ export default function BlackbaudMappingPage() {
                       <div style={{ color: "#6B7280", fontSize: "13px", marginTop: "4px" }}>
                         Mapping key: {mapping.mapping_key}
                       </div>
+                      <div style={{ color: "#6B7280", fontSize: "12px", marginTop: "6px" }}>
+                        {mapping.reviewed_at
+                          ? `Reviewed ${new Date(mapping.reviewed_at).toLocaleString()}${mapping.reviewed_by_name ? ` by ${mapping.reviewed_by_name}` : ""}`
+                          : "Not reviewed yet"}
+                      </div>
                     </div>
                     <div
                       style={{
@@ -706,6 +803,30 @@ export default function BlackbaudMappingPage() {
                       flexWrap: "wrap",
                     }}
                   >
+                      <button
+                        type="button"
+                        onClick={() => markMappingReviewed(mapping)}
+                        disabled={savingKey === `${mapping.mapping_key}:review`}
+                        style={{
+                          border: "1px solid #D1D5DB",
+                          borderRadius: "10px",
+                          backgroundColor: "white",
+                          color: "#111827",
+                          fontWeight: 700,
+                          padding: "10px 16px",
+                          cursor:
+                            savingKey === `${mapping.mapping_key}:review`
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: savingKey === `${mapping.mapping_key}:review` ? 0.7 : 1,
+                        }}
+                      >
+                        {savingKey === `${mapping.mapping_key}:review`
+                          ? "Marking..."
+                          : mapping.reviewed_at
+                            ? "Mark reviewed again"
+                            : "Mark reviewed"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => saveMapping(mapping)}

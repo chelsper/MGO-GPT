@@ -33,18 +33,22 @@ export async function GET() {
 
     const overrides = await sql`
       SELECT
-        mapping_key,
-        app_entity,
-        app_field,
-        blackbaud_object,
-        blackbaud_field,
-        selection_rule,
-        direction,
-        source_of_truth,
-        notes,
-        updated_by,
-        updated_at
-      FROM blackbaud_field_mappings
+        m.mapping_key,
+        m.app_entity,
+        m.app_field,
+        m.blackbaud_object,
+        m.blackbaud_field,
+        m.selection_rule,
+        m.direction,
+        m.source_of_truth,
+        m.notes,
+        m.reviewed_by,
+        m.reviewed_at,
+        reviewer.name AS reviewed_by_name,
+        m.updated_by,
+        m.updated_at
+      FROM blackbaud_field_mappings m
+      LEFT JOIN users reviewer ON reviewer.id = m.reviewed_by
       ORDER BY app_entity ASC, app_field ASC
     `;
 
@@ -83,6 +87,7 @@ export async function PATCH(request) {
     const defaultMapping = defaultMappings.find(
       (mapping) => mapping.mapping_key === mappingKey,
     );
+    const markReviewed = body?.mark_reviewed === true;
     if (defaultMapping?.direction === "pull") {
       return Response.json(
         { error: "Pull-only mappings are read-only in the admin UI" },
@@ -101,6 +106,8 @@ export async function PATCH(request) {
         direction,
         source_of_truth,
         notes,
+        reviewed_by,
+        reviewed_at,
         updated_by,
         updated_at
       ) VALUES (
@@ -113,6 +120,8 @@ export async function PATCH(request) {
         ${body?.direction?.trim() || "local only"},
         ${body?.source_of_truth?.trim() || null},
         ${body?.notes?.trim() || null},
+        ${markReviewed ? user.id : null},
+        ${markReviewed ? new Date().toISOString() : null},
         ${user.id},
         NOW()
       )
@@ -126,6 +135,14 @@ export async function PATCH(request) {
         direction = EXCLUDED.direction,
         source_of_truth = EXCLUDED.source_of_truth,
         notes = EXCLUDED.notes,
+        reviewed_by = CASE
+          WHEN ${markReviewed} THEN ${user.id}
+          ELSE blackbaud_field_mappings.reviewed_by
+        END,
+        reviewed_at = CASE
+          WHEN ${markReviewed} THEN NOW()
+          ELSE blackbaud_field_mappings.reviewed_at
+        END,
         updated_by = EXCLUDED.updated_by,
         updated_at = NOW()
       RETURNING
@@ -138,11 +155,28 @@ export async function PATCH(request) {
         direction,
         source_of_truth,
         notes,
+        reviewed_by,
+        reviewed_at,
         updated_by,
         updated_at
     `;
+    const mapping = rows[0];
+    const reviewerRows =
+      mapping?.reviewed_by
+        ? await sql`
+            SELECT name
+            FROM users
+            WHERE id = ${mapping.reviewed_by}
+            LIMIT 1
+          `
+        : [];
 
-    return Response.json({ mapping: rows[0] });
+    return Response.json({
+      mapping: {
+        ...mapping,
+        reviewed_by_name: reviewerRows[0]?.name || null,
+      },
+    });
   } catch (error) {
     console.error("Blackbaud mappings PATCH error:", error);
     return Response.json(

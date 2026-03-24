@@ -592,6 +592,8 @@ export default async function ensureAppSchema() {
         direction TEXT NOT NULL DEFAULT 'local only',
         source_of_truth TEXT,
         notes TEXT,
+        reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMPTZ,
         updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -628,6 +630,14 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE blackbaud_field_mappings
       ADD COLUMN IF NOT EXISTS notes TEXT
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE blackbaud_field_mappings
+      ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ
     `;
     await sql`
       ALTER TABLE blackbaud_field_mappings
