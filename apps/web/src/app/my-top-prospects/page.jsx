@@ -25,6 +25,15 @@ const ASK_TYPES = [
 ];
 
 const FY_OPTIONS = ["FY25", "FY26", "FY27", "FY28", "FY29", "FY30"];
+const ACTION_TYPES = ["visit", "call", "email", "event"];
+const OPPORTUNITY_STAGE_OPTIONS = [
+  "Identification",
+  "Qualification",
+  "Cultivation",
+  "Solicitation",
+  "Solicitation - Verbal",
+  "Stewardship",
+];
 
 const STATUS_COLORS = {
   Active: { bg: "#D1FAE5", text: "#065F46", border: "#A7F3D0" },
@@ -912,11 +921,25 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
 
 function ProspectDetailModal({ prospectId, onClose }) {
   const queryClient = useQueryClient();
-  const [showUpdateForm, setShowUpdateForm] = useState(false);
-  const [updateNotes, setUpdateNotes] = useState("");
-  const [updateDate, setUpdateDate] = useState(
+  const [showActionForm, setShowActionForm] = useState(false);
+  const [actionDate, setActionDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+  const [actionType, setActionType] = useState("visit");
+  const [actionSummary, setActionSummary] = useState("");
+  const [actionNotes, setActionNotes] = useState("");
+  const [actionNextStep, setActionNextStep] = useState("");
+  const [actionNextStepDueDate, setActionNextStepDueDate] = useState("");
+  const [actionLinkedOpportunityId, setActionLinkedOpportunityId] = useState("");
+  const [showOpportunityForm, setShowOpportunityForm] = useState(false);
+  const [newOpportunityData, setNewOpportunityData] = useState({
+    title: "",
+    currentStage: "Identification",
+    estimatedAmount: "",
+    askDate: "",
+    expectedDate: "",
+    latestNotes: "",
+  });
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
@@ -962,21 +985,78 @@ function ProspectDetailModal({ prospectId, onClose }) {
     enabled: Boolean(linkedBlackbaudConstituentId),
   });
 
-  const addUpdateMutation = useMutation({
+  const addActionMutation = useMutation({
     mutationFn: async (body) => {
-      const res = await fetch(`/api/prospects/${prospectId}/updates`, {
+      const res = await fetch(`/api/prospects/${prospectId}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to add update");
-      return res.json();
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to log action");
+      }
+      return payload;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setActionDate(new Date().toISOString().split("T")[0]);
+      setActionType("visit");
+      setActionSummary("");
+      setActionNotes("");
+      setActionNextStep("");
+      setActionNextStepDueDate("");
+      setActionLinkedOpportunityId("");
+      setShowActionForm(false);
+      setActionError(
+        result?.blackbaudAction?.error
+          ? `Saved in the app, but Blackbaud sync failed: ${result.blackbaudAction.error}`
+          : "",
+      );
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error ? mutationError.message : "Failed to log action",
+      );
+    },
+  });
+
+  const addOpportunityMutation = useMutation({
+    mutationFn: async (body) => {
+      const res = await fetch(`/api/prospects/${prospectId}/opportunities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to add opportunity");
+      }
+      return payload;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
-      setUpdateNotes("");
-      setUpdateDate(new Date().toISOString().split("T")[0]);
-      setShowUpdateForm(false);
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setNewOpportunityData({
+        title: "",
+        currentStage: "Identification",
+        estimatedAmount: "",
+        askDate: "",
+        expectedDate: "",
+        latestNotes: "",
+      });
+      setShowOpportunityForm(false);
+      setActionError("");
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to add opportunity",
+      );
     },
   });
 
@@ -1211,6 +1291,8 @@ function ProspectDetailModal({ prospectId, onClose }) {
         opportunity.estimated_amount != null
           ? String(opportunity.estimated_amount)
           : "",
+      askDate: opportunity.ask_date || "",
+      expectedDate: opportunity.expected_date || "",
       latestNotes: opportunity.latest_notes || "",
       closedAmount:
         opportunity.closed_amount != null ? String(opportunity.closed_amount) : "",
@@ -1231,6 +1313,8 @@ function ProspectDetailModal({ prospectId, onClose }) {
         estimatedAmount: opportunityEditData.estimatedAmount
           ? parseFloat(opportunityEditData.estimatedAmount)
           : null,
+        askDate: opportunityEditData.askDate || null,
+        expectedDate: opportunityEditData.expectedDate || null,
         latestNotes: opportunityEditData.latestNotes,
         closedAmount: opportunityEditData.closedAmount
           ? parseFloat(opportunityEditData.closedAmount)
@@ -1238,6 +1322,33 @@ function ProspectDetailModal({ prospectId, onClose }) {
         closeDate: opportunityEditData.closeDate || null,
         declineReason: opportunityEditData.declineReason,
       },
+    });
+  };
+
+  const saveActionLog = () => {
+    setActionError("");
+    addActionMutation.mutate({
+      actionDate,
+      interactionType: actionType,
+      summary: actionSummary,
+      notes: actionNotes,
+      nextStep: actionNextStep,
+      nextActionDueDate: actionNextStepDueDate || null,
+      linkedOpportunityId: actionLinkedOpportunityId || null,
+    });
+  };
+
+  const saveNewOpportunity = () => {
+    setActionError("");
+    addOpportunityMutation.mutate({
+      title: newOpportunityData.title,
+      currentStage: newOpportunityData.currentStage,
+      estimatedAmount: newOpportunityData.estimatedAmount
+        ? parseFloat(newOpportunityData.estimatedAmount)
+        : null,
+      askDate: newOpportunityData.askDate || null,
+      expectedDate: newOpportunityData.expectedDate || null,
+      latestNotes: newOpportunityData.latestNotes || null,
     });
   };
 
@@ -2193,7 +2304,10 @@ function ProspectDetailModal({ prospectId, onClose }) {
                 Edit Prospect
               </button>
               <button
-                onClick={() => setShowUpdateForm(true)}
+                onClick={() => {
+                  setShowActionForm(true);
+                  setShowOpportunityForm(false);
+                }}
                 style={{
                   padding: "8px 16px",
                   backgroundColor: "#EDE9FE",
@@ -2205,7 +2319,25 @@ function ProspectDetailModal({ prospectId, onClose }) {
                   cursor: "pointer",
                 }}
               >
-                Add Progress Update
+                Log Action
+              </button>
+              <button
+                onClick={() => {
+                  setShowOpportunityForm(true);
+                  setShowActionForm(false);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: "#EFF6FF",
+                  color: "#1D4ED8",
+                  border: "1px solid #BFDBFE",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Add Opportunity
               </button>
               {isActive && (
                 <button
@@ -2299,8 +2431,8 @@ function ProspectDetailModal({ prospectId, onClose }) {
             </div>
           ) : null}
 
-          {/* Add Update Form */}
-          {showUpdateForm && (
+          {/* Log Action Form */}
+          {showActionForm && (
             <div
               style={{
                 backgroundColor: "#F9FAFB",
@@ -2318,8 +2450,40 @@ function ProspectDetailModal({ prospectId, onClose }) {
                   margin: "0 0 12px 0",
                 }}
               >
-                New Progress Update
+                Log Action
               </h4>
+              <div
+                style={{
+                  marginBottom: "12px",
+                  display: "flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                }}
+              >
+                {ACTION_TYPES.map((type) => {
+                  const selected = actionType === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setActionType(type)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "999px",
+                        border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                        backgroundColor: selected ? "#EDE9FE" : "white",
+                        color: selected ? "#5B21B6" : "#374151",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        textTransform: "capitalize",
+                      }}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
               <div style={{ marginBottom: "12px" }}>
                 <label
                   style={{
@@ -2334,8 +2498,35 @@ function ProspectDetailModal({ prospectId, onClose }) {
                 </label>
                 <input
                   type="date"
-                  value={updateDate}
-                  onChange={(e) => setUpdateDate(e.target.value)}
+                  value={actionDate}
+                  onChange={(e) => setActionDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Action Summary
+                </label>
+                <input
+                  type="text"
+                  value={actionSummary}
+                  onChange={(e) => setActionSummary(e.target.value)}
+                  placeholder="What happened?"
                   style={{
                     width: "100%",
                     padding: "8px 12px",
@@ -2359,10 +2550,333 @@ function ProspectDetailModal({ prospectId, onClose }) {
                   Notes
                 </label>
                 <textarea
-                  value={updateNotes}
-                  onChange={(e) => setUpdateNotes(e.target.value)}
-                  placeholder="What happened? e.g. Meeting completed, proposal delivered..."
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  placeholder="Capture the discussion, outcome, and any context you would normally log in NXT."
                   rows={3}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Next Step
+                  </label>
+                  <input
+                    type="text"
+                    value={actionNextStep}
+                    onChange={(e) => setActionNextStep(e.target.value)}
+                    placeholder="What should happen next?"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Next Step Due
+                  </label>
+                  <input
+                    type="date"
+                    value={actionNextStepDueDate}
+                    onChange={(e) => setActionNextStepDueDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Link to Opportunity
+                </label>
+                <select
+                  value={actionLinkedOpportunityId}
+                  onChange={(e) => setActionLinkedOpportunityId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    backgroundColor: "white",
+                  }}
+                >
+                  <option value="">No linked opportunity</option>
+                  {opportunities.map((opportunity) => (
+                    <option key={opportunity.id} value={opportunity.id}>
+                      {opportunity.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div
+                style={{
+                  marginBottom: "12px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  backgroundColor: linkedBlackbaudConstituentId ? "#EFF6FF" : "#F3F4F6",
+                  border: linkedBlackbaudConstituentId ? "1px solid #BFDBFE" : "1px solid #E5E7EB",
+                  fontSize: "12px",
+                  color: linkedBlackbaudConstituentId ? "#1D4ED8" : "#6B7280",
+                  lineHeight: 1.5,
+                }}
+              >
+                {linkedBlackbaudConstituentId
+                  ? "This action will be logged in the app and sent to the linked Blackbaud constituent."
+                  : "This action will be saved in the app only because this prospect is not linked to Blackbaud."}
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={saveActionLog}
+                  disabled={
+                    addActionMutation.isPending ||
+                    (!actionSummary.trim() && !actionNotes.trim())
+                  }
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#6A5BFF",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {addActionMutation.isPending ? "Saving..." : "Save Action"}
+                </button>
+                <button
+                  onClick={() => setShowActionForm(false)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#374151",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Add Opportunity Form */}
+          {showOpportunityForm && (
+            <div
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: "12px",
+                padding: "16px",
+                marginBottom: "20px",
+                border: "1px solid #E5E7EB",
+              }}
+            >
+              <h4
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  margin: "0 0 12px 0",
+                }}
+              >
+                Add Opportunity
+              </h4>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                  Opportunity Name
+                </label>
+                <input
+                  type="text"
+                  value={newOpportunityData.title}
+                  onChange={(e) =>
+                    setNewOpportunityData((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  placeholder={`${prospect.prospect_name} opportunity`}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Status
+                  </label>
+                  <select
+                    value={newOpportunityData.currentStage}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({
+                        ...prev,
+                        currentStage: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    {OPPORTUNITY_STAGE_OPTIONS.map((stage) => (
+                      <option key={stage} value={stage}>
+                        {stage}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Ask Amount
+                  </label>
+                  <input
+                    type="number"
+                    value={newOpportunityData.estimatedAmount}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({
+                        ...prev,
+                        estimatedAmount: e.target.value,
+                      }))
+                    }
+                    placeholder="0.00"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Ask Date
+                  </label>
+                  <input
+                    type="date"
+                    value={newOpportunityData.askDate}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({ ...prev, askDate: e.target.value }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Date Expected
+                  </label>
+                  <input
+                    type="date"
+                    value={newOpportunityData.expectedDate}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({
+                        ...prev,
+                        expectedDate: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                  Opportunity Notes
+                </label>
+                <textarea
+                  value={newOpportunityData.latestNotes}
+                  onChange={(e) =>
+                    setNewOpportunityData((prev) => ({
+                      ...prev,
+                      latestNotes: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  placeholder="Capture the current ask strategy, recent movement, or notes."
                   style={{
                     width: "100%",
                     padding: "8px 12px",
@@ -2377,13 +2891,11 @@ function ProspectDetailModal({ prospectId, onClose }) {
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
-                  onClick={() =>
-                    addUpdateMutation.mutate({ updateDate, updateNotes })
-                  }
-                  disabled={addUpdateMutation.isPending || !updateNotes.trim()}
+                  onClick={saveNewOpportunity}
+                  disabled={addOpportunityMutation.isPending}
                   style={{
                     padding: "8px 16px",
-                    backgroundColor: "#6A5BFF",
+                    backgroundColor: "#1D4ED8",
                     color: "white",
                     border: "none",
                     borderRadius: "8px",
@@ -2392,10 +2904,10 @@ function ProspectDetailModal({ prospectId, onClose }) {
                     cursor: "pointer",
                   }}
                 >
-                  {addUpdateMutation.isPending ? "Saving..." : "Save Update"}
+                  {addOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
                 </button>
                 <button
-                  onClick={() => setShowUpdateForm(false)}
+                  onClick={() => setShowOpportunityForm(false)}
                   style={{
                     padding: "8px 16px",
                     backgroundColor: "#F3F4F6",
@@ -2528,19 +3040,19 @@ function ProspectDetailModal({ prospectId, onClose }) {
                           }}
                         >
                           <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                color: "#1D4ED8",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Stage
-                            </label>
-                            <select
-                              value={opportunityEditData.currentStage || "Identification"}
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              color: "#1D4ED8",
+                              marginBottom: "4px",
+                            }}
+                          >
+                              Status
+                          </label>
+                          <select
+                            value={opportunityEditData.currentStage || "Identification"}
                               onChange={(e) =>
                                 setOpportunityEditData((prev) => ({
                                   ...prev,
@@ -2557,7 +3069,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
                                 backgroundColor: "white",
                               }}
                             >
-                              {["Identification", "Qualification", "Cultivation", "Solicitation", "Stewardship"].map(
+                              {OPPORTUNITY_STAGE_OPTIONS.map(
                                 (stage) => (
                                   <option key={stage} value={stage}>
                                     {stage}
@@ -2622,6 +3134,77 @@ function ProspectDetailModal({ prospectId, onClose }) {
                                 setOpportunityEditData((prev) => ({
                                   ...prev,
                                   estimatedAmount: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "8px 12px",
+                                border: "1px solid #93C5FD",
+                                borderRadius: "8px",
+                                fontSize: "14px",
+                                boxSizing: "border-box",
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: "10px",
+                            marginBottom: "10px",
+                          }}
+                        >
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#1D4ED8",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Ask Date
+                            </label>
+                            <input
+                              type="date"
+                              value={opportunityEditData.askDate || ""}
+                              onChange={(e) =>
+                                setOpportunityEditData((prev) => ({
+                                  ...prev,
+                                  askDate: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "8px 12px",
+                                border: "1px solid #93C5FD",
+                                borderRadius: "8px",
+                                fontSize: "14px",
+                                boxSizing: "border-box",
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: "#1D4ED8",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              Date Expected
+                            </label>
+                            <input
+                              type="date"
+                              value={opportunityEditData.expectedDate || ""}
+                              onChange={(e) =>
+                                setOpportunityEditData((prev) => ({
+                                  ...prev,
+                                  expectedDate: e.target.value,
                                 }))
                               }
                               style={{
@@ -2885,6 +3468,24 @@ function ProspectDetailModal({ prospectId, onClose }) {
                                   year: "numeric",
                                 })}`
                               : ""}
+                          </div>
+                        ) : null}
+                        {(opportunity.ask_date || opportunity.expected_date) ? (
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: "#6B7280",
+                              marginBottom: "6px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {opportunity.ask_date
+                              ? `Ask date ${formatLongDate(opportunity.ask_date)}`
+                              : null}
+                            {opportunity.ask_date && opportunity.expected_date ? " · " : ""}
+                            {opportunity.expected_date
+                              ? `Expected ${formatLongDate(opportunity.expected_date)}`
+                              : null}
                           </div>
                         ) : null}
                         <div
