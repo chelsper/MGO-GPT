@@ -22,9 +22,17 @@ const STATUS_PRIORITY = {
   Cultivation: 2,
   Identification: 3,
 };
+const AUTO_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isRecentTimestamp(value, intervalMs = AUTO_SYNC_INTERVAL_MS) {
+  if (!value) return false;
+  const parsed = new Date(value).getTime();
+  if (Number.isNaN(parsed)) return false;
+  return Date.now() - parsed < intervalMs;
 }
 
 function getFiscalYearLabel(expectedDate) {
@@ -276,16 +284,7 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
     return { skipped: true, reason: "not-mgo" };
   }
 
-  if (!force && user.blackbaud_portfolio_seeded_at) {
-    return { skipped: true, reason: "already-seeded" };
-  }
-
-  if (
-    !force &&
-    user.blackbaud_portfolio_seed_attempted_at &&
-    Date.now() - new Date(user.blackbaud_portfolio_seed_attempted_at).getTime() <
-      12 * 60 * 60 * 1000
-  ) {
+  if (!force && isRecentTimestamp(user.blackbaud_portfolio_seed_attempted_at)) {
     return { skipped: true, reason: "recent-attempt" };
   }
 

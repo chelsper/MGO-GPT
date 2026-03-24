@@ -7,6 +7,16 @@ import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
 
+function shouldAutoSyncPortfolio(user) {
+  if (!user) return false;
+  if (!user.blackbaud_portfolio_seed_attempted_at) return true;
+
+  const attemptedAt = new Date(user.blackbaud_portfolio_seed_attempted_at).getTime();
+  if (Number.isNaN(attemptedAt)) return true;
+
+  return Date.now() - attemptedAt >= 12 * 60 * 60 * 1000;
+}
+
 export async function GET(request) {
   try {
     await ensureAppSchema();
@@ -29,7 +39,7 @@ export async function GET(request) {
         () => null,
       );
 
-      if (hasBlackbaudConnection && !user.blackbaud_portfolio_seeded_at) {
+      if (hasBlackbaudConnection && shouldAutoSyncPortfolio(user)) {
         try {
           await bootstrapMgoPortfolioFromBlackbaud({
             userId: user.id,
