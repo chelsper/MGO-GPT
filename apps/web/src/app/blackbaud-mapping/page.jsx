@@ -90,6 +90,7 @@ export default function BlackbaudMappingPage() {
   const [savingKey, setSavingKey] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [directionFilter, setDirectionFilter] = useState("all");
+  const [entityFilter, setEntityFilter] = useState("all");
 
   async function loadMappings() {
     const [profileResponse, mappingResponse] = await Promise.all([
@@ -147,9 +148,11 @@ export default function BlackbaudMappingPage() {
   const filteredMappings = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return mappings.filter((mapping) => {
+      const matchesEntity =
+        entityFilter === "all" ? true : mapping.app_entity === entityFilter;
       const matchesDirection =
         directionFilter === "all" ? true : mapping.direction === directionFilter;
-      if (!matchesDirection) return false;
+      if (!matchesEntity || !matchesDirection) return false;
       if (!query) return true;
 
       const haystack = [
@@ -168,7 +171,7 @@ export default function BlackbaudMappingPage() {
 
       return haystack.includes(query);
     });
-  }, [directionFilter, mappings, searchQuery]);
+  }, [directionFilter, entityFilter, mappings, searchQuery]);
 
   const groupedMappings = useMemo(() => {
     const groups = new Map();
@@ -187,6 +190,24 @@ export default function BlackbaudMappingPage() {
     const pullOnly = mappings.filter((mapping) => mapping.direction === "pull").length;
     const localOnly = mappings.filter((mapping) => mapping.direction === "local only").length;
     return { total, editable, pullOnly, localOnly };
+  }, [mappings]);
+
+  const entitySummary = useMemo(() => {
+    const counts = new Map();
+    for (const mapping of mappings) {
+      counts.set(mapping.app_entity, (counts.get(mapping.app_entity) || 0) + 1);
+    }
+    return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [mappings]);
+
+  const governanceSummary = useMemo(() => {
+    const incomplete = mappings.filter(
+      (mapping) => !String(mapping.source_of_truth || "").trim() || !String(mapping.selection_rule || "").trim(),
+    );
+    return {
+      incompleteCount: incomplete.length,
+      completeCount: mappings.length - incomplete.length,
+    };
   }, [mappings]);
 
   function updateMapping(mappingKey, field, value) {
@@ -389,6 +410,47 @@ export default function BlackbaudMappingPage() {
           >
             Start by reviewing fields marked <strong>Read from Blackbaud</strong>, then update the editable fields that still need a clearer source of truth or selection rule.
           </div>
+          <div
+            style={{
+              marginTop: "14px",
+              display: "flex",
+              gap: "10px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "999px",
+                padding: "8px 12px",
+                backgroundColor: governanceSummary.incompleteCount > 0 ? "#FEF3C7" : "#ECFDF5",
+                border: governanceSummary.incompleteCount > 0 ? "1px solid #FCD34D" : "1px solid #86EFAC",
+                color: governanceSummary.incompleteCount > 0 ? "#92400E" : "#166534",
+                fontSize: "13px",
+                fontWeight: 700,
+              }}
+            >
+              {governanceSummary.incompleteCount} mapping{governanceSummary.incompleteCount === 1 ? "" : "s"} still need governance details
+            </div>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "999px",
+                padding: "8px 12px",
+                backgroundColor: "#F3F4F6",
+                border: "1px solid #D1D5DB",
+                color: "#4B5563",
+                fontSize: "13px",
+                fontWeight: 700,
+              }}
+            >
+              {governanceSummary.completeCount} ready for review
+            </div>
+          </div>
         </div>
 
         {statusMessage ? (
@@ -419,6 +481,48 @@ export default function BlackbaudMappingPage() {
         ) : null}
 
         <div style={cardStyle}>
+          <div style={{ marginBottom: "14px" }}>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#374151", marginBottom: "10px" }}>
+              Jump to an entity
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setEntityFilter("all")}
+                style={{
+                  borderRadius: "999px",
+                  padding: "8px 12px",
+                  border: entityFilter === "all" ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                  backgroundColor: entityFilter === "all" ? "#EEF2FF" : "white",
+                  color: entityFilter === "all" ? "#4338CA" : "#374151",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                All entities
+              </button>
+              {entitySummary.map(([entity, count]) => (
+                <button
+                  key={entity}
+                  type="button"
+                  onClick={() => setEntityFilter(entity)}
+                  style={{
+                    borderRadius: "999px",
+                    padding: "8px 12px",
+                    border: entityFilter === entity ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                    backgroundColor: entityFilter === entity ? "#EEF2FF" : "white",
+                    color: entityFilter === entity ? "#4338CA" : "#374151",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {prettifyFieldName(entity)} ({count})
+                </button>
+              ))}
+            </div>
+          </div>
           <div
             style={{
               display: "grid",
@@ -512,6 +616,9 @@ export default function BlackbaudMappingPage() {
                   {(() => {
                     const isReadOnly = mapping.direction === "pull";
                     const tone = directionTone[mapping.direction] || directionTone["local only"];
+                    const missingSourceOfTruth = !String(mapping.source_of_truth || "").trim();
+                    const missingSelectionRule = !String(mapping.selection_rule || "").trim();
+                    const needsGovernance = missingSourceOfTruth || missingSelectionRule;
                     return (
                       <>
                   <div
@@ -556,6 +663,33 @@ export default function BlackbaudMappingPage() {
                             Locked here
                           </span>
                         ) : null}
+                        {needsGovernance ? (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              backgroundColor: "#FEF3C7",
+                              color: "#92400E",
+                              fontWeight: 700,
+                              fontSize: "12px",
+                              padding: "6px 10px",
+                            }}
+                          >
+                            Needs governance
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              backgroundColor: "#ECFDF5",
+                              color: "#166534",
+                              fontWeight: 700,
+                              fontSize: "12px",
+                              padding: "6px 10px",
+                            }}
+                          >
+                            Governance documented
+                          </span>
+                        )}
                       </div>
                       <div style={{ color: "#374151", fontSize: "13px", marginTop: "6px", fontWeight: 600 }}>
                         App field: {mapping.app_entity}.{mapping.app_field}
@@ -614,6 +748,26 @@ export default function BlackbaudMappingPage() {
                     >
                       This field is configured as a pull-only value from Blackbaud NXT and
                       cannot be edited from the admin mapping UI.
+                    </div>
+                  ) : null}
+
+                  {needsGovernance ? (
+                    <div
+                      style={{
+                        marginBottom: "14px",
+                        borderRadius: "10px",
+                        backgroundColor: "#FFFBEB",
+                        border: "1px solid #FCD34D",
+                        color: "#92400E",
+                        padding: "12px 14px",
+                        fontSize: "13px",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      This mapping still needs governance detail:
+                      {missingSourceOfTruth ? " add a source of truth" : ""}
+                      {missingSourceOfTruth && missingSelectionRule ? " and" : ""}
+                      {missingSelectionRule ? " add a selection rule" : ""}.
                     </div>
                   ) : null}
 
