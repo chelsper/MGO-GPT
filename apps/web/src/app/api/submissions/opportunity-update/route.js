@@ -3,7 +3,10 @@ import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
-import { saveProspectOpportunity } from "@/app/api/utils/prospectOpportunities";
+import {
+  saveProspectOpportunity,
+  syncJointSolicitationOpportunities,
+} from "@/app/api/utils/prospectOpportunities";
 
 export async function POST(request) {
   try {
@@ -17,8 +20,11 @@ export async function POST(request) {
     const body = await request.json();
     const {
       donorName,
+      opportunityTitle,
       opportunityStage,
-      estimatedAmount,
+      askAmount,
+      askDate,
+      expectedDate,
       notes,
       attachments,
       constituentId,
@@ -27,7 +33,8 @@ export async function POST(request) {
       linkedProspectId,
       linkedOpportunityId,
       createNewOpportunity,
-      opportunityTitle,
+      jointMgoUserIds,
+      sharedOpportunityKey,
     } = body;
 
     if (!donorName) {
@@ -54,9 +61,13 @@ export async function POST(request) {
         officer_name,
         submission_type,
         donor_name,
+        opportunity_title,
         opportunity_stage,
+        ask_date,
+        expected_date,
         estimated_amount,
         notes,
+        joint_mgo_user_ids,
         attachments,
         status
       ) VALUES (
@@ -67,9 +78,13 @@ export async function POST(request) {
         ${user.name},
         'opportunity_update',
         ${donorName},
+        ${opportunityTitle || null},
         ${opportunityStage},
-        ${estimatedAmount || null},
+        ${askDate || null},
+        ${expectedDate || null},
+        ${askAmount || null},
         ${notes || null},
+        ${jointMgoUserIds ? JSON.stringify(jointMgoUserIds) : null},
         ${attachments ? JSON.stringify(attachments) : null},
         'Pending'
       )
@@ -89,9 +104,15 @@ export async function POST(request) {
         opportunityId: createNewOpportunity ? null : linkedOpportunityId,
         title: opportunityTitle,
         currentStage: opportunityStage,
-        estimatedAmount: estimatedAmount ?? null,
+        askAmount: askAmount ?? null,
+        askDate: askDate || null,
+        expectedDate: expectedDate || null,
         latestNotes: notes || null,
         submissionId: savedSubmission.id,
+        jointMgoUserIds: [user.id, ...(jointMgoUserIds || [])],
+        sharedOpportunityKey:
+          sharedOpportunityKey ||
+          `submission:${savedSubmission.id}:${String(opportunityTitle || donorName).toLowerCase()}`,
       });
 
       const updatedSubmission = await sql`
@@ -105,6 +126,25 @@ export async function POST(request) {
       `;
 
       savedSubmission = updatedSubmission[0] || savedSubmission;
+    }
+
+    if (Array.isArray(jointMgoUserIds) && jointMgoUserIds.length > 0) {
+      await syncJointSolicitationOpportunities({
+        ownerUserId: user.id,
+        jointUserIds: jointMgoUserIds,
+        donorName,
+        blackbaudConstituentId,
+        title: opportunityTitle,
+        currentStage: opportunityStage,
+        askAmount: askAmount ?? null,
+        askDate: askDate || null,
+        expectedDate: expectedDate || null,
+        latestNotes: notes || null,
+        submissionId: savedSubmission.id,
+        sharedOpportunityKey:
+          sharedOpportunityKey ||
+          `submission:${savedSubmission.id}:${String(opportunityTitle || donorName).toLowerCase()}`,
+      });
     }
 
     // Send email notification to advancement services (non-blocking)

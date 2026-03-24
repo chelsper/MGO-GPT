@@ -35,6 +35,7 @@ const STAGES = [
   "Qualification",
   "Cultivation",
   "Solicitation",
+  "Solicitation - Verbal",
   "Stewardship",
 ];
 
@@ -45,6 +46,17 @@ function normalizeName(value) {
 function getDefaultFY() {
   const now = new Date();
   const fiscalYear = now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
+  return `FY${String(fiscalYear).slice(-2)}`;
+}
+
+function getFiscalYearLabel(value) {
+  if (!value) return getDefaultFY();
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) return getDefaultFY();
+  const fiscalYear =
+    parsedDate.getUTCMonth() >= 6
+      ? parsedDate.getUTCFullYear() + 1
+      : parsedDate.getUTCFullYear();
   return `FY${String(fiscalYear).slice(-2)}`;
 }
 
@@ -104,13 +116,14 @@ export default function ActionOpportunityUpdatePage() {
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
   const [interactionType, setInteractionType] = useState("visit");
-  const [sharedSummary, setSharedSummary] = useState("");
   const [actionNotes, setActionNotes] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [opportunityStage, setOpportunityStage] = useState("Identification");
-  const [estimatedAmount, setEstimatedAmount] = useState("");
+  const [askAmount, setAskAmount] = useState("");
+  const [askDate, setAskDate] = useState("");
+  const [expectedDate, setExpectedDate] = useState("");
   const [opportunityNotes, setOpportunityNotes] = useState("");
-  const [newOpportunityTitle, setNewOpportunityTitle] = useState("");
+  const [opportunityTitle, setOpportunityTitle] = useState("");
   const [constituentMatches, setConstituentMatches] = useState([]);
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
@@ -137,7 +150,6 @@ export default function ActionOpportunityUpdatePage() {
   const [dictationStatus, setDictationStatus] = useState("");
   const [dictationError, setDictationError] = useState("");
   const [toast, setToast] = useState(null);
-  const [sharedSummaryOpen, setSharedSummaryOpen] = useState(true);
   const [actionDetailsOpen, setActionDetailsOpen] = useState(true);
   const [opportunityDetailsOpen, setOpportunityDetailsOpen] = useState(false);
   const [nextStepPrompt, setNextStepPrompt] = useState(null);
@@ -148,6 +160,11 @@ export default function ActionOpportunityUpdatePage() {
   const [actionItemText, setActionItemText] = useState("");
   const [actionItemTextEdited, setActionItemTextEdited] = useState(false);
   const [createOutlookReminder, setCreateOutlookReminder] = useState(false);
+  const [isJointSolicitation, setIsJointSolicitation] = useState(false);
+  const [jointMgoOptions, setJointMgoOptions] = useState([]);
+  const [jointMgoLoading, setJointMgoLoading] = useState(false);
+  const [jointMgoError, setJointMgoError] = useState("");
+  const [selectedJointMgoIds, setSelectedJointMgoIds] = useState([]);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
@@ -170,8 +187,6 @@ export default function ActionOpportunityUpdatePage() {
 
   function getFieldValue(target) {
     switch (target) {
-      case "summary":
-        return sharedSummary;
       case "actionNotes":
         return actionNotes;
       case "nextStep":
@@ -185,9 +200,6 @@ export default function ActionOpportunityUpdatePage() {
 
   function setFieldValue(target, value) {
     switch (target) {
-      case "summary":
-        setSharedSummary(value);
-        break;
       case "actionNotes":
         setActionNotes(value);
         break;
@@ -224,7 +236,6 @@ export default function ActionOpportunityUpdatePage() {
   }
 
   useEffect(() => {
-    setSharedSummaryOpen(true);
     if (updateMode === "action") {
       setActionDetailsOpen(true);
       setOpportunityDetailsOpen(false);
@@ -238,6 +249,55 @@ export default function ActionOpportunityUpdatePage() {
     setActionDetailsOpen(true);
     setOpportunityDetailsOpen(false);
   }, [updateMode]);
+
+  useEffect(() => {
+    if (!includeOpportunity) {
+      setIsJointSolicitation(false);
+      setSelectedJointMgoIds([]);
+      setJointMgoError("");
+      return;
+    }
+    if (!isJointSolicitation || jointMgoOptions.length > 0 || jointMgoLoading) {
+      return;
+    }
+
+    let active = true;
+    setJointMgoLoading(true);
+    setJointMgoError("");
+
+    async function loadMgoOptions() {
+      try {
+        const response = await fetch("/api/users/mgos");
+        const payload = await response.json().catch(() => null);
+        if (!active) return;
+        if (!response.ok) {
+          setJointMgoOptions([]);
+          setJointMgoError(payload?.error || "Could not load MGO list.");
+          return;
+        }
+
+        const options = Array.isArray(payload) ? payload : [];
+        setJointMgoOptions(
+          options.filter((option) => Number(option.id) !== Number(user?.id || 0)),
+        );
+      } catch (loadError) {
+        console.error("Joint solicitation MGO lookup error:", loadError);
+        if (!active) return;
+        setJointMgoOptions([]);
+        setJointMgoError("Could not load MGO list.");
+      } finally {
+        if (active) {
+          setJointMgoLoading(false);
+        }
+      }
+    }
+
+    loadMgoOptions();
+
+    return () => {
+      active = false;
+    };
+  }, [includeOpportunity, isJointSolicitation, jointMgoLoading, jointMgoOptions.length, user?.id]);
 
   useEffect(() => {
     if (!includeAction) {
@@ -455,9 +515,13 @@ export default function ActionOpportunityUpdatePage() {
       (!exactMatch && donorName.trim().length >= 2),
   );
   const hasUpdateDetails = Boolean(
-    sharedSummary.trim() ||
-      (includeAction && (actionNotes.trim() || nextStep.trim())) ||
-      (includeOpportunity && (opportunityNotes.trim() || estimatedAmount.trim())),
+    (includeAction && (actionNotes.trim() || nextStep.trim())) ||
+      (includeOpportunity &&
+        (opportunityNotes.trim() ||
+          askAmount.trim() ||
+          opportunityTitle.trim() ||
+          askDate.trim() ||
+          expectedDate.trim())),
   );
   const steps = [
     { label: "Identify donor", done: Boolean(donorName.trim()) },
@@ -552,11 +616,10 @@ export default function ActionOpportunityUpdatePage() {
         if (opportunities.length > 0) {
           setOpportunityLinkMode("update");
           setSelectedOpportunityId(String(opportunities[0].id));
-          setNewOpportunityTitle("");
         } else {
           setOpportunityLinkMode("create");
           setSelectedOpportunityId("");
-          setNewOpportunityTitle(`${donorName.trim()} opportunity`);
+          setOpportunityTitle(`${donorName.trim()} opportunity`);
         }
       } catch (contextError) {
         console.error("Linked opportunity lookup error:", contextError);
@@ -569,6 +632,44 @@ export default function ActionOpportunityUpdatePage() {
       active = false;
     };
   }, [donorName, exactMatch, includeOpportunity, matchDecision]);
+
+  useEffect(() => {
+    if (!includeOpportunity) return;
+
+    if (
+      linkedProspectContext?.opportunities?.length &&
+      opportunityLinkMode === "update" &&
+      selectedOpportunityId
+    ) {
+      const selectedOpportunity = linkedProspectContext.opportunities.find(
+        (opportunity) => String(opportunity.id) === String(selectedOpportunityId),
+      );
+
+      if (selectedOpportunity) {
+        setOpportunityTitle(selectedOpportunity.title || `${donorName.trim()} opportunity`);
+        setOpportunityStage(selectedOpportunity.current_stage || "Identification");
+        setAskAmount(
+          selectedOpportunity.estimated_amount != null
+            ? String(selectedOpportunity.estimated_amount)
+            : "",
+        );
+        setAskDate(selectedOpportunity.ask_date || "");
+        setExpectedDate(selectedOpportunity.expected_date || "");
+        setOpportunityNotes(selectedOpportunity.latest_notes || "");
+      }
+      return;
+    }
+
+    if (opportunityLinkMode === "create" && donorName.trim() && !opportunityTitle.trim()) {
+      setOpportunityTitle(`${donorName.trim()} opportunity`);
+    }
+  }, [
+    donorName,
+    includeOpportunity,
+    linkedProspectContext,
+    opportunityLinkMode,
+    selectedOpportunityId,
+  ]);
 
   function startDictation(target) {
     setError("");
@@ -797,7 +898,8 @@ export default function ActionOpportunityUpdatePage() {
       setNextStepError("");
 
       const submittedName = donorName.trim();
-      const submittedAmount = estimatedAmount ? parseFloat(estimatedAmount) : null;
+      const submittedAmount = askAmount ? parseFloat(askAmount) : null;
+      const submittedExpectedDate = expectedDate || null;
       const submittedNextStep = nextStep.trim();
       const submittedActionItemText =
         createActionItem && actionItemText.trim() ? actionItemText.trim() : "";
@@ -809,13 +911,14 @@ export default function ActionOpportunityUpdatePage() {
 
       setDonorName("");
       setInteractionType("visit");
-      setSharedSummary("");
       setActionNotes("");
       setNextStep("");
       setOpportunityStage("Identification");
-      setEstimatedAmount("");
+      setAskAmount("");
+      setAskDate("");
+      setExpectedDate("");
       setOpportunityNotes("");
-      setNewOpportunityTitle("");
+      setOpportunityTitle("");
       setConstituentMatches([]);
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
@@ -831,6 +934,8 @@ export default function ActionOpportunityUpdatePage() {
       setActionItemTextEdited(false);
       setCreateOutlookReminder(false);
       setNextStepDueDate("");
+      setIsJointSolicitation(false);
+      setSelectedJointMgoIds([]);
 
       try {
         const response = await fetch("/api/prospects");
@@ -861,7 +966,7 @@ export default function ActionOpportunityUpdatePage() {
                 prospectName: submittedName,
                 constituentId: submittedConstituentId,
                 askAmount: submittedAmount,
-                expectedCloseFY: getDefaultFY(),
+                expectedCloseFY: getFiscalYearLabel(submittedExpectedDate),
                 askType: "Major Gift",
                 nextActionText: submittedActionItemText || null,
                 nextActionDueDate: submittedActionItemDueDate,
@@ -915,8 +1020,8 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
-    if (includeAction && !sharedSummary.trim() && !actionNotes.trim()) {
-      setError("Please add a summary or action note for the action update.");
+    if (includeAction && !actionNotes.trim()) {
+      setError("Please add action notes for the action update.");
       return;
     }
 
@@ -925,8 +1030,18 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
-    if (includeOpportunity && !estimatedAmount) {
-      setError("Please enter an estimated amount for the opportunity update.");
+    if (includeOpportunity && !opportunityTitle.trim()) {
+      setError("Please enter the opportunity name.");
+      return;
+    }
+
+    if (includeOpportunity && !askAmount) {
+      setError("Please enter the ask amount for the opportunity update.");
+      return;
+    }
+
+    if (includeOpportunity && !expectedDate) {
+      setError("Please enter the expected date.");
       return;
     }
 
@@ -944,9 +1059,9 @@ export default function ActionOpportunityUpdatePage() {
       includeOpportunity &&
       linkedProspectContext?.prospect &&
       opportunityLinkMode === "create" &&
-      !newOpportunityTitle.trim()
+      !opportunityTitle.trim()
     ) {
-      setError("Please give the new linked opportunity a title.");
+      setError("Please give the linked opportunity a name.");
       return;
     }
 
@@ -954,12 +1069,14 @@ export default function ActionOpportunityUpdatePage() {
     const blackbaudConstituentId =
       selectedBlackbaudMatch?.blackbaudConstituentId || null;
     const createNewConstituent = matchDecision === "new";
-    const combinedOpportunityNotes = [sharedSummary.trim(), opportunityNotes.trim()]
-      .filter(Boolean)
-      .join("\n\n");
-    const combinedActionNotes = [sharedSummary.trim(), actionNotes.trim()]
-      .filter(Boolean)
-      .join("\n\n");
+    const combinedOpportunityNotes = opportunityNotes.trim();
+    const combinedActionNotes = actionNotes.trim();
+    const jointMgoUserIds = isJointSolicitation ? selectedJointMgoIds : [];
+    const sharedOpportunityKey = opportunityTitle.trim()
+      ? `joint:${blackbaudConstituentId || normalizeName(donorName)}:${opportunityTitle
+          .trim()
+          .toLowerCase()}`
+      : null;
 
     submitMutation.mutate({
       includeAction,
@@ -973,7 +1090,7 @@ export default function ActionOpportunityUpdatePage() {
             interactionType,
             notes: combinedActionNotes,
             nextStep,
-            estimatedAmount: estimatedAmount ? parseFloat(estimatedAmount) : null,
+            estimatedAmount: askAmount ? parseFloat(askAmount) : null,
             transcript: null,
             attachments: [],
           }
@@ -984,8 +1101,11 @@ export default function ActionOpportunityUpdatePage() {
             constituentId,
             blackbaudConstituentId,
             createNewConstituent,
+            opportunityTitle: opportunityTitle.trim(),
             opportunityStage,
-            estimatedAmount: estimatedAmount ? parseFloat(estimatedAmount) : null,
+            askAmount: askAmount ? parseFloat(askAmount) : null,
+            askDate: askDate || null,
+            expectedDate: expectedDate || null,
             notes: combinedOpportunityNotes,
             attachments: [],
             linkedProspectId: linkedProspectContext?.prospect?.id || null,
@@ -996,10 +1116,8 @@ export default function ActionOpportunityUpdatePage() {
             createNewOpportunity:
               Boolean(linkedProspectContext?.prospect) &&
               opportunityLinkMode === "create",
-            opportunityTitle:
-              linkedProspectContext?.prospect && opportunityLinkMode === "create"
-                ? newOpportunityTitle.trim()
-                : null,
+            jointMgoUserIds,
+            sharedOpportunityKey,
           }
         : null,
     });
@@ -1114,7 +1232,7 @@ export default function ActionOpportunityUpdatePage() {
               border: "1px solid #DDD6FE",
             }}
           >
-            Use the microphone buttons beside Summary, Action-specific notes, Next step, and Opportunity-specific notes to dictate directly into those fields.
+            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes to dictate directly into those fields.
           </div>
         ) : null}
 
@@ -1860,113 +1978,13 @@ export default function ActionOpportunityUpdatePage() {
                         marginBottom: "8px",
                       }}
                     >
-                      New linked opportunity title
+                      New linked opportunity
                     </label>
-                    <input
-                      type="text"
-                      value={newOpportunityTitle}
-                      onChange={(event) => setNewOpportunityTitle(event.target.value)}
-                      placeholder={`${donorName.trim() || "Donor"} opportunity`}
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        borderRadius: "10px",
-                        border: "1px solid #BFDBFE",
-                        fontSize: "14px",
-                        boxSizing: "border-box",
-                      }}
-                    />
+                    <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                      This update will create a linked opportunity under the opportunity name below.
+                    </div>
                   </div>
                 ) : null}
-              </div>
-            ) : null}
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              border: "1px solid #E5E7EB",
-              padding: "24px",
-              marginBottom: "20px",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setSharedSummaryOpen((current) => !current)}
-              style={{
-                width: "100%",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "12px",
-                padding: 0,
-                border: "none",
-                backgroundColor: "transparent",
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                    color: "#6B7280",
-                    marginBottom: "6px",
-                  }}
-                >
-                  Shared context
-                </div>
-                <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
-                  Capture the high-level update once here so reviewers can understand the full
-                  story before they look at detail fields.
-                </div>
-              </div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>
-                {sharedSummaryOpen ? "Hide" : "Show"}
-              </div>
-            </button>
-            {sharedSummaryOpen ? (
-              <div style={{ marginTop: "16px" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    color: "#374151",
-                    marginBottom: "8px",
-                  }}
-                >
-                  Shared summary
-                </label>
-                {supportsSpeechRecognition ? (
-                  <DictationButton
-                    target="summary"
-                    label="summary"
-                    dictationTarget={dictationTarget}
-                    isRecording={isRecording}
-                    onStart={startDictation}
-                    onStop={stopDictation}
-                  />
-                ) : null}
-                <textarea
-                  value={sharedSummary}
-                  onChange={(event) => setSharedSummary(event.target.value)}
-                  placeholder="What happened, what changed, and what should the team know?"
-                  rows={5}
-                  style={{
-                    width: "100%",
-                    padding: "10px 14px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    resize: "vertical",
-                    boxSizing: "border-box",
-                  }}
-                />
               </div>
             ) : null}
           </div>
@@ -2224,7 +2242,7 @@ export default function ActionOpportunityUpdatePage() {
                     Opportunity details
                   </h2>
                   <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
-                    Update the current stage, value, and any solicitation context that should
+                    Update the current opportunity status, ask details, and any solicitation context that should
                     change the opportunity record.
                   </div>
                 </div>
@@ -2243,7 +2261,34 @@ export default function ActionOpportunityUpdatePage() {
                       marginBottom: "8px",
                     }}
                   >
-                    Opportunity stage
+                    Opportunity name
+                  </label>
+                  <input
+                    type="text"
+                    value={opportunityTitle}
+                    onChange={(event) => setOpportunityTitle(event.target.value)}
+                    placeholder={`${donorName.trim() || "Donor"} opportunity`}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  />
+
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Status
                   </label>
                   <select
                     value={opportunityStage}
@@ -2266,6 +2311,68 @@ export default function ActionOpportunityUpdatePage() {
                     ))}
                   </select>
 
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: "16px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#374151",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Ask Date
+                        </label>
+                        <input
+                          type="date"
+                          value={askDate}
+                          onChange={(event) => setAskDate(event.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 14px",
+                            border: "1px solid #D1D5DB",
+                            borderRadius: "8px",
+                            fontSize: "14px",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#374151",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Date Expected
+                        </label>
+                        <input
+                          type="date"
+                          value={expectedDate}
+                          onChange={(event) => setExpectedDate(event.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 14px",
+                            border: "1px solid #D1D5DB",
+                            borderRadius: "8px",
+                            fontSize: "14px",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                  </div>
+
                   <label
                     style={{
                       display: "block",
@@ -2275,12 +2382,12 @@ export default function ActionOpportunityUpdatePage() {
                       marginBottom: "8px",
                     }}
                   >
-                    Estimated amount
+                    Ask Amount
                   </label>
                   <input
                     type="number"
-                    value={estimatedAmount}
-                    onChange={(event) => setEstimatedAmount(event.target.value)}
+                    value={askAmount}
+                    onChange={(event) => setAskAmount(event.target.value)}
                     placeholder="Enter amount"
                     style={{
                       width: "100%",
@@ -2292,6 +2399,98 @@ export default function ActionOpportunityUpdatePage() {
                       marginBottom: "16px",
                     }}
                   />
+
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isJointSolicitation}
+                      onChange={(event) => {
+                        setIsJointSolicitation(event.target.checked);
+                        if (!event.target.checked) {
+                          setSelectedJointMgoIds([]);
+                        }
+                      }}
+                    />
+                    Is this a joint solicitation?
+                  </label>
+                  {isJointSolicitation ? (
+                    <div
+                      style={{
+                        padding: "14px",
+                        borderRadius: "10px",
+                        border: "1px solid #E5E7EB",
+                        backgroundColor: "#F9FAFB",
+                        marginBottom: "16px",
+                      }}
+                    >
+                        <div
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            color: "#111827",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Add other MGOs
+                        </div>
+                        {jointMgoLoading ? (
+                          <div style={{ fontSize: "13px", color: "#6B7280" }}>
+                            Loading MGO options...
+                          </div>
+                        ) : jointMgoError ? (
+                          <div style={{ fontSize: "13px", color: "#991B1B" }}>
+                            {jointMgoError}
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            {jointMgoOptions.map((option) => {
+                              const checked = selectedJointMgoIds.includes(Number(option.id));
+                              return (
+                                <label
+                                  key={option.id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "10px",
+                                    fontSize: "14px",
+                                    color: "#374151",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(event) => {
+                                      const optionId = Number(option.id);
+                                      setSelectedJointMgoIds((current) =>
+                                        event.target.checked
+                                          ? [...current, optionId]
+                                          : current.filter((value) => value !== optionId),
+                                      );
+                                    }}
+                                  />
+                                  <span>
+                                    {option.name} <span style={{ color: "#6B7280" }}>({option.email})</span>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div style={{ marginTop: "10px", fontSize: "12px", color: "#6B7280" }}>
+                          Selected MGOs will get this opportunity in their own opportunities and top prospects list.
+                        </div>
+                    </div>
+                  ) : null}
 
                   <label
                     style={{

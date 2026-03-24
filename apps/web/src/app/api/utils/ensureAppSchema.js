@@ -177,6 +177,22 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS opportunity_title TEXT
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS ask_date DATE
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS expected_date DATE
+    `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS joint_mgo_user_ids JSONB
+    `;
+    await sql`
+      ALTER TABLE submissions
       ADD COLUMN IF NOT EXISTS blackbaud_sync_status TEXT NOT NULL DEFAULT 'not_requested'
     `;
     await sql`
@@ -425,6 +441,22 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS decline_reason TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS ask_date DATE
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS expected_date DATE
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS joint_mgo_user_ids JSONB
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS shared_opportunity_key TEXT
     `;
 
     await sql`

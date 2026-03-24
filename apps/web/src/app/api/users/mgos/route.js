@@ -2,7 +2,6 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
-import { isReviewerRole } from "@/utils/workspaceRoles";
 
 export async function GET() {
   try {
@@ -13,18 +12,12 @@ export async function GET() {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const currentUser = await getOrCreateUser(session, "reviewer");
-    if (!isReviewerRole(currentUser.role)) {
-      return Response.json(
-        { error: "Forbidden — reviewers only" },
-        { status: 403 },
-      );
-    }
+    const currentUser = await getOrCreateUser(session);
 
     const users = await sql`
       SELECT id, name, email
       FROM users
-      WHERE role = 'mgo'
+      WHERE role = 'mgo' AND active = TRUE
       ORDER BY LOWER(name) ASC, LOWER(email) ASC
     `;
 

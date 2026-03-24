@@ -1,6 +1,9 @@
 import sql from "@/app/api/utils/sql";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { normalizeConstituentName } from "@/app/api/utils/constituents";
+import {
+  normalizeConstituentName,
+  resolveConstituent,
+} from "@/app/api/utils/constituents";
 
 export async function findLinkedProspectForUser({
   userId,
@@ -121,6 +124,103 @@ export async function syncProspectAskAmount(prospectId) {
   return result[0] || null;
 }
 
+export function getFiscalYearFromExpectedDate(expectedDate) {
+  if (!expectedDate) {
+    const now = new Date();
+    const fiscalYear = now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
+    return `FY${String(fiscalYear).slice(-2)}`;
+  }
+
+  const parsedDate = new Date(expectedDate);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return getFiscalYearFromExpectedDate(null);
+  }
+
+  const fiscalYear =
+    parsedDate.getUTCMonth() >= 6
+      ? parsedDate.getUTCFullYear() + 1
+      : parsedDate.getUTCFullYear();
+  return `FY${String(fiscalYear).slice(-2)}`;
+}
+
+async function findOrCreateProspectForUser({
+  userId,
+  donorName,
+  blackbaudConstituentId,
+  askAmount,
+  expectedDate,
+}) {
+  await ensureAppSchema();
+
+  const constituent = await resolveConstituent({
+    userId,
+    name: donorName,
+    blackbaudConstituentId,
+    createNew: true,
+  });
+
+  const existingRows = await sql`
+    SELECT
+      p.*,
+      c.blackbaud_constituent_id AS linked_blackbaud_constituent_id
+    FROM prospects p
+    LEFT JOIN constituents c ON c.id = p.constituent_id
+    WHERE
+      p.user_id = ${userId}
+      AND (
+        (${constituent?.id || null} IS NOT NULL AND p.constituent_id = ${constituent?.id || null})
+        OR (
+          ${blackbaudConstituentId || null} IS NOT NULL
+          AND c.blackbaud_constituent_id = ${blackbaudConstituentId || null}
+        )
+        OR (
+          ${normalizeConstituentName(donorName)} <> ''
+          AND LOWER(TRIM(REGEXP_REPLACE(p.prospect_name, '\s+', ' ', 'g'))) = ${normalizeConstituentName(
+            donorName,
+          )}
+        )
+      )
+    ORDER BY
+      CASE WHEN p.status = 'Active' THEN 0 ELSE 1 END,
+      p.updated_at DESC,
+      p.created_at DESC
+    LIMIT 1
+  `;
+
+  if (existingRows[0]) {
+    return existingRows[0];
+  }
+
+  const maxOrderRows = await sql`
+    SELECT COALESCE(MAX(priority_order), 0) AS max_order
+    FROM prospects
+    WHERE user_id = ${userId} AND status = 'Active'
+  `;
+
+  const insertedRows = await sql`
+    INSERT INTO prospects (
+      user_id,
+      constituent_id,
+      prospect_name,
+      expected_close_fy,
+      ask_amount,
+      ask_type,
+      priority_order
+    ) VALUES (
+      ${userId},
+      ${constituent?.id || null},
+      ${donorName},
+      ${getFiscalYearFromExpectedDate(expectedDate)},
+      ${askAmount ?? null},
+      'Major Gift',
+      ${(maxOrderRows[0]?.max_order || 0) + 1}
+    )
+    RETURNING *
+  `;
+
+  return insertedRows[0] || null;
+}
+
 export async function saveProspectOpportunity({
   userId,
   prospectId,
@@ -128,9 +228,13 @@ export async function saveProspectOpportunity({
   opportunityId,
   title,
   currentStage,
-  estimatedAmount,
+  askAmount,
+  askDate,
+  expectedDate,
   latestNotes,
   submissionId,
+  jointMgoUserIds = [],
+  sharedOpportunityKey = null,
 }) {
   await ensureAppSchema();
 
@@ -167,12 +271,16 @@ export async function saveProspectOpportunity({
       SET
         title = ${title || existing.title},
         current_stage = ${currentStage || existing.current_stage},
-        estimated_amount = ${estimatedAmount ?? existing.estimated_amount},
+        estimated_amount = ${askAmount ?? existing.estimated_amount},
+        ask_date = ${askDate || existing.ask_date},
+        expected_date = ${expectedDate || existing.expected_date},
         latest_notes = ${
           latestNotes && latestNotes.trim()
             ? latestNotes.trim()
             : existing.latest_notes
         },
+        joint_mgo_user_ids = ${JSON.stringify(jointMgoUserIds)},
+        shared_opportunity_key = ${sharedOpportunityKey || existing.shared_opportunity_key},
         last_submission_id = ${submissionId || existing.last_submission_id},
         constituent_id = ${constituentId || existing.constituent_id},
         updated_at = NOW()
@@ -196,7 +304,11 @@ export async function saveProspectOpportunity({
         current_stage,
         opportunity_status,
         estimated_amount,
+        ask_date,
+        expected_date,
         latest_notes,
+        joint_mgo_user_ids,
+        shared_opportunity_key,
         last_submission_id
       ) VALUES (
         ${prospect.id},
@@ -204,8 +316,12 @@ export async function saveProspectOpportunity({
         ${defaultTitle},
         ${currentStage},
         'Active',
-        ${estimatedAmount ?? null},
+        ${askAmount ?? null},
+        ${askDate || null},
+        ${expectedDate || null},
         ${latestNotes?.trim() || null},
+        ${JSON.stringify(jointMgoUserIds)},
+        ${sharedOpportunityKey || null},
         ${submissionId || null}
       )
       RETURNING *
@@ -219,4 +335,85 @@ export async function saveProspectOpportunity({
     prospectId: prospect.id,
     opportunity,
   };
+}
+
+export async function syncJointSolicitationOpportunities({
+  ownerUserId,
+  jointUserIds,
+  donorName,
+  blackbaudConstituentId,
+  title,
+  currentStage,
+  askAmount,
+  askDate,
+  expectedDate,
+  latestNotes,
+  submissionId,
+  sharedOpportunityKey,
+}) {
+  await ensureAppSchema();
+
+  const uniqueUserIds = Array.from(
+    new Set(
+      (jointUserIds || [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0 && value !== Number(ownerUserId)),
+    ),
+  );
+
+  const createdLinks = [];
+
+  for (const userId of uniqueUserIds) {
+    const prospect = await findOrCreateProspectForUser({
+      userId,
+      donorName,
+      blackbaudConstituentId,
+      askAmount,
+      expectedDate,
+    });
+
+    if (!prospect) continue;
+
+    const existingRows = await sql`
+      SELECT po.*
+      FROM prospect_opportunities po
+      INNER JOIN prospects p ON p.id = po.prospect_id
+      WHERE
+        p.user_id = ${userId}
+        AND po.prospect_id = ${prospect.id}
+        AND (
+          (${sharedOpportunityKey || null} IS NOT NULL AND po.shared_opportunity_key = ${sharedOpportunityKey || null})
+          OR (
+            ${sharedOpportunityKey || null} IS NULL
+            AND LOWER(TRIM(po.title)) = LOWER(TRIM(${title || ""}))
+          )
+        )
+      ORDER BY po.updated_at DESC, po.created_at DESC
+      LIMIT 1
+    `;
+
+    const linkedOpportunity = await saveProspectOpportunity({
+      userId,
+      prospectId: prospect.id,
+      constituentId: prospect.constituent_id || null,
+      opportunityId: existingRows[0]?.id || null,
+      title,
+      currentStage,
+      askAmount,
+      askDate,
+      expectedDate,
+      latestNotes,
+      submissionId,
+      jointMgoUserIds: [ownerUserId, ...uniqueUserIds],
+      sharedOpportunityKey,
+    });
+
+    createdLinks.push({
+      userId,
+      prospectId: prospect.id,
+      opportunityId: linkedOpportunity.opportunity?.id || null,
+    });
+  }
+
+  return createdLinks;
 }

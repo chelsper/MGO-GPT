@@ -50,7 +50,7 @@ function buildCsvContent(submission, submissionType) {
       { header: "Transcript", key: "transcript" },
       { header: "Next Step", key: "next_step" },
       { header: "Estimated Ask Amount", key: "estimated_ask_amount" },
-      { header: "Status", key: "status" },
+      { header: "Review Status", key: "status" },
       { header: "Date Submitted", key: "date_submitted" },
     ],
     opportunity_update: [
@@ -58,10 +58,13 @@ function buildCsvContent(submission, submissionType) {
       { header: "Type", key: "submission_type" },
       { header: "Officer Name", key: "officer_name" },
       { header: "Donor Name", key: "donor_name" },
-      { header: "Opportunity Stage", key: "opportunity_stage" },
-      { header: "Estimated Amount", key: "estimated_amount" },
+      { header: "Opportunity Name", key: "opportunity_title" },
+      { header: "Status", key: "opportunity_stage" },
+      { header: "Ask Date", key: "ask_date" },
+      { header: "Date Expected", key: "expected_date" },
+      { header: "Ask Amount", key: "estimated_amount" },
       { header: "Notes", key: "notes" },
-      { header: "Status", key: "status" },
+      { header: "Review Status", key: "status" },
       { header: "Date Submitted", key: "date_submitted" },
     ],
     constituent_suggestion: [
@@ -157,8 +160,11 @@ function getEmailBody(submission, submissionType) {
     body += `Next Step: ${submission.next_step || "N/A"}\n`;
   } else if (submissionType === "opportunity_update") {
     body += `Donor: ${submission.donor_name || "N/A"}\n`;
-    body += `Opportunity Stage: ${submission.opportunity_stage || "N/A"}\n`;
-    body += `Estimated Amount: ${submission.estimated_amount ? "$" + submission.estimated_amount : "N/A"}\n`;
+    body += `Opportunity Name: ${submission.opportunity_title || "N/A"}\n`;
+    body += `Status: ${submission.opportunity_stage || "N/A"}\n`;
+    body += `Ask Date: ${submission.ask_date || "N/A"}\n`;
+    body += `Date Expected: ${submission.expected_date || "N/A"}\n`;
+    body += `Ask Amount: ${submission.estimated_amount ? "$" + submission.estimated_amount : "N/A"}\n`;
   } else if (submissionType === "constituent_suggestion") {
     body += `Constituent: ${submission.constituent_name || "N/A"}\n`;
     body += `Organization: ${submission.organization || "N/A"}\n`;
