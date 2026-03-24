@@ -22,6 +22,32 @@ const inputStyle = {
   boxSizing: "border-box",
 };
 
+function getBlackbaudLinkMeta(record) {
+  if (record?.blackbaud_lookup_id || record?.blackbaud_constituent_id) {
+    return {
+      label: "Blackbaud linked",
+      tone: {
+        backgroundColor: "#ECFDF5",
+        border: "1px solid #A7F3D0",
+        color: "#166534",
+      },
+      detail: record?.blackbaud_lookup_id
+        ? `Lookup ID: ${record.blackbaud_lookup_id}`
+        : "Internal Blackbaud link saved",
+    };
+  }
+
+  return {
+    label: "App only",
+    tone: {
+      backgroundColor: "#F3F4F6",
+      border: "1px solid #D1D5DB",
+      color: "#4B5563",
+    },
+    detail: "No Blackbaud link yet",
+  };
+}
+
 export default function AccessManagementPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -698,6 +724,7 @@ export default function AccessManagementPage() {
           <div style={{ display: "grid", gap: "12px" }}>
             {users.map((user) => {
               const isBootstrapAdmin = bootstrapAdminEmail && user.email === bootstrapAdminEmail;
+              const blackbaudLink = getBlackbaudLinkMeta(user);
               return (
                 <div
                   key={user.id}
@@ -718,16 +745,28 @@ export default function AccessManagementPage() {
                     }}
                   >
                     <div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "5px 9px",
+                          borderRadius: "999px",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          marginBottom: "10px",
+                          ...blackbaudLink.tone,
+                        }}
+                      >
+                        {blackbaudLink.label}
+                      </div>
                       <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{user.name}</div>
                       <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>{user.email}</div>
                       <div style={{ fontSize: "12px", color: user.active ? "#6B7280" : "#B91C1C", marginTop: "6px", fontWeight: 600 }}>
                         {user.active ? "Active" : "Deactivated"}
                       </div>
-                      {user.blackbaud_lookup_id ? (
-                        <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
-                          Lookup ID: {user.blackbaud_lookup_id}
-                        </div>
-                      ) : null}
+                      <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
+                        {blackbaudLink.detail}
+                      </div>
                       <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px" }}>
                         Joined {new Date(user.created_at).toLocaleDateString()}
                       </div>
@@ -931,73 +970,88 @@ export default function AccessManagementPage() {
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
-              {pendingInvitations.map((invitation) => (
-                <div
-                  key={invitation.id}
-                  style={{
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "12px",
-                    padding: "16px",
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    gap: "12px",
-                    alignItems: "center",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>{invitation.email}</div>
-                    <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px" }}>
-                      Role: {invitation.role === "reviewer" ? "Advancement Services" : "MGO"}
-                    </div>
-                    {invitation.blackbaud_lookup_id ? (
+              {pendingInvitations.map((invitation) => {
+                const blackbaudLink = getBlackbaudLinkMeta(invitation);
+                return (
+                  <div
+                    key={invitation.id}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "12px",
+                      padding: "16px",
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: "12px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "5px 9px",
+                          borderRadius: "999px",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          marginBottom: "10px",
+                          ...blackbaudLink.tone,
+                        }}
+                      >
+                        {blackbaudLink.label}
+                      </div>
+                      <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>{invitation.email}</div>
+                      <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px" }}>
+                        Role: {invitation.role === "reviewer" ? "Advancement Services" : "MGO"}
+                      </div>
                       <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
-                        Linked Lookup ID: {invitation.blackbaud_lookup_id}
+                        {blackbaudLink.detail}
                         {invitation.blackbaud_name ? ` (${invitation.blackbaud_name})` : ""}
                       </div>
-                    ) : null}
-                    <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
-                      Invited {new Date(invitation.created_at).toLocaleString()}
-                      {invitation.invited_by_name
-                        ? ` by ${invitation.invited_by_name}`
-                        : ""}
+                      <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
+                        Invited {new Date(invitation.created_at).toLocaleString()}
+                        {invitation.invited_by_name
+                          ? ` by ${invitation.invited_by_name}`
+                          : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleResendInvitation(invitation)}
+                        disabled={resendingInvitationId === invitation.id}
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: "10px",
+                          border: "1px solid #BFDBFE",
+                          backgroundColor: "white",
+                          color: "#1D4ED8",
+                          fontWeight: 700,
+                          cursor: resendingInvitationId === invitation.id ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {resendingInvitationId === invitation.id ? "Refreshing..." : "Re-send"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeInvitation(invitation.id)}
+                        disabled={revokingInvitationId === invitation.id}
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: "10px",
+                          border: "1px solid #FCA5A5",
+                          backgroundColor: "white",
+                          color: "#B91C1C",
+                          fontWeight: 700,
+                          cursor: revokingInvitationId === invitation.id ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {revokingInvitationId === invitation.id ? "Revoking..." : "Revoke"}
+                      </button>
                     </div>
                   </div>
-                  <div style={{ display: "grid", gap: "8px" }}>
-                    <button
-                      type="button"
-                      onClick={() => handleResendInvitation(invitation)}
-                      disabled={resendingInvitationId === invitation.id}
-                      style={{
-                        padding: "10px 14px",
-                        borderRadius: "10px",
-                        border: "1px solid #BFDBFE",
-                        backgroundColor: "white",
-                        color: "#1D4ED8",
-                        fontWeight: 700,
-                        cursor: resendingInvitationId === invitation.id ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {resendingInvitationId === invitation.id ? "Refreshing..." : "Re-send"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRevokeInvitation(invitation.id)}
-                      disabled={revokingInvitationId === invitation.id}
-                      style={{
-                        padding: "10px 14px",
-                        borderRadius: "10px",
-                        border: "1px solid #FCA5A5",
-                        backgroundColor: "white",
-                        color: "#B91C1C",
-                        fontWeight: 700,
-                        cursor: revokingInvitationId === invitation.id ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {revokingInvitationId === invitation.id ? "Revoking..." : "Revoke"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
