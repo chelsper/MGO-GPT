@@ -2,17 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { saveProspectOpportunity } from "@/app/api/utils/prospectOpportunities";
-
-async function getUser(session) {
-  const email = session.user.email;
-  const existing = await sql`
-    SELECT id
-    FROM users
-    WHERE email = ${email}
-    LIMIT 1
-  `;
-  return existing[0] || null;
-}
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 export async function POST(request, { params }) {
   try {
@@ -23,7 +13,7 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getUser(session);
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }

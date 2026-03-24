@@ -2,7 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 // GET all prospects for current user
 export async function GET(request) {
@@ -14,7 +14,7 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getOrCreateUser(session);
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
 
     const prospects = await sql`
       WITH user_prospects AS (
@@ -131,7 +131,7 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getOrCreateUser(session);
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
     const body = await request.json();
     const {
       prospectName,

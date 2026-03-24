@@ -91,8 +91,10 @@ export async function POST(request) {
     if (error) return error;
 
     const body = await request.json();
+    const name = body?.name ? String(body.name).trim() : "";
     const email = normalizeEmail(body?.email);
     const role = body?.role;
+    const provisionOnly = body?.provisionOnly === true;
     const blackbaudConstituentId = body?.blackbaudConstituentId
       ? String(body.blackbaudConstituentId).trim()
       : null;
@@ -120,6 +122,7 @@ export async function POST(request) {
       const updatedUser = await sql`
         UPDATE users
         SET
+          name = COALESCE(NULLIF(${name}, ''), name),
           role = ${role},
           blackbaud_constituent_id = COALESCE(${blackbaudConstituentId}, blackbaud_constituent_id),
           blackbaud_lookup_id = COALESCE(${blackbaudLookupId}, blackbaud_lookup_id),
@@ -132,6 +135,45 @@ export async function POST(request) {
         mode: "user-updated",
         user: updatedUser[0],
       });
+    }
+
+    if (provisionOnly) {
+      if (!name) {
+        return Response.json(
+          { error: "Name is required to create an MGO workspace." },
+          { status: 400 },
+        );
+      }
+
+      const createdUser = await sql`
+        INSERT INTO users (
+          name,
+          email,
+          role,
+          blackbaud_constituent_id,
+          blackbaud_lookup_id,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${name},
+          ${email},
+          ${role},
+          ${blackbaudConstituentId},
+          ${blackbaudLookupId},
+          NOW(),
+          NOW()
+        )
+        RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
+      `;
+
+      return Response.json(
+        {
+          mode: "workspace-created",
+          user: createdUser[0],
+        },
+        { status: 201 },
+      );
     }
 
     const invitation = await sql`

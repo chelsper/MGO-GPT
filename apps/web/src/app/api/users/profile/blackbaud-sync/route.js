@@ -5,6 +5,7 @@ import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import { isAdminRole } from "@/utils/workspaceRoles";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 export async function POST(request) {
   try {
@@ -15,15 +16,15 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getOrCreateUser(session);
+    const { sessionUser, workspaceUser } = await getWorkspaceUser(session, request);
     const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
       Boolean(bootstrapAdminEmail) &&
-      user?.email === bootstrapAdminEmail &&
-      Boolean(user?.blackbaud_constituent_id) &&
-      isAdminRole(user?.role);
+      workspaceUser?.email === bootstrapAdminEmail &&
+      Boolean(workspaceUser?.blackbaud_constituent_id) &&
+      isAdminRole(sessionUser?.role);
 
-    if (user?.role !== "mgo" && !canSeedBootstrapAdmin) {
+    if (workspaceUser?.role !== "mgo" && !canSeedBootstrapAdmin) {
       return Response.json(
         { error: "Only MGOs or the linked bootstrap admin can sync Blackbaud opportunities." },
         { status: 403 },
@@ -31,7 +32,7 @@ export async function POST(request) {
     }
 
     const origin = request?.url ? new URL(request.url).origin : null;
-    const hasBlackbaudConnection = await getValidBlackbaudConnection(user.id, origin).catch(
+    const hasBlackbaudConnection = await getValidBlackbaudConnection(workspaceUser.id, origin).catch(
       () => null,
     );
 
@@ -43,7 +44,7 @@ export async function POST(request) {
     }
 
     const result = await bootstrapMgoPortfolioFromBlackbaud({
-      userId: user.id,
+      userId: workspaceUser.id,
       origin,
       force: true,
     });

@@ -6,6 +6,7 @@ import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
+import getWorkspaceUser, { clearActingUserCookie } from "@/app/api/utils/getWorkspaceUser";
 
 function shouldAutoSyncPortfolio(user) {
   if (!user) return false;
@@ -26,23 +27,25 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getOrCreateUser(session);
+    const context = await getWorkspaceUser(session, request);
+    const user = context.sessionUser;
+    const workspaceUser = context.workspaceUser;
     const origin = request?.url ? new URL(request.url).origin : null;
     const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
       Boolean(bootstrapAdminEmail) &&
-      user?.email === bootstrapAdminEmail &&
-      Boolean(user?.blackbaud_constituent_id);
+      workspaceUser?.email === bootstrapAdminEmail &&
+      Boolean(workspaceUser?.blackbaud_constituent_id);
 
-    if (user?.role === "mgo" || canSeedBootstrapAdmin) {
-      const hasBlackbaudConnection = await getValidBlackbaudConnection(user.id, origin).catch(
+    if (workspaceUser?.role === "mgo" || canSeedBootstrapAdmin) {
+      const hasBlackbaudConnection = await getValidBlackbaudConnection(workspaceUser.id, origin).catch(
         () => null,
       );
 
-      if (hasBlackbaudConnection && shouldAutoSyncPortfolio(user)) {
+      if (hasBlackbaudConnection && shouldAutoSyncPortfolio(workspaceUser)) {
         try {
           await bootstrapMgoPortfolioFromBlackbaud({
-            userId: user.id,
+            userId: workspaceUser.id,
             origin,
           });
         } catch (bootstrapError) {
@@ -57,7 +60,35 @@ export async function GET(request) {
       WHERE id = ${user.id}
       LIMIT 1
     `;
-    return Response.json({ user: refreshedUser[0] || user });
+    const refreshedWorkspaceUser = workspaceUser.id === user.id
+      ? refreshedUser[0] || user
+      : (
+          await sql`
+            SELECT *
+            FROM users
+            WHERE id = ${workspaceUser.id}
+            LIMIT 1
+          `
+        )[0] || workspaceUser;
+
+    const response = Response.json({
+      user: refreshedUser[0] || user,
+      workspaceUser: refreshedWorkspaceUser,
+      actingAsUser: context.isActing
+        ? {
+            id: refreshedWorkspaceUser.id,
+            name: refreshedWorkspaceUser.name,
+            email: refreshedWorkspaceUser.email,
+            role: refreshedWorkspaceUser.role,
+          }
+        : null,
+    });
+
+    if (context.invalidActingUserId) {
+      response.headers.append("Set-Cookie", clearActingUserCookie());
+    }
+
+    return response;
   } catch (error) {
     console.error("Get profile error:", error);
     const message =

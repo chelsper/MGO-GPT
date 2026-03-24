@@ -51,10 +51,12 @@ function getBlackbaudLinkMeta(record) {
 export default function AccessManagementPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
+  const [workspaceUser, setWorkspaceUser] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState("");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("mgo");
   const [blackbaudQuery, setBlackbaudQuery] = useState("");
@@ -97,6 +99,7 @@ export default function AccessManagementPage() {
     }
 
     setProfile(profileData.user || null);
+    setWorkspaceUser(profileData.workspaceUser || profileData.user || null);
     setUsers(accessData.users || []);
     setInvitations(accessData.invitations || []);
     setBootstrapAdminEmail(accessData.bootstrapAdminEmail || "");
@@ -246,7 +249,7 @@ export default function AccessManagementPage() {
     [invitations],
   );
 
-  async function handleInviteSubmit(event) {
+  async function handleInviteSubmit(event, options = {}) {
     event.preventDefault();
     setSaving(true);
     setStatusMessage("");
@@ -257,8 +260,10 @@ export default function AccessManagementPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          name,
           email,
           role,
+          provisionOnly: options.provisionOnly === true,
           blackbaudConstituentId:
             role === "mgo" ? selectedBlackbaudMatch?.blackbaudConstituentId || null : null,
           blackbaudLookupId:
@@ -272,20 +277,27 @@ export default function AccessManagementPage() {
         throw new Error(data?.error || "Failed to save invitation");
       }
 
+      setName("");
       setEmail("");
       setRole("mgo");
       setBlackbaudQuery("");
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
       setStatusMessage(
-        data?.mode === "user-updated"
+        data?.mode === "workspace-created"
+          ? "MGO workspace created. You can now build out their portfolio before sending an invite."
+          : data?.mode === "user-updated"
           ? "Existing user role updated."
           : "Invitation saved. The invited user can now sign in with this email to claim access.",
       );
       setToast({
         tone: "success",
         message:
-          data?.mode === "user-updated" ? "Existing user updated." : "Invitation saved.",
+          data?.mode === "workspace-created"
+            ? "MGO workspace created."
+            : data?.mode === "user-updated"
+              ? "Existing user updated."
+              : "Invitation saved.",
       });
       await loadAccessState();
     } catch (err) {
@@ -295,6 +307,51 @@ export default function AccessManagementPage() {
       setToast({ tone: "error", message });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSwitchWorkspace(user) {
+    setStatusMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/admin/workspace-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to switch workspace view");
+      }
+
+      setWorkspaceUser(data?.actingUser || user);
+      window.location.href = "/my-top-prospects";
+    } catch (err) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : "Failed to switch workspace view";
+      setError(message);
+      setToast({ tone: "error", message });
+    }
+  }
+
+  async function handleStopViewingAs() {
+    setStatusMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/admin/workspace-user", {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to return to admin view");
+      }
+      setWorkspaceUser(profile);
+      setToast({ tone: "success", message: "Returned to admin view." });
+    } catch (err) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : "Failed to return to admin view";
+      setError(message);
+      setToast({ tone: "error", message });
     }
   }
 
@@ -563,6 +620,44 @@ export default function AccessManagementPage() {
               Bootstrap admin: {bootstrapAdminEmail}
             </div>
           ) : null}
+          {workspaceUser && profile && workspaceUser.id !== profile.id ? (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "12px 14px",
+                borderRadius: "10px",
+                backgroundColor: "#ECFEFF",
+                border: "1px solid #A5F3FC",
+                color: "#155E75",
+                fontSize: "14px",
+                fontWeight: 600,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <span>
+                Currently viewing as {workspaceUser.name} ({workspaceUser.email})
+              </span>
+              <button
+                type="button"
+                onClick={handleStopViewingAs}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #67E8F9",
+                  backgroundColor: "white",
+                  color: "#0F766E",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Return to admin view
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {statusMessage ? (
@@ -580,9 +675,21 @@ export default function AccessManagementPage() {
 
         <form onSubmit={handleInviteSubmit} style={cardStyle}>
           <h2 style={{ margin: "0 0 16px", fontSize: "18px", color: "#111827" }}>
-            Invite a user
+            Create or invite a user
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "12px", alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr", gap: "12px", alignItems: "end" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+                Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Jane Dolphin"
+                style={inputStyle}
+              />
+            </div>
             <div>
               <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Email
@@ -698,7 +805,26 @@ export default function AccessManagementPage() {
               ) : null}
             </div>
           ) : null}
-          <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "wrap" }}>
+            {role === "mgo" ? (
+              <button
+                type="button"
+                onClick={(event) => handleInviteSubmit(event, { provisionOnly: true })}
+                disabled={saving || !name.trim() || !email.trim()}
+                style={{
+                  padding: "11px 16px",
+                  borderRadius: "10px",
+                  border: "1px solid #C7D2FE",
+                  backgroundColor: "white",
+                  color: "#4338CA",
+                  fontWeight: 700,
+                  cursor:
+                    saving || !name.trim() || !email.trim() ? "not-allowed" : "pointer",
+                }}
+              >
+                {saving ? "Saving..." : "Create MGO workspace"}
+              </button>
+            ) : null}
             <button
               type="submit"
               disabled={saving}
@@ -786,6 +912,23 @@ export default function AccessManagementPage() {
                         </select>
                       )}
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {user.role === "mgo" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchWorkspace(user)}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid #BFDBFE",
+                              backgroundColor: "white",
+                              color: "#1D4ED8",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            View as MGO
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => {

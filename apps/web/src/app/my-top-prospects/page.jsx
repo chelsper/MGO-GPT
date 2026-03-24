@@ -4232,7 +4232,7 @@ export default function MyTopProspectsPage() {
       const res = await fetch("/api/users/profile");
       if (!res.ok) throw new Error("Failed to fetch profile");
       const data = await res.json();
-      return data.user;
+      return data;
     },
     enabled: !!user,
   });
@@ -4284,6 +4284,25 @@ export default function MyTopProspectsPage() {
       queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+    },
+  });
+
+  const stopViewingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/workspace-user", {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to return to admin view");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      window.location.href = "/access-management";
     },
   });
 
@@ -4421,7 +4440,44 @@ export default function MyTopProspectsPage() {
       </header>
 
       <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "24px" }}>
-        {profileStatus?.blackbaud_lookup_id ? (
+        {profileStatus?.actingAsUser ? (
+          <div
+            style={{
+              backgroundColor: "#ECFEFF",
+              borderRadius: "12px",
+              border: "1px solid #A5F3FC",
+              padding: "14px 16px",
+              marginBottom: "18px",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
+              Viewing this portfolio as <strong>{profileStatus.actingAsUser.name}</strong> ({profileStatus.actingAsUser.email}).
+            </div>
+            <button
+              type="button"
+              onClick={() => stopViewingMutation.mutate()}
+              disabled={stopViewingMutation.isPending}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "10px",
+                border: "1px solid #67E8F9",
+                backgroundColor: "white",
+                color: "#0F766E",
+                fontWeight: "700",
+                cursor: stopViewingMutation.isPending ? "not-allowed" : "pointer",
+              }}
+            >
+              {stopViewingMutation.isPending ? "Returning..." : "Return to admin view"}
+            </button>
+          </div>
+        ) : null}
+
+        {profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
           <div
             style={{
               backgroundColor: "white",
@@ -4451,7 +4507,7 @@ export default function MyTopProspectsPage() {
                     fontWeight: "700",
                   }}
                 >
-                  Lookup ID: {profileStatus.blackbaud_lookup_id}
+                  Lookup ID: {profileStatus.workspaceUser.blackbaud_lookup_id}
                 </div>
                 <div
                   style={{
@@ -4465,21 +4521,21 @@ export default function MyTopProspectsPage() {
                   }}
                 >
                   Last success:{" "}
-                  {profileStatus.blackbaud_portfolio_seeded_at
-                    ? formatLongDate(profileStatus.blackbaud_portfolio_seeded_at)
+                  {profileStatus.workspaceUser.blackbaud_portfolio_seeded_at
+                    ? formatLongDate(profileStatus.workspaceUser.blackbaud_portfolio_seeded_at)
                     : "Never"}
                 </div>
               </div>
               <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                 Pulls qualifying NXT opportunities into your ranked portfolio on demand.
                 Last attempted:{" "}
-                {profileStatus.blackbaud_portfolio_seed_attempted_at
-                  ? formatLongDate(profileStatus.blackbaud_portfolio_seed_attempted_at)
+                {profileStatus.workspaceUser.blackbaud_portfolio_seed_attempted_at
+                  ? formatLongDate(profileStatus.workspaceUser.blackbaud_portfolio_seed_attempted_at)
                   : "Never"}.
               </div>
-              {profileStatus.blackbaud_portfolio_seed_error ? (
+              {profileStatus.workspaceUser.blackbaud_portfolio_seed_error ? (
                 <div style={{ fontSize: "12px", color: "#B91C1C" }}>
-                  Last error: {profileStatus.blackbaud_portfolio_seed_error}
+                  Last error: {profileStatus.workspaceUser.blackbaud_portfolio_seed_error}
                 </div>
               ) : null}
             </div>
