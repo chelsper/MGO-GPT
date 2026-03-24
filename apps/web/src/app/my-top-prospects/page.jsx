@@ -921,6 +921,10 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
 
 function ProspectDetailModal({ prospectId, onClose }) {
   const queryClient = useQueryClient();
+  const [expandedTimelineId, setExpandedTimelineId] = useState(null);
+  const [editingUpdateId, setEditingUpdateId] = useState(null);
+  const [editingUpdateNotes, setEditingUpdateNotes] = useState("");
+  const [editingUpdateDate, setEditingUpdateDate] = useState("");
   const [showActionForm, setShowActionForm] = useState(false);
   const [actionDate, setActionDate] = useState(
     new Date().toISOString().split("T")[0],
@@ -1157,6 +1161,40 @@ function ProspectDetailModal({ prospectId, onClose }) {
     },
   });
 
+  const updateTimelineEntryMutation = useMutation({
+    mutationFn: async ({ updateId, body }) => {
+      const res = await fetch(
+        `/api/prospects/${prospectId}/updates/${updateId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to update activity");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setEditingUpdateId(null);
+      setEditingUpdateNotes("");
+      setEditingUpdateDate("");
+      setActionError("");
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to update activity",
+      );
+    },
+  });
+
   const prospect = data?.prospect;
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
@@ -1388,6 +1426,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
       accent: "#6A5BFF",
       border: "#DDD6FE",
       background: "#F5F3FF",
+      raw: update,
     })),
     ...opportunities.map((opportunity) => ({
       id: `opportunity-${opportunity.id}`,
@@ -1403,6 +1442,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
       accent: "#1D4ED8",
       border: "#BFDBFE",
       background: "#EFF6FF",
+      raw: opportunity,
     })),
     ...linkedSubmissions.map((submission) => ({
       id: `submission-${submission.id}`,
@@ -1433,6 +1473,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
       background:
         submission.status === "Needs Clarification" ? "#FFFBEB" : "#ECFDF5",
       reviewerNotes: submission.reviewer_notes,
+      raw: submission,
     })),
   ]
     .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
@@ -1469,6 +1510,30 @@ function ProspectDetailModal({ prospectId, onClose }) {
         ? `Due ${formatLongDate(prospect.next_action_due_date)}`
         : "No due date set"
     : "No next action set.";
+
+  const startEditingTimelineUpdate = (event) => {
+    const raw = event.raw || {};
+    setEditingUpdateId(raw.id);
+    setEditingUpdateNotes(raw.update_notes || "");
+    setEditingUpdateDate(
+      raw.update_date
+        ? new Date(raw.update_date).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0],
+    );
+    setExpandedTimelineId(event.id);
+  };
+
+  const saveTimelineUpdate = () => {
+    if (!editingUpdateId) return;
+    setActionError("");
+    updateTimelineEntryMutation.mutate({
+      updateId: editingUpdateId,
+      body: {
+        updateDate: editingUpdateDate,
+        updateNotes: editingUpdateNotes,
+      },
+    });
+  };
 
   return (
     <div
@@ -3768,29 +3833,87 @@ function ProspectDetailModal({ prospectId, onClose }) {
                         gap: "12px",
                         alignItems: "flex-start",
                         marginBottom: "4px",
+                        flexWrap: "wrap",
                       }}
                     >
-                      <p
+                      <div style={{ flex: 1, minWidth: "220px" }}>
+                        <p
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: "700",
+                            color: event.accent,
+                            margin: "0 0 2px 0",
+                          }}
+                        >
+                          {event.title}
+                        </p>
+                        <p
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            color: "#6B7280",
+                            margin: 0,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatLongDate(event.occurredAt)}
+                        </p>
+                      </div>
+                      <div
                         style={{
-                          fontSize: "13px",
-                          fontWeight: "700",
-                          color: event.accent,
-                          margin: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          flexWrap: "wrap",
                         }}
                       >
-                        {event.title}
-                      </p>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          margin: 0,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {formatLongDate(event.occurredAt)}
-                      </p>
+                        {event.kind === "progress" ? (
+                          <button
+                            type="button"
+                            onClick={() => startEditingTimelineUpdate(event)}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: "999px",
+                              border: "1px solid #C4B5FD",
+                              backgroundColor: "white",
+                              color: "#5B21B6",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedTimelineId((current) =>
+                              current === event.id ? null : event.id,
+                            )
+                          }
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "6px 10px",
+                            borderRadius: "999px",
+                            border: `1px solid ${event.border}`,
+                            backgroundColor: "white",
+                            color: event.accent,
+                            fontSize: "12px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {expandedTimelineId === event.id ? "Hide details" : "See details"}
+                          {expandedTimelineId === event.id ? (
+                            <ChevronUp size={14} />
+                          ) : (
+                            <ChevronDown size={14} />
+                          )}
+                        </button>
+                      </div>
                     </div>
                     <p
                       style={{
@@ -3824,6 +3947,244 @@ function ProspectDetailModal({ prospectId, onClose }) {
                     >
                       {event.meta}
                     </p>
+                    {expandedTimelineId === event.id ? (
+                      <div
+                        style={{
+                          marginTop: "12px",
+                          paddingTop: "12px",
+                          borderTop: `1px solid ${event.border}`,
+                        }}
+                      >
+                        {event.kind === "progress" &&
+                        editingUpdateId === event.raw?.id ? (
+                          <div>
+                            <div style={{ marginBottom: "10px" }}>
+                              <label
+                                style={{
+                                  display: "block",
+                                  fontSize: "12px",
+                                  fontWeight: "600",
+                                  color: event.accent,
+                                  marginBottom: "4px",
+                                }}
+                              >
+                                Update date
+                              </label>
+                              <input
+                                type="date"
+                                value={editingUpdateDate}
+                                onChange={(e) => setEditingUpdateDate(e.target.value)}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 12px",
+                                  border: `1px solid ${event.border}`,
+                                  borderRadius: "8px",
+                                  fontSize: "14px",
+                                  boxSizing: "border-box",
+                                  backgroundColor: "white",
+                                }}
+                              />
+                            </div>
+                            <div style={{ marginBottom: "10px" }}>
+                              <label
+                                style={{
+                                  display: "block",
+                                  fontSize: "12px",
+                                  fontWeight: "600",
+                                  color: event.accent,
+                                  marginBottom: "4px",
+                                }}
+                              >
+                                Update notes
+                              </label>
+                              <textarea
+                                value={editingUpdateNotes}
+                                onChange={(e) => setEditingUpdateNotes(e.target.value)}
+                                rows={4}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px 12px",
+                                  border: `1px solid ${event.border}`,
+                                  borderRadius: "8px",
+                                  fontSize: "14px",
+                                  boxSizing: "border-box",
+                                  fontFamily: "inherit",
+                                  resize: "vertical",
+                                  backgroundColor: "white",
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                onClick={saveTimelineUpdate}
+                                disabled={updateTimelineEntryMutation.isPending}
+                                style={{
+                                  padding: "8px 14px",
+                                  borderRadius: "8px",
+                                  border: "none",
+                                  backgroundColor: "#6A5BFF",
+                                  color: "white",
+                                  fontWeight: "700",
+                                  cursor: updateTimelineEntryMutation.isPending
+                                    ? "not-allowed"
+                                    : "pointer",
+                                }}
+                              >
+                                {updateTimelineEntryMutation.isPending
+                                  ? "Saving..."
+                                  : "Save update"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingUpdateId(null);
+                                  setEditingUpdateNotes("");
+                                  setEditingUpdateDate("");
+                                }}
+                                style={{
+                                  padding: "8px 14px",
+                                  borderRadius: "8px",
+                                  border: `1px solid ${event.border}`,
+                                  backgroundColor: "white",
+                                  color: event.accent,
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                              gap: "12px",
+                            }}
+                          >
+                            {event.kind === "progress" ? (
+                              <>
+                                <div>
+                                  <p style={detailLabelStyle}>Recorded update</p>
+                                  <p
+                                    style={{
+                                      fontSize: "14px",
+                                      color: "#374151",
+                                      margin: 0,
+                                      whiteSpace: "pre-line",
+                                      lineHeight: 1.6,
+                                    }}
+                                  >
+                                    {event.raw?.update_notes || "No details recorded."}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={detailLabelStyle}>Source</p>
+                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                                    Saved in the app
+                                  </p>
+                                </div>
+                              </>
+                            ) : null}
+                            {event.kind === "opportunity" ? (
+                              <>
+                                <div>
+                                  <p style={detailLabelStyle}>Status</p>
+                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                                    {event.raw?.current_stage || "Unavailable"} ·{" "}
+                                    {event.raw?.opportunity_status || "Active"}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={detailLabelStyle}>Ask amount</p>
+                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                                    {formatCurrency(getOpportunityDisplayAmount(event.raw))}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={detailLabelStyle}>Ask timing</p>
+                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                                    {event.raw?.ask_date
+                                      ? `Ask ${formatLongDate(event.raw.ask_date)}`
+                                      : "No ask date"}
+                                    {event.raw?.expected_date
+                                      ? ` · Expected ${formatLongDate(event.raw.expected_date)}`
+                                      : ""}
+                                  </p>
+                                </div>
+                                <div style={{ gridColumn: "1 / -1" }}>
+                                  <p style={detailLabelStyle}>Opportunity notes</p>
+                                  <p
+                                    style={{
+                                      fontSize: "14px",
+                                      color: "#374151",
+                                      margin: 0,
+                                      whiteSpace: "pre-line",
+                                      lineHeight: 1.6,
+                                    }}
+                                  >
+                                    {event.raw?.latest_notes || "No opportunity notes recorded."}
+                                  </p>
+                                </div>
+                              </>
+                            ) : null}
+                            {event.kind === "submission" ? (
+                              <>
+                                <div>
+                                  <p style={detailLabelStyle}>Submission status</p>
+                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                                    {event.raw?.status || "Unknown"}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p style={detailLabelStyle}>Submitted</p>
+                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                                    {formatLongDate(
+                                      event.raw?.date_submitted ||
+                                        event.raw?.updated_at ||
+                                        event.raw?.reviewed_at,
+                                    )}
+                                  </p>
+                                </div>
+                                <div style={{ gridColumn: "1 / -1" }}>
+                                  <p style={detailLabelStyle}>Submission details</p>
+                                  <p
+                                    style={{
+                                      fontSize: "14px",
+                                      color: "#374151",
+                                      margin: 0,
+                                      whiteSpace: "pre-line",
+                                      lineHeight: 1.6,
+                                    }}
+                                  >
+                                    {getSubmissionTimelineDescription(event.raw) ||
+                                      "No additional submission details."}
+                                  </p>
+                                </div>
+                                {event.raw?.reviewer_notes ? (
+                                  <div style={{ gridColumn: "1 / -1" }}>
+                                    <p style={detailLabelStyle}>Reviewer notes</p>
+                                    <p
+                                      style={{
+                                        fontSize: "14px",
+                                        color: "#374151",
+                                        margin: 0,
+                                        whiteSpace: "pre-line",
+                                        lineHeight: 1.6,
+                                      }}
+                                    >
+                                      {event.raw.reviewer_notes}
+                                    </p>
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
