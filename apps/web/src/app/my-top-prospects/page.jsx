@@ -1437,6 +1437,39 @@ function ProspectDetailModal({ prospectId, onClose }) {
   ]
     .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
+  const workspaceCardStyle = {
+    backgroundColor: "white",
+    borderRadius: "16px",
+    border: "1px solid #E5E7EB",
+    padding: "18px",
+  };
+
+  const sectionEyebrowStyle = {
+    fontSize: "12px",
+    fontWeight: "700",
+    color: "#6B7280",
+    margin: "0 0 6px 0",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  };
+
+  const detailLabelStyle = {
+    fontSize: "12px",
+    fontWeight: "600",
+    color: "#6B7280",
+    marginBottom: "2px",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  };
+
+  const nextStepSummary = prospect.next_action_text
+    ? prospect.next_action_completed_at
+      ? `Completed ${formatLongDate(prospect.next_action_completed_at)}`
+      : prospect.next_action_due_date
+        ? `Due ${formatLongDate(prospect.next_action_due_date)}`
+        : "No due date set"
+    : "No next action set.";
+
   return (
     <div
       style={{
@@ -1456,7 +1489,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
           backgroundColor: "white",
           borderRadius: "16px",
           width: "100%",
-          maxWidth: "580px",
+          maxWidth: "980px",
           maxHeight: "90vh",
           overflow: "auto",
         }}
@@ -1496,9 +1529,354 @@ function ProspectDetailModal({ prospectId, onClose }) {
         </div>
 
         <div style={{ padding: "24px" }}>
-          {/* Details */}
+          {!editMode ? (
+            <>
+              <div
+                style={{
+                  marginBottom: "20px",
+                  padding: "20px",
+                  borderRadius: "18px",
+                  background:
+                    "linear-gradient(135deg, #F7F5FF 0%, #EEF2FF 55%, #F8FAFC 100%)",
+                  border: "1px solid #DDD6FE",
+                }}
+              >
+                <p style={sectionEyebrowStyle}>Prospect workspace</p>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "16px",
+                    flexWrap: "wrap",
+                    marginBottom: "18px",
+                  }}
+                >
+                  <div>
+                    <h3
+                      style={{
+                        margin: "0 0 6px 0",
+                        fontSize: "24px",
+                        fontWeight: "800",
+                        color: "#111827",
+                      }}
+                    >
+                      {prospect.prospect_name}
+                    </h3>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        color: "#4B5563",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <StatusBadge status={prospect.status} />
+                      <span>Priority #{prospect.priority_order || "Unranked"}</span>
+                      {linkedBlackbaudConstituentId ? (
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "999px",
+                            backgroundColor: "#DBEAFE",
+                            color: "#1D4ED8",
+                            fontWeight: "700",
+                            border: "1px solid #93C5FD",
+                          }}
+                        >
+                          Linked to Blackbaud
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "999px",
+                            backgroundColor: "#F3F4F6",
+                            color: "#4B5563",
+                            fontWeight: "700",
+                            border: "1px solid #D1D5DB",
+                          }}
+                        >
+                          App-only prospect
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      minWidth: "220px",
+                      padding: "14px 16px",
+                      borderRadius: "14px",
+                      backgroundColor: "rgba(255,255,255,0.8)",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    <p style={sectionEyebrowStyle}>Next step</p>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: "700",
+                        color: "#111827",
+                        marginBottom: "4px",
+                      }}
+                    >
+                      {prospect.next_action_text || "Nothing queued yet"}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                      {nextStepSummary}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                    gap: "12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "14px",
+                      borderRadius: "14px",
+                      backgroundColor: "rgba(255,255,255,0.8)",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    <p style={sectionEyebrowStyle}>Expected close FY</p>
+                    <div style={{ fontSize: "22px", fontWeight: "800", color: "#111827" }}>
+                      {prospect.expected_close_fy}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "14px",
+                      borderRadius: "14px",
+                      backgroundColor: "rgba(255,255,255,0.8)",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    <p style={sectionEyebrowStyle}>Ask amount</p>
+                    <div style={{ fontSize: "22px", fontWeight: "800", color: "#111827" }}>
+                      {formatCurrency(prospect.ask_amount)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "14px",
+                      borderRadius: "14px",
+                      backgroundColor: "rgba(255,255,255,0.8)",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    <p style={sectionEyebrowStyle}>Ask type</p>
+                    <div style={{ fontSize: "18px", fontWeight: "700", color: "#111827" }}>
+                      {prospect.ask_type}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "14px",
+                      borderRadius: "14px",
+                      backgroundColor: "rgba(255,255,255,0.8)",
+                      border: "1px solid #E5E7EB",
+                    }}
+                  >
+                    <p style={sectionEyebrowStyle}>Open opportunities</p>
+                    <div style={{ fontSize: "22px", fontWeight: "800", color: "#111827" }}>
+                      {
+                        opportunities.filter(
+                          (opportunity) =>
+                            (opportunity.opportunity_status || "Active") === "Active",
+                        ).length
+                      }
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...workspaceCardStyle,
+                  marginBottom: "20px",
+                  backgroundColor: "#FCFCFF",
+                  borderColor: "#DDD6FE",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    marginBottom: "12px",
+                  }}
+                >
+                  <div>
+                    <p style={sectionEyebrowStyle}>Work this prospect</p>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "14px",
+                        color: "#4B5563",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Capture movement, advance the ask, and keep next steps current without leaving this workspace.
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    onClick={() => setEditMode(true)}
+                    style={{
+                      padding: "10px 16px",
+                      backgroundColor: "#F3F4F6",
+                      color: "#374151",
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "10px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Edit Prospect
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowActionForm(true);
+                      setShowOpportunityForm(false);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      backgroundColor: "#EDE9FE",
+                      color: "#6A5BFF",
+                      border: "1px solid #C4B5FD",
+                      borderRadius: "10px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Log Action
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowOpportunityForm(true);
+                      setShowActionForm(false);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      backgroundColor: "#EFF6FF",
+                      color: "#1D4ED8",
+                      border: "1px solid #BFDBFE",
+                      borderRadius: "10px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Add Opportunity
+                  </button>
+                  {isActive && (
+                    <button
+                      onClick={() => setShowCloseModal(true)}
+                      style={{
+                        padding: "10px 16px",
+                        backgroundColor: "#FEF3C7",
+                        color: "#92400E",
+                        border: "1px solid #FDE68A",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Mark Closed
+                    </button>
+                  )}
+                  {!isArchived ? (
+                    <button
+                      onClick={archiveProspect}
+                      disabled={editMutation.isPending || deleteMutation.isPending}
+                      style={{
+                        padding: "10px 16px",
+                        backgroundColor: "#F3F4F6",
+                        color: "#4B5563",
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                        cursor:
+                          editMutation.isPending || deleteMutation.isPending
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          editMutation.isPending || deleteMutation.isPending ? 0.7 : 1,
+                      }}
+                    >
+                      Archive
+                    </button>
+                  ) : (
+                    <button
+                      onClick={reactivateProspect}
+                      disabled={editMutation.isPending}
+                      style={{
+                        padding: "10px 16px",
+                        backgroundColor: "#ECFDF5",
+                        color: "#065F46",
+                        border: "1px solid #A7F3D0",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                        cursor: editMutation.isPending ? "not-allowed" : "pointer",
+                        opacity: editMutation.isPending ? 0.7 : 1,
+                      }}
+                    >
+                      Reactivate
+                    </button>
+                  )}
+                  {!hasClosedRevenue ? (
+                    <button
+                      onClick={deleteProspect}
+                      disabled={deleteMutation.isPending || editMutation.isPending}
+                      style={{
+                        padding: "10px 16px",
+                        backgroundColor: "#FEF2F2",
+                        color: "#991B1B",
+                        border: "1px solid #FECACA",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                        cursor:
+                          deleteMutation.isPending || editMutation.isPending
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          deleteMutation.isPending || editMutation.isPending ? 0.7 : 1,
+                      }}
+                    >
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </>
+          ) : null}
+
           {editMode ? (
-            <div style={{ marginBottom: "24px" }}>
+            <div style={{ ...workspaceCardStyle, marginBottom: "24px" }}>
+              <p style={sectionEyebrowStyle}>Edit prospect</p>
               <div style={{ marginBottom: "14px" }}>
                 <label
                   style={{
@@ -1822,218 +2200,662 @@ function ProspectDetailModal({ prospectId, onClose }) {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "16px",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: "18px",
                 marginBottom: "24px",
               }}
             >
-              <div>
-                <p
+              <div style={workspaceCardStyle}>
+                <p style={sectionEyebrowStyle}>Prospect details</p>
+                <div
                   style={{
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    color: "#6B7280",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "16px",
                   }}
                 >
-                  Expected Close FY
-                </p>
-                <p
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: "600",
-                    color: "#111827",
-                    margin: 0,
-                  }}
-                >
-                  {prospect.expected_close_fy}
-                </p>
+                  <div>
+                    <p style={detailLabelStyle}>Status</p>
+                    <StatusBadge status={prospect.status} />
+                  </div>
+                  <div>
+                    <p style={detailLabelStyle}>Ask type</p>
+                    <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
+                      {prospect.ask_type}
+                    </p>
+                  </div>
+                  {prospect.closed_amount != null && (
+                    <div>
+                      <p style={detailLabelStyle}>Closed amount</p>
+                      <p
+                        style={{
+                          fontSize: "15px",
+                          fontWeight: "600",
+                          color: "#059669",
+                          margin: 0,
+                        }}
+                      >
+                        {formatCurrency(prospect.closed_amount)}
+                      </p>
+                    </div>
+                  )}
+                  {prospect.close_date && (
+                    <div>
+                      <p style={detailLabelStyle}>Close date</p>
+                      <p
+                        style={{
+                          fontSize: "15px",
+                          fontWeight: "600",
+                          color: "#111827",
+                          margin: 0,
+                        }}
+                      >
+                        {new Date(prospect.close_date).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <p style={detailLabelStyle}>Recent review activity</p>
+                    <p style={{ fontSize: "14px", color: "#374151", margin: 0, lineHeight: 1.6 }}>
+                      {linkedSubmissions.length > 0
+                        ? `${linkedSubmissions.length} submission${linkedSubmissions.length === 1 ? "" : "s"} tied to this prospect.`
+                        : "No linked submissions yet."}
+                    </p>
+                  </div>
+                  {prospect.decline_reason && (
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <p style={detailLabelStyle}>Decline reason</p>
+                      <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
+                        {prospect.decline_reason}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div>
-                <p
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    color: "#6B7280",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  Ask Amount
-                </p>
-                <p
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: "600",
-                    color: "#111827",
-                    margin: 0,
-                  }}
-                >
-                  {formatCurrency(prospect.ask_amount)}
-                </p>
-              </div>
-              <div>
-                <p
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    color: "#6B7280",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  Ask Type
-                </p>
-                <p
-                  style={{
-                    fontSize: "15px",
-                    fontWeight: "600",
-                    color: "#111827",
-                    margin: 0,
-                  }}
-                >
-                  {prospect.ask_type}
-                </p>
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <p
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    color: "#6B7280",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  Next Action
-                </p>
+
+              <div style={{ ...workspaceCardStyle, backgroundColor: "#FCFFFD", borderColor: "#BBF7D0" }}>
+                <p style={sectionEyebrowStyle}>Next step</p>
                 {prospect.next_action_text ? (
                   <>
                     <p
                       style={{
-                        fontSize: "15px",
-                        fontWeight: "600",
+                        fontSize: "18px",
+                        fontWeight: "700",
                         color: "#111827",
-                        margin: "0 0 4px 0",
+                        margin: "0 0 6px 0",
+                        lineHeight: 1.4,
                       }}
                     >
                       {prospect.next_action_text}
                     </p>
-                    <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
-                      {prospect.next_action_completed_at
-                        ? `Completed ${formatLongDate(prospect.next_action_completed_at)}`
-                        : prospect.next_action_due_date
-                          ? `Due ${formatLongDate(prospect.next_action_due_date)}`
-                          : "No due date set"}
+                    <p
+                      style={{
+                        fontSize: "14px",
+                        color: "#4B5563",
+                        margin: "0 0 14px 0",
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {nextStepSummary}
                     </p>
                   </>
                 ) : (
-                  <p style={{ fontSize: "14px", color: "#9CA3AF", margin: 0 }}>
-                    No next action set.
+                  <p
+                    style={{
+                      fontSize: "14px",
+                      color: "#6B7280",
+                      margin: "0 0 14px 0",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    No next step is set yet. Log an action to add one.
                   </p>
                 )}
-              </div>
-              <div>
-                <p
+
+                <div
                   style={{
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    color: "#6B7280",
-                    marginBottom: "2px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    backgroundColor: "#F0FDF4",
+                    border: "1px solid #A7F3D0",
+                    fontSize: "13px",
+                    color: "#166534",
+                    lineHeight: 1.6,
                   }}
                 >
-                  Status
-                </p>
-                <StatusBadge status={prospect.status} />
+                  Fastest path: use <strong>Log Action</strong> when you need to capture movement and update the next step together.
+                </div>
               </div>
-              {prospect.closed_amount != null && (
-                <div>
-                  <p
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      color: "#6B7280",
-                      marginBottom: "2px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Closed Amount
-                  </p>
-                  <p
-                    style={{
-                      fontSize: "15px",
-                      fontWeight: "600",
-                      color: "#059669",
-                      margin: 0,
-                    }}
-                  >
-                    {formatCurrency(prospect.closed_amount)}
-                  </p>
-                </div>
-              )}
-              {prospect.close_date && (
-                <div>
-                  <p
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      color: "#6B7280",
-                      marginBottom: "2px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Close Date
-                  </p>
-                  <p
-                    style={{
-                      fontSize: "15px",
-                      fontWeight: "600",
-                      color: "#111827",
-                      margin: 0,
-                    }}
-                  >
-                    {new Date(prospect.close_date).toLocaleDateString()}
-                  </p>
-                </div>
-              )}
-              {prospect.decline_reason && (
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <p
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      color: "#6B7280",
-                      marginBottom: "2px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Decline Reason
-                  </p>
-                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                    {prospect.decline_reason}
-                  </p>
-                </div>
-              )}
             </div>
           )}
 
+          {actionError ? (
+            <div
+              style={{
+                marginBottom: "16px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                backgroundColor: "#FEF2F2",
+                border: "1px solid #FECACA",
+                color: "#991B1B",
+                fontSize: "13px",
+              }}
+            >
+              {actionError}
+            </div>
+          ) : null}
+
+          {/* Log Action Form */}
+          {showActionForm && (
+            <div
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: "14px",
+                padding: "18px",
+                marginBottom: "20px",
+                border: "1px solid #DDD6FE",
+              }}
+            >
+              <p style={sectionEyebrowStyle}>Log action</p>
+              <h4
+                style={{
+                  fontSize: "18px",
+                  fontWeight: "700",
+                  color: "#111827",
+                  margin: "0 0 12px 0",
+                }}
+              >
+                Capture the latest movement
+              </h4>
+              <div
+                style={{
+                  marginBottom: "12px",
+                  display: "flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                }}
+              >
+                {ACTION_TYPES.map((type) => {
+                  const selected = actionType === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setActionType(type)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "999px",
+                        border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                        backgroundColor: selected ? "#EDE9FE" : "white",
+                        color: selected ? "#5B21B6" : "#374151",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        textTransform: "capitalize",
+                      }}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={actionDate}
+                  onChange={(e) => setActionDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Action Summary
+                </label>
+                <input
+                  type="text"
+                  value={actionSummary}
+                  onChange={(e) => setActionSummary(e.target.value)}
+                  placeholder="What happened?"
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Notes
+                </label>
+                <textarea
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  placeholder="Capture the discussion, outcome, and any context you would normally log in NXT."
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Next Step
+                  </label>
+                  <input
+                    type="text"
+                    value={actionNextStep}
+                    onChange={(e) => setActionNextStep(e.target.value)}
+                    placeholder="What should happen next?"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Next Step Due
+                  </label>
+                  <input
+                    type="date"
+                    value={actionNextStepDueDate}
+                    onChange={(e) => setActionNextStepDueDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Link to Opportunity
+                </label>
+                <select
+                  value={actionLinkedOpportunityId}
+                  onChange={(e) => setActionLinkedOpportunityId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    backgroundColor: "white",
+                  }}
+                >
+                  <option value="">No linked opportunity</option>
+                  {opportunities.map((opportunity) => (
+                    <option key={opportunity.id} value={opportunity.id}>
+                      {opportunity.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div
+                style={{
+                  marginBottom: "12px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  backgroundColor: linkedBlackbaudConstituentId ? "#EFF6FF" : "#F3F4F6",
+                  border: linkedBlackbaudConstituentId
+                    ? "1px solid #BFDBFE"
+                    : "1px solid #E5E7EB",
+                  fontSize: "12px",
+                  color: linkedBlackbaudConstituentId ? "#1D4ED8" : "#6B7280",
+                  lineHeight: 1.5,
+                }}
+              >
+                {linkedBlackbaudConstituentId
+                  ? "This action will be logged in the app and sent to the linked Blackbaud constituent."
+                  : "This action will be saved in the app only because this prospect is not linked to Blackbaud."}
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={saveActionLog}
+                  disabled={
+                    addActionMutation.isPending ||
+                    (!actionSummary.trim() && !actionNotes.trim())
+                  }
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#6A5BFF",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {addActionMutation.isPending ? "Saving..." : "Save Action"}
+                </button>
+                <button
+                  onClick={() => setShowActionForm(false)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#374151",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Add Opportunity Form */}
+          {showOpportunityForm && (
+            <div
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: "14px",
+                padding: "18px",
+                marginBottom: "20px",
+                border: "1px solid #BFDBFE",
+              }}
+            >
+              <p style={sectionEyebrowStyle}>Add opportunity</p>
+              <h4
+                style={{
+                  fontSize: "18px",
+                  fontWeight: "700",
+                  color: "#111827",
+                  margin: "0 0 12px 0",
+                }}
+              >
+                Start or update the current ask
+              </h4>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                  Opportunity Name
+                </label>
+                <input
+                  type="text"
+                  value={newOpportunityData.title}
+                  onChange={(e) =>
+                    setNewOpportunityData((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  placeholder={`${prospect.prospect_name} opportunity`}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Status
+                  </label>
+                  <select
+                    value={newOpportunityData.currentStage}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({
+                        ...prev,
+                        currentStage: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    {OPPORTUNITY_STAGE_OPTIONS.map((stage) => (
+                      <option key={stage} value={stage}>
+                        {stage}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Ask Amount
+                  </label>
+                  <input
+                    type="number"
+                    value={newOpportunityData.estimatedAmount}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({
+                        ...prev,
+                        estimatedAmount: e.target.value,
+                      }))
+                    }
+                    placeholder="0.00"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Ask Date
+                  </label>
+                  <input
+                    type="date"
+                    value={newOpportunityData.askDate}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({ ...prev, askDate: e.target.value }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Date Expected
+                  </label>
+                  <input
+                    type="date"
+                    value={newOpportunityData.expectedDate}
+                    onChange={(e) =>
+                      setNewOpportunityData((prev) => ({
+                        ...prev,
+                        expectedDate: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                  Opportunity Notes
+                </label>
+                <textarea
+                  value={newOpportunityData.latestNotes}
+                  onChange={(e) =>
+                    setNewOpportunityData((prev) => ({
+                      ...prev,
+                      latestNotes: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  placeholder="Capture the current ask strategy, recent movement, or notes."
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={saveNewOpportunity}
+                  disabled={addOpportunityMutation.isPending}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#1D4ED8",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {addOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
+                </button>
+                <button
+                  onClick={() => setShowOpportunityForm(false)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#374151",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: "18px",
+              marginBottom: "24px",
+            }}
+          >
           {linkedBlackbaudConstituentId ? (
             <div
               style={{
-                marginBottom: "24px",
-                padding: "16px",
-                borderRadius: "12px",
-                border: "1px solid #BFDBFE",
+                ...workspaceCardStyle,
+                borderColor: "#BFDBFE",
                 backgroundColor: "#EFF6FF",
               }}
             >
@@ -2276,660 +3098,26 @@ function ProspectDetailModal({ prospectId, onClose }) {
                 </>
               )}
             </div>
-          ) : null}
-
-          {/* Action Buttons */}
-          {!editMode && (
-            <div
-              style={{
-                display: "flex",
-                gap: "8px",
-                marginBottom: "24px",
-                flexWrap: "wrap",
-              }}
-            >
-              <button
-                onClick={() => setEditMode(true)}
+          ) : (
+            <div style={{ ...workspaceCardStyle, backgroundColor: "#F9FAFB" }}>
+              <p style={sectionEyebrowStyle}>Blackbaud</p>
+              <p
                 style={{
-                  padding: "8px 16px",
-                  backgroundColor: "#F3F4F6",
-                  color: "#374151",
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                Edit Prospect
-              </button>
-              <button
-                onClick={() => {
-                  setShowActionForm(true);
-                  setShowOpportunityForm(false);
-                }}
-                style={{
-                  padding: "8px 16px",
-                  backgroundColor: "#EDE9FE",
-                  color: "#6A5BFF",
-                  border: "1px solid #C4B5FD",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                Log Action
-              </button>
-              <button
-                onClick={() => {
-                  setShowOpportunityForm(true);
-                  setShowActionForm(false);
-                }}
-                style={{
-                  padding: "8px 16px",
-                  backgroundColor: "#EFF6FF",
-                  color: "#1D4ED8",
-                  border: "1px solid #BFDBFE",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                Add Opportunity
-              </button>
-              {isActive && (
-                <button
-                  onClick={() => setShowCloseModal(true)}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#FEF3C7",
-                    color: "#92400E",
-                    border: "1px solid #FDE68A",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Mark Closed
-                </button>
-              )}
-              {!isArchived ? (
-                <button
-                  onClick={archiveProspect}
-                  disabled={editMutation.isPending || deleteMutation.isPending}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#F3F4F6",
-                    color: "#4B5563",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: editMutation.isPending || deleteMutation.isPending ? "not-allowed" : "pointer",
-                    opacity: editMutation.isPending || deleteMutation.isPending ? 0.7 : 1,
-                  }}
-                >
-                  Archive
-                </button>
-              ) : (
-                <button
-                  onClick={reactivateProspect}
-                  disabled={editMutation.isPending}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#ECFDF5",
-                    color: "#065F46",
-                    border: "1px solid #A7F3D0",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: editMutation.isPending ? "not-allowed" : "pointer",
-                    opacity: editMutation.isPending ? 0.7 : 1,
-                  }}
-                >
-                  Reactivate
-                </button>
-              )}
-              {!hasClosedRevenue ? (
-                <button
-                  onClick={deleteProspect}
-                  disabled={deleteMutation.isPending || editMutation.isPending}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#FEF2F2",
-                    color: "#991B1B",
-                    border: "1px solid #FECACA",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: deleteMutation.isPending || editMutation.isPending ? "not-allowed" : "pointer",
-                    opacity: deleteMutation.isPending || editMutation.isPending ? 0.7 : 1,
-                  }}
-                >
-                  Delete
-                </button>
-              ) : null}
-            </div>
-          )}
-
-          {actionError ? (
-            <div
-              style={{
-                marginBottom: "16px",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                backgroundColor: "#FEF2F2",
-                border: "1px solid #FECACA",
-                color: "#991B1B",
-                fontSize: "13px",
-              }}
-            >
-              {actionError}
-            </div>
-          ) : null}
-
-          {/* Log Action Form */}
-          {showActionForm && (
-            <div
-              style={{
-                backgroundColor: "#F9FAFB",
-                borderRadius: "12px",
-                padding: "16px",
-                marginBottom: "20px",
-                border: "1px solid #E5E7EB",
-              }}
-            >
-              <h4
-                style={{
+                  margin: 0,
                   fontSize: "14px",
-                  fontWeight: "600",
-                  color: "#374151",
-                  margin: "0 0 12px 0",
+                  color: "#4B5563",
+                  lineHeight: 1.6,
                 }}
               >
-                Log Action
-              </h4>
-              <div
-                style={{
-                  marginBottom: "12px",
-                  display: "flex",
-                  gap: "8px",
-                  flexWrap: "wrap",
-                }}
-              >
-                {ACTION_TYPES.map((type) => {
-                  const selected = actionType === type;
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setActionType(type)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "999px",
-                        border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
-                        backgroundColor: selected ? "#EDE9FE" : "white",
-                        color: selected ? "#5B21B6" : "#374151",
-                        fontSize: "12px",
-                        fontWeight: "700",
-                        cursor: "pointer",
-                        textTransform: "capitalize",
-                      }}
-                    >
-                      {type}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    color: "#6B7280",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Date
-                </label>
-                <input
-                  type="date"
-                  value={actionDate}
-                  onChange={(e) => setActionDate(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    color: "#6B7280",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Action Summary
-                </label>
-                <input
-                  type="text"
-                  value={actionSummary}
-                  onChange={(e) => setActionSummary(e.target.value)}
-                  placeholder="What happened?"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    color: "#6B7280",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Notes
-                </label>
-                <textarea
-                  value={actionNotes}
-                  onChange={(e) => setActionNotes(e.target.value)}
-                  placeholder="Capture the discussion, outcome, and any context you would normally log in NXT."
-                  rows={3}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                    fontFamily: "inherit",
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "12px",
-                  marginBottom: "12px",
-                }}
-              >
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "13px",
-                      fontWeight: "500",
-                      color: "#6B7280",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    Next Step
-                  </label>
-                  <input
-                    type="text"
-                    value={actionNextStep}
-                    onChange={(e) => setActionNextStep(e.target.value)}
-                    placeholder="What should happen next?"
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "13px",
-                      fontWeight: "500",
-                      color: "#6B7280",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    Next Step Due
-                  </label>
-                  <input
-                    type="date"
-                    value={actionNextStepDueDate}
-                    onChange={(e) => setActionNextStepDueDate(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-              </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    color: "#6B7280",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Link to Opportunity
-                </label>
-                <select
-                  value={actionLinkedOpportunityId}
-                  onChange={(e) => setActionLinkedOpportunityId(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                    backgroundColor: "white",
-                  }}
-                >
-                  <option value="">No linked opportunity</option>
-                  {opportunities.map((opportunity) => (
-                    <option key={opportunity.id} value={opportunity.id}>
-                      {opportunity.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div
-                style={{
-                  marginBottom: "12px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  backgroundColor: linkedBlackbaudConstituentId ? "#EFF6FF" : "#F3F4F6",
-                  border: linkedBlackbaudConstituentId ? "1px solid #BFDBFE" : "1px solid #E5E7EB",
-                  fontSize: "12px",
-                  color: linkedBlackbaudConstituentId ? "#1D4ED8" : "#6B7280",
-                  lineHeight: 1.5,
-                }}
-              >
-                {linkedBlackbaudConstituentId
-                  ? "This action will be logged in the app and sent to the linked Blackbaud constituent."
-                  : "This action will be saved in the app only because this prospect is not linked to Blackbaud."}
-              </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  onClick={saveActionLog}
-                  disabled={
-                    addActionMutation.isPending ||
-                    (!actionSummary.trim() && !actionNotes.trim())
-                  }
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#6A5BFF",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  {addActionMutation.isPending ? "Saving..." : "Save Action"}
-                </button>
-                <button
-                  onClick={() => setShowActionForm(false)}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#F3F4F6",
-                    color: "#374151",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
+                This prospect is not linked to a Blackbaud constituent yet. Actions and opportunities will stay in the app only until the record is linked.
+              </p>
             </div>
           )}
 
-          {/* Add Opportunity Form */}
-          {showOpportunityForm && (
-            <div
-              style={{
-                backgroundColor: "#F9FAFB",
-                borderRadius: "12px",
-                padding: "16px",
-                marginBottom: "20px",
-                border: "1px solid #E5E7EB",
-              }}
-            >
-              <h4
-                style={{
-                  fontSize: "14px",
-                  fontWeight: "600",
-                  color: "#374151",
-                  margin: "0 0 12px 0",
-                }}
-              >
-                Add Opportunity
-              </h4>
-              <div style={{ marginBottom: "12px" }}>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
-                  Opportunity Name
-                </label>
-                <input
-                  type="text"
-                  value={newOpportunityData.title}
-                  onChange={(e) =>
-                    setNewOpportunityData((prev) => ({ ...prev, title: e.target.value }))
-                  }
-                  placeholder={`${prospect.prospect_name} opportunity`}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "12px",
-                  marginBottom: "12px",
-                }}
-              >
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
-                    Status
-                  </label>
-                  <select
-                    value={newOpportunityData.currentStage}
-                    onChange={(e) =>
-                      setNewOpportunityData((prev) => ({
-                        ...prev,
-                        currentStage: e.target.value,
-                      }))
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                      backgroundColor: "white",
-                    }}
-                  >
-                    {OPPORTUNITY_STAGE_OPTIONS.map((stage) => (
-                      <option key={stage} value={stage}>
-                        {stage}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
-                    Ask Amount
-                  </label>
-                  <input
-                    type="number"
-                    value={newOpportunityData.estimatedAmount}
-                    onChange={(e) =>
-                      setNewOpportunityData((prev) => ({
-                        ...prev,
-                        estimatedAmount: e.target.value,
-                      }))
-                    }
-                    placeholder="0.00"
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
-                    Ask Date
-                  </label>
-                  <input
-                    type="date"
-                    value={newOpportunityData.askDate}
-                    onChange={(e) =>
-                      setNewOpportunityData((prev) => ({ ...prev, askDate: e.target.value }))
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
-                    Date Expected
-                  </label>
-                  <input
-                    type="date"
-                    value={newOpportunityData.expectedDate}
-                    onChange={(e) =>
-                      setNewOpportunityData((prev) => ({
-                        ...prev,
-                        expectedDate: e.target.value,
-                      }))
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-              </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
-                  Opportunity Notes
-                </label>
-                <textarea
-                  value={newOpportunityData.latestNotes}
-                  onChange={(e) =>
-                    setNewOpportunityData((prev) => ({
-                      ...prev,
-                      latestNotes: e.target.value,
-                    }))
-                  }
-                  rows={3}
-                  placeholder="Capture the current ask strategy, recent movement, or notes."
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                    fontFamily: "inherit",
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  onClick={saveNewOpportunity}
-                  disabled={addOpportunityMutation.isPending}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#1D4ED8",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  {addOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
-                </button>
-                <button
-                  onClick={() => setShowOpportunityForm(false)}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#F3F4F6",
-                    color: "#374151",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Progress Log */}
-          <div style={{ marginBottom: "24px" }}>
+          <div style={{ ...workspaceCardStyle, marginBottom: 0 }}>
             <h3
               style={{
-                fontSize: "15px",
+                fontSize: "16px",
                 fontWeight: "700",
                 color: "#111827",
                 margin: "0 0 12px 0",
@@ -3536,17 +3724,18 @@ function ProspectDetailModal({ prospectId, onClose }) {
               </div>
             )}
           </div>
+          </div>
 
-          <div>
+          <div style={workspaceCardStyle}>
             <h3
               style={{
-                fontSize: "15px",
+                fontSize: "16px",
                 fontWeight: "700",
                 color: "#111827",
                 margin: "0 0 12px 0",
               }}
             >
-              Activity Timeline
+              Recent Actions & Activity
             </h3>
             {timelineEvents.length === 0 ? (
               <p
