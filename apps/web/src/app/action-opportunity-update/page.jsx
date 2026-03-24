@@ -163,6 +163,7 @@ export default function ActionOpportunityUpdatePage() {
   const [isJointSolicitation, setIsJointSolicitation] = useState(false);
   const [jointMgoOptions, setJointMgoOptions] = useState([]);
   const [jointMgoLoading, setJointMgoLoading] = useState(false);
+  const [jointMgoLoaded, setJointMgoLoaded] = useState(false);
   const [jointMgoError, setJointMgoError] = useState("");
   const [selectedJointMgoIds, setSelectedJointMgoIds] = useState([]);
   const speechRecognitionRef = useRef(null);
@@ -254,15 +255,17 @@ export default function ActionOpportunityUpdatePage() {
     if (!includeOpportunity) {
       setIsJointSolicitation(false);
       setSelectedJointMgoIds([]);
+      setJointMgoLoaded(false);
       setJointMgoError("");
       return;
     }
-    if (!isJointSolicitation || jointMgoOptions.length > 0 || jointMgoLoading) {
+    if (!isJointSolicitation || jointMgoLoaded || jointMgoLoading) {
       return;
     }
 
     let active = true;
     setJointMgoLoading(true);
+    setJointMgoLoaded(false);
     setJointMgoError("");
 
     async function loadMgoOptions() {
@@ -280,6 +283,7 @@ export default function ActionOpportunityUpdatePage() {
         setJointMgoOptions(
           options.filter((option) => Number(option.id) !== Number(user?.id || 0)),
         );
+        setJointMgoLoaded(true);
       } catch (loadError) {
         console.error("Joint solicitation MGO lookup error:", loadError);
         if (!active) return;
@@ -297,7 +301,7 @@ export default function ActionOpportunityUpdatePage() {
     return () => {
       active = false;
     };
-  }, [includeOpportunity, isJointSolicitation, jointMgoLoading, jointMgoOptions.length, user?.id]);
+  }, [includeOpportunity, isJointSolicitation, jointMgoLoaded, jointMgoLoading, user?.id]);
 
   useEffect(() => {
     if (!includeAction) {
@@ -2450,6 +2454,10 @@ export default function ActionOpportunityUpdatePage() {
                         ) : jointMgoError ? (
                           <div style={{ fontSize: "13px", color: "#991B1B" }}>
                             {jointMgoError}
+                          </div>
+                        ) : jointMgoOptions.length === 0 ? (
+                          <div style={{ fontSize: "13px", color: "#6B7280" }}>
+                            No other active MGO users are available to add right now.
                           </div>
                         ) : (
                           <div style={{ display: "grid", gap: "8px" }}>
