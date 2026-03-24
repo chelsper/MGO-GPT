@@ -87,6 +87,28 @@ function mappingNeedsGovernance(mapping) {
   );
 }
 
+function getMappingSurfaces(mapping) {
+  const entity = mapping?.app_entity;
+
+  switch (entity) {
+    case "constituents":
+    case "constituent_edit":
+      return ["New Constituent", "Action & Opportunity Update", "Top Prospects", "Submissions"];
+    case "constituent_lifetime_giving":
+      return ["Top Prospects"];
+    case "constituent_fundraiser_assignments":
+      return ["Action & Opportunity Update", "Top Prospects"];
+    case "prospects":
+      return ["Top Prospects"];
+    case "submissions":
+      return ["New Constituent", "Action & Opportunity Update", "Submissions"];
+    case "action":
+      return ["Action & Opportunity Update", "Top Prospects", "Submissions"];
+    default:
+      return [];
+  }
+}
+
 export default function BlackbaudMappingPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -711,6 +733,7 @@ export default function BlackbaudMappingPage() {
                     const missingSourceOfTruth = !String(mapping.source_of_truth || "").trim();
                     const missingSelectionRule = !String(mapping.selection_rule || "").trim();
                     const needsGovernance = mappingNeedsGovernance(mapping);
+                    const surfaces = getMappingSurfaces(mapping);
                     return (
                       <>
                   <div
@@ -899,10 +922,10 @@ export default function BlackbaudMappingPage() {
                       gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                       gap: "10px",
                     }}
-                  >
-                    <div
-                      style={{
-                        borderRadius: "10px",
+                    >
+                      <div
+                        style={{
+                          borderRadius: "10px",
                         border: "1px solid #E5E7EB",
                         backgroundColor: "white",
                         padding: "12px",
@@ -928,9 +951,47 @@ export default function BlackbaudMappingPage() {
                       <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                         Source of truth
                       </div>
-                      <div style={{ marginTop: "6px", fontSize: "14px", color: "#111827", fontWeight: 700 }}>
-                        {mapping.source_of_truth || "Not documented yet"}
+                        <div style={{ marginTop: "6px", fontSize: "14px", color: "#111827", fontWeight: 700 }}>
+                          {mapping.source_of_truth || "Not documented yet"}
+                        </div>
                       </div>
+                    <div
+                      style={{
+                        borderRadius: "10px",
+                        border: "1px solid #E5E7EB",
+                        backgroundColor: "white",
+                        padding: "12px",
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Used in
+                      </div>
+                      {surfaces.length > 0 ? (
+                        <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          {surfaces.map((surface) => (
+                            <span
+                              key={surface}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                borderRadius: "999px",
+                                padding: "6px 10px",
+                                backgroundColor: "#F3F4F6",
+                                border: "1px solid #D1D5DB",
+                                color: "#374151",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {surface}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: "6px", fontSize: "14px", color: "#6B7280", fontWeight: 600 }}>
+                          Not used in these core workflow screens
+                        </div>
+                      )}
                     </div>
                   </div>
 
