@@ -75,6 +75,19 @@ function buildOutlookCalendarUrl({ subject, notes, dueDate }) {
   return `https://outlook.office.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(notes || "")}&startdt=${encodeURIComponent(start.toISOString())}&enddt=${encodeURIComponent(end.toISOString())}`;
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const payload = await response.json().catch(() => null);
+    return { response, payload };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function DictationButton({
   target,
   label,
@@ -270,24 +283,62 @@ export default function ActionOpportunityUpdatePage() {
 
     async function loadMgoOptions() {
       try {
-        const response = await fetch("/api/users/mgos");
-        const payload = await response.json().catch(() => null);
-        if (!active) return;
-        if (!response.ok) {
-          setJointMgoOptions([]);
-          setJointMgoError(payload?.error || "Could not load MGO list.");
-          return;
+        let mgoOptions = [];
+        let primaryError = "";
+
+        try {
+          const { response, payload } = await fetchJsonWithTimeout("/api/users/mgos");
+          if (!active) return;
+
+          if (response.ok) {
+            const options = Array.isArray(payload) ? payload : [];
+            mgoOptions = options.filter(
+              (option) => Number(option.id) !== Number(user?.id || 0),
+            );
+          } else {
+            primaryError = payload?.error || "Could not load MGO list.";
+          }
+        } catch (primaryLoadError) {
+          primaryError =
+            primaryLoadError?.name === "AbortError"
+              ? "Timed out loading MGO list."
+              : "Could not load MGO list.";
         }
 
-        const options = Array.isArray(payload) ? payload : [];
-        setJointMgoOptions(
-          options.filter((option) => Number(option.id) !== Number(user?.id || 0)),
-        );
+        if (!active) return;
+
+        if (mgoOptions.length === 0) {
+          try {
+            const { response, payload } = await fetchJsonWithTimeout("/api/admin/access");
+            if (!active) return;
+
+            if (response.ok) {
+              const adminUsers = Array.isArray(payload?.users) ? payload.users : [];
+              mgoOptions = adminUsers.filter(
+                (option) =>
+                  option.active !== false &&
+                  option.role === "mgo" &&
+                  Number(option.id) !== Number(user?.id || 0),
+              );
+            }
+          } catch (fallbackError) {
+            if (!primaryError) {
+              primaryError =
+                fallbackError?.name === "AbortError"
+                  ? "Timed out loading MGO list."
+                  : "Could not load MGO list.";
+            }
+          }
+        }
+
+        setJointMgoOptions(mgoOptions);
         setJointMgoLoaded(true);
+        setJointMgoError(mgoOptions.length === 0 ? primaryError : "");
       } catch (loadError) {
         console.error("Joint solicitation MGO lookup error:", loadError);
         if (!active) return;
         setJointMgoOptions([]);
+        setJointMgoLoaded(true);
         setJointMgoError("Could not load MGO list.");
       } finally {
         if (active) {
