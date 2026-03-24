@@ -3352,6 +3352,78 @@ export default function MyTopProspectsPage() {
           </div>
         ) : null}
 
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "12px",
+            border: "1px solid #E5E7EB",
+            padding: "16px 18px",
+            marginBottom: "20px",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ minWidth: "240px", flex: "1 1 320px" }}>
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#6B7280",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginBottom: "6px",
+              }}
+            >
+              Work this list
+            </div>
+            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+              Start with the top-ranked prospect that needs follow-up.
+            </div>
+            <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+              Use Add Prospect for manual adds, log progress when activity happens, and sync only
+              when you need fresh opportunity data.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              style={{
+                padding: "10px 14px",
+                borderRadius: "10px",
+                border: "none",
+                backgroundColor: "#6A5BFF",
+                color: "white",
+                fontSize: "14px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Add prospect
+            </button>
+            <a
+              href="/action-opportunity-update"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "10px 14px",
+                borderRadius: "10px",
+                border: "1px solid #D1D5DB",
+                backgroundColor: "white",
+                color: "#374151",
+                fontSize: "14px",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              Log progress update
+            </a>
+          </div>
+        </div>
+
         {/* Summary Stats */}
         {summary && (
           <div
@@ -3536,7 +3608,7 @@ export default function MyTopProspectsPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "2fr repeat(3, minmax(140px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
               gap: "12px",
             }}
           >

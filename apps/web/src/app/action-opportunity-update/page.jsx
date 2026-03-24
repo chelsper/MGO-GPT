@@ -24,6 +24,12 @@ const UPDATE_MODES = [
 ];
 
 const INTERACTION_TYPES = ["visit", "call", "email", "event"];
+const COMMON_NEXT_STEPS = [
+  "Send recap email",
+  "Schedule next visit",
+  "Call to follow up",
+  "Prepare ask strategy",
+];
 const STAGES = [
   "Identification",
   "Qualification",
@@ -2029,26 +2035,37 @@ export default function ActionOpportunityUpdatePage() {
                   >
                     Interaction type
                   </label>
-                  <select
-                    value={interactionType}
-                    onChange={(event) => setInteractionType(event.target.value)}
+                  <div
                     style={{
-                      width: "100%",
-                      padding: "10px 14px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      backgroundColor: "white",
-                      boxSizing: "border-box",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px",
                       marginBottom: "16px",
                     }}
                   >
-                    {INTERACTION_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </option>
-                    ))}
-                  </select>
+                    {INTERACTION_TYPES.map((type) => {
+                      const selected = interactionType === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setInteractionType(type)}
+                          style={{
+                            padding: "10px 14px",
+                            borderRadius: "999px",
+                            border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
+                            backgroundColor: selected ? "#F5F3FF" : "white",
+                            color: selected ? "#5B21B6" : "#374151",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </button>
+                      );
+                    })}
+                  </div>
 
                   <label
                     style={{
@@ -2124,6 +2141,41 @@ export default function ActionOpportunityUpdatePage() {
                       boxSizing: "border-box",
                     }}
                   />
+                  <div style={{ marginTop: "10px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        color: "#6B7280",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Common follow-ups
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {COMMON_NEXT_STEPS.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setNextStep(item)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: "999px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            color: "#374151",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>

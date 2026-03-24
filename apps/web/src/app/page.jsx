@@ -110,6 +110,42 @@ const ADMIN_NAV_ITEMS = [
   { label: "Access Management", href: "/access-management" },
 ];
 
+const PRIMARY_ACTION_PATHS = {
+  mgo: [
+    "/action-opportunity-update",
+    "/my-top-prospects",
+    "/submissions",
+  ],
+  reviewer: ["/submissions", "/prospect-pool", "/list-requests"],
+  adminReviewer: ["/access-management", "/submissions", "/prospect-pool"],
+};
+
+const ROLE_WORKFLOW_STEPS = {
+  mgo: [
+    "Capture the donor update or opportunity change.",
+    "Review follow-ups in Top Prospects and Prospect Pool.",
+    "Watch for clarification requests in Submissions.",
+  ],
+  reviewer: [
+    "Review the pending submission queue first.",
+    "Assign or enrich names in Prospect Pool.",
+    "Clear list requests and knowledge updates next.",
+  ],
+  adminReviewer: [
+    "Handle access or role changes first.",
+    "Work the shared reviewer queues next.",
+    "Switch to MGO view only when testing that workflow.",
+  ],
+};
+
+function getActionGroups({ isAdmin, isReviewer, quickActions }) {
+  const key = isAdmin && isReviewer ? "adminReviewer" : isReviewer ? "reviewer" : "mgo";
+  const primaryPaths = PRIMARY_ACTION_PATHS[key];
+  const primary = quickActions.filter((action) => primaryPaths.includes(action.href));
+  const secondary = quickActions.filter((action) => !primaryPaths.includes(action.href));
+  return { primary, secondary, workflow: ROLE_WORKFLOW_STEPS[key] };
+}
+
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -211,6 +247,10 @@ export default function Page() {
       return isReviewer ? ADMIN_NAV_ITEMS : MGO_NAV_ITEMS;
     },
     [isAdmin, isReviewer],
+  );
+  const { primary: primaryActions, secondary: secondaryActions, workflow } = useMemo(
+    () => getActionGroups({ isAdmin, isReviewer, quickActions }),
+    [isAdmin, isReviewer, quickActions],
   );
 
   if (loading || !user || profileLoading) {
@@ -682,39 +722,179 @@ export default function Page() {
           </div>
         </div>
 
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            border: "1px solid #E5E7EB",
+            padding: "18px 20px",
+            marginBottom: "18px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: "#6B7280",
+              marginBottom: "8px",
+            }}
+          >
+            Start here
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: "0 0 8px", fontSize: "22px", color: "#111827" }}>
+                {isReviewer
+                  ? "Focus on the queues that move work forward today."
+                  : "Start with the work that keeps donor momentum moving."}
+              </h2>
+              <p style={{ margin: 0, fontSize: "14px", color: "#6B7280", lineHeight: 1.6 }}>
+                {isReviewer
+                  ? "Use the primary tasks below in order. They match the way the team actually clears requests and keeps records moving."
+                  : "Use the primary tasks below in order. They follow the normal MGO rhythm: capture updates, work your portfolio, then track review responses."}
+              </p>
+            </div>
+            <div
+              style={{
+                backgroundColor: "#F9FAFB",
+                border: "1px solid #E5E7EB",
+                borderRadius: "14px",
+                padding: "14px 16px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "#6B7280",
+                  marginBottom: "8px",
+                }}
+              >
+                Suggested flow
+              </div>
+              <div style={{ display: "grid", gap: "8px" }}>
+                {workflow.map((step, index) => (
+                  <div key={step} style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        borderRadius: "999px",
+                        backgroundColor: "#EEF2FF",
+                        color: "#4338CA",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        display: "grid",
+                        placeItems: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {index + 1}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.5 }}>
+                      {step}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>
-          {isReviewer ? "Workspace Actions" : "Quick Actions"}
+          Primary tasks
         </h2>
 
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "12px",
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: "14px",
+            marginBottom: "18px",
           }}
         >
-          {quickActions.map((action) => (
+          {primaryActions.map((action, index) => (
             <a
               key={action.href}
               href={action.href}
               style={{
                 textDecoration: "none",
                 backgroundColor: "white",
-                border: "1px solid #E5E7EB",
-                borderRadius: "12px",
-                padding: "16px",
+                border: index === 0 ? "2px solid #C7D2FE" : "1px solid #E5E7EB",
+                borderRadius: "14px",
+                padding: "18px",
                 color: "#111827",
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
+              <div
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "#6B7280",
+                  marginBottom: "8px",
+                }}
+              >
+                {index === 0 ? "Best next step" : "Primary task"}
+              </div>
+              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "17px" }}>
                 {action.title}
               </div>
-              <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
+              <div style={{ color: "#6B7280", fontSize: "14px", lineHeight: 1.55 }}>
                 {action.description}
               </div>
             </a>
           ))}
         </div>
+
+        {secondaryActions.length ? (
+          <>
+            <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>
+              Secondary tools
+            </h2>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "12px",
+              }}
+            >
+              {secondaryActions.map((action) => (
+                <a
+                  key={action.href}
+                  href={action.href}
+                  style={{
+                    textDecoration: "none",
+                    backgroundColor: "white",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "12px",
+                    padding: "16px",
+                    color: "#111827",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
+                    {action.title}
+                  </div>
+                  <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
+                    {action.description}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </>
+        ) : null}
 
         <footer
           style={{

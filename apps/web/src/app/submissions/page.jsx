@@ -453,6 +453,103 @@ export default function SubmissionsPage() {
     });
   }, [isReviewer, listRequests, listRequestFilter]);
 
+  const taskCards = useMemo(() => {
+    if (activeTab === "listRequests") {
+      if (isReviewer) {
+        return [
+          {
+            label: "Needs attention",
+            value:
+              (reviewerListRequestCounts.Pending || 0) +
+              (reviewerListRequestCounts["Needs Clarification"] || 0),
+            detail: "Requests still blocking completion",
+          },
+          {
+            label: "Ready for CRM",
+            value: reviewerListRequestCounts["Ready for CRM"] || 0,
+            detail: "Prepared for the next system step",
+          },
+          {
+            label: "Visible now",
+            value: visibleListRequests.length,
+            detail: "Requests in the current view",
+          },
+        ];
+      }
+
+      return [
+        {
+          label: "My open requests",
+          value: visibleListRequests.filter((request) => request.status !== "Approved").length,
+          detail: "Still in progress",
+        },
+        {
+          label: "Need response",
+          value: visibleListRequests.filter(
+            (request) => request.status === "Needs Clarification",
+          ).length,
+          detail: "Waiting on your clarification",
+        },
+        {
+          label: "Approved",
+          value: visibleListRequests.filter((request) => request.status === "Approved").length,
+          detail: "Completed requests",
+        },
+      ];
+    }
+
+    if (isReviewer) {
+      return [
+        {
+          label: "Needs review now",
+          value:
+            (reviewerCounts.Pending || 0) +
+            (reviewerCounts["Needs Clarification"] || 0),
+          detail: "Submission threads requiring action",
+        },
+        {
+          label: "Ready for CRM",
+          value: reviewerCounts["Ready for CRM"] || 0,
+          detail: "Cleared for downstream handling",
+        },
+        {
+          label: "Visible now",
+          value: visibleSubmissionGroups.length,
+          detail: "Threads in the current queue view",
+        },
+      ];
+    }
+
+    return [
+      {
+        label: "Need your follow-up",
+        value: visibleSubmissionGroups.filter((group) =>
+          group.submissions.some((submission) => submission.status === "Needs Clarification"),
+        ).length,
+        detail: "Threads waiting on your reply",
+      },
+      {
+        label: "Recently approved",
+        value: visibleSubmissionGroups.filter((group) =>
+          group.submissions.some((submission) => submission.status === "Approved"),
+        ).length,
+        detail: "Approved threads in your tracker",
+      },
+      {
+        label: "Visible now",
+        value: visibleSubmissionGroups.length,
+        detail: "Threads in your current view",
+      },
+    ];
+  }, [
+    activeTab,
+    isReviewer,
+    reviewerCounts,
+    reviewerListRequestCounts,
+    visibleListRequests,
+    visibleSubmissionGroups,
+  ]);
+
   function setReviewDraft(id, updates) {
     setReviewDrafts((current) => ({
       ...current,
@@ -745,6 +842,46 @@ export default function SubmissionsPage() {
             padding: "18px",
           }}
         >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: "12px",
+              marginBottom: "18px",
+            }}
+          >
+            {taskCards.map((card) => (
+              <div
+                key={card.label}
+                style={{
+                  borderRadius: "14px",
+                  border: "1px solid #E5E7EB",
+                  backgroundColor: "#F9FAFB",
+                  padding: "14px 16px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {card.label}
+                </div>
+                <div style={{ fontSize: "24px", fontWeight: 800, color: "#111827" }}>
+                  {card.value}
+                </div>
+                <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                  {card.detail}
+                </div>
+              </div>
+            ))}
+          </div>
+
           <div
             style={{
               display: "flex",

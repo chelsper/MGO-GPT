@@ -45,6 +45,7 @@ export default function ProspectPoolPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
     prospectName: "",
     assignedUserId: "",
@@ -192,6 +193,52 @@ export default function ProspectPoolPage() {
       },
     );
   }, [entries]);
+
+  const taskSummary = useMemo(() => {
+    if (isReviewer) {
+      return [
+        {
+          label: "Needs review",
+          value: entries.filter((entry) => entry.needs_contact_info || entry.solicitor_requested)
+            .length,
+          detail: "Entries with active requests",
+        },
+        {
+          label: "Ready to route",
+          value: entries.filter(
+            (entry) => !entry.needs_contact_info && !entry.solicitor_requested,
+          ).length,
+          detail: "No follow-up blocking outreach",
+        },
+        {
+          label: "Pool total",
+          value: entries.length,
+          detail: "Shared names in the queue",
+        },
+      ];
+    }
+
+    return [
+      {
+        label: "Need your action",
+        value: entries.filter((entry) => entry.needs_contact_info || entry.solicitor_requested)
+          .length,
+        detail: "Requests waiting on you",
+      },
+      {
+        label: "Ready for outreach",
+        value: entries.filter(
+          (entry) => !entry.needs_contact_info && !entry.solicitor_requested,
+        ).length,
+        detail: "Can move into donor work now",
+      },
+      {
+        label: "Assigned total",
+        value: entries.length,
+        detail: "Names currently in your pool",
+      },
+    ];
+  }, [entries, isReviewer]);
 
   const visibleEntries = useMemo(() => {
     if (!isReviewer) {
@@ -666,22 +713,91 @@ export default function ProspectPoolPage() {
               marginBottom: "18px",
             }}
           >
-            <div style={{ marginBottom: "18px" }}>
-              <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                Add a prospect to the pool
-              </h2>
-              <p style={{ margin: "8px 0 0", fontSize: "14px", color: "#6B7280" }}>
-                Assign the prospect to an MGO so it appears immediately in their pool.
-              </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "12px",
+                marginBottom: "18px",
+              }}
+            >
+              {taskSummary.map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    borderRadius: "14px",
+                    border: "1px solid #E5E7EB",
+                    backgroundColor: "#F9FAFB",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "#6B7280",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    {item.label}
+                  </div>
+                  <div style={{ fontSize: "24px", fontWeight: 800, color: "#111827" }}>
+                    {item.value}
+                  </div>
+                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                    {item.detail}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "14px",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "flex-start",
+                marginBottom: createPanelOpen ? "18px" : 0,
               }}
             >
+              <div>
+                <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
+                  Add a prospect to the pool
+                </h2>
+                <p style={{ margin: "8px 0 0", fontSize: "14px", color: "#6B7280" }}>
+                  Review the queue first, then open the composer when you need to route a new
+                  name to an MGO.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreatePanelOpen((open) => !open)}
+                style={{
+                  borderRadius: "999px",
+                  border: "1px solid #D1D5DB",
+                  backgroundColor: createPanelOpen ? "#EDE9FE" : "white",
+                  color: createPanelOpen ? "#5B21B6" : "#374151",
+                  padding: "10px 14px",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {createPanelOpen ? "Hide composer" : "Open composer"}
+              </button>
+            </div>
+
+            {createPanelOpen ? (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "14px",
+                }}
+              >
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Prospect name
                 <input
@@ -929,32 +1045,72 @@ export default function ProspectPoolPage() {
                   }}
                 />
               </label>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                marginTop: "18px",
-              }}
-            >
-              <button
-                type="submit"
-                disabled={creating}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gridColumn: "1 / -1",
+                  }}
+                >
+                  <div style={{ fontSize: "13px", color: "#6B7280" }}>
+                    Open the composer only when you have a new name ready to route.
+                  </div>
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => setCreatePanelOpen(false)}
+                      style={{
+                        padding: "12px 16px",
+                        borderRadius: "12px",
+                        border: "1px solid #D1D5DB",
+                        backgroundColor: "white",
+                        color: "#374151",
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creating}
+                      style={{
+                        padding: "12px 18px",
+                        borderRadius: "12px",
+                        border: "none",
+                        backgroundColor: creating ? "#A5B4FC" : "#6A5BFF",
+                        color: "white",
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        cursor: creating ? "wait" : "pointer",
+                      }}
+                    >
+                      {creating ? "Adding..." : "Add to prospect pool"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
                 style={{
-                  padding: "12px 18px",
-                  borderRadius: "12px",
-                  border: "none",
-                  backgroundColor: creating ? "#A5B4FC" : "#6A5BFF",
-                  color: "white",
+                  marginTop: "14px",
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
                   fontSize: "14px",
-                  fontWeight: 700,
-                  cursor: creating ? "wait" : "pointer",
+                  color: "#4B5563",
+                  lineHeight: 1.6,
                 }}
               >
-                {creating ? "Adding..." : "Add to prospect pool"}
-              </button>
-            </div>
+                The queue stays first. Open the composer when you need to add and assign a new
+                prospect.
+              </div>
+            )}
           </form>
         ) : null}
 
