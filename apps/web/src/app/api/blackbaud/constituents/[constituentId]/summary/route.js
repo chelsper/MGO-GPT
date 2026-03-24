@@ -6,6 +6,100 @@ import {
   getBlackbaudConfigIssues,
 } from "@/app/api/utils/blackbaud";
 
+async function tryFetchConstituentById({
+  userId,
+  origin,
+  candidateId,
+}) {
+  if (!candidateId) return null;
+
+  try {
+    const payload = await blackbaudApiFetch(
+      `/constituent/v1/constituents/${encodeURIComponent(String(candidateId))}`,
+      {
+        userId,
+        origin,
+      },
+    );
+    return payload || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function resolveConstituentPayload({
+  userId,
+  origin,
+  constituentId,
+  lookupId,
+  recordId,
+  name,
+}) {
+  const direct = await tryFetchConstituentById({
+    userId,
+    origin,
+    candidateId: constituentId,
+  });
+  if (direct) {
+    return direct;
+  }
+
+  const searchTerms = [lookupId, recordId, name]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  for (const term of searchTerms) {
+    try {
+      const payload = await blackbaudApiFetch(
+        "/constituent/v1/constituents/search",
+        {
+          userId,
+          origin,
+          searchParams: {
+            search_text: term,
+            limit: 10,
+          },
+        },
+      );
+
+      const rows = Array.isArray(payload?.value)
+        ? payload.value
+        : Array.isArray(payload)
+          ? payload
+          : [];
+
+      const normalizedTerm = term.toLowerCase();
+      const exact =
+        rows.find((item) => {
+          const lookupMatches =
+            String(item?.lookup_id || item?.lookupId || "")
+              .trim()
+              .toLowerCase() === normalizedTerm;
+          const nameMatches =
+            String(item?.name || "")
+              .trim()
+              .toLowerCase() === normalizedTerm;
+          return lookupMatches || nameMatches;
+        }) || rows[0];
+
+      if (exact?.id) {
+        const resolved = await tryFetchConstituentById({
+          userId,
+          origin,
+          candidateId: exact.id,
+        });
+        if (resolved) {
+          return resolved;
+        }
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+
+  throw new Error("Blackbaud constituent summary request failed");
+}
+
 function mapConstituent(constituent) {
   return {
     id: constituent?.id || null,
@@ -120,30 +214,32 @@ export async function GET(request, { params }) {
   const includeInactive =
     new URL(request.url).searchParams.get("include_inactive") === "true";
   const includeRaw = new URL(request.url).searchParams.get("raw") === "true";
+  const lookupId = new URL(request.url).searchParams.get("lookupId")?.trim() || "";
+  const recordId = new URL(request.url).searchParams.get("recordId")?.trim() || "";
+  const name = new URL(request.url).searchParams.get("name")?.trim() || "";
 
   try {
     const user = await getOrCreateUser(session);
+    const constituentPayload = await resolveConstituentPayload({
+      userId: user.id,
+      origin,
+      constituentId,
+      lookupId,
+      recordId,
+      name,
+    });
+    const resolvedConstituentId = String(constituentPayload?.id || constituentId).trim();
 
     const [
-      constituentResult,
       lifetimeGivingResult,
       fundraiserAssignmentsResult,
       relationshipsResult,
     ] =
       await Promise.all([
-        loadBlackbaudSection("constituent", () =>
-          blackbaudApiFetch(
-            `/constituent/v1/constituents/${encodeURIComponent(constituentId)}`,
-            {
-              userId: user.id,
-              origin,
-            },
-          ),
-        ),
         loadBlackbaudSection("lifetimeGiving", () =>
           blackbaudApiFetch(
             `/constituent/v1/constituents/${encodeURIComponent(
-              constituentId,
+              resolvedConstituentId,
             )}/givingsummary/lifetimegiving`,
             {
               userId: user.id,
@@ -154,7 +250,7 @@ export async function GET(request, { params }) {
         loadBlackbaudSection("fundraiserAssignments", () =>
           blackbaudApiFetch(
             `/constituent/v1/constituents/${encodeURIComponent(
-              constituentId,
+              resolvedConstituentId,
             )}/fundraiserassignments`,
             {
               userId: user.id,
@@ -167,7 +263,7 @@ export async function GET(request, { params }) {
         ),
         loadBlackbaudSection("relationships", () =>
           blackbaudApiFetch(
-            `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/relationships`,
+            `/constituent/v1/constituents/${encodeURIComponent(resolvedConstituentId)}/relationships`,
             {
               userId: user.id,
               origin,
@@ -176,24 +272,7 @@ export async function GET(request, { params }) {
         ),
       ]);
 
-    if (!constituentResult.ok) {
-      return Response.json(
-        {
-          error: "Blackbaud constituent summary request failed",
-          details: {
-            constituent: constituentResult.error,
-            lifetimeGiving: lifetimeGivingResult.ok ? null : lifetimeGivingResult.error,
-            fundraiserAssignments: fundraiserAssignmentsResult.ok
-              ? null
-              : fundraiserAssignmentsResult.error,
-            relationships: relationshipsResult.ok ? null : relationshipsResult.error,
-          },
-        },
-        { status: 502 },
-      );
-    }
-
-    const constituent = constituentResult.payload;
+    const constituent = constituentPayload;
     const lifetimeGiving = lifetimeGivingResult.ok
       ? lifetimeGivingResult.payload
       : null;

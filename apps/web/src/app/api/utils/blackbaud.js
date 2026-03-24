@@ -421,6 +421,8 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
       customMappedRows = filteredCustomRows.map((item) => ({
         blackbaudConstituentId:
           item?.constituent_id || item?.id || item?.record_id?.toString() || null,
+        blackbaudLookupId: item?.constituent_id || null,
+        blackbaudRecordId: item?.record_id?.toString() || null,
         name:
           [
             item?.first_name,
@@ -444,7 +446,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
           ]
             .filter(Boolean)
             .join("\n") || null,
-        lookupId: item?.record_id?.toString() || null,
+        lookupId: item?.constituent_id || item?.record_id?.toString() || null,
         raw: item,
       }));
     } catch (error) {
@@ -476,6 +478,10 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
           item?.constituent_id ||
           item?.constituentId ||
           null,
+        blackbaudLookupId:
+          item?.lookup_id || item?.lookupId || item?.constituent_id || null,
+        blackbaudRecordId:
+          item?.record_id?.toString() || item?.recordId?.toString() || null,
         name:
           item?.name ||
           [item?.first, item?.middle, item?.last].filter(Boolean).join(" ").trim() ||
@@ -497,7 +503,8 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
           item?.formatted_address ||
           item?.primary_address?.formatted_address ||
           null,
-        lookupId: item?.lookup_id || item?.lookupId || null,
+        lookupId:
+          item?.lookup_id || item?.lookupId || item?.constituent_id || null,
         raw: item,
       }));
     } catch (error) {

@@ -511,7 +511,11 @@ export default function ActionOpportunityUpdatePage() {
     async function loadBlackbaudSummary() {
       try {
         const response = await fetch(
-          `/api/blackbaud/constituents/${encodeURIComponent(constituentId)}/summary`,
+          `/api/blackbaud/constituents/${encodeURIComponent(constituentId)}/summary?lookupId=${encodeURIComponent(
+            selectedBlackbaudMatch?.blackbaudLookupId || selectedBlackbaudMatch?.lookupId || "",
+          )}&recordId=${encodeURIComponent(
+            selectedBlackbaudMatch?.blackbaudRecordId || "",
+          )}&name=${encodeURIComponent(selectedBlackbaudMatch?.name || "")}`,
         );
         const data = await response.json().catch(() => null);
 
