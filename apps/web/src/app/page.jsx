@@ -199,6 +199,11 @@ function formatShortDate(value) {
   });
 }
 
+function formatCurrency(amount) {
+  if (!amount) return "$0";
+  return `$${Number(amount).toLocaleString()}`;
+}
+
 function renderWorklistMeta(item) {
   if (item.next_action_due_date) return `Due ${formatShortDate(item.next_action_due_date)}`;
   if (item.due_date) return `Due ${formatShortDate(item.due_date)}`;
@@ -1005,9 +1010,9 @@ export default function Page() {
                     ]
                   : [
                       {
-                        label: "Overdue next steps",
-                        count: worklist.summary.overdueNextSteps,
-                        color: "#FEE2E2",
+                        label: "Total ask",
+                        count: formatCurrency(worklist.summary.totalAskAmount),
+                        color: "#EEF2FF",
                         href: "/my-top-prospects",
                       },
                       {
@@ -1017,16 +1022,16 @@ export default function Page() {
                         href: "/my-top-prospects",
                       },
                       {
-                        label: "Needs follow-up",
-                        count: worklist.summary.staleProspects,
-                        color: "#EEF2FF",
+                        label: "Overdue next steps",
+                        count: worklist.summary.overdueNextSteps,
+                        color: "#FEE2E2",
                         href: "/my-top-prospects",
                       },
                       {
-                        label: "Open discussion",
-                        count: worklist.summary.openDiscussionItems,
-                        color: "#F3F4F6",
-                        href: "/team-discussion",
+                        label: "Needs follow-up",
+                        count: worklist.summary.staleProspects,
+                        color: "#ECFDF5",
+                        href: "/my-top-prospects",
                       },
                     ]).map((card) => (
                   <a
@@ -1059,6 +1064,120 @@ export default function Page() {
                   </a>
                 ))}
               </div>
+
+              {worklist.role !== "reviewer" ? (
+                <div
+                  style={{
+                    backgroundColor: "#FCFCFD",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "14px",
+                    padding: "16px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "baseline",
+                      gap: "12px",
+                      flexWrap: "wrap",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                          color: "#6B7280",
+                          marginBottom: "6px",
+                        }}
+                      >
+                        Top 3 priorities
+                      </div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>
+                        Calendar of action items coming due
+                      </div>
+                    </div>
+                    <a
+                      href="/my-top-prospects"
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color: "#6A5BFF",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Open My Prospects
+                    </a>
+                  </div>
+
+                  {worklist.topPriorities?.length ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "12px",
+                      }}
+                    >
+                      {worklist.topPriorities.map((item) => (
+                        <a
+                          key={`priority-${item.id}`}
+                          href={buildProspectWorkspaceHref(item.id, "next-step")}
+                          style={{
+                            display: "grid",
+                            gap: "6px",
+                            textDecoration: "none",
+                            color: "#111827",
+                            backgroundColor: "white",
+                            border: "1px solid #E5E7EB",
+                            borderRadius: "12px",
+                            padding: "14px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "10px",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <div style={{ fontSize: "15px", fontWeight: 700 }}>
+                              {item.prospect_name || "Unnamed prospect"}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                color: "#B45309",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {item.next_action_due_date
+                                ? formatShortDate(item.next_action_due_date)
+                                : "No date"}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280" }}>
+                            {item.priorityLabel}
+                          </div>
+                          <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
+                            {item.next_action_text || "Open this prospect and set the next step."}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
+                      No dated action items are coming due right now.
+                    </div>
+                  )}
+                </div>
+              ) : null}
 
               <div
                 style={{

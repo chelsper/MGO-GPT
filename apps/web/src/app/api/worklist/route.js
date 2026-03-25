@@ -89,7 +89,14 @@ export async function GET(request) {
       });
     }
 
-    const [overdueNextSteps, upcomingNextSteps, staleProspects, discussionItems, clarificationRequests] =
+    const [
+      overdueNextSteps,
+      upcomingNextSteps,
+      staleProspects,
+      discussionItems,
+      clarificationRequests,
+      askSummary,
+    ] =
       await Promise.all([
         sql`
           SELECT
@@ -197,7 +204,34 @@ export async function GET(request) {
           ORDER BY COALESCE(s.reviewer_notes_updated_at, s.updated_at, s.date_submitted) DESC
           LIMIT 6
         `,
+        sql`
+          SELECT COALESCE(SUM(COALESCE(p.ask_amount, 0)), 0) AS total_ask_amount
+          FROM prospects p
+          WHERE p.user_id = ${user.id}
+            AND p.status = 'Active'
+        `,
       ]);
+
+    const topPriorities = [
+      ...overdueNextSteps.map((item) => ({
+        ...item,
+        priorityLabel: "Overdue next step",
+      })),
+      ...upcomingNextSteps.map((item) => ({
+        ...item,
+        priorityLabel: "Due soon",
+      })),
+    ]
+      .sort((left, right) => {
+        const leftTime = left.next_action_due_date
+          ? new Date(left.next_action_due_date).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        const rightTime = right.next_action_due_date
+          ? new Date(right.next_action_due_date).getTime()
+          : Number.MAX_SAFE_INTEGER;
+        return leftTime - rightTime;
+      })
+      .slice(0, 3);
 
     return Response.json({
       role: "mgo",
@@ -207,12 +241,14 @@ export async function GET(request) {
         staleProspects: staleProspects.length,
         clarificationRequests: clarificationRequests.length,
         openDiscussionItems: discussionItems.length,
+        totalAskAmount: Number(askSummary[0]?.total_ask_amount || 0),
       },
       overdueNextSteps,
       upcomingNextSteps,
       staleProspects,
       discussionItems,
       clarificationRequests,
+      topPriorities,
     });
   } catch (error) {
     console.error("Error fetching worklist:", error);
