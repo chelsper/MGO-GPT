@@ -175,7 +175,14 @@ function formatPortfolioContact(person) {
   return [person?.email, person?.phone].filter(Boolean).join(" · ");
 }
 
-function PortfolioTier({ title, description, items, accent }) {
+function PortfolioTier({
+  title,
+  description,
+  items,
+  accent,
+  onAddToTopProspects,
+  isAdding,
+}) {
   return (
     <div
       style={{
@@ -278,9 +285,36 @@ function PortfolioTier({ title, description, items, accent }) {
                 <div style={{ fontSize: "12px", color: "#6B7280" }}>
                   {person.assignmentTypes?.join(" · ")}
                 </div>
-                <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>
-                  Lifetime giving:{" "}
-                  {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>
+                    Lifetime giving:{" "}
+                    {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onAddToTopProspects?.(person)}
+                    disabled={isAdding}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "999px",
+                      border: "1px solid #C7D2FE",
+                      backgroundColor: "white",
+                      color: "#4338CA",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: isAdding ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Add to Top Prospects
+                  </button>
                 </div>
               </div>
             </div>
@@ -431,13 +465,27 @@ function getOpportunityDisplayAmount(opportunity) {
   return opportunity.estimated_amount ?? 0;
 }
 
-function AddProspectModal({ onClose, onSubmit, isPending }) {
-  const [name, setName] = useState("");
-  const [fy, setFy] = useState("FY26");
-  const [amount, setAmount] = useState("");
-  const [askType, setAskType] = useState("Major Gift");
+function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) {
+  const [name, setName] = useState(initialData?.prospectName || "");
+  const [fy, setFy] = useState(initialData?.expectedCloseFY || "FY26");
+  const [amount, setAmount] = useState(initialData?.askAmount || "");
+  const [askType, setAskType] = useState(initialData?.askType || "Major Gift");
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
-  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(
+    initialData?.selectedBlackbaudMatch || null,
+  );
+
+  useEffect(() => {
+    if (!initialData) return;
+    setName(initialData.prospectName || "");
+    setFy(initialData.expectedCloseFY || "FY26");
+    setAmount(initialData.askAmount || "");
+    setAskType(initialData.askType || "Major Gift");
+    setSelectedBlackbaudMatch(initialData.selectedBlackbaudMatch || null);
+    setBlackbaudMatches(
+      initialData.selectedBlackbaudMatch ? [initialData.selectedBlackbaudMatch] : [],
+    );
+  }, [initialData]);
 
   useEffect(() => {
     const query = name.trim();
@@ -5062,6 +5110,7 @@ export default function MyTopProspectsPage() {
   const [fyFilter, setFyFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [addProspectInitialData, setAddProspectInitialData] = useState(null);
 
   const { data: prospects = [], isLoading } = useQuery({
     queryKey: ["prospects"],
@@ -5154,6 +5203,7 @@ export default function MyTopProspectsPage() {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setShowAddModal(false);
+      setAddProspectInitialData(null);
     },
   });
 
@@ -5209,6 +5259,22 @@ export default function MyTopProspectsPage() {
       window.location.href = "/access-management";
     },
   });
+
+  const openPortfolioAddModal = (person) => {
+    setAddProspectInitialData({
+      prospectName: person.name || "",
+      expectedCloseFY: "FY26",
+      askAmount: "",
+      askType: "Major Gift",
+      selectedBlackbaudMatch: {
+        blackbaudConstituentId: person.constituentId,
+        lookupId: person.lookupId,
+        name: person.name,
+        email: person.email,
+      },
+    });
+    setShowAddModal(true);
+  };
 
   if (loading || !user) {
     return (
@@ -5551,12 +5617,16 @@ export default function MyTopProspectsPage() {
                   description="Your primary portfolio assignments in NXT."
                   items={blackbaudPortfolio?.leadSolicitor || []}
                   accent={{ background: "#EEF2FF", text: "#4338CA" }}
+                  onAddToTopProspects={openPortfolioAddModal}
+                  isAdding={addMutation.isPending}
                 />
                 <PortfolioTier
                   title="Secondary / Athletics Solicitor"
                   description="Supporting assignments where you still need visibility and follow-up."
                   items={blackbaudPortfolio?.supportingSolicitor || []}
                   accent={{ background: "#ECFDF5", text: "#065F46" }}
+                  onAddToTopProspects={openPortfolioAddModal}
+                  isAdding={addMutation.isPending}
                 />
               </div>
             )}
@@ -6693,9 +6763,13 @@ export default function MyTopProspectsPage() {
       {/* Modals */}
       {showAddModal && (
         <AddProspectModal
-          onClose={() => setShowAddModal(false)}
+          onClose={() => {
+            setShowAddModal(false);
+            setAddProspectInitialData(null);
+          }}
           onSubmit={(data) => addMutation.mutate(data)}
           isPending={addMutation.isPending}
+          initialData={addProspectInitialData}
         />
       )}
 
