@@ -4675,6 +4675,27 @@ export default function MyTopProspectsPage() {
     enabled: !!user,
   });
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const requestedProspectId = searchParams.get("prospectId");
+    if (!requestedProspectId) return;
+    const numericId = Number(requestedProspectId);
+    if (Number.isInteger(numericId) && numericId > 0) {
+      setSelectedProspectId(numericId);
+    }
+  }, []);
+
+  const closeProspectWorkspace = () => {
+    setSelectedProspectId(null);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("prospectId")) {
+      url.searchParams.delete("prospectId");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  };
+
   const addMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch("/api/prospects", {
@@ -6011,7 +6032,7 @@ export default function MyTopProspectsPage() {
       {selectedProspectId && (
         <ProspectDetailModal
           prospectId={selectedProspectId}
-          onClose={() => setSelectedProspectId(null)}
+          onClose={closeProspectWorkspace}
         />
       )}
     </div>

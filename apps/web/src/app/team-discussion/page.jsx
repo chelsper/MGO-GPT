@@ -100,7 +100,7 @@ function DiscussionCard({ item, onToggle, pending }) {
         </button>
         {item.prospect_id ? (
           <a
-            href="/my-top-prospects"
+            href={`/my-top-prospects?prospectId=${encodeURIComponent(item.prospect_id)}`}
             style={{
               display: "inline-flex",
               alignItems: "center",
