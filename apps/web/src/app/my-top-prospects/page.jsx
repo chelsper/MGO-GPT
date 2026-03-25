@@ -5467,55 +5467,25 @@ export default function MyTopProspectsPage() {
               backgroundColor: "white",
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              padding: "16px 18px",
-              marginBottom: "24px",
+              padding: "14px 18px",
+              marginBottom: "16px",
               display: "flex",
               justifyContent: "space-between",
               gap: "16px",
               flexWrap: "wrap",
-              alignItems: "flex-start",
+              alignItems: "center",
             }}
           >
-            <div style={{ display: "grid", gap: "10px", flex: 1, minWidth: "260px" }}>
+            <div style={{ display: "grid", gap: "6px", flex: 1, minWidth: "260px" }}>
               <div style={{ fontSize: "14px", fontWeight: "700", color: "#111827" }}>
-                Blackbaud opportunity sync
-              </div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <div
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: "999px",
-                    backgroundColor: "#EEF2FF",
-                    color: "#4338CA",
-                    fontSize: "12px",
-                    fontWeight: "700",
-                  }}
-                >
-                  Lookup ID: {profileStatus.workspaceUser.blackbaud_lookup_id}
-                </div>
-                <div
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: "999px",
-                    backgroundColor: "#F9FAFB",
-                    border: "1px solid #E5E7EB",
-                    color: "#4B5563",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                  }}
-                >
-                  Last success:{" "}
-                  {profileStatus.workspaceUser.blackbaud_portfolio_seeded_at
-                    ? formatLongDate(profileStatus.workspaceUser.blackbaud_portfolio_seeded_at)
-                    : "Never"}
-                </div>
+                NXT sync
               </div>
               <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-                Pulls qualifying NXT opportunities into your ranked portfolio on demand.
-                Last attempted:{" "}
-                {profileStatus.workspaceUser.blackbaud_portfolio_seed_attempted_at
-                  ? formatLongDate(profileStatus.workspaceUser.blackbaud_portfolio_seed_attempted_at)
-                  : "Never"}.
+                {profileStatus.workspaceUser.blackbaud_portfolio_seeded_at
+                  ? `Auto-sync is on. Last refreshed ${formatLongDate(
+                      profileStatus.workspaceUser.blackbaud_portfolio_seeded_at,
+                    )}.`
+                  : "Auto-sync is on. Your portfolio has not been refreshed yet."}
               </div>
               {profileStatus.workspaceUser.blackbaud_portfolio_seed_error ? (
                 <div style={{ fontSize: "12px", color: "#B91C1C" }}>
