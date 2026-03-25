@@ -159,11 +159,33 @@ export default function TeamDiscussionPage() {
   });
 
   const filteredItems = useMemo(() => {
+    const currentUserId = Number(user?.id || 0);
+
+    if (viewMode === "assignedToMe") {
+      return discussionItems.filter(
+        (item) => Number(item.assigned_user_id || 0) === currentUserId,
+      );
+    }
+
+    if (viewMode === "createdByMe") {
+      return discussionItems.filter(
+        (item) => Number(item.created_by || 0) === currentUserId,
+      );
+    }
+
+    if (viewMode === "shared") {
+      return discussionItems.filter((item) => {
+        const creatorId = Number(item.created_by || 0);
+        const assigneeId = Number(item.assigned_user_id || 0);
+        return creatorId === currentUserId && assigneeId > 0 && assigneeId !== currentUserId;
+      });
+    }
+
     if (viewMode === "assigned") {
       return discussionItems.filter((item) => item.assigned_user_name);
     }
     return discussionItems;
-  }, [discussionItems, viewMode]);
+  }, [discussionItems, user?.id, viewMode]);
 
   const groupedItems = useMemo(() => {
     if (viewMode === "teammate") {
@@ -202,6 +224,39 @@ export default function TeamDiscussionPage() {
           items: filteredItems,
         },
       ];
+    }
+
+    if (viewMode === "assignedToMe") {
+      return [
+        {
+          key: "assigned-to-me",
+          label: "Assigned to me",
+          description: "Internal discussion items that need your follow-up",
+          items: filteredItems,
+        },
+      ].filter((group) => group.items.length);
+    }
+
+    if (viewMode === "createdByMe") {
+      return [
+        {
+          key: "created-by-me",
+          label: "Created by me",
+          description: "Discussion items you opened for your own tracking or teammate handoff",
+          items: filteredItems,
+        },
+      ].filter((group) => group.items.length);
+    }
+
+    if (viewMode === "shared") {
+      return [
+        {
+          key: "shared-with-teammate",
+          label: "Shared with teammate",
+          description: "Discussion items you created and handed off to another teammate",
+          items: filteredItems,
+        },
+      ].filter((group) => group.items.length);
     }
 
     const buckets = {
@@ -251,6 +306,9 @@ export default function TeamDiscussionPage() {
   const internalBadge = getSyncBadge("internal");
   const viewTabs = [
     { value: "all", label: "All", icon: MessageSquare },
+    { value: "assignedToMe", label: "Assigned to me", icon: ListTodo },
+    { value: "createdByMe", label: "Created by me", icon: MessageSquare },
+    { value: "shared", label: "Shared with teammate", icon: Users },
     { value: "assigned", label: "Assigned items", icon: ListTodo },
     { value: "teammate", label: "By teammate", icon: Users },
     { value: "constituent", label: "By constituent", icon: UserRound },
