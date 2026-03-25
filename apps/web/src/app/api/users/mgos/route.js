@@ -1,9 +1,9 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
-export async function GET() {
+export async function GET(request) {
   try {
     await ensureAppSchema();
 
@@ -12,7 +12,10 @@ export async function GET() {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const currentUser = await getOrCreateUser(session);
+    const { workspaceUser: currentUser } = await getWorkspaceUser(session, request);
+    if (!currentUser) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
 
     const users = await sql`
       SELECT id, name, email

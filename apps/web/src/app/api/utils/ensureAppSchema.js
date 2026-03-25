@@ -504,6 +504,78 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS discussion_items (
+        id BIGSERIAL PRIMARY KEY,
+        owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        assigned_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        prospect_opportunity_id BIGINT REFERENCES prospect_opportunities(id) ON DELETE SET NULL,
+        initiative_name TEXT,
+        subject TEXT NOT NULL,
+        body TEXT,
+        due_date DATE,
+        status TEXT NOT NULL DEFAULT 'Open',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS assigned_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS prospect_opportunity_id BIGINT REFERENCES prospect_opportunities(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS initiative_name TEXT
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS subject TEXT
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS body TEXT
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS due_date DATE
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Open'
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE discussion_items
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS blackbaud_connections (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,

@@ -12,7 +12,9 @@ import {
   DollarSign,
   Trophy,
   X,
+  MessageSquare,
 } from "lucide-react";
+import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -936,6 +938,12 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const [actionNextStepDueDate, setActionNextStepDueDate] = useState("");
   const [actionLinkedOpportunityId, setActionLinkedOpportunityId] = useState("");
   const [showOpportunityForm, setShowOpportunityForm] = useState(false);
+  const [showDiscussionForm, setShowDiscussionForm] = useState(false);
+  const [discussionSubject, setDiscussionSubject] = useState("");
+  const [discussionBody, setDiscussionBody] = useState("");
+  const [discussionDueDate, setDiscussionDueDate] = useState("");
+  const [discussionAssignedUserId, setDiscussionAssignedUserId] = useState("");
+  const [discussionError, setDiscussionError] = useState("");
   const [newOpportunityData, setNewOpportunityData] = useState({
     title: "",
     currentStage: "Identification",
@@ -989,6 +997,18 @@ function ProspectDetailModal({ prospectId, onClose }) {
     enabled: Boolean(linkedBlackbaudConstituentId),
   });
 
+  const { data: mgoUsers = [] } = useQuery({
+    queryKey: ["mgo-users-for-discussion"],
+    queryFn: async () => {
+      const response = await fetch("/api/users/mgos");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load MGO users");
+      }
+      return payload;
+    },
+  });
+
   const addActionMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch(`/api/prospects/${prospectId}/actions`, {
@@ -1024,6 +1044,55 @@ function ProspectDetailModal({ prospectId, onClose }) {
       setActionError(
         mutationError instanceof Error ? mutationError.message : "Failed to log action",
       );
+    },
+  });
+
+  const discussionMutation = useMutation({
+    mutationFn: async (body) => {
+      const response = await fetch("/api/discussion-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to save discussion item");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      setDiscussionSubject("");
+      setDiscussionBody("");
+      setDiscussionDueDate("");
+      setDiscussionAssignedUserId("");
+      setDiscussionError("");
+      setShowDiscussionForm(false);
+    },
+    onError: (mutationError) => {
+      setDiscussionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to save discussion item",
+      );
+    },
+  });
+
+  const updateDiscussionMutation = useMutation({
+    mutationFn: async ({ id, body }) => {
+      const response = await fetch(`/api/discussion-items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to update discussion item");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
     },
   });
 
@@ -1199,6 +1268,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
   const linkedSubmissions = data?.linkedSubmissions || [];
+  const discussionItems = data?.discussionItems || [];
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
     blackbaudSummary?.mapped?.lifetimeGiving || null;
@@ -1387,6 +1457,27 @@ function ProspectDetailModal({ prospectId, onClose }) {
       askDate: newOpportunityData.askDate || null,
       expectedDate: newOpportunityData.expectedDate || null,
       latestNotes: newOpportunityData.latestNotes || null,
+    });
+  };
+
+  const saveDiscussionItem = () => {
+    setDiscussionError("");
+    discussionMutation.mutate({
+      prospectId,
+      constituentId: prospect?.constituent_id || null,
+      subject: discussionSubject,
+      body: discussionBody,
+      dueDate: discussionDueDate || null,
+      assignedUserId: discussionAssignedUserId || null,
+    });
+  };
+
+  const toggleDiscussionStatus = (discussionItem) => {
+    updateDiscussionMutation.mutate({
+      id: discussionItem.id,
+      body: {
+        status: discussionItem.status === "Open" ? "Resolved" : "Open",
+      },
     });
   };
 
@@ -1821,6 +1912,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
                     onClick={() => {
                       setShowActionForm(true);
                       setShowOpportunityForm(false);
+                      setShowDiscussionForm(false);
                     }}
                     style={{
                       padding: "10px 16px",
@@ -1839,6 +1931,7 @@ function ProspectDetailModal({ prospectId, onClose }) {
                     onClick={() => {
                       setShowOpportunityForm(true);
                       setShowActionForm(false);
+                      setShowDiscussionForm(false);
                     }}
                     style={{
                       padding: "10px 16px",
@@ -1852,6 +1945,29 @@ function ProspectDetailModal({ prospectId, onClose }) {
                     }}
                   >
                     Add Opportunity
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDiscussionForm(true);
+                      setShowActionForm(false);
+                      setShowOpportunityForm(false);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      backgroundColor: "#F3F4F6",
+                      color: "#374151",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "10px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <MessageSquare size={14} />
+                    Team Discussion
                   </button>
                   {isActive && (
                     <button
@@ -2908,6 +3024,216 @@ function ProspectDetailModal({ prospectId, onClose }) {
             </div>
           )}
 
+          {showDiscussionForm && (
+            <div
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: "14px",
+                padding: "18px",
+                marginBottom: "20px",
+                border: "1px solid #D1D5DB",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <p style={sectionEyebrowStyle}>Team discussion</p>
+                  <h4
+                    style={{
+                      fontSize: "18px",
+                      fontWeight: "700",
+                      color: "#111827",
+                      margin: "0 0 4px 0",
+                    }}
+                  >
+                    Capture an internal talking point or follow-up
+                  </h4>
+                </div>
+                {(() => {
+                  const badge = getSyncBadge("internal");
+                  return (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "4px 10px",
+                        borderRadius: "999px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        backgroundColor: badge.bg,
+                        color: badge.text,
+                        border: `1px solid ${badge.border}`,
+                      }}
+                    >
+                      {badge.label}
+                    </span>
+                  );
+                })()}
+              </div>
+              <p
+                style={{
+                  margin: "0 0 12px 0",
+                  fontSize: "14px",
+                  color: "#4B5563",
+                  lineHeight: 1.6,
+                }}
+              >
+                Use this for internal discussion, meeting prep, and items you want to hand off or review with a teammate. It stays in the companion app and does not write to NXT.
+              </p>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                  Subject
+                </label>
+                <input
+                  type="text"
+                  value={discussionSubject}
+                  onChange={(e) => setDiscussionSubject(e.target.value)}
+                  placeholder="What should the team discuss or follow up on?"
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                  Discussion notes
+                </label>
+                <textarea
+                  value={discussionBody}
+                  onChange={(e) => setDiscussionBody(e.target.value)}
+                  rows={3}
+                  placeholder="Add context, teammate questions, or talking points for the next meeting."
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Due date
+                  </label>
+                  <input
+                    type="date"
+                    value={discussionDueDate}
+                    onChange={(e) => setDiscussionDueDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#6B7280", marginBottom: "4px" }}>
+                    Share with teammate
+                  </label>
+                  <select
+                    value={discussionAssignedUserId}
+                    onChange={(e) => setDiscussionAssignedUserId(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    <option value="">Keep with my workspace</option>
+                    {mgoUsers
+                      .filter((option) => String(option.id) !== String(prospect.user_id))
+                      .map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              {discussionError ? (
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    backgroundColor: "#FEF2F2",
+                    border: "1px solid #FECACA",
+                    color: "#991B1B",
+                    fontSize: "13px",
+                  }}
+                >
+                  {discussionError}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={saveDiscussionItem}
+                  disabled={discussionMutation.isPending || !discussionSubject.trim()}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#111827",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {discussionMutation.isPending ? "Saving..." : "Save Discussion Item"}
+                </button>
+                <button
+                  onClick={() => setShowDiscussionForm(false)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: "#F3F4F6",
+                    color: "#374151",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <div
             style={{
               display: "grid",
@@ -3178,6 +3504,118 @@ function ProspectDetailModal({ prospectId, onClose }) {
               </p>
             </div>
           )}
+
+          <div style={{ ...workspaceCardStyle, backgroundColor: "#FCFCFD" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <p style={sectionEyebrowStyle}>Team discussion</p>
+                <div style={{ fontSize: "16px", fontWeight: "700", color: "#111827" }}>
+                  Internal talking points and follow-up
+                </div>
+              </div>
+              {(() => {
+                const badge = getSyncBadge("internal");
+                return (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "4px 10px",
+                      borderRadius: "999px",
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      backgroundColor: badge.bg,
+                      color: badge.text,
+                      border: `1px solid ${badge.border}`,
+                    }}
+                  >
+                    {badge.label}
+                  </span>
+                );
+              })()}
+            </div>
+            {discussionItems.length === 0 ? (
+              <p
+                style={{
+                  fontSize: "14px",
+                  color: "#6B7280",
+                  margin: 0,
+                  lineHeight: 1.6,
+                }}
+              >
+                No open discussion items yet. Use <strong>Team Discussion</strong> when you need to capture something to discuss with a teammate or bring to a strategy meeting.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: "10px" }}>
+                {discussionItems.slice(0, 4).map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "12px",
+                      padding: "12px 14px",
+                      backgroundColor: item.status === "Open" ? "white" : "#F9FAFB",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "12px",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "14px", fontWeight: "700", color: "#111827" }}>
+                          {item.subject}
+                        </div>
+                        <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "4px" }}>
+                          {item.assigned_user_name
+                            ? `Shared with ${item.assigned_user_name}`
+                            : "Kept in this workspace"}
+                          {item.due_date ? ` · Due ${formatShortDate(item.due_date)}` : ""}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleDiscussionStatus(item)}
+                        disabled={updateDiscussionMutation.isPending}
+                        style={{
+                          border: "1px solid #D1D5DB",
+                          backgroundColor: "white",
+                          color: "#374151",
+                          borderRadius: "999px",
+                          padding: "6px 10px",
+                          fontSize: "11px",
+                          fontWeight: "700",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {item.status === "Open" ? "Mark resolved" : "Reopen"}
+                      </button>
+                    </div>
+                    {item.body ? (
+                      <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.6 }}>
+                        {item.body}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div style={{ ...workspaceCardStyle, marginBottom: 0 }}>
             <h3

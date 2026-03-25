@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 
 const MGO_ACTIONS = [
   {
@@ -146,6 +148,23 @@ function getActionGroups({ isAdmin, isReviewer, quickActions }) {
   return { primary, secondary, workflow: ROLE_WORKFLOW_STEPS[key] };
 }
 
+function formatShortDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function renderWorklistMeta(item) {
+  if (item.next_action_due_date) return `Due ${formatShortDate(item.next_action_due_date)}`;
+  if (item.due_date) return `Due ${formatShortDate(item.due_date)}`;
+  if (item.activity_at) return `Updated ${formatShortDate(item.activity_at)}`;
+  if (item.updated_at) return `Updated ${formatShortDate(item.updated_at)}`;
+  if (item.date_submitted) return `Submitted ${formatShortDate(item.date_submitted)}`;
+  return "";
+}
+
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -252,6 +271,21 @@ export default function Page() {
     () => getActionGroups({ isAdmin, isReviewer, quickActions }),
     [isAdmin, isReviewer, quickActions],
   );
+  const {
+    data: worklist,
+    isLoading: worklistLoading,
+  } = useQuery({
+    queryKey: ["home-worklist", profile?.id, roleLabel],
+    queryFn: async () => {
+      const response = await fetch("/api/worklist");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load today's worklist");
+      }
+      return payload;
+    },
+    enabled: Boolean(profile?.id),
+  });
 
   if (loading || !user || profileLoading) {
     return (
@@ -720,6 +754,306 @@ export default function Page() {
                 ? "Everything here is shared across Advancement Services users, so queue priority, notes, and knowledge base edits stay visible to the whole team."
                 : "Your forms flow into shared review queues, where Advancement Services can approve them or send them back with clarification notes."}
           </div>
+        </div>
+
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            border: "1px solid #E5E7EB",
+            padding: "18px 20px",
+            marginBottom: "18px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "16px",
+              flexWrap: "wrap",
+              marginBottom: "14px",
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "#6B7280",
+                  marginBottom: "8px",
+                }}
+              >
+                Today
+              </div>
+              <h2 style={{ margin: "0 0 6px", fontSize: "22px", color: "#111827" }}>
+                {isReviewer
+                  ? "Work the shared queues and discussion items that need attention now."
+                  : "See what needs attention, what is overdue, and what to move forward next."}
+              </h2>
+              <p style={{ margin: 0, fontSize: "14px", color: "#6B7280", lineHeight: 1.6 }}>
+                {isReviewer
+                  ? "This is the companion worklist for Advancement Services. Use it to clear queue work and keep team follow-up moving."
+                  : "This is your companion worklist on top of NXT. It keeps next steps, internal discussion, and clarification work in one place."}
+              </p>
+            </div>
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "12px",
+                border: "1px solid #E5E7EB",
+                backgroundColor: "#F9FAFB",
+                minWidth: "220px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                Terminology
+              </div>
+              <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.55 }}>
+                Use NXT terms for synced records. Use <strong>Internal only</strong> for team discussion and reminders that live in the companion layer.
+              </div>
+            </div>
+          </div>
+
+          {worklistLoading ? (
+            <div style={{ fontSize: "14px", color: "#6B7280" }}>Loading today&apos;s worklist...</div>
+          ) : worklist ? (
+            <>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "16px",
+                }}
+              >
+                {(worklist.role === "reviewer"
+                  ? [
+                      ["Pending queue", worklist.summary.pendingSubmissions, "#EEF2FF"],
+                      ["Needs clarification", worklist.summary.clarificationRequests, "#FEF3C7"],
+                      ["Pool needs attention", worklist.summary.poolNeedsAttention, "#ECFDF5"],
+                      ["Open discussion", worklist.summary.openDiscussionItems, "#F3F4F6"],
+                    ]
+                  : [
+                      ["Overdue next steps", worklist.summary.overdueNextSteps, "#FEE2E2"],
+                      ["Due this week", worklist.summary.upcomingNextSteps, "#FEF3C7"],
+                      ["Needs follow-up", worklist.summary.staleProspects, "#EEF2FF"],
+                      ["Open discussion", worklist.summary.openDiscussionItems, "#F3F4F6"],
+                    ]).map(([label, count, color]) => (
+                  <div
+                    key={label}
+                    style={{
+                      backgroundColor: color,
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "14px",
+                      padding: "14px 16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                        color: "#6B7280",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      {label}
+                    </div>
+                    <div style={{ fontSize: "28px", fontWeight: 800, color: "#111827" }}>{count}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: "14px",
+                }}
+              >
+                {(worklist.role === "reviewer"
+                  ? [
+                      {
+                        title: "Needs clarification",
+                        href: "/submissions",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.clarificationThreads.map((item) => ({
+                          title: item.donor_name || "Unnamed submission",
+                          subtitle: item.submission_type === "opportunity_update" ? "Opportunity update" : "Submission",
+                          meta: renderWorklistMeta(item),
+                        })),
+                        empty: "No clarification threads are open right now.",
+                      },
+                      {
+                        title: "Prospect Pool follow-up",
+                        href: "/prospect-pool",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.poolItems.map((item) => ({
+                          title: item.prospect_name,
+                          subtitle: item.assigned_user_name
+                            ? `Assigned to ${item.assigned_user_name}`
+                            : "Needs assignment",
+                          meta: item.needs_contact_info ? "Contact info requested" : renderWorklistMeta(item),
+                        })),
+                        empty: "No Prospect Pool items need attention right now.",
+                      },
+                      {
+                        title: "Team discussion",
+                        href: "/submissions",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.discussionItems.map((item) => ({
+                          title: item.subject,
+                          subtitle: item.assigned_user_name
+                            ? `For ${item.assigned_user_name}`
+                            : "Open internal discussion",
+                          meta: renderWorklistMeta(item),
+                        })),
+                        empty: "No open team discussion items right now.",
+                      },
+                    ]
+                  : [
+                      {
+                        title: "Overdue next steps",
+                        href: "/my-top-prospects",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.overdueNextSteps.map((item) => ({
+                          title: item.prospect_name,
+                          subtitle: item.next_action_text,
+                          meta: renderWorklistMeta(item),
+                        })),
+                        empty: "No overdue next steps right now.",
+                      },
+                      {
+                        title: "Upcoming follow-up",
+                        href: "/my-top-prospects",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.upcomingNextSteps.map((item) => ({
+                          title: item.prospect_name,
+                          subtitle: item.next_action_text,
+                          meta: renderWorklistMeta(item),
+                        })),
+                        empty: "Nothing due in the next 7 days.",
+                      },
+                      {
+                        title: "Team discussion",
+                        href: "/my-top-prospects",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.discussionItems.map((item) => ({
+                          title: item.subject,
+                          subtitle: item.prospect_name || item.initiative_name || "Internal discussion",
+                          meta: renderWorklistMeta(item),
+                        })),
+                        empty: "No open team discussion items right now.",
+                      },
+                      {
+                        title: "Needs clarification",
+                        href: "/submissions",
+                        badge: getSyncBadge("internal"),
+                        items: worklist.clarificationRequests.map((item) => ({
+                          title: item.donor_name || "Unnamed submission",
+                          subtitle: item.reviewer_notes || "Reviewer requested follow-up",
+                          meta: renderWorklistMeta(item),
+                        })),
+                        empty: "No submissions need clarification right now.",
+                      },
+                    ]).map((section) => (
+                  <div
+                    key={section.title}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "14px",
+                      padding: "16px",
+                      backgroundColor: "#FCFCFD",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        alignItems: "center",
+                        marginBottom: "12px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ fontSize: "17px", fontWeight: 700, color: "#111827" }}>
+                        {section.title}
+                      </div>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "4px 10px",
+                          borderRadius: "999px",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          backgroundColor: section.badge.bg,
+                          color: section.badge.text,
+                          border: `1px solid ${section.badge.border}`,
+                        }}
+                      >
+                        {section.badge.label}
+                      </span>
+                    </div>
+                    {section.items.length ? (
+                      <div style={{ display: "grid", gap: "10px" }}>
+                        {section.items.slice(0, 4).map((item) => (
+                          <div
+                            key={`${section.title}-${item.title}-${item.meta}`}
+                            style={{
+                              border: "1px solid #E5E7EB",
+                              borderRadius: "12px",
+                              padding: "12px 14px",
+                              backgroundColor: "white",
+                            }}
+                          >
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "4px" }}>
+                              {item.title}
+                            </div>
+                            <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.5, marginBottom: "4px" }}>
+                              {item.subtitle}
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#6B7280" }}>{item.meta}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.6 }}>
+                        {section.empty}
+                      </div>
+                    )}
+                    <a
+                      href={section.href}
+                      style={{
+                        display: "inline-flex",
+                        marginTop: "12px",
+                        color: "#6A5BFF",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                      }}
+                    >
+                      Open {section.title}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div

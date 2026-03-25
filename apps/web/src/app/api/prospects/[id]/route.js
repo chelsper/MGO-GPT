@@ -36,7 +36,7 @@ export async function GET(request, { params }) {
 
     const constituentId = prospects[0].constituent_id || null;
 
-    const [updates, opportunities, linkedSubmissions] = await Promise.all([
+    const [updates, opportunities, linkedSubmissions, discussionItems] = await Promise.all([
       sql`
         SELECT * FROM prospect_updates
         WHERE prospect_id = ${prospectId}
@@ -67,6 +67,28 @@ export async function GET(request, { params }) {
               )
             ORDER BY COALESCE(s.reviewed_at, s.updated_at, s.date_submitted) DESC
           `,
+      sql`
+        SELECT
+          di.*,
+          assigned_user.name AS assigned_user_name,
+          creator.name AS created_by_name
+        FROM discussion_items di
+        LEFT JOIN users assigned_user ON assigned_user.id = di.assigned_user_id
+        LEFT JOIN users creator ON creator.id = di.created_by
+        WHERE di.owner_user_id = ${user.id}
+          AND (
+            di.prospect_id = ${prospectId}
+            OR (${constituentId}::BIGINT IS NOT NULL AND di.constituent_id = ${constituentId})
+          )
+        ORDER BY
+          CASE
+            WHEN di.due_date IS NOT NULL AND di.due_date < CURRENT_DATE THEN 0
+            WHEN di.status = 'Open' THEN 1
+            ELSE 2
+          END,
+          di.due_date ASC NULLS LAST,
+          di.updated_at DESC
+      `,
     ]);
 
     return Response.json({
@@ -74,6 +96,7 @@ export async function GET(request, { params }) {
       updates,
       opportunities,
       linkedSubmissions,
+      discussionItems,
     });
   } catch (error) {
     console.error("Error fetching prospect:", error);
