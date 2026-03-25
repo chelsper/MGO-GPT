@@ -10,7 +10,7 @@ import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 const MGO_ACTIONS = [
   {
     title: "Today",
-    href: "/",
+    href: "/#today-worklist",
     description: "See overdue next steps, upcoming follow-up, and internal discussion in one place.",
   },
   {
@@ -58,7 +58,7 @@ const MGO_ACTIONS = [
 const REVIEWER_ACTIONS = [
   {
     title: "Today",
-    href: "/",
+    href: "/#today-worklist",
     description: "See open queue work, clarification requests, and team discussion needing attention.",
   },
   {
@@ -779,6 +779,7 @@ export default function Page() {
         </div>
 
         <div
+          id="today-worklist"
           style={{
             backgroundColor: "white",
             borderRadius: "16px",
@@ -862,24 +863,67 @@ export default function Page() {
               >
                 {(worklist.role === "reviewer"
                   ? [
-                      ["Pending queue", worklist.summary.pendingSubmissions, "#EEF2FF"],
-                      ["Needs clarification", worklist.summary.clarificationRequests, "#FEF3C7"],
-                      ["Pool needs attention", worklist.summary.poolNeedsAttention, "#ECFDF5"],
-                      ["Open discussion", worklist.summary.openDiscussionItems, "#F3F4F6"],
+                      {
+                        label: "Pending queue",
+                        count: worklist.summary.pendingSubmissions,
+                        color: "#EEF2FF",
+                        href: "/submissions",
+                      },
+                      {
+                        label: "Needs clarification",
+                        count: worklist.summary.clarificationRequests,
+                        color: "#FEF3C7",
+                        href: "/submissions",
+                      },
+                      {
+                        label: "Pool needs attention",
+                        count: worklist.summary.poolNeedsAttention,
+                        color: "#ECFDF5",
+                        href: "/prospect-pool",
+                      },
+                      {
+                        label: "Open discussion",
+                        count: worklist.summary.openDiscussionItems,
+                        color: "#F3F4F6",
+                        href: "/team-discussion",
+                      },
                     ]
                   : [
-                      ["Overdue next steps", worklist.summary.overdueNextSteps, "#FEE2E2"],
-                      ["Due this week", worklist.summary.upcomingNextSteps, "#FEF3C7"],
-                      ["Needs follow-up", worklist.summary.staleProspects, "#EEF2FF"],
-                      ["Open discussion", worklist.summary.openDiscussionItems, "#F3F4F6"],
-                    ]).map(([label, count, color]) => (
-                  <div
-                    key={label}
+                      {
+                        label: "Overdue next steps",
+                        count: worklist.summary.overdueNextSteps,
+                        color: "#FEE2E2",
+                        href: "/my-top-prospects",
+                      },
+                      {
+                        label: "Due this week",
+                        count: worklist.summary.upcomingNextSteps,
+                        color: "#FEF3C7",
+                        href: "/my-top-prospects",
+                      },
+                      {
+                        label: "Needs follow-up",
+                        count: worklist.summary.staleProspects,
+                        color: "#EEF2FF",
+                        href: "/my-top-prospects",
+                      },
+                      {
+                        label: "Open discussion",
+                        count: worklist.summary.openDiscussionItems,
+                        color: "#F3F4F6",
+                        href: "/team-discussion",
+                      },
+                    ]).map((card) => (
+                  <a
+                    key={card.label}
+                    href={card.href}
                     style={{
-                      backgroundColor: color,
+                      backgroundColor: card.color,
                       border: "1px solid #E5E7EB",
                       borderRadius: "14px",
                       padding: "14px 16px",
+                      textDecoration: "none",
+                      display: "block",
                     }}
                   >
                     <div
@@ -892,10 +936,12 @@ export default function Page() {
                         marginBottom: "8px",
                       }}
                     >
-                      {label}
+                      {card.label}
                     </div>
-                    <div style={{ fontSize: "28px", fontWeight: 800, color: "#111827" }}>{count}</div>
-                  </div>
+                    <div style={{ fontSize: "28px", fontWeight: 800, color: "#111827" }}>
+                      {card.count}
+                    </div>
+                  </a>
                 ))}
               </div>
 
