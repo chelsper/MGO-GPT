@@ -15,6 +15,16 @@ function formatShortDate(value) {
   });
 }
 
+function toDateInputValue(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getAnchorLabel(item) {
   return (
     item.prospect_name ||
@@ -76,9 +86,11 @@ function DiscussionCard({
   teammateOptions,
   editingItem,
   pending,
+  recentlySaved,
 }) {
   const anchorLabel = getAnchorLabel(item);
   const isEditing = editingItem?.id === item.id;
+  const dueDateLabel = item.due_date ? "Update due date" : "Set due date";
 
   const toggleTaggedUser = (userId) => {
     const normalized = String(userId);
@@ -185,6 +197,24 @@ function DiscussionCard({
             Open in prospect workspace
           </a>
         ) : null}
+        {recentlySaved ? (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              borderRadius: "999px",
+              padding: "8px 12px",
+              backgroundColor: "#ECFDF5",
+              color: "#065F46",
+              border: "1px solid #A7F3D0",
+              fontSize: "12px",
+              fontWeight: 700,
+            }}
+          >
+            Saved
+          </span>
+        ) : null}
       </div>
       {item.tagged_users?.length ? (
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
@@ -258,7 +288,9 @@ function DiscussionCard({
             }}
           >
             <label style={{ display: "grid", gap: "6px" }}>
-              <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Due date</span>
+              <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>
+                {dueDateLabel}
+              </span>
               <input
                 type="date"
                 value={editingItem.dueDate}
@@ -344,7 +376,7 @@ function DiscussionCard({
                 cursor: "pointer",
               }}
             >
-              Save changes
+              {pending ? "Saving..." : "Save changes"}
             </button>
             <button
               type="button"
@@ -383,6 +415,7 @@ export default function TeamDiscussionPage() {
   const [createAssignedUserId, setCreateAssignedUserId] = useState("");
   const [createTaggedUserIds, setCreateTaggedUserIds] = useState([]);
   const [createError, setCreateError] = useState("");
+  const [recentlySavedId, setRecentlySavedId] = useState(null);
 
   const { data: discussionItems = [], isLoading } = useQuery({
     queryKey: ["team-discussion", statusFilter],
@@ -422,7 +455,8 @@ export default function TeamDiscussionPage() {
       }
       return payload;
     },
-    onSuccess: () => {
+    onSuccess: (_payload, variables) => {
+      setRecentlySavedId(String(variables.id));
       setEditingItem(null);
       queryClient.invalidateQueries({ queryKey: ["team-discussion"] });
     },
@@ -464,6 +498,14 @@ export default function TeamDiscussionPage() {
   }, [discussionItems, editingItem]);
 
   useEffect(() => {
+    if (!recentlySavedId) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setRecentlySavedId(null);
+    }, 2500);
+    return () => window.clearTimeout(timeoutId);
+  }, [recentlySavedId]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || !discussionItems.length) return;
 
     const params = new URLSearchParams(window.location.search);
@@ -480,7 +522,7 @@ export default function TeamDiscussionPage() {
       id: matchedItem.id,
       subject: matchedItem.subject || "",
       body: matchedItem.body || "",
-      dueDate: matchedItem.due_date || "",
+      dueDate: toDateInputValue(matchedItem.due_date),
       assignedUserId: matchedItem.assigned_user_id
         ? String(matchedItem.assigned_user_id)
         : "",
@@ -1135,7 +1177,7 @@ export default function TeamDiscussionPage() {
                           id: currentItem.id,
                           subject: currentItem.subject || "",
                           body: currentItem.body || "",
-                          dueDate: currentItem.due_date || "",
+                          dueDate: toDateInputValue(currentItem.due_date),
                           assignedUserId: currentItem.assigned_user_id
                             ? String(currentItem.assigned_user_id)
                             : "",
@@ -1171,6 +1213,7 @@ export default function TeamDiscussionPage() {
                     })
                   }
                   pending={updateMutation.isPending}
+                  recentlySaved={recentlySavedId === String(item.id)}
                 />
               ))}
             </div>
