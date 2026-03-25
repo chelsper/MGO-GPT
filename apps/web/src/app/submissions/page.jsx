@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useUser from "@/utils/useUser";
-import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 
 const REVIEW_STATUSES = [
@@ -146,6 +146,12 @@ function parseMatchedConstituentRequest(submission, blackbaudSummary) {
   return parsed;
 }
 
+function getDiscussionDefaultSubject(submission) {
+  const label = TYPE_LABELS[submission?.submission_type] || "Submission";
+  const donor = submission?.donor_name || submission?.constituent_name || "this record";
+  return `${label}: ${donor}`;
+}
+
 export default function SubmissionsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -164,13 +170,36 @@ export default function SubmissionsPage() {
   const [reviewDrafts, setReviewDrafts] = useState({});
   const [clarificationDrafts, setClarificationDrafts] = useState({});
   const [listRequestDrafts, setListRequestDrafts] = useState({});
+  const [discussionDrafts, setDiscussionDrafts] = useState({});
   const [expandedSubmissionGroups, setExpandedSubmissionGroups] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
+  const [mgoOptions, setMgoOptions] = useState([]);
+  const [discussionSavingId, setDiscussionSavingId] = useState(null);
   const { effectiveRole, isReviewerView } = useWorkspaceView(profile?.role);
   const isReviewer = isReviewerView;
 
   function getSubmissionDisplayName(submission) {
     return submission.donor_name || submission.constituent_name || "Untitled submission";
+  }
+
+  function updateDiscussionDraft(submission, updates) {
+    setDiscussionDrafts((current) => {
+      const existing = current[submission.id] || {
+        open: false,
+        subject: getDiscussionDefaultSubject(submission),
+        body: "",
+        dueDate: "",
+        assignedUserId: "",
+      };
+
+      return {
+        ...current,
+        [submission.id]: {
+          ...existing,
+          ...updates,
+        },
+      };
+    });
   }
 
   useEffect(() => {
@@ -250,6 +279,28 @@ export default function SubmissionsPage() {
       active = false;
     };
   }, [isReviewer, profile]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadMgoOptions() {
+      try {
+        const response = await fetch("/api/users/mgos");
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active) {
+          setMgoOptions(Array.isArray(data) ? data : []);
+        }
+      } catch (loadError) {
+        console.error("Could not load MGO options for team discussion:", loadError);
+      }
+    }
+
+    loadMgoOptions();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!profile) return;
@@ -665,6 +716,63 @@ export default function SubmissionsPage() {
       setError(err.message || "Could not resubmit submission.");
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function saveDiscussionItem(submission) {
+    const draft = discussionDrafts[submission.id] || {
+      subject: getDiscussionDefaultSubject(submission),
+      body: "",
+      dueDate: "",
+      assignedUserId: "",
+    };
+
+    if (!draft.subject?.trim()) {
+      setError("Please add a discussion subject before saving.");
+      return;
+    }
+
+    setDiscussionSavingId(submission.id);
+    setActionMessage("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/discussion-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: draft.subject.trim(),
+          body: draft.body?.trim() || null,
+          dueDate: draft.dueDate || null,
+          assignedUserId: draft.assignedUserId || null,
+          prospectId: submission.prospect_id || null,
+          constituentId: submission.constituent_id || null,
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to add team discussion item");
+      }
+
+      setDiscussionDrafts((current) => ({
+        ...current,
+        [submission.id]: {
+          open: false,
+          subject: getDiscussionDefaultSubject(submission),
+          body: "",
+          dueDate: "",
+          assignedUserId: "",
+        },
+      }));
+      setActionMessage(
+        `${getSubmissionDisplayName(submission)} was added to Team Discussion.`,
+      );
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Could not create team discussion item.");
+    } finally {
+      setDiscussionSavingId(null);
     }
   }
 
@@ -1347,6 +1455,13 @@ export default function SubmissionsPage() {
                           draft?.reviewerNotes ?? submission.reviewer_notes ?? "";
                         const clarificationResponse =
                           clarificationDrafts[submission.id] ?? "";
+                        const discussionDraft = discussionDrafts[submission.id] || {
+                          open: false,
+                          subject: getDiscussionDefaultSubject(submission),
+                          body: "",
+                          dueDate: "",
+                          assignedUserId: "",
+                        };
                         const matchedConstituentRequest = parseMatchedConstituentRequest(
                           submission,
                           blackbaudSummary,
@@ -1784,6 +1899,263 @@ export default function SubmissionsPage() {
                                 </div>
                               </div>
                             ) : null}
+
+                            <div
+                              style={{
+                                marginTop: "16px",
+                                padding: "14px",
+                                borderRadius: "12px",
+                                border: "1px solid #DDD6FE",
+                                backgroundColor: "#F5F3FF",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: "12px",
+                                  flexWrap: "wrap",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  <MessageSquare size={16} color="#5B21B6" />
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontSize: "13px",
+                                        fontWeight: 700,
+                                        color: "#5B21B6",
+                                      }}
+                                    >
+                                      Team discussion
+                                    </div>
+                                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#6B7280" }}>
+                                      Internal-only follow-up tied to this submission.
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateDiscussionDraft(submission, {
+                                      open: !discussionDraft.open,
+                                    })
+                                  }
+                                  style={{
+                                    padding: "9px 12px",
+                                    borderRadius: "10px",
+                                    border: "1px solid #C4B5FD",
+                                    backgroundColor: "white",
+                                    color: "#5B21B6",
+                                    fontSize: "13px",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {discussionDraft.open ? "Close" : "Add to Team Discussion"}
+                                </button>
+                              </div>
+
+                              {discussionDraft.open ? (
+                                <div style={{ marginTop: "14px", display: "grid", gap: "12px" }}>
+                                  <div>
+                                    <label
+                                      style={{
+                                        display: "block",
+                                        fontSize: "12px",
+                                        fontWeight: 700,
+                                        color: "#6B7280",
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.04em",
+                                        marginBottom: "6px",
+                                      }}
+                                    >
+                                      Discussion subject
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={discussionDraft.subject}
+                                      onChange={(event) =>
+                                        updateDiscussionDraft(submission, {
+                                          subject: event.target.value,
+                                        })
+                                      }
+                                      style={{
+                                        width: "100%",
+                                        padding: "10px 12px",
+                                        borderRadius: "10px",
+                                        border: "1px solid #D1D5DB",
+                                        backgroundColor: "white",
+                                        fontSize: "14px",
+                                        boxSizing: "border-box",
+                                      }}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label
+                                      style={{
+                                        display: "block",
+                                        fontSize: "12px",
+                                        fontWeight: 700,
+                                        color: "#6B7280",
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.04em",
+                                        marginBottom: "6px",
+                                      }}
+                                    >
+                                      Discussion notes
+                                    </label>
+                                    <textarea
+                                      value={discussionDraft.body}
+                                      onChange={(event) =>
+                                        updateDiscussionDraft(submission, {
+                                          body: event.target.value,
+                                        })
+                                      }
+                                      placeholder="What should the team discuss or follow up on?"
+                                      rows={3}
+                                      style={{
+                                        width: "100%",
+                                        padding: "10px 12px",
+                                        borderRadius: "10px",
+                                        border: "1px solid #D1D5DB",
+                                        backgroundColor: "white",
+                                        fontSize: "14px",
+                                        resize: "vertical",
+                                        boxSizing: "border-box",
+                                      }}
+                                    />
+                                  </div>
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns:
+                                        "minmax(160px, 220px) minmax(220px, 1fr)",
+                                      gap: "12px",
+                                    }}
+                                  >
+                                    <div>
+                                      <label
+                                        style={{
+                                          display: "block",
+                                          fontSize: "12px",
+                                          fontWeight: 700,
+                                          color: "#6B7280",
+                                          textTransform: "uppercase",
+                                          letterSpacing: "0.04em",
+                                          marginBottom: "6px",
+                                        }}
+                                      >
+                                        Discuss by
+                                      </label>
+                                      <input
+                                        type="date"
+                                        value={discussionDraft.dueDate}
+                                        onChange={(event) =>
+                                          updateDiscussionDraft(submission, {
+                                            dueDate: event.target.value,
+                                          })
+                                        }
+                                        style={{
+                                          width: "100%",
+                                          padding: "10px 12px",
+                                          borderRadius: "10px",
+                                          border: "1px solid #D1D5DB",
+                                          backgroundColor: "white",
+                                          fontSize: "14px",
+                                          boxSizing: "border-box",
+                                        }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label
+                                        style={{
+                                          display: "block",
+                                          fontSize: "12px",
+                                          fontWeight: 700,
+                                          color: "#6B7280",
+                                          textTransform: "uppercase",
+                                          letterSpacing: "0.04em",
+                                          marginBottom: "6px",
+                                        }}
+                                      >
+                                        Share with teammate
+                                      </label>
+                                      <select
+                                        value={discussionDraft.assignedUserId}
+                                        onChange={(event) =>
+                                          updateDiscussionDraft(submission, {
+                                            assignedUserId: event.target.value,
+                                          })
+                                        }
+                                        style={{
+                                          width: "100%",
+                                          padding: "10px 12px",
+                                          borderRadius: "10px",
+                                          border: "1px solid #D1D5DB",
+                                          backgroundColor: "white",
+                                          fontSize: "14px",
+                                          boxSizing: "border-box",
+                                        }}
+                                      >
+                                        <option value="">Keep on my list</option>
+                                        {mgoOptions.map((option) => (
+                                          <option key={option.id} value={option.id}>
+                                            {option.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: "10px",
+                                      flexWrap: "wrap",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => saveDiscussionItem(submission)}
+                                      disabled={discussionSavingId === submission.id}
+                                      style={{
+                                        padding: "10px 14px",
+                                        borderRadius: "10px",
+                                        border: "none",
+                                        backgroundColor:
+                                          discussionSavingId === submission.id
+                                            ? "#C4B5FD"
+                                            : "#6D28D9",
+                                        color: "white",
+                                        fontSize: "14px",
+                                        fontWeight: 700,
+                                        cursor:
+                                          discussionSavingId === submission.id
+                                            ? "wait"
+                                            : "pointer",
+                                      }}
+                                    >
+                                      {discussionSavingId === submission.id
+                                        ? "Adding..."
+                                        : "Add discussion item"}
+                                    </button>
+                                    <a
+                                      href="/team-discussion"
+                                      style={{
+                                        color: "#5B21B6",
+                                        fontSize: "13px",
+                                        fontWeight: 700,
+                                        textDecoration: "underline",
+                                      }}
+                                    >
+                                      Open Team Discussion
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
                         );
                       })}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Mic, Square } from "lucide-react";
+import { ArrowLeft, MessageSquare, Mic, Square } from "lucide-react";
 import useUser from "@/utils/useUser";
 
 const UPDATE_MODES = [
@@ -179,6 +179,13 @@ export default function ActionOpportunityUpdatePage() {
   const [jointMgoLoaded, setJointMgoLoaded] = useState(false);
   const [jointMgoError, setJointMgoError] = useState("");
   const [selectedJointMgoIds, setSelectedJointMgoIds] = useState([]);
+  const [createDiscussionItem, setCreateDiscussionItem] = useState(false);
+  const [discussionSubject, setDiscussionSubject] = useState("");
+  const [discussionSubjectEdited, setDiscussionSubjectEdited] = useState(false);
+  const [discussionBody, setDiscussionBody] = useState("");
+  const [discussionDueDate, setDiscussionDueDate] = useState("");
+  const [discussionAssignedUserId, setDiscussionAssignedUserId] = useState("");
+  const [discussionFeedback, setDiscussionFeedback] = useState(null);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
@@ -265,14 +272,14 @@ export default function ActionOpportunityUpdatePage() {
   }, [updateMode]);
 
   useEffect(() => {
-    if (!includeOpportunity) {
+    if (!includeOpportunity && !createDiscussionItem) {
       setIsJointSolicitation(false);
       setSelectedJointMgoIds([]);
       setJointMgoLoaded(false);
       setJointMgoError("");
       return;
     }
-    if (!isJointSolicitation || jointMgoLoaded || jointMgoLoading) {
+    if (!(isJointSolicitation || createDiscussionItem) || jointMgoLoaded || jointMgoLoading) {
       return;
     }
 
@@ -352,7 +359,14 @@ export default function ActionOpportunityUpdatePage() {
     return () => {
       active = false;
     };
-  }, [includeOpportunity, isJointSolicitation, jointMgoLoaded, jointMgoLoading, user?.id]);
+  }, [
+    createDiscussionItem,
+    includeOpportunity,
+    isJointSolicitation,
+    jointMgoLoaded,
+    jointMgoLoading,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!jointMgoLoading) return undefined;
@@ -365,6 +379,27 @@ export default function ActionOpportunityUpdatePage() {
 
     return () => window.clearTimeout(failsafeId);
   }, [jointMgoLoading]);
+
+  useEffect(() => {
+    if (discussionSubjectEdited) return;
+
+    if (includeOpportunity && opportunityTitle.trim()) {
+      setDiscussionSubject(`Discuss ${opportunityTitle.trim()}`);
+      return;
+    }
+
+    if (donorName.trim()) {
+      setDiscussionSubject(`Follow up with ${donorName.trim()}`);
+      return;
+    }
+
+    setDiscussionSubject("");
+  }, [
+    discussionSubjectEdited,
+    donorName,
+    includeOpportunity,
+    opportunityTitle,
+  ]);
 
   useEffect(() => {
     if (!includeAction) {
@@ -917,6 +952,21 @@ export default function ActionOpportunityUpdatePage() {
     },
   });
 
+  const createDiscussionMutation = useMutation({
+    mutationFn: async (payload) => {
+      const response = await fetch("/api/discussion-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const responsePayload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(responsePayload?.error || "Failed to create team discussion");
+      }
+      return responsePayload;
+    },
+  });
+
   const submitMutation = useMutation({
     mutationFn: async (payload) => {
       const results = {};
@@ -967,6 +1017,7 @@ export default function ActionOpportunityUpdatePage() {
       setProspectAdded(false);
       setNextStepSaved(false);
       setNextStepError("");
+      setDiscussionFeedback(null);
 
       const submittedName = donorName.trim();
       const submittedAmount = askAmount ? parseFloat(askAmount) : null;
@@ -979,6 +1030,15 @@ export default function ActionOpportunityUpdatePage() {
       const submittedConstituentId =
         data?.opportunity?.constituent_id || data?.action?.constituent_id || null;
       const alreadyTracked = Boolean(data?.opportunity?.prospect_id);
+      const submittedDiscussionItem =
+        createDiscussionItem && discussionSubject.trim()
+          ? {
+              subject: discussionSubject.trim(),
+              body: discussionBody.trim() || null,
+              dueDate: discussionDueDate || null,
+              assignedUserId: discussionAssignedUserId || null,
+            }
+          : null;
 
       setDonorName("");
       setInteractionType("visit");
@@ -1007,6 +1067,12 @@ export default function ActionOpportunityUpdatePage() {
       setNextStepDueDate("");
       setIsJointSolicitation(false);
       setSelectedJointMgoIds([]);
+      setCreateDiscussionItem(false);
+      setDiscussionSubject("");
+      setDiscussionSubjectEdited(false);
+      setDiscussionBody("");
+      setDiscussionDueDate("");
+      setDiscussionAssignedUserId("");
 
       try {
         const response = await fetch("/api/prospects");
@@ -1054,10 +1120,58 @@ export default function ActionOpportunityUpdatePage() {
               }
             : null,
         );
+
+        if (submittedDiscussionItem) {
+          const resolvedProspectId =
+            matchedProspect?.id || data?.opportunity?.prospect_id || null;
+          try {
+            await createDiscussionMutation.mutateAsync({
+              subject: submittedDiscussionItem.subject,
+              body: submittedDiscussionItem.body,
+              dueDate: submittedDiscussionItem.dueDate,
+              assignedUserId: submittedDiscussionItem.assignedUserId,
+              prospectId: resolvedProspectId,
+              constituentId: submittedConstituentId,
+            });
+            setDiscussionFeedback({
+              tone: "success",
+              message: "Team discussion added to the discussion hub.",
+            });
+          } catch (discussionError) {
+            setDiscussionFeedback({
+              tone: "error",
+              message:
+                discussionError?.message ||
+                "The update was submitted, but the team discussion could not be created.",
+            });
+          }
+        }
       } catch (prospectLookupError) {
         console.error("Prospect lookup error:", prospectLookupError);
         setProspectPrompt(null);
         setNextStepPrompt(null);
+        if (submittedDiscussionItem) {
+          try {
+            await createDiscussionMutation.mutateAsync({
+              subject: submittedDiscussionItem.subject,
+              body: submittedDiscussionItem.body,
+              dueDate: submittedDiscussionItem.dueDate,
+              assignedUserId: submittedDiscussionItem.assignedUserId,
+              constituentId: submittedConstituentId,
+            });
+            setDiscussionFeedback({
+              tone: "success",
+              message: "Team discussion added to the discussion hub.",
+            });
+          } catch (discussionError) {
+            setDiscussionFeedback({
+              tone: "error",
+              message:
+                discussionError?.message ||
+                "The update was submitted, but the team discussion could not be created.",
+            });
+          }
+        }
       }
     },
     onError: (err) => {
@@ -1078,6 +1192,7 @@ export default function ActionOpportunityUpdatePage() {
     setNextStepPrompt(null);
     setNextStepSaved(false);
     setNextStepError("");
+    setDiscussionFeedback(null);
 
     if (!donorName.trim()) {
       setError("Please enter a donor name.");
@@ -1098,6 +1213,11 @@ export default function ActionOpportunityUpdatePage() {
 
     if (includeAction && createActionItem && !actionItemText.trim()) {
       setError("Please enter the action item you want to save as a reminder.");
+      return;
+    }
+
+    if (createDiscussionItem && !discussionSubject.trim()) {
+      setError("Please add a discussion subject before you submit.");
       return;
     }
 
@@ -2777,6 +2897,226 @@ export default function ActionOpportunityUpdatePage() {
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
               padding: "24px",
+              marginBottom: "20px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                marginBottom: "6px",
+              }}
+            >
+              <MessageSquare size={16} color="#4F46E5" />
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#6B7280",
+                }}
+              >
+                Team discussion
+              </div>
+              <div
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "#4338CA",
+                  backgroundColor: "#EEF2FF",
+                  border: "1px solid #C7D2FE",
+                  borderRadius: "999px",
+                  padding: "2px 8px",
+                }}
+              >
+                Internal only
+              </div>
+            </div>
+            <div
+              style={{
+                fontSize: "14px",
+                color: "#6B7280",
+                lineHeight: 1.5,
+                marginBottom: "16px",
+              }}
+            >
+              Capture a teammate follow-up or internal discussion point alongside this
+              update so it lands in the Team Discussion hub.
+            </div>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+                fontSize: "14px",
+                color: "#111827",
+                fontWeight: 600,
+                marginBottom: createDiscussionItem ? "16px" : 0,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={createDiscussionItem}
+                onChange={(event) => setCreateDiscussionItem(event.target.checked)}
+                style={{ marginTop: "2px" }}
+              />
+              Add an internal team discussion item from this update
+            </label>
+            {createDiscussionItem ? (
+              <div style={{ display: "grid", gap: "16px" }}>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Discussion subject
+                  </label>
+                  <input
+                    type="text"
+                    value={discussionSubject}
+                    onChange={(event) => {
+                      setDiscussionSubject(event.target.value);
+                      setDiscussionSubjectEdited(true);
+                    }}
+                    placeholder="Example: Talk through ask timing for this opportunity"
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Discussion notes
+                  </label>
+                  <textarea
+                    value={discussionBody}
+                    onChange={(event) => setDiscussionBody(event.target.value)}
+                    placeholder="Add context, what you want input on, or what should be discussed at the next team check-in."
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(180px, 220px) minmax(220px, 1fr)",
+                    gap: "16px",
+                    alignItems: "end",
+                  }}
+                >
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: "#374151",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Discuss by
+                    </label>
+                    <input
+                      type="date"
+                      value={discussionDueDate}
+                      onChange={(event) => setDiscussionDueDate(event.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #D1D5DB",
+                        fontSize: "14px",
+                        boxSizing: "border-box",
+                        backgroundColor: "white",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: "#374151",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Share with teammate
+                    </label>
+                    <select
+                      value={discussionAssignedUserId}
+                      onChange={(event) => setDiscussionAssignedUserId(event.target.value)}
+                      disabled={jointMgoLoading}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #D1D5DB",
+                        backgroundColor: "white",
+                        fontSize: "14px",
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <option value="">Keep on my discussion list</option>
+                      {jointMgoOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280" }}>
+                      Team discussion uses your internal workspace. It does not sync to
+                      Raiser's Edge NXT.
+                    </div>
+                    {jointMgoLoading ? (
+                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#6B7280" }}>
+                        Loading teammate options...
+                      </div>
+                    ) : jointMgoError ? (
+                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#991B1B" }}>
+                        {jointMgoError}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              padding: "24px",
               marginBottom: "12px",
             }}
           >
@@ -3047,6 +3387,30 @@ export default function ActionOpportunityUpdatePage() {
                 }}
               >
                 {prospectError}
+              </div>
+            ) : null}
+            {discussionFeedback ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor:
+                    discussionFeedback.tone === "error" ? "#FEF2F2" : "#EEF2FF",
+                  color: discussionFeedback.tone === "error" ? "#991B1B" : "#3730A3",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                  fontWeight: discussionFeedback.tone === "error" ? 600 : 700,
+                }}
+              >
+                {discussionFeedback.message}{" "}
+                {discussionFeedback.tone !== "error" ? (
+                  <a
+                    href="/team-discussion"
+                    style={{ color: "#3730A3", textDecoration: "underline" }}
+                  >
+                    Open Team Discussion
+                  </a>
+                ) : null}
               </div>
             ) : null}
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
