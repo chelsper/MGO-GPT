@@ -26,6 +26,7 @@ export async function PATCH(request, { params }) {
       status,
       assignedUserId,
       initiativeName,
+      taggedUserIds,
     } = body || {};
 
     const existing = await sql`
@@ -79,7 +80,45 @@ export async function PATCH(request, { params }) {
       values,
     );
 
-    return Response.json(result[0]);
+    if (taggedUserIds !== undefined) {
+      const uniqueTaggedUserIds = Array.from(
+        new Set(
+          (Array.isArray(taggedUserIds) ? taggedUserIds : [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0),
+        ),
+      );
+
+      await sql`
+        DELETE FROM discussion_item_participants
+        WHERE discussion_item_id = ${discussionId}
+      `;
+
+      if (uniqueTaggedUserIds.length) {
+        const placeholders = uniqueTaggedUserIds
+          .map((_, index) => `($1, $${index + 2})`)
+          .join(", ");
+        await sql(
+          `INSERT INTO discussion_item_participants (discussion_item_id, user_id)
+           VALUES ${placeholders}
+           ON CONFLICT (discussion_item_id, user_id) DO NOTHING`,
+          [discussionId, ...uniqueTaggedUserIds],
+        );
+      }
+    }
+
+    const taggedUsers = await sql`
+      SELECT u.id AS user_id, u.name, u.email
+      FROM discussion_item_participants dip
+      JOIN users u ON u.id = dip.user_id
+      WHERE dip.discussion_item_id = ${discussionId}
+      ORDER BY LOWER(u.name) ASC, LOWER(u.email) ASC
+    `;
+
+    return Response.json({
+      ...result[0],
+      tagged_users: taggedUsers,
+    });
   } catch (error) {
     console.error("Error updating discussion item:", error);
     return Response.json(

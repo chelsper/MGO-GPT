@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, MessageSquare, Users, UserRound, ListTodo } from "lucide-react";
 import useUser from "@/utils/useUser";
@@ -37,8 +37,29 @@ function groupItems(items, keyBuilder) {
   return Array.from(groups.values());
 }
 
-function DiscussionCard({ item, onToggle, pending }) {
+function DiscussionCard({
+  item,
+  onToggle,
+  onEdit,
+  onSave,
+  onCancelEdit,
+  teammateOptions,
+  editingItem,
+  pending,
+}) {
   const anchorLabel = getAnchorLabel(item);
+  const isEditing = editingItem?.id === item.id;
+
+  const toggleTaggedUser = (userId) => {
+    const normalized = String(userId);
+    const current = new Set((editingItem?.taggedUserIds || []).map(String));
+    if (current.has(normalized)) {
+      current.delete(normalized);
+    } else {
+      current.add(normalized);
+    }
+    onEdit(item, { taggedUserIds: Array.from(current) });
+  };
 
   return (
     <div
@@ -98,6 +119,23 @@ function DiscussionCard({ item, onToggle, pending }) {
         >
           {item.status === "Open" ? "Mark resolved" : "Reopen"}
         </button>
+        <button
+          type="button"
+          onClick={() => (isEditing ? onCancelEdit() : onEdit(item))}
+          disabled={pending}
+          style={{
+            border: "1px solid #D1D5DB",
+            backgroundColor: isEditing ? "#111827" : "white",
+            color: isEditing ? "white" : "#374151",
+            borderRadius: "999px",
+            padding: "8px 12px",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          {isEditing ? "Editing details" : "Edit details"}
+        </button>
         {item.prospect_id ? (
           <a
             href={`/my-top-prospects?prospectId=${encodeURIComponent(item.prospect_id)}`}
@@ -117,6 +155,186 @@ function DiscussionCard({ item, onToggle, pending }) {
           </a>
         ) : null}
       </div>
+      {item.tagged_users?.length ? (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+          {item.tagged_users.map((taggedUser) => (
+            <span
+              key={`${item.id}-${taggedUser.user_id}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 10px",
+                borderRadius: "999px",
+                backgroundColor: "#F5F3FF",
+                color: "#5B21B6",
+                fontSize: "12px",
+                fontWeight: 700,
+              }}
+            >
+              @{taggedUser.name || taggedUser.email}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {isEditing ? (
+        <div
+          style={{
+            marginTop: "14px",
+            paddingTop: "14px",
+            borderTop: "1px solid #E5E7EB",
+            display: "grid",
+            gap: "12px",
+          }}
+        >
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Title</span>
+            <input
+              value={editingItem.subject}
+              onChange={(event) => onEdit(item, { subject: event.target.value })}
+              style={{
+                width: "100%",
+                borderRadius: "12px",
+                border: "1px solid #D1D5DB",
+                padding: "10px 12px",
+                fontSize: "14px",
+              }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Notes</span>
+            <textarea
+              rows={3}
+              value={editingItem.body}
+              onChange={(event) => onEdit(item, { body: event.target.value })}
+              style={{
+                width: "100%",
+                borderRadius: "12px",
+                border: "1px solid #D1D5DB",
+                padding: "10px 12px",
+                fontSize: "14px",
+                resize: "vertical",
+              }}
+            />
+          </label>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Due date</span>
+              <input
+                type="date"
+                value={editingItem.dueDate}
+                onChange={(event) => onEdit(item, { dueDate: event.target.value })}
+                style={{
+                  width: "100%",
+                  borderRadius: "12px",
+                  border: "1px solid #D1D5DB",
+                  padding: "10px 12px",
+                  fontSize: "14px",
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Assign to teammate</span>
+              <select
+                value={editingItem.assignedUserId}
+                onChange={(event) => onEdit(item, { assignedUserId: event.target.value })}
+                style={{
+                  width: "100%",
+                  borderRadius: "12px",
+                  border: "1px solid #D1D5DB",
+                  padding: "10px 12px",
+                  fontSize: "14px",
+                }}
+              >
+                <option value="">No assignee</option>
+                {teammateOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name || option.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gap: "8px" }}>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>
+              Tag additional people
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {teammateOptions.map((option) => {
+                const selected = (editingItem.taggedUserIds || []).map(String).includes(
+                  String(option.id),
+                );
+                return (
+                  <button
+                    key={`tag-${item.id}-${option.id}`}
+                    type="button"
+                    onClick={() => toggleTaggedUser(option.id)}
+                    style={{
+                      border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                      backgroundColor: selected ? "#F5F3FF" : "white",
+                      color: selected ? "#5B21B6" : "#374151",
+                      borderRadius: "999px",
+                      padding: "8px 12px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    @{option.name || option.email}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => onSave(item)}
+              disabled={pending || !editingItem.subject.trim()}
+              style={{
+                border: "none",
+                backgroundColor: "#6A5BFF",
+                color: "white",
+                borderRadius: "999px",
+                padding: "10px 14px",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Save changes
+            </button>
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              disabled={pending}
+              style={{
+                border: "1px solid #D1D5DB",
+                backgroundColor: "white",
+                color: "#374151",
+                borderRadius: "999px",
+                padding: "10px 14px",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -126,6 +344,7 @@ export default function TeamDiscussionPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("Open");
   const [viewMode, setViewMode] = useState("all");
+  const [editingItem, setEditingItem] = useState(null);
 
   const { data: discussionItems = [], isLoading } = useQuery({
     queryKey: ["team-discussion", statusFilter],
@@ -134,6 +353,18 @@ export default function TeamDiscussionPage() {
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load discussion items");
+      }
+      return payload;
+    },
+    enabled: Boolean(user),
+  });
+  const { data: teammateOptions = [] } = useQuery({
+    queryKey: ["discussion-teammates"],
+    queryFn: async () => {
+      const response = await fetch("/api/users/mgos");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load teammate options");
       }
       return payload;
     },
@@ -154,9 +385,18 @@ export default function TeamDiscussionPage() {
       return payload;
     },
     onSuccess: () => {
+      setEditingItem(null);
       queryClient.invalidateQueries({ queryKey: ["team-discussion"] });
     },
   });
+
+  useEffect(() => {
+    if (!editingItem) return;
+    const freshItem = discussionItems.find((item) => item.id === editingItem.id);
+    if (!freshItem) {
+      setEditingItem(null);
+    }
+  }, [discussionItems, editingItem]);
 
   const filteredItems = useMemo(() => {
     const currentUserId = Number(user?.id || 0);
@@ -511,6 +751,42 @@ export default function TeamDiscussionPage() {
                 <DiscussionCard
                   key={item.id}
                   item={item}
+                  teammateOptions={teammateOptions}
+                  editingItem={editingItem}
+                  onEdit={(currentItem, partial = {}) => {
+                    setEditingItem((previous) => {
+                      if (!previous || previous.id !== currentItem.id) {
+                        return {
+                          id: currentItem.id,
+                          subject: currentItem.subject || "",
+                          body: currentItem.body || "",
+                          dueDate: currentItem.due_date || "",
+                          assignedUserId: currentItem.assigned_user_id
+                            ? String(currentItem.assigned_user_id)
+                            : "",
+                          taggedUserIds: (currentItem.tagged_users || []).map((taggedUser) =>
+                            String(taggedUser.user_id),
+                          ),
+                          ...partial,
+                        };
+                      }
+                      return { ...previous, ...partial };
+                    });
+                  }}
+                  onSave={(currentItem) => {
+                    if (!editingItem || editingItem.id !== currentItem.id) return;
+                    updateMutation.mutate({
+                      id: currentItem.id,
+                      body: {
+                        subject: editingItem.subject,
+                        body: editingItem.body,
+                        dueDate: editingItem.dueDate || null,
+                        assignedUserId: editingItem.assignedUserId || null,
+                        taggedUserIds: editingItem.taggedUserIds || [],
+                      },
+                    });
+                  }}
+                  onCancelEdit={() => setEditingItem(null)}
                   onToggle={(currentItem) =>
                     updateMutation.mutate({
                       id: currentItem.id,

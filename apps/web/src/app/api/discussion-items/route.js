@@ -48,7 +48,40 @@ export async function GET(request) {
         di.updated_at DESC
     `;
 
-    return Response.json(rows);
+    const discussionIds = rows.map((row) => row.id);
+    const participants = discussionIds.length
+      ? await sql`
+          SELECT
+            dip.discussion_item_id,
+            dip.user_id,
+            u.name,
+            u.email
+          FROM discussion_item_participants dip
+          JOIN users u ON u.id = dip.user_id
+          WHERE dip.discussion_item_id = ANY(${discussionIds})
+          ORDER BY LOWER(u.name) ASC, LOWER(u.email) ASC
+        `
+      : [];
+
+    const participantsByDiscussionId = participants.reduce((accumulator, participant) => {
+      const key = String(participant.discussion_item_id);
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+      accumulator[key].push({
+        user_id: participant.user_id,
+        name: participant.name,
+        email: participant.email,
+      });
+      return accumulator;
+    }, {});
+
+    return Response.json(
+      rows.map((row) => ({
+        ...row,
+        tagged_users: participantsByDiscussionId[String(row.id)] || [],
+      })),
+    );
   } catch (error) {
     console.error("Error fetching discussion items:", error);
     return Response.json(
@@ -85,6 +118,7 @@ export async function POST(request) {
       body: discussionBody,
       dueDate,
       assignedUserId,
+      taggedUserIds,
     } = body || {};
 
     if (!subject?.trim()) {
@@ -138,7 +172,43 @@ export async function POST(request) {
       RETURNING *
     `;
 
-    return Response.json(result[0], { status: 201 });
+    const discussionItem = result[0];
+    const uniqueTaggedUserIds = Array.from(
+      new Set(
+        (Array.isArray(taggedUserIds) ? taggedUserIds : [])
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    );
+
+    if (uniqueTaggedUserIds.length) {
+      const placeholders = uniqueTaggedUserIds
+        .map((_, index) => `($1, $${index + 2})`)
+        .join(", ");
+      await sql(
+        `INSERT INTO discussion_item_participants (discussion_item_id, user_id)
+         VALUES ${placeholders}
+         ON CONFLICT (discussion_item_id, user_id) DO NOTHING`,
+        [discussionItem.id, ...uniqueTaggedUserIds],
+      );
+    }
+
+    const taggedUsers = uniqueTaggedUserIds.length
+      ? await sql`
+          SELECT id AS user_id, name, email
+          FROM users
+          WHERE id = ANY(${uniqueTaggedUserIds})
+          ORDER BY LOWER(name) ASC, LOWER(email) ASC
+        `
+      : [];
+
+    return Response.json(
+      {
+        ...discussionItem,
+        tagged_users: taggedUsers,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("Error creating discussion item:", error);
     return Response.json(

@@ -576,6 +576,15 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS discussion_item_participants (
+        discussion_item_id BIGINT NOT NULL REFERENCES discussion_items(id) ON DELETE CASCADE,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (discussion_item_id, user_id)
+      )
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS blackbaud_connections (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
