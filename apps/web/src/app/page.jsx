@@ -187,6 +187,18 @@ function renderWorklistMeta(item) {
   return "";
 }
 
+function buildProspectWorkspaceHref(prospectId, panel = "") {
+  if (!prospectId) return "/my-top-prospects";
+  const params = new URLSearchParams({ prospectId: String(prospectId) });
+  if (panel) params.set("panel", panel);
+  return `/my-top-prospects?${params.toString()}`;
+}
+
+function buildSubmissionHref(submissionId) {
+  if (!submissionId) return "/submissions";
+  return `/submissions#submission-${encodeURIComponent(submissionId)}`;
+}
+
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -962,6 +974,8 @@ export default function Page() {
                           title: item.donor_name || "Unnamed submission",
                           subtitle: item.submission_type === "opportunity_update" ? "Opportunity update" : "Submission",
                           meta: renderWorklistMeta(item),
+                          primaryActionLabel: "Open clarification",
+                          primaryActionHref: buildSubmissionHref(item.id),
                         })),
                         empty: "No clarification threads are open right now.",
                       },
@@ -975,6 +989,8 @@ export default function Page() {
                             ? `Assigned to ${item.assigned_user_name}`
                             : "Needs assignment",
                           meta: item.needs_contact_info ? "Contact info requested" : renderWorklistMeta(item),
+                          primaryActionLabel: "Open prospect pool",
+                          primaryActionHref: "/prospect-pool",
                         })),
                         empty: "No Prospect Pool items need attention right now.",
                       },
@@ -988,6 +1004,10 @@ export default function Page() {
                             ? `For ${item.assigned_user_name}`
                             : "Open internal discussion",
                           meta: renderWorklistMeta(item),
+                          primaryActionLabel: "Open discussion",
+                          primaryActionHref: item.prospect_id
+                            ? buildProspectWorkspaceHref(item.prospect_id, "discussion")
+                            : "/team-discussion",
                         })),
                         empty: "No open team discussion items right now.",
                       },
@@ -1001,6 +1021,10 @@ export default function Page() {
                           title: item.prospect_name,
                           subtitle: item.next_action_text,
                           meta: renderWorklistMeta(item),
+                          primaryActionLabel: "Set next step",
+                          primaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
+                          secondaryActionLabel: "Log Action",
+                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
                         })),
                         empty: "No overdue next steps right now.",
                       },
@@ -1012,6 +1036,10 @@ export default function Page() {
                           title: item.prospect_name,
                           subtitle: item.next_action_text,
                           meta: renderWorklistMeta(item),
+                          primaryActionLabel: "Log Action",
+                          primaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
+                          secondaryActionLabel: "Set next step",
+                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
                         })),
                         empty: "Nothing due in the next 7 days.",
                       },
@@ -1023,6 +1051,10 @@ export default function Page() {
                           title: item.subject,
                           subtitle: item.prospect_name || item.initiative_name || "Internal discussion",
                           meta: renderWorklistMeta(item),
+                          primaryActionLabel: "Open discussion",
+                          primaryActionHref: item.prospect_id
+                            ? buildProspectWorkspaceHref(item.prospect_id, "discussion")
+                            : "/team-discussion",
                         })),
                         empty: "No open team discussion items right now.",
                       },
@@ -1034,6 +1066,8 @@ export default function Page() {
                           title: item.donor_name || "Unnamed submission",
                           subtitle: item.reviewer_notes || "Reviewer requested follow-up",
                           meta: renderWorklistMeta(item),
+                          primaryActionLabel: "Open clarification",
+                          primaryActionHref: buildSubmissionHref(item.id),
                         })),
                         empty: "No submissions need clarification right now.",
                       },
@@ -1096,6 +1130,52 @@ export default function Page() {
                               {item.subtitle}
                             </div>
                             <div style={{ fontSize: "12px", color: "#6B7280" }}>{item.meta}</div>
+                            {item.primaryActionHref ? (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "10px",
+                                  flexWrap: "wrap",
+                                  marginTop: "10px",
+                                }}
+                              >
+                                <a
+                                  href={item.primaryActionHref}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    padding: "8px 12px",
+                                    borderRadius: "999px",
+                                    backgroundColor: "#111827",
+                                    color: "white",
+                                    textDecoration: "none",
+                                    fontSize: "12px",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {item.primaryActionLabel || "Open"}
+                                </a>
+                                {item.secondaryActionHref ? (
+                                  <a
+                                    href={item.secondaryActionHref}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      padding: "8px 12px",
+                                      borderRadius: "999px",
+                                      border: "1px solid #D1D5DB",
+                                      backgroundColor: "white",
+                                      color: "#374151",
+                                      textDecoration: "none",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {item.secondaryActionLabel || "Open"}
+                                  </a>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>

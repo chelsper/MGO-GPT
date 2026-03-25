@@ -1230,6 +1230,7 @@ export default function SubmissionsPage() {
                 return (
                   <article
                     key={group.id}
+                    id={`thread-${group.id}`}
                     style={{
                       border: "1px solid #E5E7EB",
                       borderRadius: "16px",
@@ -1473,6 +1474,7 @@ export default function SubmissionsPage() {
                         return (
                           <div
                             key={submission.id}
+                            id={`submission-${submission.id}`}
                             style={{
                               border: "1px solid #E5E7EB",
                               borderRadius: "14px",

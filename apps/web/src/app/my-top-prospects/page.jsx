@@ -921,7 +921,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-function ProspectDetailModal({ prospectId, onClose }) {
+function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -959,6 +959,28 @@ function ProspectDetailModal({ prospectId, onClose }) {
   const [opportunityEditData, setOpportunityEditData] = useState({});
   const [opportunityEditError, setOpportunityEditError] = useState("");
   const [actionError, setActionError] = useState("");
+
+  useEffect(() => {
+    if (!prospectId) return;
+    if (initialPanel === "action") {
+      setShowActionForm(true);
+      setShowOpportunityForm(false);
+      setShowDiscussionForm(false);
+      return;
+    }
+    if (initialPanel === "discussion") {
+      setShowDiscussionForm(true);
+      setShowActionForm(false);
+      setShowOpportunityForm(false);
+      return;
+    }
+    if (initialPanel === "opportunity") {
+      setShowOpportunityForm(true);
+      setShowActionForm(false);
+      setShowDiscussionForm(false);
+      return;
+    }
+  }, [initialPanel, prospectId]);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["prospect", prospectId],
@@ -4639,6 +4661,7 @@ export default function MyTopProspectsPage() {
   const queryClient = useQueryClient();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProspectId, setSelectedProspectId] = useState(null);
+  const [selectedProspectPanel, setSelectedProspectPanel] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [fyFilter, setFyFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
@@ -4679,19 +4702,23 @@ export default function MyTopProspectsPage() {
     if (typeof window === "undefined") return;
     const searchParams = new URLSearchParams(window.location.search);
     const requestedProspectId = searchParams.get("prospectId");
+    const requestedPanel = searchParams.get("panel") || "";
     if (!requestedProspectId) return;
     const numericId = Number(requestedProspectId);
     if (Number.isInteger(numericId) && numericId > 0) {
       setSelectedProspectId(numericId);
+      setSelectedProspectPanel(requestedPanel);
     }
   }, []);
 
   const closeProspectWorkspace = () => {
     setSelectedProspectId(null);
+    setSelectedProspectPanel("");
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     if (url.searchParams.has("prospectId")) {
       url.searchParams.delete("prospectId");
+      url.searchParams.delete("panel");
       window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
     }
   };
@@ -6032,6 +6059,7 @@ export default function MyTopProspectsPage() {
       {selectedProspectId && (
         <ProspectDetailModal
           prospectId={selectedProspectId}
+          initialPanel={selectedProspectPanel}
           onClose={closeProspectWorkspace}
         />
       )}
