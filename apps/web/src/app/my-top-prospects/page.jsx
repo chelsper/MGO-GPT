@@ -223,6 +223,78 @@ function getProspectNextAction(prospect) {
   };
 }
 
+function getNextStepBadge(prospect) {
+  if (prospect.next_action_text && !prospect.next_action_completed_at) {
+    if (prospect.next_action_due_date) {
+      const dueDate = new Date(prospect.next_action_due_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      dueDate.setHours(0, 0, 0, 0);
+      if (dueDate < today) {
+        return {
+          label: "Next step overdue",
+          bg: "#FEF2F2",
+          border: "#FECACA",
+          text: "#991B1B",
+        };
+      }
+      const diffDays = Math.round((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays <= 7) {
+        return {
+          label: "Next step due soon",
+          bg: "#FFF7ED",
+          border: "#FED7AA",
+          text: "#C2410C",
+        };
+      }
+    }
+
+    return {
+      label: "Next step set",
+      bg: "#F0FDF4",
+      border: "#BBF7D0",
+      text: "#166534",
+    };
+  }
+
+  return {
+    label: "No next step",
+    bg: "#F9FAFB",
+    border: "#E5E7EB",
+    text: "#4B5563",
+  };
+}
+
+function getDiscussionBadge(prospect) {
+  const openCount = Number(prospect.open_discussion_count || 0);
+  const overdueCount = Number(prospect.overdue_discussion_count || 0);
+
+  if (overdueCount > 0) {
+    return {
+      label: `${overdueCount} discussion${overdueCount === 1 ? "" : "s"} due`,
+      bg: "#FEF2F2",
+      border: "#FECACA",
+      text: "#991B1B",
+    };
+  }
+
+  if (openCount > 0) {
+    return {
+      label: `${openCount} open discussion${openCount === 1 ? "" : "s"}`,
+      bg: "#F5F3FF",
+      border: "#DDD6FE",
+      text: "#5B21B6",
+    };
+  }
+
+  return {
+    label: "No open discussion",
+    bg: "#F9FAFB",
+    border: "#E5E7EB",
+    text: "#4B5563",
+  };
+}
+
 function getOpportunityDisplayAmount(opportunity) {
   if (opportunity.opportunity_status === "Closed – Gift Secured") {
     return opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
@@ -5646,6 +5718,8 @@ export default function MyTopProspectsPage() {
             {filteredActiveProspects.map((p, idx) => (
               (() => {
                 const nextAction = getProspectNextAction(p);
+                const nextStepBadge = getNextStepBadge(p);
+                const discussionBadge = getDiscussionBadge(p);
 
                 return (
                   <div
@@ -5724,6 +5798,32 @@ export default function MyTopProspectsPage() {
                               }}
                             >
                               {nextAction.label}
+                            </span>
+                            <span
+                              style={{
+                                backgroundColor: nextStepBadge.bg,
+                                color: nextStepBadge.text,
+                                border: `1px solid ${nextStepBadge.border}`,
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {nextStepBadge.label}
+                            </span>
+                            <span
+                              style={{
+                                backgroundColor: discussionBadge.bg,
+                                color: discussionBadge.text,
+                                border: `1px solid ${discussionBadge.border}`,
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {discussionBadge.label}
                             </span>
                           </div>
                           {nextAction.meta ? (

@@ -66,6 +66,25 @@ export async function GET(request) {
         FROM submission_matches
         WHERE row_num = 1
       ),
+      discussion_summary AS (
+        SELECT
+          up.id AS prospect_id,
+          COUNT(*) FILTER (WHERE di.status = 'Open') AS open_discussion_count,
+          COUNT(*) FILTER (
+            WHERE di.status = 'Open'
+              AND di.due_date IS NOT NULL
+              AND di.due_date < CURRENT_DATE
+          ) AS overdue_discussion_count,
+          MAX(di.updated_at) AS latest_discussion_activity_at
+        FROM user_prospects up
+        LEFT JOIN discussion_items di
+          ON di.owner_user_id = ${user.id}
+         AND (
+           di.prospect_id = up.id
+           OR (up.constituent_id IS NOT NULL AND di.constituent_id = up.constituent_id)
+         )
+        GROUP BY up.id
+      ),
       latest_activity AS (
         SELECT
           timeline.prospect_id,
@@ -96,6 +115,9 @@ export async function GET(request) {
         COALESCE(os.declined_opportunity_count, 0) AS declined_opportunity_count,
         COALESCE(os.active_pipeline_amount, 0) AS active_pipeline_amount,
         la.latest_activity_at,
+        COALESCE(ds.open_discussion_count, 0) AS open_discussion_count,
+        COALESCE(ds.overdue_discussion_count, 0) AS overdue_discussion_count,
+        ds.latest_discussion_activity_at,
         ls.latest_submission_status,
         ls.latest_submission_type,
         ls.latest_submission_reviewer_notes,
@@ -104,6 +126,7 @@ export async function GET(request) {
       LEFT JOIN constituents c ON c.id = up.constituent_id
       LEFT JOIN opportunity_summary os ON os.prospect_id = up.id
       LEFT JOIN latest_activity la ON la.prospect_id = up.id
+      LEFT JOIN discussion_summary ds ON ds.prospect_id = up.id
       LEFT JOIN latest_submission ls ON ls.prospect_id = up.id
       ORDER BY
         CASE WHEN up.status = 'Active' THEN 0 ELSE 1 END,
