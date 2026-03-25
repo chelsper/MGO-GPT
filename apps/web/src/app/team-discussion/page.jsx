@@ -376,6 +376,13 @@ export default function TeamDiscussionPage() {
   const [statusFilter, setStatusFilter] = useState("Open");
   const [viewMode, setViewMode] = useState("all");
   const [editingItem, setEditingItem] = useState(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createSubject, setCreateSubject] = useState("");
+  const [createBody, setCreateBody] = useState("");
+  const [createDueDate, setCreateDueDate] = useState("");
+  const [createAssignedUserId, setCreateAssignedUserId] = useState("");
+  const [createTaggedUserIds, setCreateTaggedUserIds] = useState([]);
+  const [createError, setCreateError] = useState("");
 
   const { data: discussionItems = [], isLoading } = useQuery({
     queryKey: ["team-discussion", statusFilter],
@@ -418,6 +425,33 @@ export default function TeamDiscussionPage() {
     onSuccess: () => {
       setEditingItem(null);
       queryClient.invalidateQueries({ queryKey: ["team-discussion"] });
+    },
+  });
+  const createMutation = useMutation({
+    mutationFn: async (body) => {
+      const response = await fetch("/api/discussion-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to create discussion item");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      setShowCreateForm(false);
+      setCreateSubject("");
+      setCreateBody("");
+      setCreateDueDate("");
+      setCreateAssignedUserId("");
+      setCreateTaggedUserIds([]);
+      setCreateError("");
+      queryClient.invalidateQueries({ queryKey: ["team-discussion"] });
+    },
+    onError: (error) => {
+      setCreateError(error instanceof Error ? error.message : "Failed to create discussion item");
     },
   });
 
@@ -660,6 +694,30 @@ export default function TeamDiscussionPage() {
     { value: "constituent", label: "By constituent", icon: UserRound },
   ];
 
+  const toggleCreateTaggedUser = (userId) => {
+    const normalized = String(userId);
+    setCreateTaggedUserIds((current) => {
+      const next = new Set(current.map(String));
+      if (next.has(normalized)) {
+        next.delete(normalized);
+      } else {
+        next.add(normalized);
+      }
+      return Array.from(next);
+    });
+  };
+
+  const handleCreateDiscussionItem = () => {
+    setCreateError("");
+    createMutation.mutate({
+      subject: createSubject,
+      body: createBody,
+      dueDate: createDueDate || null,
+      assignedUserId: createAssignedUserId || null,
+      taggedUserIds: createTaggedUserIds,
+    });
+  };
+
   return (
     <div
       style={{
@@ -827,6 +885,217 @@ export default function TeamDiscussionPage() {
                 );
               })}
             </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: "16px",
+              paddingTop: "16px",
+              borderTop: "1px solid #E5E7EB",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "4px" }}>
+                  Add discussion item
+                </div>
+                <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                  Create a new internal discussion item without leaving the hub.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateForm((current) => !current)}
+                style={{
+                  border: "1px solid #D1D5DB",
+                  backgroundColor: showCreateForm ? "#111827" : "white",
+                  color: showCreateForm ? "white" : "#374151",
+                  borderRadius: "999px",
+                  padding: "9px 14px",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {showCreateForm ? "Hide composer" : "Add discussion item"}
+              </button>
+            </div>
+
+            {showCreateForm ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "12px",
+                  marginTop: "14px",
+                  padding: "16px",
+                  borderRadius: "16px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                }}
+              >
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Title</span>
+                  <input
+                    value={createSubject}
+                    onChange={(event) => setCreateSubject(event.target.value)}
+                    placeholder="What do we need to discuss?"
+                    style={{
+                      width: "100%",
+                      borderRadius: "12px",
+                      border: "1px solid #D1D5DB",
+                      padding: "10px 12px",
+                      fontSize: "14px",
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Notes</span>
+                  <textarea
+                    rows={3}
+                    value={createBody}
+                    onChange={(event) => setCreateBody(event.target.value)}
+                    placeholder="Context, talking points, or handoff details"
+                    style={{
+                      width: "100%",
+                      borderRadius: "12px",
+                      border: "1px solid #D1D5DB",
+                      padding: "10px 12px",
+                      fontSize: "14px",
+                      resize: "vertical",
+                    }}
+                  />
+                </label>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: "12px",
+                  }}
+                >
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Due date</span>
+                    <input
+                      type="date"
+                      value={createDueDate}
+                      onChange={(event) => setCreateDueDate(event.target.value)}
+                      style={{
+                        width: "100%",
+                        borderRadius: "12px",
+                        border: "1px solid #D1D5DB",
+                        padding: "10px 12px",
+                        fontSize: "14px",
+                      }}
+                    />
+                  </label>
+
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>Assign to teammate</span>
+                    <select
+                      value={createAssignedUserId}
+                      onChange={(event) => setCreateAssignedUserId(event.target.value)}
+                      style={{
+                        width: "100%",
+                        borderRadius: "12px",
+                        border: "1px solid #D1D5DB",
+                        padding: "10px 12px",
+                        fontSize: "14px",
+                      }}
+                    >
+                      <option value="">No assignee</option>
+                      {teammateOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name || option.email}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#374151" }}>
+                    Tag additional people
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    {teammateOptions.map((option) => {
+                      const selected = createTaggedUserIds.map(String).includes(String(option.id));
+                      return (
+                        <button
+                          key={`create-tag-${option.id}`}
+                          type="button"
+                          onClick={() => toggleCreateTaggedUser(option.id)}
+                          style={{
+                            border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                            backgroundColor: selected ? "#F5F3FF" : "white",
+                            color: selected ? "#5B21B6" : "#374151",
+                            borderRadius: "999px",
+                            padding: "8px 12px",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          @{option.name || option.email}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {createError ? (
+                  <div style={{ fontSize: "12px", color: "#991B1B" }}>{createError}</div>
+                ) : null}
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={handleCreateDiscussionItem}
+                    disabled={createMutation.isPending || !createSubject.trim()}
+                    style={{
+                      border: "none",
+                      backgroundColor: "#6A5BFF",
+                      color: "white",
+                      borderRadius: "999px",
+                      padding: "10px 14px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {createMutation.isPending ? "Creating..." : "Create discussion item"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateForm(false);
+                      setCreateError("");
+                    }}
+                    disabled={createMutation.isPending}
+                    style={{
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#374151",
+                      borderRadius: "999px",
+                      padding: "10px 14px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
