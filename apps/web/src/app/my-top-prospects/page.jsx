@@ -178,7 +178,7 @@ function getProspectNextAction(prospect) {
       meta: prospect.next_action_due_date
         ? `Due ${formatShortDate(prospect.next_action_due_date)}`
         : "No due date",
-      tone: { bg: "#E0F2FE", fg: "#075985", border: "#BAE6FD" },
+      tone: { bg: "#E0F2FE", fg: "#075985", border: "#BAE6FD", soft: "#F0F9FF" },
     };
   }
 
@@ -186,7 +186,7 @@ function getProspectNextAction(prospect) {
     return {
       label: "Respond to clarification",
       meta: "Reviewer requested follow-up",
-      tone: { bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D" },
+      tone: { bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D", soft: "#FFFBEB" },
     };
   }
 
@@ -194,7 +194,7 @@ function getProspectNextAction(prospect) {
     return {
       label: "Add first opportunity",
       meta: "No active opportunities yet",
-      tone: { bg: "#EDE9FE", fg: "#5B21B6", border: "#DDD6FE" },
+      tone: { bg: "#EDE9FE", fg: "#5B21B6", border: "#DDD6FE", soft: "#F5F3FF" },
     };
   }
 
@@ -202,7 +202,7 @@ function getProspectNextAction(prospect) {
     return {
       label: "Log first update",
       meta: "No recent activity yet",
-      tone: { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE" },
+      tone: { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE", soft: "#EFF6FF" },
     };
   }
 
@@ -212,14 +212,14 @@ function getProspectNextAction(prospect) {
     return {
       label: "Needs follow-up",
       meta: `Last activity ${Math.floor(staleDays)} days ago`,
-      tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" },
+      tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA", soft: "#FEF2F2" },
     };
   }
 
   return {
     label: "Keep momentum",
     meta: "Recently active",
-    tone: { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" },
+    tone: { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0", soft: "#F0FDF4" },
   };
 }
 
@@ -5529,15 +5529,86 @@ export default function MyTopProspectsPage() {
                           {nextAction.meta ? (
                             <div
                               style={{
-                                fontSize: "12px",
+                                fontSize: "13px",
                                 color: "#6B7280",
                                 fontWeight: "600",
-                                marginBottom: "10px",
+                                marginBottom: "6px",
                               }}
                             >
                               {nextAction.meta}
                             </div>
                           ) : null}
+                          <div
+                            style={{
+                              marginBottom: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              backgroundColor: nextAction.tone.soft,
+                              border: `1px solid ${nextAction.tone.border}`,
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#6B7280",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "6px",
+                              }}
+                            >
+                              Next step
+                            </div>
+                            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
+                              {p.next_action_text || "No next step set yet"}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedProspectId(p.id);
+                                if (typeof window !== "undefined") {
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set("prospectId", String(p.id));
+                                  url.searchParams.set("panel", "action");
+                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+                                }
+                              }}
+                              style={{
+                                padding: "9px 12px",
+                                borderRadius: "999px",
+                                border: "none",
+                                backgroundColor: "#6A5BFF",
+                                color: "white",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Log Update
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedProspectId(p.id);
+                              }}
+                              style={{
+                                padding: "9px 12px",
+                                borderRadius: "999px",
+                                border: "1px solid #D1D5DB",
+                                backgroundColor: "white",
+                                color: "#374151",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              View Prospect
+                            </button>
+                          </div>
                           <div
                             style={{
                               display: "flex",
@@ -5588,7 +5659,8 @@ export default function MyTopProspectsPage() {
                             display: "grid",
                             gridTemplateColumns: "repeat(2, minmax(110px, 1fr))",
                             gap: "8px 10px",
-                            minWidth: "240px",
+                            minWidth: "220px",
+                            opacity: 0.88,
                           }}
                         >
                           <div
@@ -5601,7 +5673,7 @@ export default function MyTopProspectsPage() {
                           >
                             <div
                               style={{
-                                fontSize: "11px",
+                                fontSize: "10px",
                                 fontWeight: 700,
                                 color: "#6B7280",
                                 textTransform: "uppercase",
@@ -5625,7 +5697,7 @@ export default function MyTopProspectsPage() {
                           >
                             <div
                               style={{
-                                fontSize: "11px",
+                                fontSize: "10px",
                                 fontWeight: 700,
                                 color: "#6B7280",
                                 textTransform: "uppercase",
@@ -5649,7 +5721,7 @@ export default function MyTopProspectsPage() {
                           >
                             <div
                               style={{
-                                fontSize: "11px",
+                                fontSize: "10px",
                                 fontWeight: 700,
                                 color: "#6B7280",
                                 textTransform: "uppercase",
@@ -5676,7 +5748,7 @@ export default function MyTopProspectsPage() {
                           >
                             <div
                               style={{
-                                fontSize: "11px",
+                                fontSize: "10px",
                                 fontWeight: 700,
                                 color: "#6B7280",
                                 textTransform: "uppercase",
@@ -5715,15 +5787,16 @@ export default function MyTopProspectsPage() {
                     <div
                       style={{
                         display: "flex",
-                        flexDirection: "column",
+                        flexDirection: "row",
                         gap: "6px",
                         flexShrink: 0,
                         alignItems: "center",
+                        alignSelf: "flex-start",
                       }}
                       onClick={(e) => e.stopPropagation()}
                       aria-label={`Reorder ${p.prospect_name}`}
                     >
-                      <span
+                      <div
                         style={{
                           fontSize: "10px",
                           color: "#6B7280",
@@ -5731,10 +5804,11 @@ export default function MyTopProspectsPage() {
                           textTransform: "uppercase",
                           letterSpacing: "0.04em",
                           lineHeight: 1.2,
+                          marginRight: "2px",
                         }}
                       >
                         Rank
-                      </span>
+                      </div>
                       <button
                         onClick={() =>
                           reorderMutation.mutate({
@@ -5745,8 +5819,8 @@ export default function MyTopProspectsPage() {
                         disabled={idx === 0}
                         title="Promote prospect"
                         style={{
-                          width: "28px",
-                          height: "28px",
+                          width: "30px",
+                          height: "30px",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -5769,8 +5843,8 @@ export default function MyTopProspectsPage() {
                         disabled={idx === filteredActiveProspects.length - 1}
                         title="Demote prospect"
                         style={{
-                          width: "28px",
-                          height: "28px",
+                          width: "30px",
+                          height: "30px",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",

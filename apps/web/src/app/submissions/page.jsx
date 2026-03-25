@@ -1219,10 +1219,7 @@ export default function SubmissionsPage() {
                   blackbaudSummaryState?.payload?.mapped?.lifetimeGiving || null;
                 const blackbaudAssignments =
                   blackbaudSummaryState?.payload?.mapped?.fundraiserAssignments || [];
-                const isCollapsible =
-                  !isReviewer &&
-                  group.constituentId &&
-                  group.submissions.length > 1;
+                const isCollapsible = true;
                 const isExpanded = isCollapsible
                   ? Boolean(expandedSubmissionGroups[group.id])
                   : true;
@@ -1255,15 +1252,15 @@ export default function SubmissionsPage() {
                           {group.constituentId ? (
                             <span
                               style={{
-                                backgroundColor: "#EDE9FE",
-                                color: "#5B21B6",
+                                backgroundColor: "#F3F4F6",
+                                color: "#4B5563",
                                 padding: "4px 10px",
                                 borderRadius: "999px",
                                 fontSize: "12px",
                                 fontWeight: 700,
                               }}
                             >
-                              Linked workflow thread
+                              Linked thread
                             </span>
                           ) : null}
                         </div>
@@ -1313,130 +1310,123 @@ export default function SubmissionsPage() {
                           marginTop: "16px",
                           padding: "14px",
                           borderRadius: "12px",
-                          border: "1px solid #BFDBFE",
-                          backgroundColor: "#EFF6FF",
+                          border: "1px solid #DBEAFE",
+                          backgroundColor: "#FAFCFF",
                         }}
                       >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: "12px",
-                            flexWrap: "wrap",
-                            alignItems: "flex-start",
-                            marginBottom: "10px",
-                          }}
-                        >
-                          <div>
-                            <div
-                              style={{
-                                fontSize: "13px",
-                                fontWeight: 700,
-                                color: "#1D4ED8",
-                              }}
-                            >
-                              Blackbaud Summary
-                            </div>
-                            {blackbaudConstituent?.lookupId ? (
+                        <details>
+                          <summary
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: "12px",
+                              cursor: "pointer",
+                              listStyle: "none",
+                            }}
+                          >
+                            <div>
                               <div
                                 style={{
-                                  marginTop: "4px",
-                                  fontSize: "12px",
-                                  color: "#4B5563",
+                                  fontSize: "13px",
+                                  fontWeight: 700,
+                                  color: "#1D4ED8",
                                 }}
                               >
-                                Lookup ID: {blackbaudConstituent.lookupId}
+                                Synced NXT record
                               </div>
-                            ) : null}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              color: "#1D4ED8",
-                              backgroundColor: "#DBEAFE",
-                              border: "1px solid #93C5FD",
-                              borderRadius: "999px",
-                              padding: "4px 10px",
-                            }}
-                          >
-                            Read-only NXT data
-                          </div>
-                        </div>
-
-                        {!blackbaudSummaryState ? (
-                          <div style={{ fontSize: "13px", color: "#4B5563" }}>
-                            Loading Blackbaud summary...
-                          </div>
-                        ) : blackbaudSummaryState.status === "error" ? (
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              color: "#991B1B",
-                              backgroundColor: "#FEF2F2",
-                              border: "1px solid #FECACA",
-                              borderRadius: "8px",
-                              padding: "10px 12px",
-                            }}
-                          >
-                            Linked Blackbaud data could not be loaded right now.
-                          </div>
-                        ) : (
-                          <>
+                              {blackbaudConstituent?.lookupId ? (
+                                <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
+                                  Lookup ID: {blackbaudConstituent.lookupId}
+                                </div>
+                              ) : null}
+                            </div>
                             <div
                               style={{
-                                display: "grid",
-                                gridTemplateColumns:
-                                  "repeat(auto-fit, minmax(180px, 1fr))",
-                                gap: "12px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                color: "#1D4ED8",
+                                backgroundColor: "#EFF6FF",
+                                border: "1px solid #BFDBFE",
+                                borderRadius: "999px",
+                                padding: "4px 10px",
                               }}
                             >
-                              <div>
-                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                                  Constituent
-                                </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {blackbaudConstituent?.name || "Unavailable"}
-                                </div>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                                  Email
-                                </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {blackbaudConstituent?.email || "Unavailable"}
-                                </div>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                                  Phone
-                                </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {blackbaudConstituent?.phone || "Unavailable"}
-                                </div>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                                  Lifetime Giving
-                                </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {formatBlackbaudCurrency(blackbaudLifetimeGiving?.totalGiving)}
-                                </div>
-                              </div>
+                              View NXT summary
                             </div>
-                            {blackbaudAssignments.length > 0 ? (
-                              <div style={{ marginTop: "12px", fontSize: "13px", color: "#374151" }}>
-                                Active assignment:{" "}
-                                <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
-                                {" · "}
-                                Fundraiser ID{" "}
-                                <strong>
-                                  {blackbaudAssignments[0]?.fundraiserId || "Unavailable"}
-                                </strong>
+                          </summary>
+
+                          <div style={{ marginTop: "12px" }}>
+                            {!blackbaudSummaryState ? (
+                              <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                                Loading Blackbaud summary...
                               </div>
-                            ) : null}
-                          </>
-                        )}
+                            ) : blackbaudSummaryState.status === "error" ? (
+                              <div
+                                style={{
+                                  fontSize: "13px",
+                                  color: "#991B1B",
+                                  backgroundColor: "#FEF2F2",
+                                  border: "1px solid #FECACA",
+                                  borderRadius: "8px",
+                                  padding: "10px 12px",
+                                }}
+                              >
+                                Linked Blackbaud data could not be loaded right now.
+                              </div>
+                            ) : (
+                              <>
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns:
+                                      "repeat(auto-fit, minmax(180px, 1fr))",
+                                    gap: "12px",
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", marginBottom: "6px" }}>
+                                      Constituent
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {blackbaudConstituent?.name || "Unavailable"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", marginBottom: "6px" }}>
+                                      Email
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {blackbaudConstituent?.email || "Unavailable"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", marginBottom: "6px" }}>
+                                      Phone
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {blackbaudConstituent?.phone || "Unavailable"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", marginBottom: "6px" }}>
+                                      Lifetime Giving
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {formatBlackbaudCurrency(blackbaudLifetimeGiving?.totalGiving)}
+                                    </div>
+                                  </div>
+                                </div>
+                                {blackbaudAssignments.length > 0 ? (
+                                  <div style={{ marginTop: "12px", fontSize: "13px", color: "#374151" }}>
+                                    Active assignment:{" "}
+                                    <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
+                                  </div>
+                                ) : null}
+                              </>
+                            )}
+                          </div>
+                        </details>
                       </div>
                     ) : null}
 

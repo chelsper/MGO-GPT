@@ -630,9 +630,10 @@ export default function ActionOpportunityUpdatePage() {
           expectedDate.trim())),
   );
   const steps = [
+    { label: "What are you updating?", done: Boolean(updateMode) },
     { label: "Identify donor", done: Boolean(donorName.trim()) },
-    { label: "Confirm match", done: hasConfirmedMatch },
-    { label: "Add update", done: hasUpdateDetails },
+    { label: "Add details", done: hasUpdateDetails },
+    { label: "Next step", done: Boolean(nextStep.trim() || nextStepDueDate || createActionItem) },
     {
       label: "Submit",
       done: Boolean(successMessage),
@@ -2335,6 +2336,38 @@ export default function ActionOpportunityUpdatePage() {
                       marginBottom: "8px",
                     }}
                   >
+                    Common follow-ups
+                  </label>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px" }}>
+                    {COMMON_NEXT_STEPS.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setNextStep(item)}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "999px",
+                          border: "1px solid #D1D5DB",
+                          backgroundColor: "white",
+                          color: "#374151",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
                     Next step
                   </label>
                   {supportsSpeechRecognition ? (
@@ -2362,41 +2395,6 @@ export default function ActionOpportunityUpdatePage() {
                       boxSizing: "border-box",
                     }}
                   />
-                  <div style={{ marginTop: "10px" }}>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        color: "#6B7280",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      Common follow-ups
-                    </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      {COMMON_NEXT_STEPS.map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          onClick={() => setNextStep(item)}
-                          style={{
-                            padding: "8px 10px",
-                            borderRadius: "999px",
-                            border: "1px solid #D1D5DB",
-                            backgroundColor: "white",
-                            color: "#374151",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {item}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               ) : null}
             </div>
@@ -2741,38 +2739,48 @@ export default function ActionOpportunityUpdatePage() {
           ) : null}
 
           {includeAction ? (
-            <div
+            <details
+              open={createActionItem}
               style={{
                 backgroundColor: "white",
                 borderRadius: "12px",
                 border: "1px solid #E5E7EB",
-                padding: "24px",
+                padding: "20px 24px",
                 marginBottom: "20px",
               }}
             >
-              <div
+              <summary
                 style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "#6B7280",
-                  marginBottom: "6px",
+                  cursor: "pointer",
+                  listStyle: "none",
                 }}
               >
-                Action items
-              </div>
-              <div
-                style={{
-                  fontSize: "14px",
-                  color: "#6B7280",
-                  lineHeight: 1.5,
-                  marginBottom: "16px",
-                }}
-              >
-                Turn the follow-up into a reminder before you submit so it can land in your to-do
-                flow and, if you want, in Outlook too.
-              </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Optional internal coordination
+                </div>
+                <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827", marginBottom: "4px" }}>
+                  Follow-up reminder
+                </div>
+                <div
+                  style={{
+                    fontSize: "14px",
+                    color: "#6B7280",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Turn the next step into a reminder only if you need it in your companion to-do flow.
+                </div>
+              </summary>
+              <div style={{ marginTop: "16px" }}>
               <label
                 style={{
                   display: "flex",
@@ -2888,18 +2896,26 @@ export default function ActionOpportunityUpdatePage() {
                   </div>
                 </div>
               ) : null}
-            </div>
+              </div>
+            </details>
           ) : null}
 
-          <div
+          <details
+            open={createDiscussionItem}
             style={{
               backgroundColor: "white",
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              padding: "24px",
+              padding: "20px 24px",
               marginBottom: "20px",
             }}
           >
+            <summary
+              style={{
+                cursor: "pointer",
+                listStyle: "none",
+              }}
+            >
             <div
               style={{
                 display: "flex",
@@ -2918,33 +2934,24 @@ export default function ActionOpportunityUpdatePage() {
                   color: "#6B7280",
                 }}
               >
-                Team discussion
+                Optional internal coordination
               </div>
-              <div
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "#4338CA",
-                  backgroundColor: "#EEF2FF",
-                  border: "1px solid #C7D2FE",
-                  borderRadius: "999px",
-                  padding: "2px 8px",
-                }}
-              >
-                Internal only
-              </div>
+            </div>
+            <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827", marginBottom: "4px" }}>
+              Team discussion
             </div>
             <div
               style={{
                 fontSize: "14px",
                 color: "#6B7280",
                 lineHeight: 1.5,
-                marginBottom: "16px",
               }}
             >
               Capture a teammate follow-up or internal discussion point alongside this
               update so it lands in the Team Discussion hub.
             </div>
+            </summary>
+            <div style={{ marginTop: "16px" }}>
             <label
               style={{
                 display: "flex",
@@ -3109,7 +3116,8 @@ export default function ActionOpportunityUpdatePage() {
                 </div>
               </div>
             ) : null}
-          </div>
+            </div>
+          </details>
 
           <div
             style={{
@@ -3443,7 +3451,11 @@ export default function ActionOpportunityUpdatePage() {
                   cursor: submitMutation.isPending ? "not-allowed" : "pointer",
                 }}
               >
-                {submitMutation.isPending ? "Submitting..." : "Submit update"}
+                {submitMutation.isPending
+                  ? "Saving..."
+                  : nextStep.trim() || createActionItem
+                    ? "Save + set next step"
+                    : "Save update"}
               </button>
             </div>
           </div>

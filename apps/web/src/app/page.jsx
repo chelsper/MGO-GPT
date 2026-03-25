@@ -12,46 +12,55 @@ const MGO_ACTIONS = [
     title: "Today",
     href: "/#today-worklist",
     description: "See overdue next steps, upcoming follow-up, and internal discussion in one place.",
+    section: "myWork",
   },
   {
-    title: "Submission Tracker",
-    href: "/submissions",
-    description: "Track review status, clarification requests, and completed work.",
-  },
-  {
-    title: "My Top Prospects",
+    title: "My Prospects",
     href: "/my-top-prospects",
-    description: "View your priority donor portfolio.",
+    description: "Work your ranked portfolio, next steps, and opportunity momentum.",
+    section: "myWork",
   },
   {
-    title: "My Prospect Pool",
+    title: "Log Update",
+    href: "/action-opportunity-update",
+    description: "Log an Action, update an Opportunity, and set the next step.",
+    section: "myWork",
+  },
+  {
+    title: "Prospect Pool",
     href: "/prospect-pool",
     description: "See new names assigned to you and request missing contact details.",
-  },
-  {
-    title: "Action & Opportunity Updates",
-    href: "/action-opportunity-update",
-    description: "Log relationship activity, opportunity changes, or both in one update.",
-  },
-  {
-    title: "Suggest New Constituent",
-    href: "/new-constituent",
-    description: "Submit new constituent leads with card parsing.",
-  },
-  {
-    title: "Request List from DevData",
-    href: "/request-list",
-    description: "Submit list and data pull requests to Advancement Services.",
-  },
-  {
-    title: "Knowledge Base",
-    href: "/knowledge-base",
-    description: "Search standards, scripts, and process guidance.",
+    section: "myWork",
   },
   {
     title: "Team Discussion",
     href: "/team-discussion",
     description: "Keep internal talking points, handoffs, and meeting prep tied to real work.",
+    section: "teamSupport",
+  },
+  {
+    title: "Knowledge Base",
+    href: "/knowledge-base",
+    description: "Search standards, scripts, and process guidance.",
+    section: "teamSupport",
+  },
+  {
+    title: "Submission Tracker",
+    href: "/submissions",
+    description: "Check clarification requests and review outcomes when you need them.",
+    section: "requestsReview",
+  },
+  {
+    title: "Request List from DevData",
+    href: "/request-list",
+    description: "Request lists and reporting support from Advancement Services.",
+    section: "requestsReview",
+  },
+  {
+    title: "Suggest New Constituent",
+    href: "/new-constituent",
+    description: "Add a new constituent lead or suggest a record for review.",
+    section: "requestsReview",
   },
 ];
 
@@ -60,36 +69,43 @@ const REVIEWER_ACTIONS = [
     title: "Today",
     href: "/#today-worklist",
     description: "See open queue work, clarification requests, and team discussion needing attention.",
+    section: "myWork",
   },
   {
     title: "Review Submissions",
     href: "/submissions",
     description: "Approve submissions or push them back to MGOs with notes.",
+    section: "requestsReview",
   },
   {
     title: "List Request Queue",
     href: "/list-requests",
     description: "Prioritize DevData requests in one shared Advancement Services queue.",
+    section: "requestsReview",
   },
   {
     title: "Prospect Pool",
     href: "/prospect-pool",
     description: "Assign new prospects to MGOs and track contact info requests.",
-  },
-  {
-    title: "Edit Knowledge Base",
-    href: "/knowledge-base/manage",
-    description: "Update standards, examples, and guidance for the team.",
-  },
-  {
-    title: "Read Knowledge Base",
-    href: "/knowledge-base",
-    description: "Review the current published knowledge base content.",
+    section: "myWork",
   },
   {
     title: "Team Discussion",
     href: "/team-discussion",
     description: "Review internal discussion items tied to constituents, teammates, and opportunities.",
+    section: "teamSupport",
+  },
+  {
+    title: "Knowledge Base",
+    href: "/knowledge-base",
+    description: "Review standards, examples, and published guidance.",
+    section: "teamSupport",
+  },
+  {
+    title: "Edit Knowledge Base",
+    href: "/knowledge-base/manage",
+    description: "Update shared standards, examples, and guidance.",
+    section: "teamSupport",
   },
 ];
 
@@ -108,24 +124,25 @@ const ADMIN_ACTIONS = [
 ];
 
 const MGO_NAV_ITEMS = [
-  { label: "Dashboard", href: "/" },
-  { label: "My Top Prospects", href: "/my-top-prospects" },
-  { label: "My Prospect Pool", href: "/prospect-pool" },
-  { label: "Submissions", href: "/submissions" },
-  { label: "Action & Opportunity Updates", href: "/action-opportunity-update" },
-  { label: "Suggest New Constituent", href: "/new-constituent" },
-  { label: "Request List", href: "/request-list" },
-  { label: "Team Discussion", href: "/team-discussion" },
+  { label: "Today", href: "/#today-worklist", section: "My Work" },
+  { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
+  { label: "Log Update", href: "/action-opportunity-update", section: "My Work" },
+  { label: "Prospect Pool", href: "/prospect-pool", section: "My Work" },
+  { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
+  { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
+  { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
+  { label: "Request List from DevData", href: "/request-list", section: "Requests & Review" },
+  { label: "Suggest New Constituent", href: "/new-constituent", section: "Requests & Review" },
 ];
 
 const REVIEWER_NAV_ITEMS = [
-  { label: "Dashboard", href: "/" },
-  { label: "Review Queue", href: "/submissions" },
-  { label: "List Requests", href: "/list-requests" },
-  { label: "Prospect Pool", href: "/prospect-pool" },
-  { label: "Knowledge Base", href: "/knowledge-base" },
-  { label: "Edit Knowledge Base", href: "/knowledge-base/manage" },
-  { label: "Team Discussion", href: "/team-discussion" },
+  { label: "Today", href: "/#today-worklist", section: "My Work" },
+  { label: "Prospect Pool", href: "/prospect-pool", section: "My Work" },
+  { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
+  { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
+  { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
+  { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
+  { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
 ];
 
 const ADMIN_NAV_ITEMS = [
@@ -138,10 +155,11 @@ const PRIMARY_ACTION_PATHS = {
   mgo: [
     "/action-opportunity-update",
     "/my-top-prospects",
-    "/submissions",
+    "/prospect-pool",
+    "/team-discussion",
   ],
-  reviewer: ["/submissions", "/prospect-pool", "/list-requests"],
-  adminReviewer: ["/access-management", "/submissions", "/prospect-pool"],
+  reviewer: ["/prospect-pool", "/team-discussion", "/knowledge-base/manage"],
+  adminReviewer: ["/access-management", "/prospect-pool", "/team-discussion"],
 };
 
 const ROLE_WORKFLOW_STEPS = {
@@ -165,9 +183,12 @@ const ROLE_WORKFLOW_STEPS = {
 function getActionGroups({ isAdmin, isReviewer, quickActions }) {
   const key = isAdmin && isReviewer ? "adminReviewer" : isReviewer ? "reviewer" : "mgo";
   const primaryPaths = PRIMARY_ACTION_PATHS[key];
-  const primary = quickActions.filter((action) => primaryPaths.includes(action.href));
-  const secondary = quickActions.filter((action) => !primaryPaths.includes(action.href));
-  return { primary, secondary, workflow: ROLE_WORKFLOW_STEPS[key] };
+  const primary = quickActions.filter(
+    (action) => action.section === "myWork" && primaryPaths.includes(action.href),
+  );
+  const teamSupport = quickActions.filter((action) => action.section === "teamSupport");
+  const requestsReview = quickActions.filter((action) => action.section === "requestsReview");
+  return { primary, teamSupport, requestsReview, workflow: ROLE_WORKFLOW_STEPS[key] };
 }
 
 function formatShortDate(value) {
@@ -197,6 +218,16 @@ function buildProspectWorkspaceHref(prospectId, panel = "") {
 function buildSubmissionHref(submissionId) {
   if (!submissionId) return "/submissions";
   return `/submissions#submission-${encodeURIComponent(submissionId)}`;
+}
+
+function groupNavItems(navItems) {
+  const order = ["My Work", "Team & Support", "Requests & Review"];
+  return order
+    .map((section) => ({
+      section,
+      items: navItems.filter((item) => item.section === section),
+    }))
+    .filter((group) => group.items.length);
 }
 
 export default function Page() {
@@ -301,10 +332,11 @@ export default function Page() {
     },
     [isAdmin, isReviewer],
   );
-  const { primary: primaryActions, secondary: secondaryActions, workflow } = useMemo(
+  const { primary: primaryActions, teamSupport, requestsReview, workflow } = useMemo(
     () => getActionGroups({ isAdmin, isReviewer, quickActions }),
     [isAdmin, isReviewer, quickActions],
   );
+  const groupedNavItems = useMemo(() => groupNavItems(navItems), [navItems]);
   const {
     data: worklist,
     isLoading: worklistLoading,
@@ -429,27 +461,47 @@ export default function Page() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gap: "8px" }}>
-                  {navItems.map((item) => (
-                    <a
-                      key={`menu-${item.href}`}
-                      href={item.href}
-                      role="menuitem"
-                      onClick={() => setMenuOpen(false)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        borderRadius: "10px",
-                        padding: "10px 12px",
-                        textDecoration: "none",
-                        color: "#111827",
-                        border: "1px solid #E5E7EB",
-                        fontSize: "14px",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {item.label}
-                    </a>
+                <div style={{ display: "grid", gap: "12px" }}>
+                  {groupedNavItems.map((group) => (
+                    <div key={group.section}>
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                          color: "#6B7280",
+                          margin: "0 0 6px 4px",
+                        }}
+                      >
+                        {group.section}
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {group.items.map((item) => (
+                          <a
+                            key={`menu-${item.href}`}
+                            href={item.href}
+                            role="menuitem"
+                            onClick={() => setMenuOpen(false)}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              borderRadius: "10px",
+                              padding: "10px 12px",
+                              textDecoration: "none",
+                              color: "#111827",
+                              border: "1px solid #E5E7EB",
+                              fontSize: "14px",
+                              fontWeight: 600,
+                              backgroundColor:
+                                group.section === "My Work" ? "#FCFCFD" : "white",
+                            }}
+                          >
+                            {item.label}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -656,35 +708,35 @@ export default function Page() {
           <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>
             {isAdmin
               ? isReviewer
-                ? "Workspace Administration"
+                ? "Advancement Services workspace"
                 : "MGO Workspace"
               : isReviewer
                 ? "Advancement Services Hub"
-                : "MGO-GPT"}
+                : "Today"}
           </h1>
         </div>
 
-        <p style={{ margin: "0 0 8px", color: "#111827", fontSize: "16px", fontWeight: 600 }}>
+        <p style={{ margin: "0 0 6px", color: "#111827", fontSize: "16px", fontWeight: 600 }}>
           {profile?.name || user?.name || user?.email}
         </p>
-        <p style={{ margin: "0 0 22px", color: "#6B7280", fontSize: "14px" }}>
+        <p style={{ margin: "0 0 18px", color: "#6B7280", fontSize: "14px" }}>
           {isAdmin
             ? isReviewer
-              ? "Manage access, assign workspace roles, and oversee shared team operations."
-              : "Work the app as an MGO while keeping administrative access available when you need it."
+              ? "Work the shared queues and keep team momentum moving."
+              : "Work the MGO companion layer while keeping admin tools available in the background."
             : isReviewer
               ? "Review submissions, manage shared queues, and keep the knowledge base current."
-              : "Capture field updates, request support, and track your work with Advancement Services."}
+              : "Work your prospects, log fundraising movement, and keep next steps moving."}
         </p>
 
         {isAdmin ? (
           <div
             style={{
-              marginBottom: "18px",
-              backgroundColor: "white",
+              marginBottom: "16px",
+              backgroundColor: "#FCFCFD",
               border: "1px solid #E5E7EB",
-              borderRadius: "16px",
-              padding: "16px 18px",
+              borderRadius: "14px",
+              padding: "14px 16px",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -692,24 +744,24 @@ export default function Page() {
               flexWrap: "wrap",
             }}
           >
-            <div>
-              <div
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  color: "#6B7280",
-                  marginBottom: "6px",
-                }}
-              >
-                Workspace view
-              </div>
-              <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>
+              <div>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    color: "#6B7280",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Workspace view
+                </div>
+              <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
                 You are currently in {isReviewer ? "Advancement Services" : "MGO"} view.
               </div>
               <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
-                Switch views to work the shared reviewer queues or the MGO workflow without changing your admin role.
+                Switch view when you need to test or manage another workflow.
               </div>
             </div>
 
@@ -753,44 +805,6 @@ export default function Page() {
         ) : null}
 
         <div
-          style={{
-            marginBottom: "18px",
-            backgroundColor: isReviewer ? "#EEF2FF" : "#F5F3FF",
-            border: `1px solid ${isReviewer ? "#C7D2FE" : "#DDD6FE"}`,
-            borderRadius: "16px",
-            padding: "18px 20px",
-          }}
-        >
-          <div style={{ fontSize: "12px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B7280", marginBottom: "8px" }}>
-            {isAdmin
-              ? isReviewer
-                ? "Admin focus"
-                : "Admin MGO view"
-              : isReviewer
-                ? "Role focus"
-                : "Today’s workflow"}
-          </div>
-          <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginBottom: "6px" }}>
-            {isAdmin
-              ? isReviewer
-                ? "Access and workflow control"
-                : "MGO submission workspace"
-              : isReviewer
-                ? "Shared review operations"
-                : "MGO submission workspace"}
-          </div>
-          <div style={{ fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
-            {isAdmin
-              ? isReviewer
-                ? "You control who can access the workspace, what role they receive, and you can still work the shared Advancement Services queues."
-                : "You are looking at the MGO workspace. Use the account toggle any time you want to return to Advancement Services or admin operations."
-              : isReviewer
-                ? "Everything here is shared across Advancement Services users, so queue priority, notes, and knowledge base edits stay visible to the whole team."
-                : "Your forms flow into shared review queues, where Advancement Services can approve them or send them back with clarification notes."}
-          </div>
-        </div>
-
-        <div
           id="today-worklist"
           style={{
             backgroundColor: "white",
@@ -826,39 +840,44 @@ export default function Page() {
               <h2 style={{ margin: "0 0 6px", fontSize: "22px", color: "#111827" }}>
                 {isReviewer
                   ? "Work the shared queues and discussion items that need attention now."
-                  : "See what needs attention, what is overdue, and what to move forward next."}
+                  : "See what needs attention today and move your prospects forward."}
               </h2>
               <p style={{ margin: 0, fontSize: "14px", color: "#6B7280", lineHeight: 1.6 }}>
                 {isReviewer
                   ? "This is the companion worklist for Advancement Services. Use it to clear queue work and keep team follow-up moving."
-                  : "This is your companion worklist on top of NXT. It keeps next steps, internal discussion, and clarification work in one place."}
+                  : "This companion worklist sits on top of Raiser's Edge NXT and keeps next steps, internal discussion, and prospect movement in one place."}
               </p>
             </div>
-            <div
-              style={{
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #E5E7EB",
-                backgroundColor: "#F9FAFB",
-                minWidth: "220px",
-              }}
-            >
+            {worklist && !isReviewer ? (
               <div
                 style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "#6B7280",
-                  marginBottom: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "12px",
+                  backgroundColor: "#F9FAFB",
+                  minWidth: "220px",
                 }}
               >
-                Terminology
+                <div
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Resume working
+                </div>
+                <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.55 }}>
+                  {worklist.overdueNextSteps?.[0]?.prospect_name
+                    ? `Resume ${worklist.overdueNextSteps[0].prospect_name} follow-up.`
+                    : worklist.discussionItems?.[0]?.subject
+                      ? `Review ${worklist.discussionItems[0].subject}.`
+                      : "Open your top prospects and keep the next step moving."}
+                </div>
               </div>
-              <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.55 }}>
-                Use NXT terms for synced records. Use <strong>Internal only</strong> for team discussion and reminders that live in the companion layer.
-              </div>
-            </div>
+            ) : null}
           </div>
 
           {worklistLoading ? (
@@ -1204,98 +1223,9 @@ export default function Page() {
           ) : null}
         </div>
 
-        <div
-          style={{
-            backgroundColor: "white",
-            borderRadius: "16px",
-            border: "1px solid #E5E7EB",
-            padding: "18px 20px",
-            marginBottom: "18px",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "12px",
-              fontWeight: 700,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: "#6B7280",
-              marginBottom: "8px",
-            }}
-          >
-            Start here
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "16px",
-            }}
-          >
-            <div>
-              <h2 style={{ margin: "0 0 8px", fontSize: "22px", color: "#111827" }}>
-                {isReviewer
-                  ? "Focus on the queues that move work forward today."
-                  : "Start with the work that keeps donor momentum moving."}
-              </h2>
-              <p style={{ margin: 0, fontSize: "14px", color: "#6B7280", lineHeight: 1.6 }}>
-                {isReviewer
-                  ? "Use the primary tasks below in order. They match the way the team actually clears requests and keeps records moving."
-                  : "Use the primary tasks below in order. They follow the normal MGO rhythm: capture updates, work your portfolio, then track review responses."}
-              </p>
-            </div>
-            <div
-              style={{
-                backgroundColor: "#F9FAFB",
-                border: "1px solid #E5E7EB",
-                borderRadius: "14px",
-                padding: "14px 16px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  color: "#6B7280",
-                  marginBottom: "8px",
-                }}
-              >
-                Suggested flow
-              </div>
-              <div style={{ display: "grid", gap: "8px" }}>
-                {workflow.map((step, index) => (
-                  <div key={step} style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                    <div
-                      style={{
-                        width: "22px",
-                        height: "22px",
-                        borderRadius: "999px",
-                        backgroundColor: "#EEF2FF",
-                        color: "#4338CA",
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        display: "grid",
-                        placeItems: "center",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {index + 1}
-                    </div>
-                    <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.5 }}>
-                      {step}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        <div style={{ marginBottom: "10px", fontSize: "18px", color: "#111827", fontWeight: 700 }}>
+          Quick actions
         </div>
-
-        <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>
-          Primary tasks
-        </h2>
 
         <div
           style={{
@@ -1328,7 +1258,7 @@ export default function Page() {
                   marginBottom: "8px",
                 }}
               >
-                {index === 0 ? "Best next step" : "Primary task"}
+                {index === 0 ? "Primary focus" : "Quick action"}
               </div>
               <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "17px" }}>
                 {action.title}
@@ -1340,10 +1270,10 @@ export default function Page() {
           ))}
         </div>
 
-        {secondaryActions.length ? (
+        {teamSupport.length ? (
           <>
-            <h2 style={{ margin: "0 0 14px", fontSize: "18px", color: "#111827" }}>
-              Secondary tools
+            <h2 style={{ margin: "0 0 12px", fontSize: "18px", color: "#111827" }}>
+              Team & Support
             </h2>
 
             <div
@@ -1351,16 +1281,56 @@ export default function Page() {
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "12px",
+                marginBottom: "18px",
               }}
             >
-              {secondaryActions.map((action) => (
+              {teamSupport.map((action) => (
                 <a
                   key={action.href}
                   href={action.href}
                   style={{
                     textDecoration: "none",
                     backgroundColor: "white",
-                    border: "1px solid #E5E7EB",
+                    border: "1px solid #F3F4F6",
+                    borderRadius: "12px",
+                    padding: "16px",
+                    color: "#111827",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
+                    {action.title}
+                  </div>
+                  <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
+                    {action.description}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {requestsReview.length ? (
+          <>
+            <h2 style={{ margin: "0 0 12px", fontSize: "18px", color: "#111827" }}>
+              Requests & Review
+            </h2>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "12px",
+                marginBottom: "22px",
+              }}
+            >
+              {requestsReview.map((action) => (
+                <a
+                  key={action.href}
+                  href={action.href}
+                  style={{
+                    textDecoration: "none",
+                    backgroundColor: "#FCFCFD",
+                    border: "1px solid #F3F4F6",
                     borderRadius: "12px",
                     padding: "16px",
                     color: "#111827",
@@ -1390,8 +1360,7 @@ export default function Page() {
         >
           <div
             style={{
-              backgroundColor: "white",
-              border: "1px solid #E5E7EB",
+              backgroundColor: "#FCFCFD",
               borderRadius: "14px",
               padding: "14px 16px",
             }}
@@ -1450,7 +1419,7 @@ export default function Page() {
             <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.6 }}>
               {isReviewer
                 ? "Review process guidance and shared standards live in the knowledge base."
-                : "Use the knowledge base for process guidance, scripts, and submission standards."}
+                : "Use the knowledge base for standards, definitions, and quick process checks."}
             </div>
             <a
               href={isReviewer ? "/knowledge-base/manage" : "/knowledge-base"}
@@ -1469,8 +1438,7 @@ export default function Page() {
 
           <div
             style={{
-              backgroundColor: "white",
-              border: "1px solid #E5E7EB",
+              backgroundColor: "#FCFCFD",
               borderRadius: "14px",
               padding: "14px 16px",
             }}
@@ -1489,11 +1457,11 @@ export default function Page() {
             </div>
             <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.6 }}>
               {isReviewer
-                ? "Submission reviews, list-request priorities, and knowledge-base changes are shared across Advancement Services."
-                : "Your submissions and list requests flow into shared Advancement Services queues and stay visible in your tracker."}
+                ? "Queue reviews, list priorities, and team discussion stay visible to the shared Advancement Services workspace."
+                : "Support requests and review responses stay available when you need them, but your primary work lives in prospects, updates, and team discussion."}
             </div>
             <a
-              href="/submissions"
+              href={isReviewer ? "/submissions" : "/team-discussion"}
               style={{
                 display: "inline-flex",
                 marginTop: "10px",
@@ -1503,7 +1471,7 @@ export default function Page() {
                 textDecoration: "none",
               }}
             >
-              Open tracker
+              {isReviewer ? "Open submission tracker" : "Open team discussion"}
             </a>
           </div>
         </footer>

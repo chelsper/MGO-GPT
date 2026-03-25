@@ -676,32 +676,68 @@ export default function NewConstituentPage() {
           />
 
           {/* Business Card Photo Section */}
-          <div
+          <details
+            open={Boolean(businessCardPreview)}
             style={{
               backgroundColor: "white",
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              padding: "24px",
+              padding: "20px 24px",
               marginBottom: "20px",
             }}
           >
-            <label
+            <summary
               style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#374151",
-                marginBottom: "12px",
+                cursor: "pointer",
+                listStyle: "none",
               }}
             >
-              Business Card Photo
-            </label>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      color: "#374151",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Add business card photo
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#6B7280" }}>
+                    Optional reviewer context for this constituent.
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: businessCardPreview ? "#166534" : "#6B7280",
+                    backgroundColor: businessCardPreview ? "#F0FDF4" : "#F9FAFB",
+                    borderRadius: "999px",
+                    padding: "4px 10px",
+                  }}
+                >
+                  {businessCardPreview ? "Photo attached" : "Optional"}
+                </div>
+              </div>
+            </summary>
+
+            <div style={{ marginTop: "16px" }}>
 
             {/* Preview area */}
             <div
               style={{
                 width: "100%",
-                height: "180px",
+                height: businessCardPreview ? "180px" : "104px",
                 backgroundColor: businessCardPreview ? "#F9FAFB" : "#F3F4F6",
                 borderRadius: "12px",
                 border: "1px solid #E5E7EB",
@@ -745,16 +781,15 @@ export default function NewConstituentPage() {
             <div
               style={{
                 marginBottom: "16px",
-                padding: "10px 12px",
+                padding: "8px 10px",
                 borderRadius: "10px",
                 backgroundColor: "#F9FAFB",
-                border: "1px solid #E5E7EB",
                 color: "#6B7280",
-                fontSize: "13px",
+                fontSize: "12px",
                 lineHeight: 1.5,
               }}
             >
-              Business card AI autofill is temporarily unavailable. You can still attach a card image for reviewer context and submit the constituent manually.
+              AI autofill is unavailable right now. You can still attach a card image for reviewer context and submit the constituent manually.
             </div>
 
             {/* Buttons */}
@@ -808,7 +843,8 @@ export default function NewConstituentPage() {
                 Upload
               </button>
             </div>
-          </div>
+            </div>
+          </details>
 
           <div
             style={{
