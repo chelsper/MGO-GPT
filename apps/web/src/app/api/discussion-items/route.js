@@ -25,10 +25,14 @@ export async function GET(request) {
       SELECT
         di.*,
         p.prospect_name,
+        c.name AS constituent_name,
         assigned_user.name AS assigned_user_name,
-        creator.name AS created_by_name
+        creator.name AS created_by_name,
+        po.title AS opportunity_title
       FROM discussion_items di
       LEFT JOIN prospects p ON p.id = di.prospect_id
+      LEFT JOIN constituents c ON c.id = di.constituent_id
+      LEFT JOIN prospect_opportunities po ON po.id = di.prospect_opportunity_id
       LEFT JOIN users assigned_user ON assigned_user.id = di.assigned_user_id
       LEFT JOIN users creator ON creator.id = di.created_by
       WHERE di.owner_user_id = ${user.id}
