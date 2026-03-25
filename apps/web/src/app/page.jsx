@@ -271,7 +271,7 @@ function getResumeWorkItem(worklist, isReviewer) {
       eyebrow: "Resume working",
       title: overdue.prospect_name || "Open prospect",
       description: overdue.next_action_text || "Continue this follow-up.",
-      href: buildProspectWorkspaceHref(overdue.id, "action"),
+      href: buildProspectWorkspaceHref(overdue.id, "next-step"),
     };
   }
 
@@ -1120,7 +1120,7 @@ export default function Page() {
                           subtitle: item.next_action_text,
                           meta: renderWorklistMeta(item),
                           primaryActionLabel: "Set next step",
-                          primaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
+                          primaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
                           secondaryActionLabel: "Log Action",
                           secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
                         })),
@@ -1137,7 +1137,7 @@ export default function Page() {
                           primaryActionLabel: "Log Action",
                           primaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
                           secondaryActionLabel: "Set next step",
-                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
+                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
                         })),
                         empty: "Nothing due in the next 7 days.",
                       },

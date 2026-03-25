@@ -928,6 +928,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [editingUpdateNotes, setEditingUpdateNotes] = useState("");
   const [editingUpdateDate, setEditingUpdateDate] = useState("");
   const [showActionForm, setShowActionForm] = useState(false);
+  const [showNextStepForm, setShowNextStepForm] = useState(false);
   const [actionDate, setActionDate] = useState(
     new Date().toISOString().split("T")[0],
   );
@@ -944,6 +945,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [discussionDueDate, setDiscussionDueDate] = useState("");
   const [discussionAssignedUserId, setDiscussionAssignedUserId] = useState("");
   const [discussionError, setDiscussionError] = useState("");
+  const [nextStepTextDraft, setNextStepTextDraft] = useState("");
+  const [nextStepDueDateDraft, setNextStepDueDateDraft] = useState("");
+  const [nextStepCompletedDraft, setNextStepCompletedDraft] = useState(false);
   const [newOpportunityData, setNewOpportunityData] = useState({
     title: "",
     currentStage: "Identification",
@@ -964,6 +968,14 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     if (!prospectId) return;
     if (initialPanel === "action") {
       setShowActionForm(true);
+      setShowNextStepForm(false);
+      setShowOpportunityForm(false);
+      setShowDiscussionForm(false);
+      return;
+    }
+    if (initialPanel === "next-step") {
+      setShowNextStepForm(true);
+      setShowActionForm(false);
       setShowOpportunityForm(false);
       setShowDiscussionForm(false);
       return;
@@ -971,12 +983,14 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     if (initialPanel === "discussion") {
       setShowDiscussionForm(true);
       setShowActionForm(false);
+      setShowNextStepForm(false);
       setShowOpportunityForm(false);
       return;
     }
     if (initialPanel === "opportunity") {
       setShowOpportunityForm(true);
       setShowActionForm(false);
+      setShowNextStepForm(false);
       setShowDiscussionForm(false);
       return;
     }
@@ -1188,6 +1202,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setEditMode(false);
+      setShowNextStepForm(false);
       setActionError("");
     },
     onError: (mutationError) => {
@@ -1624,6 +1639,16 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
         : "No due date set"
     : "No next action set.";
 
+  useEffect(() => {
+    setNextStepTextDraft(prospect.next_action_text || "");
+    setNextStepDueDateDraft(prospect.next_action_due_date || "");
+    setNextStepCompletedDraft(Boolean(prospect.next_action_completed_at));
+  }, [
+    prospect.next_action_completed_at,
+    prospect.next_action_due_date,
+    prospect.next_action_text,
+  ]);
+
   const startEditingTimelineUpdate = (event) => {
     const raw = event.raw || {};
     setEditingUpdateId(raw.id);
@@ -1645,6 +1670,16 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
         updateDate: editingUpdateDate,
         updateNotes: editingUpdateNotes,
       },
+    });
+  };
+
+  const saveNextStep = () => {
+    setActionError("");
+    const trimmed = nextStepTextDraft.trim();
+    editMutation.mutate({
+      nextActionText: trimmed || null,
+      nextActionDueDate: trimmed ? nextStepDueDateDraft || null : null,
+      nextActionCompletedAt: trimmed && nextStepCompletedDraft ? new Date().toISOString() : null,
     });
   };
 
@@ -1933,6 +1968,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                   <button
                     onClick={() => {
                       setShowActionForm(true);
+                      setShowNextStepForm(false);
                       setShowOpportunityForm(false);
                       setShowDiscussionForm(false);
                     }}
@@ -1951,8 +1987,29 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                   </button>
                   <button
                     onClick={() => {
+                      setShowNextStepForm(true);
+                      setShowActionForm(false);
+                      setShowOpportunityForm(false);
+                      setShowDiscussionForm(false);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      backgroundColor: "#FFF7ED",
+                      color: "#C2410C",
+                      border: "1px solid #FED7AA",
+                      borderRadius: "10px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Set Next Step
+                  </button>
+                  <button
+                    onClick={() => {
                       setShowOpportunityForm(true);
                       setShowActionForm(false);
+                      setShowNextStepForm(false);
                       setShowDiscussionForm(false);
                     }}
                     style={{
@@ -1972,6 +2029,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                     onClick={() => {
                       setShowDiscussionForm(true);
                       setShowActionForm(false);
+                      setShowNextStepForm(false);
                       setShowOpportunityForm(false);
                     }}
                     style={{
@@ -2528,6 +2586,29 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 >
                   Fastest path: use <strong>Log Action</strong> when you need to capture movement and update the next step together.
                 </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNextStepForm((current) => !current);
+                      setShowActionForm(false);
+                      setShowOpportunityForm(false);
+                      setShowDiscussionForm(false);
+                    }}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "999px",
+                      border: "1px solid #86EFAC",
+                      backgroundColor: showNextStepForm ? "#166534" : "white",
+                      color: showNextStepForm ? "white" : "#166534",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showNextStepForm ? "Editing next step" : "Edit next step"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2545,6 +2626,125 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
               }}
             >
               {actionError}
+            </div>
+          ) : null}
+
+          {showNextStepForm ? (
+            <div
+              style={{
+                ...workspaceCardStyle,
+                marginBottom: "20px",
+                backgroundColor: "#FFFDF7",
+                borderColor: "#FDE68A",
+              }}
+            >
+              <p style={sectionEyebrowStyle}>Next Step</p>
+              <p style={{ margin: "0 0 14px", fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
+                Keep the follow-up itself current here without opening the full Action form.
+              </p>
+              <div style={{ display: "grid", gap: "14px" }}>
+                <div>
+                  <label style={detailLabelStyle}>Next Step</label>
+                  <textarea
+                    rows={3}
+                    value={nextStepTextDraft}
+                    onChange={(event) => setNextStepTextDraft(event.target.value)}
+                    placeholder="What should happen next?"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "10px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: "14px",
+                  }}
+                >
+                  <div>
+                    <label style={detailLabelStyle}>Due Date</label>
+                    <input
+                      type="date"
+                      value={nextStepDueDateDraft}
+                      onChange={(event) => setNextStepDueDateDraft(event.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "10px",
+                        fontSize: "14px",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "14px",
+                      color: "#374151",
+                      paddingTop: "26px",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={nextStepCompletedDraft}
+                      onChange={(event) => setNextStepCompletedDraft(event.target.checked)}
+                    />
+                    Mark next step complete
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={saveNextStep}
+                    disabled={editMutation.isPending}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "999px",
+                      border: "none",
+                      backgroundColor: "#6A5BFF",
+                      color: "white",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {editMutation.isPending ? "Saving..." : "Save next step"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNextStepForm(false);
+                      setNextStepTextDraft(prospect.next_action_text || "");
+                      setNextStepDueDateDraft(prospect.next_action_due_date || "");
+                      setNextStepCompletedDraft(Boolean(prospect.next_action_completed_at));
+                    }}
+                    disabled={editMutation.isPending}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "999px",
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#374151",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -5564,6 +5764,31 @@ export default function MyTopProspectsPage() {
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedProspectId(p.id);
+                                if (typeof window !== "undefined") {
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set("prospectId", String(p.id));
+                                  url.searchParams.set("panel", "next-step");
+                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+                                }
+                              }}
+                              style={{
+                                padding: "9px 12px",
+                                borderRadius: "999px",
+                                border: "1px solid #FED7AA",
+                                backgroundColor: "#FFF7ED",
+                                color: "#C2410C",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Set Next Step
+                            </button>
                             <button
                               type="button"
                               onClick={(event) => {
