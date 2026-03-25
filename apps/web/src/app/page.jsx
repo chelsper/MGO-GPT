@@ -220,6 +220,15 @@ function buildProspectWorkspaceHref(prospectId, panel = "") {
   return `/my-top-prospects?${params.toString()}`;
 }
 
+function buildProspectListHref(params = {}) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) searchParams.set(key, String(value));
+  });
+  const query = searchParams.toString();
+  return query ? `/my-top-prospects?${query}` : "/my-top-prospects";
+}
+
 function buildSubmissionHref(submissionId) {
   if (!submissionId) return "/submissions";
   return `/submissions#submission-${encodeURIComponent(submissionId)}`;
@@ -1015,25 +1024,25 @@ export default function Page() {
                         label: "Total ask",
                         count: formatCurrency(worklist.summary.totalAskAmount),
                         color: "#EEF2FF",
-                        href: "/my-top-prospects",
+                        href: buildProspectListHref(),
                       },
                       {
                         label: "Due this week",
                         count: worklist.summary.upcomingNextSteps,
                         color: "#FEF3C7",
-                        href: "/my-top-prospects",
+                        href: buildProspectListHref({ actionFilter: "due" }),
                       },
                       {
                         label: "Overdue next steps",
                         count: worklist.summary.overdueNextSteps,
                         color: "#FEE2E2",
-                        href: "/my-top-prospects",
+                        href: buildProspectListHref({ actionFilter: "overdue" }),
                       },
                       {
                         label: "Needs follow-up",
                         count: worklist.summary.staleProspects,
                         color: "#ECFDF5",
-                        href: "/my-top-prospects",
+                        href: buildProspectListHref({ actionFilter: "follow-up" }),
                       },
                     ]).map((card) => (
                   <a

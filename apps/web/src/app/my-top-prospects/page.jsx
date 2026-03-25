@@ -5169,6 +5169,24 @@ export default function MyTopProspectsPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const requestedProspectId = searchParams.get("prospectId");
     const requestedPanel = searchParams.get("panel") || "";
+    const requestedStatusFilter = searchParams.get("statusFilter");
+    const requestedFyFilter = searchParams.get("fyFilter");
+    const requestedActionFilter = searchParams.get("actionFilter");
+    const requestedSearch = searchParams.get("search");
+
+    if (requestedStatusFilter) {
+      setStatusFilter(requestedStatusFilter);
+    }
+    if (requestedFyFilter) {
+      setFyFilter(requestedFyFilter);
+    }
+    if (requestedActionFilter) {
+      setActionFilter(requestedActionFilter);
+    }
+    if (requestedSearch) {
+      setSearchTerm(requestedSearch);
+    }
+
     if (!requestedProspectId) return;
     const numericId = Number(requestedProspectId);
     if (Number.isInteger(numericId) && numericId > 0) {
@@ -5317,6 +5335,14 @@ export default function MyTopProspectsPage() {
       actionFilter === "all" ||
       (actionFilter === "clarification" &&
         prospect.latest_submission_status === "Needs Clarification") ||
+      (actionFilter === "overdue" &&
+        Boolean(
+          prospect.next_action_text &&
+            !prospect.next_action_completed_at &&
+            prospect.next_action_due_date &&
+            new Date(prospect.next_action_due_date).getTime() <
+              new Date().setHours(0, 0, 0, 0),
+        )) ||
       (actionFilter === "due" &&
         Boolean(
           prospect.next_action_text &&
@@ -5930,6 +5956,7 @@ export default function MyTopProspectsPage() {
             >
               <option value="all">All action states</option>
               <option value="clarification">Clarification requested</option>
+              <option value="overdue">Overdue next steps</option>
               <option value="due">Next action due</option>
               <option value="follow-up">Needs follow-up</option>
               <option value="no-opportunity">No active opportunities</option>
