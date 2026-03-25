@@ -416,9 +416,11 @@ export default function Page() {
     data: worklist,
     isLoading: worklistLoading,
   } = useQuery({
-    queryKey: ["home-worklist", profile?.id, roleLabel],
+    queryKey: ["home-worklist", profile?.id, effectiveRole],
     queryFn: async () => {
-      const response = await fetch("/api/worklist");
+      const response = await fetch(
+        `/api/worklist?view=${encodeURIComponent(effectiveRole || "mgo")}`,
+      );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load today's worklist");

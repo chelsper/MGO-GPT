@@ -2,7 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import { isAdminRole, isReviewerRole } from "@/utils/workspaceRoles";
 
 export async function GET(request) {
   try {
@@ -18,7 +18,11 @@ export async function GET(request) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    const isReviewer = isReviewerRole(user.role);
+    const requestedView = new URL(request.url).searchParams.get("view");
+    const isReviewer =
+      isAdminRole(user.role) && (requestedView === "mgo" || requestedView === "reviewer")
+        ? requestedView === "reviewer"
+        : isReviewerRole(user.role);
 
     if (isReviewer) {
       const [submissionCounts, clarificationThreads, poolItems, discussionItems] =
