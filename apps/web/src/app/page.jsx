@@ -9,6 +9,11 @@ import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 
 const MGO_ACTIONS = [
   {
+    title: "Today",
+    href: "/",
+    description: "See overdue next steps, upcoming follow-up, and internal discussion in one place.",
+  },
+  {
     title: "Submission Tracker",
     href: "/submissions",
     description: "Track review status, clarification requests, and completed work.",
@@ -43,9 +48,19 @@ const MGO_ACTIONS = [
     href: "/knowledge-base",
     description: "Search standards, scripts, and process guidance.",
   },
+  {
+    title: "Team Discussion",
+    href: "/team-discussion",
+    description: "Keep internal talking points, handoffs, and meeting prep tied to real work.",
+  },
 ];
 
 const REVIEWER_ACTIONS = [
+  {
+    title: "Today",
+    href: "/",
+    description: "See open queue work, clarification requests, and team discussion needing attention.",
+  },
   {
     title: "Review Submissions",
     href: "/submissions",
@@ -71,6 +86,11 @@ const REVIEWER_ACTIONS = [
     href: "/knowledge-base",
     description: "Review the current published knowledge base content.",
   },
+  {
+    title: "Team Discussion",
+    href: "/team-discussion",
+    description: "Review internal discussion items tied to constituents, teammates, and opportunities.",
+  },
 ];
 
 const ADMIN_ACTIONS = [
@@ -95,6 +115,7 @@ const MGO_NAV_ITEMS = [
   { label: "Action & Opportunity Updates", href: "/action-opportunity-update" },
   { label: "Suggest New Constituent", href: "/new-constituent" },
   { label: "Request List", href: "/request-list" },
+  { label: "Team Discussion", href: "/team-discussion" },
 ];
 
 const REVIEWER_NAV_ITEMS = [
@@ -104,6 +125,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Prospect Pool", href: "/prospect-pool" },
   { label: "Knowledge Base", href: "/knowledge-base" },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage" },
+  { label: "Team Discussion", href: "/team-discussion" },
 ];
 
 const ADMIN_NAV_ITEMS = [
@@ -912,7 +934,7 @@ export default function Page() {
                       },
                       {
                         title: "Team discussion",
-                        href: "/submissions",
+                        href: "/team-discussion",
                         badge: getSyncBadge("internal"),
                         items: worklist.discussionItems.map((item) => ({
                           title: item.subject,
@@ -949,7 +971,7 @@ export default function Page() {
                       },
                       {
                         title: "Team discussion",
-                        href: "/my-top-prospects",
+                        href: "/team-discussion",
                         badge: getSyncBadge("internal"),
                         items: worklist.discussionItems.map((item) => ({
                           title: item.subject,
