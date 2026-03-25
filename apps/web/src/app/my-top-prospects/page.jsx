@@ -1384,6 +1384,16 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const blackbaudAssignments =
     blackbaudSummary?.mapped?.fundraiserAssignments || [];
 
+  useEffect(() => {
+    setNextStepTextDraft(prospect?.next_action_text || "");
+    setNextStepDueDateDraft(prospect?.next_action_due_date || "");
+    setNextStepCompletedDraft(Boolean(prospect?.next_action_completed_at));
+  }, [
+    prospect?.next_action_completed_at,
+    prospect?.next_action_due_date,
+    prospect?.next_action_text,
+  ]);
+
   if (isLoading) {
     return (
       <div
@@ -1710,16 +1720,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
         ? `Due ${formatLongDate(prospect.next_action_due_date)}`
         : "No due date set"
     : "No next action set.";
-
-  useEffect(() => {
-    setNextStepTextDraft(prospect.next_action_text || "");
-    setNextStepDueDateDraft(prospect.next_action_due_date || "");
-    setNextStepCompletedDraft(Boolean(prospect.next_action_completed_at));
-  }, [
-    prospect.next_action_completed_at,
-    prospect.next_action_due_date,
-    prospect.next_action_text,
-  ]);
 
   const startEditingTimelineUpdate = (event) => {
     const raw = event.raw || {};
