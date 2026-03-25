@@ -15,6 +15,8 @@ const BLACKBAUD_ACTIONS_URL =
   "https://api.sky.blackbaud.com/constituent/v1/actions";
 const BLACKBAUD_OPPORTUNITIES_URL =
   "https://api.sky.blackbaud.com/opportunity/v1/opportunities";
+const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
+  "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
 
@@ -604,6 +606,50 @@ export async function listBlackbaudOpportunities({
       userId,
       origin,
       searchParams: nextPath === BLACKBAUD_OPPORTUNITIES_URL ? nextSearchParams : undefined,
+    });
+
+    const rows = Array.isArray(payload?.value)
+      ? payload.value
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    results.push(...rows);
+
+    nextPath = payload?.next_link || null;
+    nextSearchParams = undefined;
+    pageCount += 1;
+  }
+
+  return results;
+}
+
+export async function listBlackbaudFundraiserAssignments({
+  userId,
+  origin,
+  fundraiserId,
+  searchParams,
+  pageLimit = 500,
+  maxPages = 20,
+} = {}) {
+  if (!fundraiserId) {
+    throw new Error("A Blackbaud fundraiser ID is required");
+  }
+
+  const results = [];
+  let nextPath = `${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/${encodeURIComponent(
+    String(fundraiserId),
+  )}/assignments`;
+  let nextSearchParams = {
+    limit: pageLimit,
+    ...searchParams,
+  };
+  let pageCount = 0;
+
+  while (nextPath && pageCount < maxPages) {
+    const payload = await blackbaudApiFetch(nextPath, {
+      userId,
+      origin,
+      searchParams: nextSearchParams,
     });
 
     const rows = Array.isArray(payload?.value)

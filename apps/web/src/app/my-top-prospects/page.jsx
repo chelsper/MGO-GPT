@@ -171,6 +171,130 @@ function formatShortDate(value) {
   });
 }
 
+function formatPortfolioContact(person) {
+  return [person?.email, person?.phone].filter(Boolean).join(" · ");
+}
+
+function PortfolioTier({ title, description, items, accent }) {
+  return (
+    <div
+      style={{
+        backgroundColor: "white",
+        borderRadius: "14px",
+        border: "1px solid #E5E7EB",
+        padding: "16px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "12px",
+          alignItems: "baseline",
+          flexWrap: "wrap",
+          marginBottom: "8px",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "16px", fontWeight: "700", color: "#111827" }}>
+            {title}
+          </div>
+          <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+            {description}
+          </div>
+        </div>
+        <div
+          style={{
+            padding: "6px 10px",
+            borderRadius: "999px",
+            backgroundColor: accent.background,
+            color: accent.text,
+            fontSize: "12px",
+            fontWeight: "700",
+          }}
+        >
+          {items.length} constituent{items.length === 1 ? "" : "s"}
+        </div>
+      </div>
+
+      {items.length ? (
+        <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
+          {items.map((person) => (
+            <div
+              key={person.constituentId}
+              style={{
+                borderRadius: "12px",
+                backgroundColor: "#F9FAFB",
+                padding: "14px",
+                display: "grid",
+                gap: "6px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>
+                  {person.name || "Unnamed constituent"}
+                </div>
+                {person.lookupId ? (
+                  <div
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: "999px",
+                      backgroundColor: "#EEF2FF",
+                      color: "#4338CA",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                    }}
+                  >
+                    Lookup ID: {person.lookupId}
+                  </div>
+                ) : null}
+              </div>
+              <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
+                {formatPortfolioContact(person) || "No email or phone in NXT"}
+              </div>
+              {person.address ? (
+                <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                  {person.address}
+                </div>
+              ) : null}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  marginTop: "4px",
+                }}
+              >
+                <div style={{ fontSize: "12px", color: "#6B7280" }}>
+                  {person.assignmentTypes?.join(" · ")}
+                </div>
+                <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>
+                  Lifetime giving:{" "}
+                  {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
+          No current constituents in this tier right now.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getProspectNextAction(prospect) {
   if (prospect.next_action_text && !prospect.next_action_completed_at) {
     return {
@@ -4970,6 +5094,27 @@ export default function MyTopProspectsPage() {
     enabled: !!user,
   });
 
+  const {
+    data: blackbaudPortfolio,
+    isLoading: isBlackbaudPortfolioLoading,
+    isError: isBlackbaudPortfolioError,
+  } = useQuery({
+    queryKey: [
+      "blackbaud-portfolio",
+      profileStatus?.workspaceUser?.id,
+      profileStatus?.workspaceUser?.blackbaud_constituent_id,
+    ],
+    queryFn: async () => {
+      const res = await fetch("/api/blackbaud/portfolio");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to fetch Blackbaud portfolio");
+      }
+      return data;
+    },
+    enabled: !!user && !!profileStatus?.workspaceUser?.blackbaud_constituent_id,
+  });
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const searchParams = new URLSearchParams(window.location.search);
@@ -5042,6 +5187,7 @@ export default function MyTopProspectsPage() {
       queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
     },
   });
 
@@ -5328,6 +5474,92 @@ export default function MyTopProspectsPage() {
             >
               {syncMutation.isPending ? "Syncing..." : "Sync from Blackbaud opportunities"}
             </button>
+          </div>
+        ) : null}
+
+        {profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              padding: "18px",
+              marginBottom: "24px",
+              display: "grid",
+              gap: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "baseline",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "6px",
+                  }}
+                >
+                  My Portfolio
+                </div>
+                <div style={{ fontSize: "18px", fontWeight: "700", color: "#111827" }}>
+                  Current NXT fundraiser assignments
+                </div>
+                <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                  Pulled from Raiser's Edge NXT by your fundraiser assignment role. Lead
+                  Solicitor appears first, followed by Secondary and Athletics Solicitor assignments.
+                </div>
+              </div>
+              {blackbaudPortfolio?.summary ? (
+                <div style={{ fontSize: "13px", color: "#4B5563", fontWeight: "600" }}>
+                  {blackbaudPortfolio.summary.leadCount + blackbaudPortfolio.summary.supportingCount} assigned constituents
+                </div>
+              ) : null}
+            </div>
+
+            {isBlackbaudPortfolioLoading ? (
+              <div style={{ fontSize: "14px", color: "#6B7280" }}>
+                Loading your NXT portfolio...
+              </div>
+            ) : isBlackbaudPortfolioError ? (
+              <div style={{ fontSize: "14px", color: "#B91C1C" }}>
+                Could not load your NXT portfolio right now.
+              </div>
+            ) : blackbaudPortfolio?.warning ? (
+              <div style={{ fontSize: "14px", color: "#6B7280" }}>
+                {blackbaudPortfolio.warning}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                  gap: "14px",
+                }}
+              >
+                <PortfolioTier
+                  title="Lead Solicitor"
+                  description="Your primary portfolio assignments in NXT."
+                  items={blackbaudPortfolio?.leadSolicitor || []}
+                  accent={{ background: "#EEF2FF", text: "#4338CA" }}
+                />
+                <PortfolioTier
+                  title="Secondary / Athletics Solicitor"
+                  description="Supporting assignments where you still need visibility and follow-up."
+                  items={blackbaudPortfolio?.supportingSolicitor || []}
+                  accent={{ background: "#ECFDF5", text: "#065F46" }}
+                />
+              </div>
+            )}
           </div>
         ) : null}
 
