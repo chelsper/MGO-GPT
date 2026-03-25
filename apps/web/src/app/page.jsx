@@ -230,6 +230,71 @@ function groupNavItems(navItems) {
     .filter((group) => group.items.length);
 }
 
+function getResumeWorkItem(worklist, isReviewer) {
+  if (!worklist) return null;
+
+  if (isReviewer) {
+    const clarification = worklist.clarificationThreads?.[0];
+    if (clarification) {
+      return {
+        eyebrow: "Resume working",
+        title: clarification.donor_name || "Open clarification",
+        description:
+          clarification.reviewer_notes || "A submission needs clarification.",
+        href: buildSubmissionHref(clarification.id),
+      };
+    }
+
+    const discussion = worklist.discussionItems?.[0];
+    if (discussion) {
+      return {
+        eyebrow: "Resume working",
+        title: discussion.subject || "Open discussion",
+        description: discussion.prospect_name || "Continue the open discussion thread.",
+        href: discussion.prospect_id
+          ? buildProspectWorkspaceHref(discussion.prospect_id, "discussion")
+          : "/team-discussion",
+      };
+    }
+
+    return {
+      eyebrow: "Resume working",
+      title: "Open today’s worklist",
+      description: "Review the shared queues and keep work moving.",
+      href: "/#today-worklist",
+    };
+  }
+
+  const overdue = worklist.overdueNextSteps?.[0];
+  if (overdue) {
+    return {
+      eyebrow: "Resume working",
+      title: overdue.prospect_name || "Open prospect",
+      description: overdue.next_action_text || "Continue this follow-up.",
+      href: buildProspectWorkspaceHref(overdue.id, "action"),
+    };
+  }
+
+  const discussion = worklist.discussionItems?.[0];
+  if (discussion) {
+    return {
+      eyebrow: "Resume working",
+      title: discussion.subject || "Open discussion",
+      description: discussion.prospect_name || "Review the open team discussion item.",
+      href: discussion.prospect_id
+        ? buildProspectWorkspaceHref(discussion.prospect_id, "discussion")
+        : "/team-discussion",
+    };
+  }
+
+  return {
+    eyebrow: "Resume working",
+    title: "Open My Prospects",
+    description: "Pick up your next step and keep the work moving.",
+    href: "/my-top-prospects",
+  };
+}
+
 export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -352,6 +417,10 @@ export default function Page() {
     },
     enabled: Boolean(profile?.id),
   });
+  const resumeWorkItem = useMemo(
+    () => getResumeWorkItem(worklist, isReviewer),
+    [isReviewer, worklist],
+  );
 
   if (loading || !user || profileLoading) {
     return (
@@ -848,13 +917,17 @@ export default function Page() {
                   : "This companion worklist sits on top of Raiser's Edge NXT and keeps next steps, internal discussion, and prospect movement in one place."}
               </p>
             </div>
-            {worklist && !isReviewer ? (
-              <div
+            {resumeWorkItem ? (
+              <a
+                href={resumeWorkItem.href}
                 style={{
+                  display: "block",
                   padding: "10px 12px",
                   borderRadius: "12px",
                   backgroundColor: "#F9FAFB",
                   minWidth: "220px",
+                  textDecoration: "none",
+                  border: "1px solid #E5E7EB",
                 }}
               >
                 <div
@@ -863,20 +936,26 @@ export default function Page() {
                     fontWeight: 700,
                     textTransform: "uppercase",
                     letterSpacing: "0.04em",
-                    color: "#6B7280",
-                    marginBottom: "6px",
+                  color: "#6B7280",
+                  marginBottom: "6px",
+                }}
+              >
+                  {resumeWorkItem.eyebrow}
+                </div>
+                <div
+                  style={{
+                    fontSize: "16px",
+                    fontWeight: 700,
+                    color: "#111827",
+                    marginBottom: "4px",
                   }}
                 >
-                  Resume working
+                  {resumeWorkItem.title}
                 </div>
-                <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.55 }}>
-                  {worklist.overdueNextSteps?.[0]?.prospect_name
-                    ? `Resume ${worklist.overdueNextSteps[0].prospect_name} follow-up.`
-                    : worklist.discussionItems?.[0]?.subject
-                      ? `Review ${worklist.discussionItems[0].subject}.`
-                      : "Open your top prospects and keep the next step moving."}
+                <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.55 }}>
+                  {resumeWorkItem.description}
                 </div>
-              </div>
+              </a>
             ) : null}
           </div>
 
