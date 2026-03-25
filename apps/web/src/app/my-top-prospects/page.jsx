@@ -5812,7 +5812,18 @@ export default function MyTopProspectsPage() {
                             >
                               {nextStepBadge.label}
                             </span>
-                            <span
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedProspectId(p.id);
+                                if (typeof window !== "undefined") {
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set("prospectId", String(p.id));
+                                  url.searchParams.set("panel", "discussion");
+                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+                                }
+                              }}
                               style={{
                                 backgroundColor: discussionBadge.bg,
                                 color: discussionBadge.text,
@@ -5821,10 +5832,11 @@ export default function MyTopProspectsPage() {
                                 borderRadius: "999px",
                                 fontSize: "12px",
                                 fontWeight: 700,
+                                cursor: "pointer",
                               }}
                             >
                               {discussionBadge.label}
-                            </span>
+                            </button>
                           </div>
                           {nextAction.meta ? (
                             <div
