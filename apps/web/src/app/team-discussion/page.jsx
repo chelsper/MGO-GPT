@@ -37,6 +37,36 @@ function groupItems(items, keyBuilder) {
   return Array.from(groups.values());
 }
 
+function classifyMeetingBucket(item) {
+  const subject = String(item.subject || "").toLowerCase();
+  const body = String(item.body || "").toLowerCase();
+  const combined = `${subject} ${body}`;
+
+  if (
+    combined.includes("handoff") ||
+    combined.includes("assign") ||
+    combined.includes("owner") ||
+    item.assigned_user_name
+  ) {
+    return "handoffs";
+  }
+
+  if (
+    combined.includes("question") ||
+    combined.includes("ask about") ||
+    combined.includes("need input") ||
+    combined.includes("?")
+  ) {
+    return "questions";
+  }
+
+  if (item.due_date) {
+    return "followUps";
+  }
+
+  return "talkingPoints";
+}
+
 function DiscussionCard({
   item,
   onToggle,
@@ -63,6 +93,7 @@ function DiscussionCard({
 
   return (
     <div
+      id={`discussion-card-${item.id}`}
       style={{
         backgroundColor: "white",
         border: "1px solid #E5E7EB",
@@ -533,6 +564,46 @@ export default function TeamDiscussionPage() {
       ].filter((group) => group.items.length);
     }
 
+    if (viewMode === "meeting") {
+      const buckets = {
+        talkingPoints: [],
+        questions: [],
+        handoffs: [],
+        followUps: [],
+      };
+
+      filteredItems.forEach((item) => {
+        buckets[classifyMeetingBucket(item)].push(item);
+      });
+
+      return [
+        {
+          key: "meeting-talking-points",
+          label: "Talking points",
+          description: "Items to raise in conversation or keep visible during the meeting",
+          items: buckets.talkingPoints,
+        },
+        {
+          key: "meeting-open-questions",
+          label: "Open questions",
+          description: "Items where you need an answer, decision, or guidance",
+          items: buckets.questions,
+        },
+        {
+          key: "meeting-handoffs",
+          label: "Handoffs",
+          description: "Items with a teammate owner or explicit handoff need",
+          items: buckets.handoffs,
+        },
+        {
+          key: "meeting-follow-ups",
+          label: "Follow-up reminders",
+          description: "Items that already have a due date or next follow-up attached",
+          items: buckets.followUps,
+        },
+      ].filter((group) => group.items.length);
+    }
+
     const buckets = {
       overdue: [],
       upcoming: [],
@@ -583,6 +654,7 @@ export default function TeamDiscussionPage() {
     { value: "assignedToMe", label: "Assigned to me", icon: ListTodo },
     { value: "createdByMe", label: "Created by me", icon: MessageSquare },
     { value: "shared", label: "Shared with teammate", icon: Users },
+    { value: "meeting", label: "Meeting view", icon: ListTodo },
     { value: "assigned", label: "Assigned items", icon: ListTodo },
     { value: "teammate", label: "By teammate", icon: Users },
     { value: "constituent", label: "By constituent", icon: UserRound },
@@ -614,10 +686,9 @@ export default function TeamDiscussionPage() {
           Back to dashboard
         </a>
 
-    <div
-      id={`discussion-card-${item.id}`}
-      style={{
-        backgroundColor: "white",
+        <div
+          style={{
+            backgroundColor: "white",
             border: "1px solid #E5E7EB",
             borderRadius: "18px",
             padding: "20px",
