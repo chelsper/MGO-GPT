@@ -220,6 +220,15 @@ function buildSubmissionHref(submissionId) {
   return `/submissions#submission-${encodeURIComponent(submissionId)}`;
 }
 
+function buildDiscussionHref(discussionId) {
+  if (!discussionId) return "/team-discussion";
+  const params = new URLSearchParams({
+    discussionId: String(discussionId),
+    edit: "1",
+  });
+  return `/team-discussion?${params.toString()}`;
+}
+
 function groupNavItems(navItems) {
   const order = ["My Work", "Team & Support", "Requests & Review"];
   return order
@@ -251,9 +260,7 @@ function getResumeWorkItem(worklist, isReviewer) {
         eyebrow: "Resume working",
         title: discussion.subject || "Open discussion",
         description: discussion.prospect_name || "Continue the open discussion thread.",
-        href: discussion.prospect_id
-          ? buildProspectWorkspaceHref(discussion.prospect_id, "discussion")
-          : "/team-discussion",
+        href: buildDiscussionHref(discussion.id),
       };
     }
 
@@ -281,9 +288,7 @@ function getResumeWorkItem(worklist, isReviewer) {
       eyebrow: "Resume working",
       title: discussion.subject || "Open discussion",
       description: discussion.prospect_name || "Review the open team discussion item.",
-      href: discussion.prospect_id
-        ? buildProspectWorkspaceHref(discussion.prospect_id, "discussion")
-        : "/team-discussion",
+      href: buildDiscussionHref(discussion.id),
     };
   }
 
@@ -1103,9 +1108,7 @@ export default function Page() {
                             : "Open internal discussion",
                           meta: renderWorklistMeta(item),
                           primaryActionLabel: "Open discussion",
-                          primaryActionHref: item.prospect_id
-                            ? buildProspectWorkspaceHref(item.prospect_id, "discussion")
-                            : "/team-discussion",
+                          primaryActionHref: buildDiscussionHref(item.id),
                         })),
                         empty: "No open team discussion items right now.",
                       },
@@ -1150,9 +1153,7 @@ export default function Page() {
                           subtitle: item.prospect_name || item.initiative_name || "Internal discussion",
                           meta: renderWorklistMeta(item),
                           primaryActionLabel: "Open discussion",
-                          primaryActionHref: item.prospect_id
-                            ? buildProspectWorkspaceHref(item.prospect_id, "discussion")
-                            : "/team-discussion",
+                          primaryActionHref: buildDiscussionHref(item.id),
                         })),
                         empty: "No open team discussion items right now.",
                       },

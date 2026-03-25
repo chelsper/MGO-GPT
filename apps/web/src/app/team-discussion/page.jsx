@@ -398,6 +398,40 @@ export default function TeamDiscussionPage() {
     }
   }, [discussionItems, editingItem]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !discussionItems.length) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const discussionId = params.get("discussionId");
+    const shouldEdit = params.get("edit") === "1";
+    if (!discussionId || !shouldEdit) return;
+
+    const matchedItem = discussionItems.find(
+      (item) => String(item.id) === String(discussionId),
+    );
+    if (!matchedItem) return;
+
+    setEditingItem({
+      id: matchedItem.id,
+      subject: matchedItem.subject || "",
+      body: matchedItem.body || "",
+      dueDate: matchedItem.due_date || "",
+      assignedUserId: matchedItem.assigned_user_id
+        ? String(matchedItem.assigned_user_id)
+        : "",
+      taggedUserIds: (matchedItem.tagged_users || []).map((taggedUser) =>
+        String(taggedUser.user_id),
+      ),
+    });
+    setViewMode("all");
+    setStatusFilter(matchedItem.status || "Open");
+
+    window.setTimeout(() => {
+      const target = document.getElementById(`discussion-card-${matchedItem.id}`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  }, [discussionItems]);
+
   const filteredItems = useMemo(() => {
     const currentUserId = Number(user?.id || 0);
 
@@ -580,9 +614,10 @@ export default function TeamDiscussionPage() {
           Back to dashboard
         </a>
 
-        <div
-          style={{
-            backgroundColor: "white",
+    <div
+      id={`discussion-card-${item.id}`}
+      style={{
+        backgroundColor: "white",
             border: "1px solid #E5E7EB",
             borderRadius: "18px",
             padding: "20px",
