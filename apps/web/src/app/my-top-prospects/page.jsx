@@ -175,6 +175,24 @@ function formatPortfolioContact(person) {
   return [person?.email, person?.phone].filter(Boolean).join(" · ");
 }
 
+function isNeedsFollowUpProspect(prospect) {
+  if (prospect.next_action_text && !prospect.next_action_completed_at) {
+    return false;
+  }
+
+  if (!prospect.latest_activity_at) {
+    return true;
+  }
+
+  const latestActivityAt = new Date(prospect.latest_activity_at);
+  if (Number.isNaN(latestActivityAt.getTime())) {
+    return true;
+  }
+
+  const staleDays = (Date.now() - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24);
+  return staleDays >= 21;
+}
+
 function PortfolioTier({
   title,
   description,
@@ -348,29 +366,29 @@ function getProspectNextAction(prospect) {
     };
   }
 
+  if (isNeedsFollowUpProspect(prospect)) {
+    if (!prospect.latest_activity_at) {
+      return {
+        label: "Needs follow-up",
+        meta: "No recent activity yet",
+        tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA", soft: "#FEF2F2" },
+      };
+    }
+
+    const latestActivityAt = new Date(prospect.latest_activity_at);
+    const staleDays = (Date.now() - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24);
+    return {
+      label: "Needs follow-up",
+      meta: `Last activity ${Math.floor(staleDays)} days ago`,
+      tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA", soft: "#FEF2F2" },
+    };
+  }
+
   if ((prospect.active_opportunity_count || 0) === 0) {
     return {
       label: "Add first opportunity",
       meta: "No active opportunities yet",
       tone: { bg: "#EDE9FE", fg: "#5B21B6", border: "#DDD6FE", soft: "#F5F3FF" },
-    };
-  }
-
-  if (!prospect.latest_activity_at) {
-    return {
-      label: "Log first update",
-      meta: "No recent activity yet",
-      tone: { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE", soft: "#EFF6FF" },
-    };
-  }
-
-  const latestActivityAt = new Date(prospect.latest_activity_at);
-  const staleDays = (Date.now() - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24);
-  if (staleDays >= 30) {
-    return {
-      label: "Needs follow-up",
-      meta: `Last activity ${Math.floor(staleDays)} days ago`,
-      tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA", soft: "#FEF2F2" },
     };
   }
 
@@ -5349,8 +5367,7 @@ export default function MyTopProspectsPage() {
             !prospect.next_action_completed_at &&
             prospect.next_action_due_date,
         )) ||
-      (actionFilter === "follow-up" &&
-        nextAction.label === "Needs follow-up") ||
+      (actionFilter === "follow-up" && isNeedsFollowUpProspect(prospect)) ||
       (actionFilter === "no-opportunity" &&
         (prospect.active_opportunity_count || 0) === 0);
 
