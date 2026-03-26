@@ -5462,58 +5462,6 @@ export default function MyTopProspectsPage() {
               backgroundColor: "white",
               borderRadius: "12px",
               border: "1px solid #E5E7EB",
-              padding: "14px 18px",
-              marginBottom: "16px",
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "16px",
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ display: "grid", gap: "6px", flex: 1, minWidth: "260px" }}>
-              <div style={{ fontSize: "14px", fontWeight: "700", color: "#111827" }}>
-                NXT sync
-              </div>
-              <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-                {profileStatus.workspaceUser.blackbaud_portfolio_seeded_at
-                  ? `Auto-sync is on. Last refreshed ${formatLongDate(
-                      profileStatus.workspaceUser.blackbaud_portfolio_seeded_at,
-                    )}.`
-                  : "Auto-sync is on. Your portfolio has not been refreshed yet."}
-              </div>
-              {profileStatus.workspaceUser.blackbaud_portfolio_seed_error ? (
-                <div style={{ fontSize: "12px", color: "#B91C1C" }}>
-                  Last error: {profileStatus.workspaceUser.blackbaud_portfolio_seed_error}
-                </div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-              style={{
-                padding: "10px 16px",
-                backgroundColor: syncMutation.isPending ? "#C7D2FE" : "#6A5BFF",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "14px",
-                fontWeight: "700",
-                cursor: syncMutation.isPending ? "not-allowed" : "pointer",
-              }}
-            >
-              {syncMutation.isPending ? "Syncing..." : "Sync from Blackbaud opportunities"}
-            </button>
-          </div>
-        ) : null}
-
-        {activeWorkspaceTab === "portfolio" && profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              border: "1px solid #E5E7EB",
               padding: "18px",
               marginBottom: "24px",
               display: "grid",

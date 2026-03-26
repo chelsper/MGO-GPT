@@ -1023,46 +1023,6 @@ export default function Page() {
                 ))}
               </div>
 
-              {worklist.role !== "reviewer" && resumeWorkItem ? (
-                <div
-                  style={{
-                    backgroundColor: "#F8FAFC",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "14px",
-                    padding: "16px",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <a
-                    href={resumeWorkItem.href}
-                    style={{
-                      display: "block",
-                      textDecoration: "none",
-                      color: "#111827",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        letterSpacing: "0.04em",
-                        textTransform: "uppercase",
-                        color: "#6B7280",
-                        marginBottom: "6px",
-                      }}
-                    >
-                      Continue working
-                    </div>
-                    <div style={{ fontSize: "18px", fontWeight: 800, marginBottom: "4px" }}>
-                      {resumeWorkItem.title}
-                    </div>
-                    <div style={{ fontSize: "14px", color: "#4B5563", lineHeight: 1.5 }}>
-                      {resumeWorkItem.description}
-                    </div>
-                  </a>
-                </div>
-              ) : null}
-
               {worklist.role !== "reviewer" ? (
                 <div
                   id="today-next-steps"
