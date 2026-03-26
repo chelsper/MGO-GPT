@@ -2009,10 +2009,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
               <div
                 style={{
                   marginBottom: "20px",
-                  padding: "20px",
+                  padding: "18px",
                   borderRadius: "18px",
-                  background:
-                    "linear-gradient(135deg, #F7F5FF 0%, #EEF2FF 55%, #F8FAFC 100%)",
+                  background: "#FCFCFF",
                   border: "1px solid #DDD6FE",
                 }}
               >
@@ -2082,9 +2081,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                   <div
                     style={{
                       minWidth: "220px",
-                      padding: "14px 16px",
+                      padding: "12px 14px",
                       borderRadius: "14px",
-                      backgroundColor: "rgba(255,255,255,0.8)",
+                      backgroundColor: "white",
                       border: "1px solid #E5E7EB",
                     }}
                   >
@@ -2108,59 +2107,59 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                     gap: "12px",
                   }}
                 >
                   <div
                     style={{
-                      padding: "14px",
+                      padding: "12px 14px",
                       borderRadius: "14px",
-                      backgroundColor: "rgba(255,255,255,0.8)",
+                      backgroundColor: "white",
                       border: "1px solid #E5E7EB",
                     }}
                   >
                     <p style={sectionEyebrowStyle}>Expected close FY</p>
-                    <div style={{ fontSize: "22px", fontWeight: "800", color: "#111827" }}>
+                    <div style={{ fontSize: "20px", fontWeight: "800", color: "#111827" }}>
                       {prospect.expected_close_fy}
                     </div>
                   </div>
                   <div
                     style={{
-                      padding: "14px",
+                      padding: "12px 14px",
                       borderRadius: "14px",
-                      backgroundColor: "rgba(255,255,255,0.8)",
+                      backgroundColor: "white",
                       border: "1px solid #E5E7EB",
                     }}
                   >
                     <p style={sectionEyebrowStyle}>Ask amount</p>
-                    <div style={{ fontSize: "22px", fontWeight: "800", color: "#111827" }}>
+                    <div style={{ fontSize: "20px", fontWeight: "800", color: "#111827" }}>
                       {formatCurrency(prospect.ask_amount)}
                     </div>
                   </div>
                   <div
                     style={{
-                      padding: "14px",
+                      padding: "12px 14px",
                       borderRadius: "14px",
-                      backgroundColor: "rgba(255,255,255,0.8)",
+                      backgroundColor: "white",
                       border: "1px solid #E5E7EB",
                     }}
                   >
                     <p style={sectionEyebrowStyle}>Ask type</p>
-                    <div style={{ fontSize: "18px", fontWeight: "700", color: "#111827" }}>
+                    <div style={{ fontSize: "16px", fontWeight: "700", color: "#111827" }}>
                       {prospect.ask_type}
                     </div>
                   </div>
                   <div
                     style={{
-                      padding: "14px",
+                      padding: "12px 14px",
                       borderRadius: "14px",
-                      backgroundColor: "rgba(255,255,255,0.8)",
+                      backgroundColor: "white",
                       border: "1px solid #E5E7EB",
                     }}
                   >
                     <p style={sectionEyebrowStyle}>Open opportunities</p>
-                    <div style={{ fontSize: "22px", fontWeight: "800", color: "#111827" }}>
+                    <div style={{ fontSize: "20px", fontWeight: "800", color: "#111827" }}>
                       {
                         opportunities.filter(
                           (opportunity) =>
@@ -2176,8 +2175,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 style={{
                   ...workspaceCardStyle,
                   marginBottom: "20px",
-                  backgroundColor: "#FCFCFF",
-                  borderColor: "#DDD6FE",
+                  backgroundColor: "white",
+                  borderColor: "#E5E7EB",
                 }}
               >
                 <div
@@ -2196,11 +2195,11 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       style={{
                         margin: 0,
                         fontSize: "14px",
-                        color: "#4B5563",
+                        color: "#6B7280",
                         lineHeight: 1.5,
                       }}
                     >
-                      Capture movement, advance the ask, and keep next steps current without leaving this workspace.
+                      Log movement, update the ask, or capture an internal handoff.
                     </p>
                   </div>
                 </div>
@@ -2311,16 +2310,27 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                     <MessageSquare size={14} />
                     Team Discussion
                   </button>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                    marginTop: "12px",
+                    paddingTop: "12px",
+                    borderTop: "1px solid #F3F4F6",
+                  }}
+                >
                   {isActive && (
                     <button
                       onClick={() => setShowCloseModal(true)}
                       style={{
-                        padding: "10px 16px",
-                        backgroundColor: "#FEF3C7",
-                        color: "#92400E",
-                        border: "1px solid #FDE68A",
-                        borderRadius: "10px",
-                        fontSize: "13px",
+                        padding: "8px 12px",
+                        backgroundColor: "#FFF7ED",
+                        color: "#C2410C",
+                        border: "1px solid #FED7AA",
+                        borderRadius: "999px",
+                        fontSize: "12px",
                         fontWeight: "700",
                         cursor: "pointer",
                       }}
@@ -2333,12 +2343,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       onClick={archiveProspect}
                       disabled={editMutation.isPending || deleteMutation.isPending}
                       style={{
-                        padding: "10px 16px",
-                        backgroundColor: "#F3F4F6",
+                        padding: "8px 12px",
+                        backgroundColor: "white",
                         color: "#4B5563",
                         border: "1px solid #D1D5DB",
-                        borderRadius: "10px",
-                        fontSize: "13px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
                         fontWeight: "700",
                         cursor:
                           editMutation.isPending || deleteMutation.isPending
@@ -2355,12 +2365,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       onClick={reactivateProspect}
                       disabled={editMutation.isPending}
                       style={{
-                        padding: "10px 16px",
+                        padding: "8px 12px",
                         backgroundColor: "#ECFDF5",
                         color: "#065F46",
                         border: "1px solid #A7F3D0",
-                        borderRadius: "10px",
-                        fontSize: "13px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
                         fontWeight: "700",
                         cursor: editMutation.isPending ? "not-allowed" : "pointer",
                         opacity: editMutation.isPending ? 0.7 : 1,
@@ -2374,12 +2384,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       onClick={deleteProspect}
                       disabled={deleteMutation.isPending || editMutation.isPending}
                       style={{
-                        padding: "10px 16px",
-                        backgroundColor: "#FEF2F2",
+                        padding: "8px 12px",
+                        backgroundColor: "white",
                         color: "#991B1B",
                         border: "1px solid #FECACA",
-                        borderRadius: "10px",
-                        fontSize: "13px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
                         fontWeight: "700",
                         cursor:
                           deleteMutation.isPending || editMutation.isPending
@@ -2719,161 +2729,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 </button>
               </div>
             </div>
-          ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                gap: "18px",
-                marginBottom: "24px",
-              }}
-            >
-              <div style={workspaceCardStyle}>
-                <p style={sectionEyebrowStyle}>Prospect details</p>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "16px",
-                  }}
-                >
-                  <div>
-                    <p style={detailLabelStyle}>Status</p>
-                    <StatusBadge status={prospect.status} />
-                  </div>
-                  <div>
-                    <p style={detailLabelStyle}>Ask type</p>
-                    <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
-                      {prospect.ask_type}
-                    </p>
-                  </div>
-                  {prospect.closed_amount != null && (
-                    <div>
-                      <p style={detailLabelStyle}>Closed amount</p>
-                      <p
-                        style={{
-                          fontSize: "15px",
-                          fontWeight: "600",
-                          color: "#059669",
-                          margin: 0,
-                        }}
-                      >
-                        {formatCurrency(prospect.closed_amount)}
-                      </p>
-                    </div>
-                  )}
-                  {prospect.close_date && (
-                    <div>
-                      <p style={detailLabelStyle}>Close date</p>
-                      <p
-                        style={{
-                          fontSize: "15px",
-                          fontWeight: "600",
-                          color: "#111827",
-                          margin: 0,
-                        }}
-                      >
-                        {new Date(prospect.close_date).toLocaleDateString()}
-                      </p>
-                    </div>
-                  )}
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <p style={detailLabelStyle}>Recent review activity</p>
-                    <p style={{ fontSize: "14px", color: "#374151", margin: 0, lineHeight: 1.6 }}>
-                      {linkedSubmissions.length > 0
-                        ? `${linkedSubmissions.length} submission${linkedSubmissions.length === 1 ? "" : "s"} tied to this prospect.`
-                        : "No linked submissions yet."}
-                    </p>
-                  </div>
-                  {prospect.decline_reason && (
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <p style={detailLabelStyle}>Decline reason</p>
-                      <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                        {prospect.decline_reason}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ ...workspaceCardStyle, backgroundColor: "#FCFFFD", borderColor: "#BBF7D0" }}>
-                <p style={sectionEyebrowStyle}>Next step</p>
-                {prospect.next_action_text ? (
-                  <>
-                    <p
-                      style={{
-                        fontSize: "18px",
-                        fontWeight: "700",
-                        color: "#111827",
-                        margin: "0 0 6px 0",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {prospect.next_action_text}
-                    </p>
-                    <p
-                      style={{
-                        fontSize: "14px",
-                        color: "#4B5563",
-                        margin: "0 0 14px 0",
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {nextStepSummary}
-                    </p>
-                  </>
-                ) : (
-                  <p
-                    style={{
-                      fontSize: "14px",
-                      color: "#6B7280",
-                      margin: "0 0 14px 0",
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    No next step is set yet. Log an action to add one.
-                  </p>
-                )}
-
-                <div
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: "12px",
-                    backgroundColor: "#F0FDF4",
-                    border: "1px solid #A7F3D0",
-                    fontSize: "13px",
-                    color: "#166534",
-                    lineHeight: 1.6,
-                  }}
-                >
-                  Fastest path: use <strong>Log Action</strong> when you need to capture movement and update the next step together.
-                </div>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNextStepForm((current) => !current);
-                      setShowActionForm(false);
-                      setShowOpportunityForm(false);
-                      setShowDiscussionForm(false);
-                    }}
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: "999px",
-                      border: "1px solid #86EFAC",
-                      backgroundColor: showNextStepForm ? "#166534" : "white",
-                      color: showNextStepForm ? "white" : "#166534",
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showNextStepForm ? "Editing next step" : "Edit next step"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          ) : null}
 
           {actionError ? (
             <div
