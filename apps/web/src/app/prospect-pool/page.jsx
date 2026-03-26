@@ -35,6 +35,12 @@ function getStateColors(label) {
   return map[label] || { bg: "#E5E7EB", fg: "#374151" };
 }
 
+function getQuickRequestLabel(entry) {
+  if (entry.needs_contact_info) return "Contact info requested";
+  if (entry.solicitor_requested) return "Solicitor assignment requested";
+  return "No open requests";
+}
+
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -607,7 +613,6 @@ export default function ProspectPoolPage() {
           style={{
             backgroundColor: "white",
             borderRadius: "18px",
-            border: "1px solid #E5E7EB",
             padding: "24px",
             marginBottom: "18px",
             display: "flex",
@@ -630,18 +635,15 @@ export default function ProspectPoolPage() {
               }}
             >
               {isReviewer
-                ? "Add new prospects, assign them to MGOs, and monitor contact-info or solicitor requests in one shared queue."
-                : "Review new names assigned to you, request missing contact information, and flag when you want to be added as solicitor."}
+                ? "Route new names, review open requests, and keep the shared pool moving."
+                : "Review assigned names, request what you need, and move on to the next person."}
             </p>
           </div>
 
           <div
             style={{
-              minWidth: "240px",
-              backgroundColor: "#F9FAFB",
-              border: "1px solid #E5E7EB",
-              borderRadius: "14px",
-              padding: "14px 16px",
+              minWidth: "220px",
+              padding: "4px 0",
               fontSize: "14px",
               color: "#111827",
               lineHeight: 1.8,
@@ -662,7 +664,7 @@ export default function ProspectPoolPage() {
             <div>Total entries: {summary.total}</div>
             <div>Needs contact info: {summary.needsContactInfo}</div>
             <div>Solicitor requests: {summary.solicitorRequested}</div>
-            <div>Ready for outreach: {summary.ready}</div>
+            <div>Ready now: {summary.ready}</div>
           </div>
         </div>
 
@@ -707,7 +709,6 @@ export default function ProspectPoolPage() {
             onSubmit={createEntry}
             style={{
               backgroundColor: "white",
-              border: "1px solid #E5E7EB",
               borderRadius: "18px",
               padding: "22px",
               marginBottom: "18px",
@@ -726,7 +727,6 @@ export default function ProspectPoolPage() {
                   key={item.label}
                   style={{
                     borderRadius: "14px",
-                    border: "1px solid #E5E7EB",
                     backgroundColor: "#F9FAFB",
                     padding: "14px 16px",
                   }}
@@ -768,8 +768,7 @@ export default function ProspectPoolPage() {
                   Add a prospect to the pool
                 </h2>
                 <p style={{ margin: "8px 0 0", fontSize: "14px", color: "#6B7280" }}>
-                  Review the queue first, then open the composer when you need to route a new
-                  name to an MGO.
+                  Keep the queue primary. Open this only when you are routing a new name.
                 </p>
               </div>
               <button
@@ -1101,7 +1100,6 @@ export default function ProspectPoolPage() {
                   padding: "14px 16px",
                   borderRadius: "14px",
                   backgroundColor: "#F9FAFB",
-                  border: "1px solid #E5E7EB",
                   fontSize: "14px",
                   color: "#4B5563",
                   lineHeight: 1.6,
@@ -1118,7 +1116,6 @@ export default function ProspectPoolPage() {
           <div
             style={{
               backgroundColor: "white",
-              border: "1px solid #E5E7EB",
               borderRadius: "18px",
               padding: "18px",
               marginBottom: "16px",
@@ -1279,9 +1276,9 @@ export default function ProspectPoolPage() {
                 key={entry.id}
                 style={{
                   backgroundColor: "white",
-                  border: "1px solid #E5E7EB",
                   borderRadius: "18px",
                   padding: "20px",
+                  boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
                 }}
               >
                 <div
@@ -1313,7 +1310,8 @@ export default function ProspectPoolPage() {
                       {entry.prospect_name}
                     </h2>
                     <div style={{ marginTop: "8px", fontSize: "14px", color: "#6B7280" }}>
-                      Added {formatDate(entry.created_at)}
+                      {entry.assigned_user_name || entry.assigned_user_email || "Unassigned"}
+                      {" · "}Added {formatDate(entry.created_at)}
                       {entry.created_by_name ? ` by ${entry.created_by_name}` : ""}
                     </div>
                     {entry.note ? (
@@ -1332,24 +1330,12 @@ export default function ProspectPoolPage() {
                       style={{
                         marginTop: "16px",
                         display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
                         gap: "10px",
                         fontSize: "14px",
                         color: "#111827",
                       }}
                     >
-                      <div>
-                        <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                          Assigned MGO
-                        </div>
-                        <div>{entry.assigned_user_name || entry.assigned_user_email || "Unassigned"}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                          Date assigned
-                        </div>
-                        <div>{formatDate(entry.created_at)}</div>
-                      </div>
                       <div>
                         <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
                           Email
@@ -1362,6 +1348,12 @@ export default function ProspectPoolPage() {
                         </div>
                         <div>{entry.phone || "Not provided"}</div>
                       </div>
+                      <div>
+                        <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
+                          What needs to happen
+                        </div>
+                        <div>{getQuickRequestLabel(entry)}</div>
+                      </div>
                     </div>
 
                     {entry.linked_blackbaud_constituent_id ? (
@@ -1370,7 +1362,6 @@ export default function ProspectPoolPage() {
                           marginTop: "16px",
                           padding: "14px",
                           borderRadius: "12px",
-                          border: "1px solid #BFDBFE",
                           backgroundColor: "#EFF6FF",
                         }}
                       >
@@ -1410,14 +1401,13 @@ export default function ProspectPoolPage() {
                             style={{
                               fontSize: "12px",
                               fontWeight: 700,
-                              color: "#1D4ED8",
-                              backgroundColor: "#DBEAFE",
-                              border: "1px solid #93C5FD",
+                              color: "#2563EB",
+                              backgroundColor: "rgba(255,255,255,0.72)",
                               borderRadius: "999px",
                               padding: "4px 10px",
                             }}
                           >
-                            Read-only NXT data
+                            Synced NXT record
                           </div>
                         </div>
 
@@ -1483,7 +1473,7 @@ export default function ProspectPoolPage() {
                             </div>
                             {blackbaudAssignments.length > 0 ? (
                               <div style={{ marginTop: "12px", fontSize: "13px", color: "#374151" }}>
-                                Active assignment:{" "}
+                                Current assignment:{" "}
                                 <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
                                 {" · "}
                                 Fundraiser ID{" "}
@@ -1503,7 +1493,6 @@ export default function ProspectPoolPage() {
                       style={{
                         minWidth: "260px",
                         flex: "0 1 320px",
-                        border: "1px solid #E5E7EB",
                         borderRadius: "14px",
                         backgroundColor: "#F9FAFB",
                         padding: "16px",
@@ -1521,7 +1510,7 @@ export default function ProspectPoolPage() {
                           marginBottom: "10px",
                         }}
                       >
-                        MGO requests
+                        Requests from MGO
                       </div>
                       <div>Needs contact info: {entry.needs_contact_info ? "Yes" : "No"}</div>
                       <div style={{ marginTop: "6px" }}>
@@ -1536,7 +1525,6 @@ export default function ProspectPoolPage() {
                       style={{
                         minWidth: "280px",
                         flex: "0 1 340px",
-                        border: "1px solid #E5E7EB",
                         borderRadius: "14px",
                         backgroundColor: "#F9FAFB",
                         padding: "16px",
@@ -1552,7 +1540,18 @@ export default function ProspectPoolPage() {
                           marginBottom: "10px",
                         }}
                       >
-                        Ask Advancement Services
+                        Request help
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: "13px",
+                          color: "#6B7280",
+                          lineHeight: 1.6,
+                          marginBottom: "14px",
+                        }}
+                      >
+                        Ask only for what is blocking outreach right now.
                       </div>
 
                       <label
@@ -1584,7 +1583,7 @@ export default function ProspectPoolPage() {
                           marginBottom: "12px",
                         }}
                       >
-                        Contact info request note
+                        Note for Advancement Services
                         <textarea
                           value={contactInfoRequestNote}
                           onChange={(event) =>
@@ -1621,27 +1620,50 @@ export default function ProspectPoolPage() {
                             setDraft(entry.id, { solicitorRequested: event.target.checked })
                           }
                         />
-                        Add me as solicitor
+                        Request solicitor assignment
                       </label>
 
-                      <button
-                        type="button"
-                        disabled={savingId === entry.id}
-                        onClick={() => saveMgoEntry(entry.id)}
-                        style={{
-                          width: "100%",
-                          padding: "12px 16px",
-                          borderRadius: "12px",
-                          border: "none",
-                          backgroundColor: savingId === entry.id ? "#A5B4FC" : "#6A5BFF",
-                          color: "white",
-                          fontSize: "14px",
-                          fontWeight: 700,
-                          cursor: savingId === entry.id ? "wait" : "pointer",
-                        }}
-                      >
-                        {savingId === entry.id ? "Saving..." : "Save requests"}
-                      </button>
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          disabled={savingId === entry.id}
+                          onClick={() => saveMgoEntry(entry.id)}
+                          style={{
+                            flex: "1 1 180px",
+                            padding: "12px 16px",
+                            borderRadius: "12px",
+                            border: "none",
+                            backgroundColor: savingId === entry.id ? "#A5B4FC" : "#6A5BFF",
+                            color: "white",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: savingId === entry.id ? "wait" : "pointer",
+                          }}
+                        >
+                          {savingId === entry.id ? "Saving..." : "Save requests"}
+                        </button>
+                        <a
+                          href={`/action-opportunity-update?donor=${encodeURIComponent(
+                            entry.prospect_name || "",
+                          )}`}
+                          style={{
+                            flex: "1 1 180px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "12px 16px",
+                            borderRadius: "12px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            color: "#374151",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            textDecoration: "none",
+                          }}
+                        >
+                          Log action
+                        </a>
+                      </div>
                     </div>
                   )}
                 </div>
