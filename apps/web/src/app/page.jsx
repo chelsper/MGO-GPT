@@ -1124,7 +1124,7 @@ export default function Page() {
                         : Number.MAX_SAFE_INTEGER;
                       return leftTime - rightTime;
                     })
-                    .slice(0, 6).length ? (
+                    .slice(0, 2).length ? (
                     <div
                       style={{
                         display: "grid",
@@ -1142,7 +1142,7 @@ export default function Page() {
                             : Number.MAX_SAFE_INTEGER;
                           return leftTime - rightTime;
                         })
-                        .slice(0, 6)
+                        .slice(0, 2)
                         .map((item) => (
                         <div
                           key={`next-step-${item.id}-${item.next_action_due_date || "none"}`}
@@ -1326,7 +1326,7 @@ export default function Page() {
                     </div>
                     {section.items.length ? (
                       <div style={{ display: "grid", gap: "10px" }}>
-                        {section.items.slice(0, 4).map((item) => (
+                        {section.items.slice(0, 2).map((item) => (
                           <div
                             key={`${section.title}-${item.title}-${item.meta}`}
                             style={{
