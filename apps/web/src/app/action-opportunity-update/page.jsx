@@ -75,19 +75,6 @@ function buildOutlookCalendarUrl({ subject, notes, dueDate }) {
   return `https://outlook.office.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(notes || "")}&startdt=${encodeURIComponent(start.toISOString())}&enddt=${encodeURIComponent(end.toISOString())}`;
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    const payload = await response.json().catch(() => null);
-    return { response, payload };
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
 function DictationButton({
   target,
   label,
@@ -186,6 +173,7 @@ export default function ActionOpportunityUpdatePage() {
   const [discussionDueDate, setDiscussionDueDate] = useState("");
   const [discussionAssignedUserId, setDiscussionAssignedUserId] = useState("");
   const [discussionFeedback, setDiscussionFeedback] = useState(null);
+  const [teamDiscussionOpen, setTeamDiscussionOpen] = useState(false);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
@@ -294,7 +282,8 @@ export default function ActionOpportunityUpdatePage() {
         let primaryError = "";
 
         try {
-          const { response, payload } = await fetchJsonWithTimeout("/api/users/mgos");
+          const response = await fetch("/api/users/mgos");
+          const payload = await response.json().catch(() => null);
           if (!active) return;
 
           if (response.ok) {
@@ -303,20 +292,18 @@ export default function ActionOpportunityUpdatePage() {
               (option) => Number(option.id) !== Number(user?.id || 0),
             );
           } else {
-            primaryError = payload?.error || "Could not load MGO list.";
+            primaryError = payload?.error || "Teammate options are unavailable right now.";
           }
-        } catch (primaryLoadError) {
-          primaryError =
-            primaryLoadError?.name === "AbortError"
-              ? "Timed out loading MGO list."
-              : "Could not load MGO list.";
+        } catch (_primaryLoadError) {
+          primaryError = "Teammate options are unavailable right now.";
         }
 
         if (!active) return;
 
         if (mgoOptions.length === 0) {
           try {
-            const { response, payload } = await fetchJsonWithTimeout("/api/admin/access");
+            const response = await fetch("/api/admin/access");
+            const payload = await response.json().catch(() => null);
             if (!active) return;
 
             if (response.ok) {
@@ -328,12 +315,9 @@ export default function ActionOpportunityUpdatePage() {
                   Number(option.id) !== Number(user?.id || 0),
               );
             }
-          } catch (fallbackError) {
+          } catch (_fallbackError) {
             if (!primaryError) {
-              primaryError =
-                fallbackError?.name === "AbortError"
-                  ? "Timed out loading MGO list."
-                  : "Could not load MGO list.";
+              primaryError = "Teammate options are unavailable right now.";
             }
           }
         }
@@ -346,7 +330,7 @@ export default function ActionOpportunityUpdatePage() {
         if (!active) return;
         setJointMgoOptions([]);
         setJointMgoLoaded(true);
-        setJointMgoError("Could not load MGO list.");
+        setJointMgoError("Teammate options are unavailable right now.");
       } finally {
         if (active) {
           setJointMgoLoading(false);
@@ -367,18 +351,6 @@ export default function ActionOpportunityUpdatePage() {
     jointMgoLoading,
     user?.id,
   ]);
-
-  useEffect(() => {
-    if (!jointMgoLoading) return undefined;
-
-    const failsafeId = window.setTimeout(() => {
-      setJointMgoLoading(false);
-      setJointMgoLoaded(true);
-      setJointMgoError((current) => current || "Timed out loading MGO list.");
-    }, 10000);
-
-    return () => window.clearTimeout(failsafeId);
-  }, [jointMgoLoading]);
 
   useEffect(() => {
     if (discussionSubjectEdited) return;
@@ -412,11 +384,6 @@ export default function ActionOpportunityUpdatePage() {
     }
 
     if (!nextStep.trim()) {
-      setActionItemText("");
-      setActionItemTextEdited(false);
-      setCreateActionItem(false);
-      setCreateOutlookReminder(false);
-      setNextStepDueDate("");
       return;
     }
 
@@ -424,6 +391,12 @@ export default function ActionOpportunityUpdatePage() {
       setActionItemText(nextStep.trim());
     }
   }, [actionItemTextEdited, includeAction, nextStep]);
+
+  useEffect(() => {
+    if (createDiscussionItem) {
+      setTeamDiscussionOpen(true);
+    }
+  }, [createDiscussionItem]);
 
   function finishDictation(text, targetOverride) {
     const target = targetOverride || dictationTarget;
@@ -2739,8 +2712,7 @@ export default function ActionOpportunityUpdatePage() {
           ) : null}
 
           {includeAction ? (
-            <details
-              open={createActionItem}
+            <div
               style={{
                 backgroundColor: "white",
                 borderRadius: "12px",
@@ -2749,12 +2721,6 @@ export default function ActionOpportunityUpdatePage() {
                 marginBottom: "20px",
               }}
             >
-              <summary
-                style={{
-                  cursor: "pointer",
-                  listStyle: "none",
-                }}
-              >
                 <div
                   style={{
                     fontSize: "12px",
@@ -2779,7 +2745,6 @@ export default function ActionOpportunityUpdatePage() {
                 >
                   Turn the next step into a reminder only if you need it in your companion to-do flow.
                 </div>
-              </summary>
               <div style={{ marginTop: "16px" }}>
               <label
                 style={{
@@ -2896,12 +2861,13 @@ export default function ActionOpportunityUpdatePage() {
                   </div>
                 </div>
               ) : null}
-              </div>
-            </details>
+            </div>
+            </div>
           ) : null}
 
           <details
-            open={false}
+            open={teamDiscussionOpen}
+            onToggle={(event) => setTeamDiscussionOpen(event.currentTarget.open)}
             style={{
               backgroundColor: "white",
               borderRadius: "12px",
@@ -3104,7 +3070,7 @@ export default function ActionOpportunityUpdatePage() {
                         Loading teammate options...
                       </div>
                     ) : jointMgoError ? (
-                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#991B1B" }}>
+                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#6B7280" }}>
                         {jointMgoError}
                       </div>
                     ) : null}

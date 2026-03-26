@@ -83,6 +83,42 @@ function classifyMeetingBucket(item) {
   return "talkingPoints";
 }
 
+async function fetchTeammateOptions() {
+  let primaryOptions = [];
+
+  try {
+    const response = await fetch("/api/users/mgos");
+    const payload = await response.json().catch(() => null);
+    if (response.ok) {
+      primaryOptions = Array.isArray(payload) ? payload : [];
+    }
+  } catch (_error) {
+    // Fall through to admin access fallback.
+  }
+
+  if (primaryOptions.length > 0) {
+    return primaryOptions;
+  }
+
+  try {
+    const response = await fetch("/api/admin/access");
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      return primaryOptions;
+    }
+    const users = Array.isArray(payload?.users) ? payload.users : [];
+    return users
+      .filter((user) => user.active !== false && user.role === "mgo")
+      .map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      }));
+  } catch (_error) {
+    return primaryOptions;
+  }
+}
+
 function DiscussionCard({
   item,
   onToggle,
@@ -437,14 +473,7 @@ export default function TeamDiscussionPage() {
   });
   const { data: teammateOptions = [] } = useQuery({
     queryKey: ["discussion-teammates"],
-    queryFn: async () => {
-      const response = await fetch("/api/users/mgos");
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load teammate options");
-      }
-      return payload;
-    },
+    queryFn: fetchTeammateOptions,
     enabled: Boolean(user),
   });
 
