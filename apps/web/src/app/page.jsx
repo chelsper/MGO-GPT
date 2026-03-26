@@ -139,11 +139,34 @@ const REVIEWER_NAV_ITEMS = [
   { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
 ];
 
-const ADMIN_NAV_ITEMS = [
-  ...REVIEWER_NAV_ITEMS,
-  { label: "Blackbaud Mapping", href: "/blackbaud-mapping" },
-  { label: "Access Management", href: "/access-management" },
+const ADMIN_WORKSPACE_ITEMS = [
+  {
+    label: "Field Settings",
+    href: "/blackbaud-mapping",
+    section: "Admin & Workspace",
+    description: "Manage field mapping, ownership, and NXT sync behavior.",
+  },
+  {
+    label: "Security & Access",
+    href: "/access-management",
+    section: "Admin & Workspace",
+    description: "Manage workspace users, roles, invitations, and access.",
+  },
+  {
+    label: "Workspace Settings",
+    href: "/settings",
+    section: "Admin & Workspace",
+    description: "Review account settings and workspace-level admin controls.",
+  },
+  {
+    label: "Knowledge Base Admin",
+    href: "/knowledge-base/manage",
+    section: "Admin & Workspace",
+    description: "Edit shared standards, examples, and published guidance.",
+  },
 ];
+
+const ADMIN_NAV_ITEMS = [...REVIEWER_NAV_ITEMS, ...ADMIN_WORKSPACE_ITEMS];
 
 const PRIMARY_ACTION_PATHS = {
   mgo: ["/#today-worklist", "/my-top-prospects", "/team-discussion"],
@@ -237,7 +260,7 @@ function buildTodaySectionHref(sectionId) {
 }
 
 function groupNavItems(navItems) {
-  const order = ["My Work", "Team & Support", "Requests & Review"];
+  const order = ["My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
   return order
     .map((section) => ({
       section,
@@ -412,6 +435,10 @@ export default function Page() {
   const { primary: primaryActions, teamSupport, requestsReview, workflow } = useMemo(
     () => getActionGroups({ isAdmin, isReviewer, quickActions }),
     [isAdmin, isReviewer, quickActions],
+  );
+  const adminWorkspaceItems = useMemo(
+    () => (isAdmin && isReviewer ? ADMIN_WORKSPACE_ITEMS : []),
+    [isAdmin, isReviewer],
   );
   const groupedNavItems = useMemo(() => groupNavItems(navItems), [navItems]);
   const {
@@ -1506,6 +1533,45 @@ export default function Page() {
                   </div>
                   <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
                     {action.description}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {adminWorkspaceItems.length ? (
+          <>
+            <h2 style={{ margin: "0 0 12px", fontSize: "18px", color: "#111827" }}>
+              Admin & Workspace
+            </h2>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "12px",
+                marginBottom: "22px",
+              }}
+            >
+              {adminWorkspaceItems.map((item) => (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  style={{
+                    textDecoration: "none",
+                    backgroundColor: "white",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "12px",
+                    padding: "16px",
+                    color: "#111827",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
+                    {item.label}
+                  </div>
+                  <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
+                    {item.description}
                   </div>
                 </a>
               ))}
