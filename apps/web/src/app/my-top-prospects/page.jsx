@@ -5320,25 +5320,47 @@ export default function MyTopProspectsPage() {
               </div>
             </div>
             {activeWorkspaceTab === "top-prospects" ? (
-              <button
-                onClick={() => setShowAddModal(true)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "8px 16px",
-                  backgroundColor: "#6A5BFF",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                <Plus size={16} />
-                Add Prospect
-              </button>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <a
+                  href="/action-opportunity-update"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "8px 16px",
+                    backgroundColor: "white",
+                    color: "#374151",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    textDecoration: "none",
+                  }}
+                >
+                  <Plus size={16} />
+                  Log Update
+                </a>
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "8px 16px",
+                    backgroundColor: "#6A5BFF",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    boxShadow: "0 12px 28px rgba(106, 91, 255, 0.22)",
+                  }}
+                >
+                  <Plus size={16} />
+                  Add Prospect
+                </button>
+              </div>
             ) : null}
           </div>
           {profileStatus?.actingAsUser ? (
@@ -5595,78 +5617,6 @@ export default function MyTopProspectsPage() {
 
         {activeWorkspaceTab === "top-prospects" ? (
         <>
-        <div
-          style={{
-            backgroundColor: "white",
-            borderRadius: "12px",
-            border: "1px solid #E5E7EB",
-            padding: "16px 18px",
-            marginBottom: "20px",
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ minWidth: "240px", flex: "1 1 320px" }}>
-            <div
-              style={{
-                fontSize: "12px",
-                fontWeight: 700,
-                color: "#6B7280",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                marginBottom: "6px",
-              }}
-            >
-              Work this list
-            </div>
-            <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
-              Start with the top-ranked prospect that needs follow-up.
-            </div>
-            <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-              Use Add Prospect for manual adds, log progress when activity happens, and sync only
-              when you need fresh opportunity data.
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              style={{
-                padding: "10px 14px",
-                borderRadius: "10px",
-                border: "none",
-                backgroundColor: "#6A5BFF",
-                color: "white",
-                fontSize: "14px",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Add prospect
-            </button>
-            <a
-              href="/action-opportunity-update"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "10px 14px",
-                borderRadius: "10px",
-                border: "1px solid #D1D5DB",
-                backgroundColor: "white",
-                color: "#374151",
-                fontSize: "14px",
-                fontWeight: 700,
-                textDecoration: "none",
-              }}
-            >
-              Log progress update
-            </a>
-          </div>
-        </div>
-
         {/* Summary Stats */}
         {summary && (
           <div
