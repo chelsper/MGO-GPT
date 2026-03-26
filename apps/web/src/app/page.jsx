@@ -937,46 +937,6 @@ export default function Page() {
                   : "This companion worklist sits on top of Raiser's Edge NXT and keeps next steps, internal discussion, and prospect movement in one place."}
               </p>
             </div>
-            {resumeWorkItem ? (
-              <a
-                href={resumeWorkItem.href}
-                style={{
-                  display: "block",
-                  padding: "10px 12px",
-                  borderRadius: "12px",
-                  backgroundColor: "#F9FAFB",
-                  minWidth: "220px",
-                  textDecoration: "none",
-                  border: "1px solid #E5E7EB",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                  color: "#6B7280",
-                  marginBottom: "6px",
-                }}
-              >
-                  {resumeWorkItem.eyebrow}
-                </div>
-                <div
-                  style={{
-                    fontSize: "16px",
-                    fontWeight: 700,
-                    color: "#111827",
-                    marginBottom: "4px",
-                  }}
-                >
-                  {resumeWorkItem.title}
-                </div>
-                <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.55 }}>
-                  {resumeWorkItem.description}
-                </div>
-              </a>
-            ) : null}
           </div>
 
           {worklistLoading ? (
@@ -986,7 +946,7 @@ export default function Page() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
                   gap: "12px",
                   marginBottom: "16px",
                 }}
@@ -1029,13 +989,13 @@ export default function Page() {
                         label: "Due this week",
                         count: worklist.summary.upcomingNextSteps,
                         color: "#FEF3C7",
-                        href: buildTodaySectionHref("today-upcoming-follow-up"),
+                        href: buildTodaySectionHref("today-next-steps"),
                       },
                       {
                         label: "Overdue next steps",
                         count: worklist.summary.overdueNextSteps,
                         color: "#FEE2E2",
-                        href: buildTodaySectionHref("today-overdue-next-steps"),
+                        href: buildTodaySectionHref("today-next-steps"),
                       },
                     ]).map((card) => (
                   <a
@@ -1045,7 +1005,7 @@ export default function Page() {
                       backgroundColor: card.color,
                       border: "1px solid #E5E7EB",
                       borderRadius: "14px",
-                      padding: "14px 16px",
+                      padding: "12px 14px",
                       textDecoration: "none",
                       display: "block",
                     }}
@@ -1062,15 +1022,56 @@ export default function Page() {
                     >
                       {card.label}
                     </div>
-                    <div style={{ fontSize: "28px", fontWeight: 800, color: "#111827" }}>
+                    <div style={{ fontSize: "24px", fontWeight: 800, color: "#111827" }}>
                       {card.count}
                     </div>
                   </a>
                 ))}
               </div>
 
+              {worklist.role !== "reviewer" && resumeWorkItem ? (
+                <div
+                  style={{
+                    backgroundColor: "#F8FAFC",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "14px",
+                    padding: "16px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <a
+                    href={resumeWorkItem.href}
+                    style={{
+                      display: "block",
+                      textDecoration: "none",
+                      color: "#111827",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                        color: "#6B7280",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      Continue working
+                    </div>
+                    <div style={{ fontSize: "18px", fontWeight: 800, marginBottom: "4px" }}>
+                      {resumeWorkItem.title}
+                    </div>
+                    <div style={{ fontSize: "14px", color: "#4B5563", lineHeight: 1.5 }}>
+                      {resumeWorkItem.description}
+                    </div>
+                  </a>
+                </div>
+              ) : null}
+
               {worklist.role !== "reviewer" ? (
                 <div
+                  id="today-next-steps"
                   style={{
                     backgroundColor: "#FCFCFD",
                     border: "1px solid #E5E7EB",
@@ -1100,10 +1101,10 @@ export default function Page() {
                           marginBottom: "6px",
                         }}
                       >
-                        Top 3 priorities
+                        Next Steps
                       </div>
                       <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>
-                        Calendar of action items coming due
+                        Work the next prospect movement that needs a decision now
                       </div>
                     </div>
                     <a
@@ -1119,7 +1120,17 @@ export default function Page() {
                     </a>
                   </div>
 
-                  {worklist.topPriorities?.length ? (
+                  {[...worklist.overdueNextSteps, ...worklist.upcomingNextSteps, ...worklist.staleProspects]
+                    .sort((left, right) => {
+                      const leftTime = left.next_action_due_date
+                        ? new Date(left.next_action_due_date).getTime()
+                        : Number.MAX_SAFE_INTEGER;
+                      const rightTime = right.next_action_due_date
+                        ? new Date(right.next_action_due_date).getTime()
+                        : Number.MAX_SAFE_INTEGER;
+                      return leftTime - rightTime;
+                    })
+                    .slice(0, 6).length ? (
                     <div
                       style={{
                         display: "grid",
@@ -1127,57 +1138,105 @@ export default function Page() {
                         gap: "12px",
                       }}
                     >
-                      {worklist.topPriorities.map((item) => (
-                        <a
-                          key={`priority-${item.id}`}
-                          href={buildProspectWorkspaceHref(item.id, "next-step")}
+                      {[...worklist.overdueNextSteps, ...worklist.upcomingNextSteps, ...worklist.staleProspects]
+                        .sort((left, right) => {
+                          const leftTime = left.next_action_due_date
+                            ? new Date(left.next_action_due_date).getTime()
+                            : Number.MAX_SAFE_INTEGER;
+                          const rightTime = right.next_action_due_date
+                            ? new Date(right.next_action_due_date).getTime()
+                            : Number.MAX_SAFE_INTEGER;
+                          return leftTime - rightTime;
+                        })
+                        .slice(0, 6)
+                        .map((item) => (
+                        <div
+                          key={`next-step-${item.id}-${item.next_action_due_date || "none"}`}
                           style={{
                             display: "grid",
                             gap: "6px",
-                            textDecoration: "none",
                             color: "#111827",
                             backgroundColor: "white",
                             border: "1px solid #E5E7EB",
                             borderRadius: "12px",
                             padding: "14px",
                           }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
+                          >
+                            <div
+                              style={{
+                                display: "flex",
                               justifyContent: "space-between",
                               gap: "10px",
                               alignItems: "flex-start",
                             }}
-                          >
-                            <div style={{ fontSize: "15px", fontWeight: 700 }}>
-                              {item.prospect_name || "Unnamed prospect"}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                color: "#B45309",
-                                whiteSpace: "nowrap",
-                              }}
                             >
+                              <div style={{ fontSize: "15px", fontWeight: 700 }}>
+                                {item.prospect_name || "Unnamed prospect"}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                  color: item.next_action_due_date ? "#B45309" : "#6B7280",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {item.next_action_due_date
+                                  ? formatShortDate(item.next_action_due_date)
+                                  : "No date"}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280" }}>
                               {item.next_action_due_date
-                                ? formatShortDate(item.next_action_due_date)
-                                : "No date"}
+                                ? new Date(item.next_action_due_date).getTime() < new Date().setHours(0,0,0,0)
+                                  ? "Overdue"
+                                  : "Due soon"
+                                : "No recent activity"}
+                            </div>
+                            <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
+                              {item.next_action_text || "Set the next step for this prospect."}
+                            </div>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+                              <a
+                                href={buildProspectWorkspaceHref(item.id, "action")}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  padding: "8px 12px",
+                                  borderRadius: "999px",
+                                  backgroundColor: "#6A5BFF",
+                                  color: "white",
+                                  textDecoration: "none",
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Log Action
+                              </a>
+                              <a
+                                href={buildProspectWorkspaceHref(item.id, "next-step")}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  padding: "8px 12px",
+                                  borderRadius: "999px",
+                                  border: "1px solid #FED7AA",
+                                  backgroundColor: "#FFF7ED",
+                                  color: "#C2410C",
+                                  textDecoration: "none",
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Set Next Step
+                              </a>
                             </div>
                           </div>
-                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280" }}>
-                            {item.priorityLabel}
-                          </div>
-                          <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
-                            {item.next_action_text || "Open this prospect and set the next step."}
-                          </div>
-                        </a>
                       ))}
                     </div>
                   ) : (
                     <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
-                      No dated action items are coming due right now.
+                      No next steps need attention right now.
                     </div>
                   )}
                 </div>
@@ -1238,62 +1297,8 @@ export default function Page() {
                     ]
                   : [
                       {
-                        title: "Overdue next steps",
-                        id: "today-overdue-next-steps",
-                        href: buildProspectListHref({ actionFilter: "overdue" }),
-                        badge: getSyncBadge("internal"),
-                        items: worklist.overdueNextSteps.map((item) => ({
-                          title: item.prospect_name,
-                          subtitle: item.next_action_text,
-                          meta: renderWorklistMeta(item),
-                          primaryActionLabel: "Set next step",
-                          primaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
-                          secondaryActionLabel: "Log Action",
-                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
-                        })),
-                        empty: "No overdue next steps right now.",
-                      },
-                      {
-                        title: "Upcoming follow-up",
-                        id: "today-upcoming-follow-up",
-                        href: buildProspectListHref({ actionFilter: "due" }),
-                        badge: getSyncBadge("internal"),
-                        items: worklist.upcomingNextSteps.map((item) => ({
-                          title: item.prospect_name,
-                          subtitle: item.next_action_text,
-                          meta: renderWorklistMeta(item),
-                          primaryActionLabel: "Log Action",
-                          primaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
-                          secondaryActionLabel: "Set next step",
-                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
-                        })),
-                        empty: "Nothing due in the next 7 days.",
-                      },
-                      {
-                        title: "Needs follow-up",
-                        id: "today-needs-follow-up",
-                        href: buildProspectListHref({ actionFilter: "follow-up" }),
-                        badge: getSyncBadge("internal"),
-                        items: worklist.staleProspects.map((item) => ({
-                          title: item.prospect_name,
-                          subtitle:
-                            item.latest_activity_at
-                              ? `Last movement ${renderWorklistMeta(item)}`
-                              : "No recent movement logged",
-                          meta: item.expected_close_fy || item.ask_type
-                            ? [item.expected_close_fy, item.ask_type].filter(Boolean).join(" • ")
-                            : "Needs a refreshed next step",
-                          primaryActionLabel: "Set next step",
-                          primaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
-                          secondaryActionLabel: "Log Action",
-                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
-                        })),
-                        empty: "No prospects need follow-up right now.",
-                      },
-                      {
                         title: "Team discussion",
                         href: "/team-discussion",
-                        badge: getSyncBadge("internal"),
                         items: worklist.discussionItems.map((item) => ({
                           title: item.subject,
                           subtitle: item.prospect_name || item.initiative_name || "Internal discussion",
@@ -1306,7 +1311,6 @@ export default function Page() {
                       {
                         title: "Needs clarification",
                         href: "/submissions",
-                        badge: getSyncBadge("internal"),
                         items: worklist.clarificationRequests.map((item) => ({
                           title: item.donor_name || "Unnamed submission",
                           subtitle: item.reviewer_notes || "Reviewer requested follow-up",
@@ -1321,7 +1325,7 @@ export default function Page() {
                     key={section.title}
                     id={section.id}
                     style={{
-                      border: "1px solid #E5E7EB",
+                      border: "1px solid #F3F4F6",
                       borderRadius: "14px",
                       padding: "16px",
                       backgroundColor: "#FCFCFD",
@@ -1340,22 +1344,6 @@ export default function Page() {
                       <div style={{ fontSize: "17px", fontWeight: 700, color: "#111827" }}>
                         {section.title}
                       </div>
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          padding: "4px 10px",
-                          borderRadius: "999px",
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          backgroundColor: section.badge.bg,
-                          color: section.badge.text,
-                          border: `1px solid ${section.badge.border}`,
-                        }}
-                      >
-                        {section.badge.label}
-                      </span>
                     </div>
                     {section.items.length ? (
                       <div style={{ display: "grid", gap: "10px" }}>

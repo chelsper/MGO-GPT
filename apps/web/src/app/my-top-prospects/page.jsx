@@ -5899,7 +5899,7 @@ export default function MyTopProspectsPage() {
                     style={{
                       backgroundColor: "white",
                       borderRadius: "16px",
-                      border: "1px solid #E5E7EB",
+                      border: `1px solid ${nextAction.tone.border}`,
                       padding: "16px 18px",
                       marginBottom: "12px",
                       display: "flex",
@@ -5960,7 +5960,7 @@ export default function MyTopProspectsPage() {
                             <StatusBadge status={p.status} />
                             <span
                               style={{
-                                backgroundColor: nextAction.tone.bg,
+                                backgroundColor: nextAction.tone.soft,
                                 color: nextAction.tone.fg,
                                 border: `1px solid ${nextAction.tone.border}`,
                                 padding: "4px 10px",
@@ -5970,19 +5970,6 @@ export default function MyTopProspectsPage() {
                               }}
                             >
                               {nextAction.label}
-                            </span>
-                            <span
-                              style={{
-                                backgroundColor: nextStepBadge.bg,
-                                color: nextStepBadge.text,
-                                border: `1px solid ${nextStepBadge.border}`,
-                                padding: "4px 10px",
-                                borderRadius: "999px",
-                                fontSize: "12px",
-                                fontWeight: 700,
-                              }}
-                            >
-                              {nextStepBadge.label}
                             </span>
                             <button
                               type="button"
@@ -6014,8 +6001,8 @@ export default function MyTopProspectsPage() {
                             <div
                               style={{
                                 fontSize: "13px",
-                                color: "#6B7280",
-                                fontWeight: "600",
+                                color: nextAction.tone.fg,
+                                fontWeight: "700",
                                 marginBottom: "6px",
                               }}
                             >
@@ -6027,7 +6014,7 @@ export default function MyTopProspectsPage() {
                               marginBottom: "12px",
                               padding: "12px 14px",
                               borderRadius: "12px",
-                              backgroundColor: nextAction.tone.soft,
+                              backgroundColor: "#FCFCFD",
                               border: `1px solid ${nextAction.tone.border}`,
                             }}
                           >
@@ -6048,6 +6035,31 @@ export default function MyTopProspectsPage() {
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedProspectId(p.id);
+                                if (typeof window !== "undefined") {
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set("prospectId", String(p.id));
+                                  url.searchParams.set("panel", "action");
+                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+                                }
+                              }}
+                              style={{
+                                padding: "9px 12px",
+                                borderRadius: "999px",
+                                border: "none",
+                                backgroundColor: "#6A5BFF",
+                                color: "white",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Log Action
+                            </button>
                             <button
                               type="button"
                               onClick={(event) => {
@@ -6078,31 +6090,6 @@ export default function MyTopProspectsPage() {
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setSelectedProspectId(p.id);
-                                if (typeof window !== "undefined") {
-                                  const url = new URL(window.location.href);
-                                  url.searchParams.set("prospectId", String(p.id));
-                                  url.searchParams.set("panel", "action");
-                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
-                                }
-                              }}
-                              style={{
-                                padding: "9px 12px",
-                                borderRadius: "999px",
-                                border: "none",
-                                backgroundColor: "#6A5BFF",
-                                color: "white",
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Log Update
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedProspectId(p.id);
                               }}
                               style={{
                                 padding: "9px 12px",
@@ -6126,6 +6113,19 @@ export default function MyTopProspectsPage() {
                               flexWrap: "wrap",
                             }}
                           >
+                            <span
+                              style={{
+                                backgroundColor: nextStepBadge.bg,
+                                color: nextStepBadge.text,
+                                border: `1px solid ${nextStepBadge.border}`,
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {nextStepBadge.label}
+                            </span>
                             <span
                               style={{
                                 padding: "4px 8px",
@@ -6166,10 +6166,9 @@ export default function MyTopProspectsPage() {
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "repeat(2, minmax(110px, 1fr))",
-                            gap: "8px 10px",
-                            minWidth: "220px",
-                            opacity: 0.88,
+                            gap: "8px",
+                            minWidth: "170px",
+                            alignContent: "start",
                           }}
                         >
                           <div
@@ -6198,31 +6197,6 @@ export default function MyTopProspectsPage() {
                           </div>
                           <div
                             style={{
-                              padding: "10px 12px",
-                              borderRadius: "12px",
-                              backgroundColor: "#F9FAFB",
-                              border: "1px solid #E5E7EB",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: 700,
-                                color: "#6B7280",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Closed So Far
-                            </div>
-                            <div style={{ fontSize: "16px", fontWeight: 700, color: "#059669" }}>
-                              {formatCurrency(p.closed_amount)}
-                            </div>
-                          </div>
-                          <div
-                            style={{
-                              padding: "10px 12px",
                               borderRadius: "12px",
                               backgroundColor: "#F9FAFB",
                               border: "1px solid #E5E7EB",
@@ -6244,31 +6218,7 @@ export default function MyTopProspectsPage() {
                               {p.active_opportunity_count || 0} active
                             </div>
                             <div style={{ fontSize: "12px", color: "#6B7280" }}>
-                              {p.linked_opportunity_count || 0} total linked
-                            </div>
-                          </div>
-                          <div
-                            style={{
-                              padding: "10px 12px",
-                              borderRadius: "12px",
-                              backgroundColor: "#F9FAFB",
-                              border: "1px solid #E5E7EB",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: 700,
-                                color: "#6B7280",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Latest Review
-                            </div>
-                            <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
-                              {p.latest_submission_status || "No review yet"}
+                              {p.linked_opportunity_count || 0} linked
                             </div>
                           </div>
                         </div>

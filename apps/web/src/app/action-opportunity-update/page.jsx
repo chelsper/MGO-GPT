@@ -2901,7 +2901,7 @@ export default function ActionOpportunityUpdatePage() {
           ) : null}
 
           <details
-            open={createDiscussionItem}
+            open={false}
             style={{
               backgroundColor: "white",
               borderRadius: "12px",
@@ -3099,10 +3099,6 @@ export default function ActionOpportunityUpdatePage() {
                         </option>
                       ))}
                     </select>
-                    <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280" }}>
-                      Team discussion uses your internal workspace. It does not sync to
-                      Raiser's Edge NXT.
-                    </div>
                     {jointMgoLoading ? (
                       <div style={{ marginTop: "6px", fontSize: "12px", color: "#6B7280" }}>
                         Loading teammate options...
@@ -3141,8 +3137,7 @@ export default function ActionOpportunityUpdatePage() {
               Review and submit
             </div>
             <div style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5, marginBottom: "16px" }}>
-              Submit one combined update and route it into the shared review queue. The summary
-              above will be shared across any action and opportunity details you included.
+              Save the update, keep the next step current, and only add internal coordination if needed.
             </div>
             {submitMutation.isPending ? (
               <div
@@ -3156,7 +3151,7 @@ export default function ActionOpportunityUpdatePage() {
                   fontWeight: 600,
                 }}
               >
-                Sending your update to the submission tracker...
+                Saving update...
               </div>
             ) : null}
             {successMessage ? (
@@ -3172,19 +3167,12 @@ export default function ActionOpportunityUpdatePage() {
                 }}
               >
                 <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
-                  Submission received
+                  Saved
                 </div>
-                {successMessage}{" "}
-                <a
-                  href="/submissions"
-                  style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
-                >
-                  View submission tracker
-                </a>
-                or{" "}
-                <a href="/" style={{ color: "#065F46", textDecoration: "underline" }}>
-                  Back to dashboard
-                </a>
+                {successMessage}
+                <div style={{ marginTop: "8px", fontSize: "13px", fontWeight: 700 }}>
+                  Synced to NXT where linked.
+                </div>
               </div>
             ) : null}
             {prospectPrompt ? (

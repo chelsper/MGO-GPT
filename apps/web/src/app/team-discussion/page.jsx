@@ -2,9 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, MessageSquare, Users, UserRound, ListTodo } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  MessageSquare,
+  Users,
+  UserRound,
+  ListTodo,
+} from "lucide-react";
 import useUser from "@/utils/useUser";
-import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 
 function formatShortDate(value) {
   if (!value) return "";
@@ -406,7 +412,7 @@ export default function TeamDiscussionPage() {
   const { data: user, loading } = useUser();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("Open");
-  const [viewMode, setViewMode] = useState("all");
+  const [viewMode, setViewMode] = useState("date");
   const [editingItem, setEditingItem] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createSubject, setCreateSubject] = useState("");
@@ -530,7 +536,7 @@ export default function TeamDiscussionPage() {
         String(taggedUser.user_id),
       ),
     });
-    setViewMode("all");
+    setViewMode("date");
     setStatusFilter(matchedItem.status || "Open");
 
     window.setTimeout(() => {
@@ -547,35 +553,17 @@ export default function TeamDiscussionPage() {
         (item) => Number(item.assigned_user_id || 0) === currentUserId,
       );
     }
-
-    if (viewMode === "createdByMe") {
-      return discussionItems.filter(
-        (item) => Number(item.created_by || 0) === currentUserId,
-      );
-    }
-
-    if (viewMode === "shared") {
-      return discussionItems.filter((item) => {
-        const creatorId = Number(item.created_by || 0);
-        const assigneeId = Number(item.assigned_user_id || 0);
-        return creatorId === currentUserId && assigneeId > 0 && assigneeId !== currentUserId;
-      });
-    }
-
-    if (viewMode === "assigned") {
-      return discussionItems.filter((item) => item.assigned_user_name);
-    }
     return discussionItems;
   }, [discussionItems, user?.id, viewMode]);
 
   const groupedItems = useMemo(() => {
-    if (viewMode === "teammate") {
+    if (viewMode === "assignment") {
       return groupItems(filteredItems, (item) => ({
-        key: item.assigned_user_id ? `assigned-${item.assigned_user_id}` : `creator-${item.created_by || "none"}`,
-        label: item.assigned_user_name || item.created_by_name || "Unassigned discussion",
+        key: item.assigned_user_id ? `assigned-${item.assigned_user_id}` : "unassigned",
+        label: item.assigned_user_name || "No assignee",
         description: item.assigned_user_name
-          ? "Discussion items assigned to this teammate"
-          : "Discussion items without a teammate assignment",
+          ? "Discussion items owned by this teammate"
+          : "Discussion items still waiting for an owner",
       }));
     }
 
@@ -596,45 +584,12 @@ export default function TeamDiscussionPage() {
       });
     }
 
-    if (viewMode === "assigned") {
-      return [
-        {
-          key: "assigned-items",
-          label: "Assigned items",
-          description: "Discussion items that have an explicit teammate owner",
-          items: filteredItems,
-        },
-      ];
-    }
-
     if (viewMode === "assignedToMe") {
       return [
         {
           key: "assigned-to-me",
           label: "Assigned to me",
           description: "Internal discussion items that need your follow-up",
-          items: filteredItems,
-        },
-      ].filter((group) => group.items.length);
-    }
-
-    if (viewMode === "createdByMe") {
-      return [
-        {
-          key: "created-by-me",
-          label: "Created by me",
-          description: "Discussion items you opened for your own tracking or teammate handoff",
-          items: filteredItems,
-        },
-      ].filter((group) => group.items.length);
-    }
-
-    if (viewMode === "shared") {
-      return [
-        {
-          key: "shared-with-teammate",
-          label: "Shared with teammate",
-          description: "Discussion items you created and handed off to another teammate",
           items: filteredItems,
         },
       ].filter((group) => group.items.length);
@@ -724,16 +679,12 @@ export default function TeamDiscussionPage() {
     );
   }
 
-  const internalBadge = getSyncBadge("internal");
   const viewTabs = [
-    { value: "all", label: "All", icon: MessageSquare },
+    { value: "date", label: "By date", icon: CalendarDays },
+    { value: "constituent", label: "By person", icon: UserRound },
+    { value: "assignment", label: "By assignment", icon: Users },
     { value: "assignedToMe", label: "Assigned to me", icon: ListTodo },
-    { value: "createdByMe", label: "Created by me", icon: MessageSquare },
-    { value: "shared", label: "Shared with teammate", icon: Users },
     { value: "meeting", label: "Meeting view", icon: ListTodo },
-    { value: "assigned", label: "Assigned items", icon: ListTodo },
-    { value: "teammate", label: "By teammate", icon: Users },
-    { value: "constituent", label: "By constituent", icon: UserRound },
   ];
 
   const toggleCreateTaggedUser = (userId) => {
@@ -818,28 +769,12 @@ export default function TeamDiscussionPage() {
                 Team Discussion
               </div>
               <h1 style={{ margin: "0 0 8px", fontSize: "30px", color: "#111827" }}>
-                Internal discussion tied to real fundraising work
+                Team discussion
               </h1>
               <p style={{ margin: 0, fontSize: "15px", color: "#4B5563", lineHeight: 1.6 }}>
-                Use this hub for talking points, handoffs, meeting prep, and internal reminders connected to a constituent, opportunity, or teammate.
+                Work talking points, handoffs, open questions, and follow-up tied to real fundraising work.
               </p>
             </div>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "5px 12px",
-                borderRadius: "999px",
-                fontSize: "11px",
-                fontWeight: 700,
-                backgroundColor: internalBadge.bg,
-                color: internalBadge.text,
-                border: `1px solid ${internalBadge.border}`,
-              }}
-            >
-              {internalBadge.label}
-            </span>
           </div>
 
           <div
@@ -950,7 +885,7 @@ export default function TeamDiscussionPage() {
                   Add discussion item
                 </div>
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-                  Create a new internal discussion item without leaving the hub.
+                  Capture a talking point, handoff, or open question without leaving this workspace.
                 </div>
               </div>
               <button
