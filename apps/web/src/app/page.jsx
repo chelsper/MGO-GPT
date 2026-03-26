@@ -1454,6 +1454,17 @@ export default function Page() {
             <a
               key={action.href}
               href={action.href}
+              onClick={(event) => {
+                if (action.href !== "/#today-worklist") return;
+                event.preventDefault();
+                const target = document.getElementById("today-worklist");
+                if (target) {
+                  target.scrollIntoView({ behavior: "smooth", block: "start" });
+                  window.history.replaceState({}, "", "/#today-worklist");
+                } else {
+                  window.location.href = action.href;
+                }
+              }}
               style={{
                 textDecoration: "none",
                 backgroundColor: "white",

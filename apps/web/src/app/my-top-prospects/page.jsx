@@ -4980,6 +4980,7 @@ export default function MyTopProspectsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProspectId, setSelectedProspectId] = useState(null);
   const [selectedProspectPanel, setSelectedProspectPanel] = useState("");
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("top-prospects");
   const [statusFilter, setStatusFilter] = useState("all");
   const [fyFilter, setFyFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
@@ -5041,12 +5042,17 @@ export default function MyTopProspectsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const searchParams = new URLSearchParams(window.location.search);
+    const requestedTab = searchParams.get("tab");
     const requestedProspectId = searchParams.get("prospectId");
     const requestedPanel = searchParams.get("panel") || "";
     const requestedStatusFilter = searchParams.get("statusFilter");
     const requestedFyFilter = searchParams.get("fyFilter");
     const requestedActionFilter = searchParams.get("actionFilter");
     const requestedSearch = searchParams.get("search");
+
+    if (requestedTab === "portfolio") {
+      setActiveWorkspaceTab("portfolio");
+    }
 
     if (requestedStatusFilter) {
       setStatusFilter(requestedStatusFilter);
@@ -5068,6 +5074,18 @@ export default function MyTopProspectsPage() {
       setSelectedProspectPanel(requestedPanel);
     }
   }, []);
+
+  const updateWorkspaceTab = (tab) => {
+    setActiveWorkspaceTab(tab);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (tab === "portfolio") {
+      url.searchParams.set("tab", "portfolio");
+    } else {
+      url.searchParams.delete("tab");
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  };
 
   const closeProspectWorkspace = () => {
     setSelectedProspectId(null);
@@ -5292,7 +5310,7 @@ export default function MyTopProspectsPage() {
                     margin: 0,
                   }}
                 >
-                  My Top Prospects
+                  My Prospects
                 </h1>
                 {profileStatus?.actingAsUser ? (
                   <div style={{ fontSize: "13px", color: "#0F766E", marginTop: "3px", fontWeight: 700 }}>
@@ -5301,25 +5319,27 @@ export default function MyTopProspectsPage() {
                 ) : null}
               </div>
             </div>
-            <button
-              onClick={() => setShowAddModal(true)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "8px 16px",
-                backgroundColor: "#6A5BFF",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "14px",
-                fontWeight: "600",
-                cursor: "pointer",
-              }}
-            >
-              <Plus size={16} />
-              Add Prospect
-            </button>
+            {activeWorkspaceTab === "top-prospects" ? (
+              <button
+                onClick={() => setShowAddModal(true)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 16px",
+                  backgroundColor: "#6A5BFF",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={16} />
+                Add Prospect
+              </button>
+            ) : null}
           </div>
           {profileStatus?.actingAsUser ? (
             <div
@@ -5360,7 +5380,61 @@ export default function MyTopProspectsPage() {
       </header>
 
       <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "24px" }}>
-        {profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
+        <div
+          style={{
+            display: "inline-flex",
+            gap: "6px",
+            padding: "4px",
+            borderRadius: "999px",
+            backgroundColor: "white",
+            border: "1px solid #E5E7EB",
+            marginBottom: "18px",
+          }}
+        >
+          {[
+            { value: "top-prospects", label: "Top Prospects" },
+            { value: "portfolio", label: "My Portfolio" },
+          ].map((tab) => {
+            const selected = activeWorkspaceTab === tab.value;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => updateWorkspaceTab(tab.value)}
+                style={{
+                  border: "none",
+                  borderRadius: "999px",
+                  padding: "10px 16px",
+                  backgroundColor: selected ? "#111827" : "transparent",
+                  color: selected ? "white" : "#4B5563",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+          <a
+            href="/prospect-pool"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              borderRadius: "999px",
+              padding: "10px 16px",
+              backgroundColor: "transparent",
+              color: "#4B5563",
+              fontSize: "14px",
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            Prospect Pool
+          </a>
+        </div>
+
+        {activeWorkspaceTab === "portfolio" && profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
           <div
             style={{
               backgroundColor: "white",
@@ -5412,7 +5486,7 @@ export default function MyTopProspectsPage() {
           </div>
         ) : null}
 
-        {profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
+        {activeWorkspaceTab === "portfolio" && profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
           <div
             style={{
               backgroundColor: "white",
@@ -5502,6 +5576,25 @@ export default function MyTopProspectsPage() {
           </div>
         ) : null}
 
+        {activeWorkspaceTab === "portfolio" && !profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              padding: "18px",
+              marginBottom: "24px",
+              fontSize: "14px",
+              color: "#6B7280",
+              lineHeight: 1.6,
+            }}
+          >
+            Link your Blackbaud fundraiser record in Access Management to load your NXT portfolio.
+          </div>
+        ) : null}
+
+        {activeWorkspaceTab === "top-prospects" ? (
+        <>
         <div
           style={{
             backgroundColor: "white",
@@ -6578,6 +6671,8 @@ export default function MyTopProspectsPage() {
             ))}
           </div>
         )}
+        </>
+        ) : null}
       </main>
 
       {/* Modals */}
