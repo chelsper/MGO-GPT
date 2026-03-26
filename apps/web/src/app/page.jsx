@@ -33,12 +33,6 @@ const MGO_ACTIONS = [
     section: "teamSupport",
   },
   {
-    title: "Prospect Pool",
-    href: "/prospect-pool",
-    description: "See new names assigned to you and request missing contact details.",
-    section: "teamSupport",
-  },
-  {
     title: "Knowledge Base",
     href: "/knowledge-base",
     description: "Search standards, scripts, and process guidance.",
@@ -1265,21 +1259,6 @@ export default function Page() {
                         empty: "No clarification threads are open right now.",
                       },
                       {
-                        title: "Prospect Pool follow-up",
-                        href: "/prospect-pool",
-                        badge: getSyncBadge("internal"),
-                        items: worklist.poolItems.map((item) => ({
-                          title: item.prospect_name,
-                          subtitle: item.assigned_user_name
-                            ? `Assigned to ${item.assigned_user_name}`
-                            : "Needs assignment",
-                          meta: item.needs_contact_info ? "Contact info requested" : renderWorklistMeta(item),
-                          primaryActionLabel: "Open prospect pool",
-                          primaryActionHref: "/prospect-pool",
-                        })),
-                        empty: "No Prospect Pool items need attention right now.",
-                      },
-                      {
                         title: "Team discussion",
                         href: "/team-discussion",
                         badge: getSyncBadge("internal"),
@@ -1580,7 +1559,7 @@ export default function Page() {
             paddingTop: "18px",
             borderTop: "1px solid #E5E7EB",
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gridTemplateColumns: "minmax(220px, 1fr)",
             gap: "12px",
           }}
         >
@@ -1622,84 +1601,6 @@ export default function Page() {
             </div>
           </div>
 
-          <div
-            style={{
-              backgroundColor: "white",
-              border: "1px solid #E5E7EB",
-              borderRadius: "14px",
-              padding: "14px 16px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "12px",
-                fontWeight: 700,
-                color: "#6B7280",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                marginBottom: "8px",
-              }}
-            >
-              Need help?
-            </div>
-            <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.6 }}>
-              {isReviewer
-                ? "Review process guidance and shared standards live in the knowledge base."
-                : "Use the knowledge base for standards, definitions, and quick process checks."}
-            </div>
-            <a
-              href={isReviewer ? "/knowledge-base/manage" : "/knowledge-base"}
-              style={{
-                display: "inline-flex",
-                marginTop: "10px",
-                color: "#6A5BFF",
-                fontSize: "13px",
-                fontWeight: 700,
-                textDecoration: "none",
-              }}
-            >
-              {isReviewer ? "Open knowledge base editor" : "Open knowledge base"}
-            </a>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "#FCFCFD",
-              borderRadius: "14px",
-              padding: "14px 16px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "12px",
-                fontWeight: 700,
-                color: "#6B7280",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                marginBottom: "8px",
-              }}
-            >
-              Workspace status
-            </div>
-            <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.6 }}>
-              {isReviewer
-                ? "Queue reviews, list priorities, and team discussion stay visible to the shared Advancement Services workspace."
-                : "Support requests and review responses stay available when you need them, but your primary work lives in prospects, updates, and team discussion."}
-            </div>
-            <a
-              href={isReviewer ? "/submissions" : "/team-discussion"}
-              style={{
-                display: "inline-flex",
-                marginTop: "10px",
-                color: "#6A5BFF",
-                fontSize: "13px",
-                fontWeight: 700,
-                textDecoration: "none",
-              }}
-            >
-              {isReviewer ? "Open submission tracker" : "Open team discussion"}
-            </a>
-          </div>
         </footer>
       </main>
     </div>
