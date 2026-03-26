@@ -21,21 +21,21 @@ const MGO_ACTIONS = [
     section: "myWork",
   },
   {
+    title: "Team Discussion",
+    href: "/team-discussion",
+    description: "Keep internal talking points, handoffs, and meeting prep tied to real work.",
+    section: "myWork",
+  },
+  {
     title: "Log Update",
     href: "/action-opportunity-update",
     description: "Log an Action, update an Opportunity, and set the next step.",
-    section: "myWork",
+    section: "teamSupport",
   },
   {
     title: "Prospect Pool",
     href: "/prospect-pool",
     description: "See new names assigned to you and request missing contact details.",
-    section: "myWork",
-  },
-  {
-    title: "Team Discussion",
-    href: "/team-discussion",
-    description: "Keep internal talking points, handoffs, and meeting prep tied to real work.",
     section: "teamSupport",
   },
   {
@@ -126,9 +126,9 @@ const ADMIN_ACTIONS = [
 const MGO_NAV_ITEMS = [
   { label: "Today", href: "/#today-worklist", section: "My Work" },
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
-  { label: "Log Update", href: "/action-opportunity-update", section: "My Work" },
-  { label: "Prospect Pool", href: "/prospect-pool", section: "My Work" },
-  { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
+  { label: "Team Discussion", href: "/team-discussion", section: "My Work" },
+  { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
+  { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
   { label: "Request List from DevData", href: "/request-list", section: "Requests & Review" },
@@ -152,21 +152,16 @@ const ADMIN_NAV_ITEMS = [
 ];
 
 const PRIMARY_ACTION_PATHS = {
-  mgo: [
-    "/action-opportunity-update",
-    "/my-top-prospects",
-    "/prospect-pool",
-    "/team-discussion",
-  ],
+  mgo: ["/#today-worklist", "/my-top-prospects", "/team-discussion"],
   reviewer: ["/prospect-pool", "/team-discussion", "/knowledge-base/manage"],
   adminReviewer: ["/access-management", "/prospect-pool", "/team-discussion"],
 };
 
 const ROLE_WORKFLOW_STEPS = {
   mgo: [
-    "Capture the donor update or opportunity change.",
-    "Review follow-ups in Top Prospects and Prospect Pool.",
-    "Watch for clarification requests in Submissions.",
+    "Start in Today to see what needs attention now.",
+    "Work My Prospects to move the right constituents forward.",
+    "Use Team Discussion for handoffs, talking points, and follow-up with teammates.",
   ],
   reviewer: [
     "Review the pending submission queue first.",
@@ -241,6 +236,10 @@ function buildDiscussionHref(discussionId) {
     edit: "1",
   });
   return `/team-discussion?${params.toString()}`;
+}
+
+function buildTodaySectionHref(sectionId) {
+  return sectionId ? `/#${sectionId}` : "/#today-worklist";
 }
 
 function groupNavItems(navItems) {
@@ -1030,19 +1029,13 @@ export default function Page() {
                         label: "Due this week",
                         count: worklist.summary.upcomingNextSteps,
                         color: "#FEF3C7",
-                        href: buildProspectListHref({ actionFilter: "due" }),
+                        href: buildTodaySectionHref("today-upcoming-follow-up"),
                       },
                       {
                         label: "Overdue next steps",
                         count: worklist.summary.overdueNextSteps,
                         color: "#FEE2E2",
-                        href: buildProspectListHref({ actionFilter: "overdue" }),
-                      },
-                      {
-                        label: "Needs follow-up",
-                        count: worklist.summary.staleProspects,
-                        color: "#ECFDF5",
-                        href: buildProspectListHref({ actionFilter: "follow-up" }),
+                        href: buildTodaySectionHref("today-overdue-next-steps"),
                       },
                     ]).map((card) => (
                   <a
@@ -1246,7 +1239,8 @@ export default function Page() {
                   : [
                       {
                         title: "Overdue next steps",
-                        href: "/my-top-prospects",
+                        id: "today-overdue-next-steps",
+                        href: buildProspectListHref({ actionFilter: "overdue" }),
                         badge: getSyncBadge("internal"),
                         items: worklist.overdueNextSteps.map((item) => ({
                           title: item.prospect_name,
@@ -1261,7 +1255,8 @@ export default function Page() {
                       },
                       {
                         title: "Upcoming follow-up",
-                        href: "/my-top-prospects",
+                        id: "today-upcoming-follow-up",
+                        href: buildProspectListHref({ actionFilter: "due" }),
                         badge: getSyncBadge("internal"),
                         items: worklist.upcomingNextSteps.map((item) => ({
                           title: item.prospect_name,
@@ -1273,6 +1268,27 @@ export default function Page() {
                           secondaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
                         })),
                         empty: "Nothing due in the next 7 days.",
+                      },
+                      {
+                        title: "Needs follow-up",
+                        id: "today-needs-follow-up",
+                        href: buildProspectListHref({ actionFilter: "follow-up" }),
+                        badge: getSyncBadge("internal"),
+                        items: worklist.staleProspects.map((item) => ({
+                          title: item.prospect_name,
+                          subtitle:
+                            item.latest_activity_at
+                              ? `Last movement ${renderWorklistMeta(item)}`
+                              : "No recent movement logged",
+                          meta: item.expected_close_fy || item.ask_type
+                            ? [item.expected_close_fy, item.ask_type].filter(Boolean).join(" • ")
+                            : "Needs a refreshed next step",
+                          primaryActionLabel: "Set next step",
+                          primaryActionHref: buildProspectWorkspaceHref(item.id, "next-step"),
+                          secondaryActionLabel: "Log Action",
+                          secondaryActionHref: buildProspectWorkspaceHref(item.id, "action"),
+                        })),
+                        empty: "No prospects need follow-up right now.",
                       },
                       {
                         title: "Team discussion",
@@ -1303,6 +1319,7 @@ export default function Page() {
                     ]).map((section) => (
                   <div
                     key={section.title}
+                    id={section.id}
                     style={{
                       border: "1px solid #E5E7EB",
                       borderRadius: "14px",
@@ -1434,7 +1451,7 @@ export default function Page() {
         </div>
 
         <div style={{ marginBottom: "10px", fontSize: "18px", color: "#111827", fontWeight: 700 }}>
-          Quick actions
+          Daily streams
         </div>
 
         <div
@@ -1468,7 +1485,7 @@ export default function Page() {
                   marginBottom: "8px",
                 }}
               >
-                {index === 0 ? "Primary focus" : "Quick action"}
+                {index === 0 ? "Start here" : "Daily stream"}
               </div>
               <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "17px" }}>
                 {action.title}
@@ -1483,7 +1500,7 @@ export default function Page() {
         {teamSupport.length ? (
           <>
             <h2 style={{ margin: "0 0 12px", fontSize: "18px", color: "#111827" }}>
-              Team & Support
+              Supporting tools
             </h2>
 
             <div
