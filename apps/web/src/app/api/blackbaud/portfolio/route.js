@@ -247,12 +247,25 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
   );
 }
 
-async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origin }) {
+function addFundraiserCandidate(candidates, fundraiserId, resolutionPath) {
+  const normalizedId = String(fundraiserId || "").trim();
+  if (!normalizedId) return;
+  if (candidates.some((candidate) => candidate.fundraiserId === normalizedId)) return;
+  candidates.push({
+    fundraiserId: normalizedId,
+    resolutionPath,
+  });
+}
+
+async function resolveFundraiserCandidates({ workspaceUser, authUserId, origin }) {
+  const candidates = [];
+
   if (workspaceUser?.blackbaud_constituent_id) {
-    return {
-      fundraiserId: workspaceUser.blackbaud_constituent_id,
-      resolutionPath: "workspace-blackbaud-constituent-id",
-    };
+    addFundraiserCandidate(
+      candidates,
+      workspaceUser.blackbaud_constituent_id,
+      "workspace-blackbaud-constituent-id",
+    );
   }
 
   const exactLookupMatch = await findBlackbaudConstituentByLookupId({
@@ -263,10 +276,11 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
   }).catch(() => null);
 
   if (exactLookupMatch?.blackbaudConstituentId) {
-    return {
-      fundraiserId: exactLookupMatch.blackbaudConstituentId,
-      resolutionPath: "workspace-blackbaud-lookup-id",
-    };
+    addFundraiserCandidate(
+      candidates,
+      exactLookupMatch.blackbaudConstituentId,
+      "workspace-blackbaud-lookup-id",
+    );
   }
 
   const exactEmailMatch = await findBlackbaudConstituentByEmail({
@@ -277,10 +291,11 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
   }).catch(() => null);
 
   if (exactEmailMatch?.blackbaudConstituentId) {
-    return {
-      fundraiserId: exactEmailMatch.blackbaudConstituentId,
-      resolutionPath: "email-match",
-    };
+    addFundraiserCandidate(
+      candidates,
+      exactEmailMatch.blackbaudConstituentId,
+      "email-match",
+    );
   }
 
   const matches = await searchBlackbaudConstituents({
@@ -305,16 +320,14 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
     null;
 
   if (match?.blackbaudConstituentId) {
-    return {
-      fundraiserId: match.blackbaudConstituentId,
-      resolutionPath: "name-search-match",
-    };
+    addFundraiserCandidate(
+      candidates,
+      match.blackbaudConstituentId,
+      "name-search-match",
+    );
   }
 
-  return {
-    fundraiserId: null,
-    resolutionPath: "not-resolved",
-  };
+  return candidates;
 }
 
 export async function GET(request) {
@@ -344,16 +357,17 @@ export async function GET(request) {
     const includeDiagnostics =
       new URL(request.url).searchParams.get("debug") === "1";
 
-    const {
-      fundraiserId,
-      resolutionPath,
-    } = await resolveFundraiserConstituentId({
+    const resolutionCandidates = await resolveFundraiserCandidates({
       workspaceUser,
       authUserId,
       origin,
     });
 
-    if (!fundraiserId) {
+    const resolutionPath =
+      resolutionCandidates[0]?.resolutionPath || "not-resolved";
+    const fundraiserId = resolutionCandidates[0]?.fundraiserId || null;
+
+    if (!resolutionCandidates.length) {
       return Response.json({
         leadSolicitor: [],
         supportingSolicitor: [],
@@ -365,6 +379,7 @@ export async function GET(request) {
               authUserId,
               isActing,
               resolutionPath,
+              resolutionCandidates: [],
               fundraiserId: null,
             }
           : undefined,
@@ -372,25 +387,69 @@ export async function GET(request) {
     }
 
     let assignmentSource = "fundraiser-assignments";
-    let assignments = await listBlackbaudFundraiserAssignments({
-      userId: workspaceUser.id,
-      authUserId,
-      origin,
-      fundraiserId,
-      searchParams: {
-        include_inactive: false,
-      },
-    });
+    let fundraiserAssignmentsError = null;
+    let assignments = [];
+    let selectedFundraiserId = fundraiserId;
+    let selectedResolutionPath = resolutionPath;
+    const resolutionAttempts = [];
 
-    if (!assignments.length) {
-      assignmentSource = "constituent-fallback";
-      assignments = await listAssignmentsFromConstituentFallback({
-        userId: workspaceUser.id,
-        authUserId,
-        origin,
-        workspaceUser,
-        fundraiserId,
+    for (const candidate of resolutionCandidates) {
+      let candidateAssignments = [];
+      let candidateAssignmentSource = "fundraiser-assignments";
+      let candidateError = null;
+
+      try {
+        candidateAssignments = await listBlackbaudFundraiserAssignments({
+          userId: workspaceUser.id,
+          authUserId,
+          origin,
+          fundraiserId: candidate.fundraiserId,
+          searchParams: {
+            include_inactive: false,
+          },
+        });
+      } catch (error) {
+        candidateError =
+          error instanceof Error ? error.message : "Unknown fundraiser assignment error";
+      }
+
+      if (!candidateAssignments.length) {
+        candidateAssignmentSource = candidateError
+          ? "constituent-fallback-after-fundraiser-error"
+          : "constituent-fallback";
+        candidateAssignments = await listAssignmentsFromConstituentFallback({
+          userId: workspaceUser.id,
+          authUserId,
+          origin,
+          workspaceUser,
+          fundraiserId: candidate.fundraiserId,
+        }).catch(() => []);
+      }
+
+      resolutionAttempts.push({
+        fundraiserId: candidate.fundraiserId,
+        resolutionPath: candidate.resolutionPath,
+        assignmentSource: candidateAssignmentSource,
+        fundraiserAssignmentsError: candidateError,
+        assignmentCount: candidateAssignments.length,
       });
+
+      if (candidateAssignments.length) {
+        assignments = candidateAssignments;
+        assignmentSource = candidateAssignmentSource;
+        fundraiserAssignmentsError = candidateError;
+        selectedFundraiserId = candidate.fundraiserId;
+        selectedResolutionPath = candidate.resolutionPath;
+        break;
+      }
+    }
+
+    if (!assignments.length && resolutionAttempts.length > 0) {
+      const lastAttempt = resolutionAttempts[resolutionAttempts.length - 1];
+      assignmentSource = lastAttempt.assignmentSource;
+      fundraiserAssignmentsError = lastAttempt.fundraiserAssignmentsError;
+      selectedFundraiserId = lastAttempt.fundraiserId;
+      selectedResolutionPath = lastAttempt.resolutionPath;
     }
 
     const leadAssignments = new Map();
@@ -453,9 +512,15 @@ export async function GET(request) {
             workspaceUserEmail: workspaceUser?.email || null,
             authUserId,
             isActing,
-            resolutionPath,
-            fundraiserId,
+            resolutionPath: selectedResolutionPath,
+            resolutionCandidates: resolutionCandidates.map((candidate) => ({
+              fundraiserId: candidate.fundraiserId,
+              resolutionPath: candidate.resolutionPath,
+            })),
+            resolutionAttempts,
+            fundraiserId: selectedFundraiserId,
             assignmentSource,
+            fundraiserAssignmentsError,
             assignmentCount: assignments.length,
             assignmentTypes: Array.from(
               new Set(assignments.map((assignment) => getAssignmentType(assignment)).filter(Boolean)),
