@@ -354,7 +354,7 @@ export default function Page() {
     setViewMode(nextMode);
 
     if (nextMode === "mgo" && typeof window !== "undefined") {
-      window.location.replace("/my-top-prospects");
+      window.location.replace("/");
     }
   }
 
@@ -391,7 +391,7 @@ export default function Page() {
       }
 
       if (typeof window !== "undefined") {
-        window.location.replace("/my-top-prospects");
+        window.location.replace("/");
       }
     } catch (error) {
       console.error("Failed to switch acting MGO workspace:", error);

@@ -9,6 +9,21 @@ import {
 } from "@/app/api/utils/invitations";
 import { isAdminRole } from "@/utils/workspaceRoles";
 
+async function resetPortfolioSeedState(userId) {
+  await sql`
+    UPDATE users
+    SET
+      blackbaud_portfolio_seeded_at = NULL,
+      blackbaud_portfolio_seed_attempted_at = NULL,
+      blackbaud_portfolio_seed_error = NULL,
+      blackbaud_portfolio_cache = NULL,
+      blackbaud_portfolio_cache_key = NULL,
+      blackbaud_portfolio_cached_at = NULL,
+      updated_at = NOW()
+    WHERE id = ${userId}
+  `;
+}
+
 async function requireAdminSession() {
   await ensureAppSchema();
 
@@ -122,6 +137,12 @@ export async function POST(request) {
     `;
 
     if (existingUser.length > 0) {
+      const existingUserState = await sql`
+        SELECT role, blackbaud_constituent_id, blackbaud_lookup_id
+        FROM users
+        WHERE id = ${existingUser[0].id}
+        LIMIT 1
+      `;
       const updatedUser = await sql`
         UPDATE users
         SET
@@ -133,6 +154,17 @@ export async function POST(request) {
         WHERE id = ${existingUser[0].id}
         RETURNING id, name, email, role, blackbaud_lookup_id, created_at, updated_at
       `;
+
+      const priorUser = existingUserState[0] || null;
+      const blackbaudLinkChanged =
+        String(priorUser?.blackbaud_constituent_id || "") !==
+          String(blackbaudConstituentId || priorUser?.blackbaud_constituent_id || "") ||
+        String(priorUser?.blackbaud_lookup_id || "") !==
+          String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
+
+      if ((role === "mgo" || priorUser?.role === "mgo") && blackbaudLinkChanged) {
+        await resetPortfolioSeedState(existingUser[0].id);
+      }
 
       return Response.json({
         mode: "user-updated",
@@ -169,6 +201,10 @@ export async function POST(request) {
         )
         RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
       `;
+
+      if (role === "mgo" && (blackbaudConstituentId || blackbaudLookupId)) {
+        await resetPortfolioSeedState(createdUser[0].id);
+      }
 
       return Response.json(
         {
@@ -277,7 +313,7 @@ export async function PATCH(request) {
     }
 
     const existingUser = await sql`
-      SELECT role
+      SELECT role, blackbaud_constituent_id, blackbaud_lookup_id
       FROM users
       WHERE id = ${userId}
       LIMIT 1
@@ -307,6 +343,18 @@ export async function PATCH(request) {
       WHERE id = ${userId}
       RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
     `;
+
+    const priorUser = existingUser[0] || null;
+    const nextRole = role || priorUser?.role;
+    const blackbaudLinkChanged =
+      String(priorUser?.blackbaud_constituent_id || "") !==
+        String(blackbaudConstituentId || priorUser?.blackbaud_constituent_id || "") ||
+      String(priorUser?.blackbaud_lookup_id || "") !==
+        String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
+
+    if (nextRole === "mgo" && blackbaudLinkChanged) {
+      await resetPortfolioSeedState(userId);
+    }
 
     return Response.json({ user: updatedUser[0] });
   } catch (error) {

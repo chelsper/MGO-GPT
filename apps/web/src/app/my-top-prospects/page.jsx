@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -5003,6 +5003,7 @@ export default function MyTopProspectsPage() {
   const [actionFilter, setActionFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [addProspectInitialData, setAddProspectInitialData] = useState(null);
+  const autoBootstrapAttemptRef = useRef("");
 
   const { data: profileStatus } = useQuery({
     queryKey: ["profile-sync-status"],
@@ -5073,6 +5074,45 @@ export default function MyTopProspectsPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    if (!user || !profileStatus?.workspaceUser?.id) return;
+
+    const workspaceUser = profileStatus.workspaceUser;
+    const hasBlackbaudLink =
+      Boolean(workspaceUser.blackbaud_constituent_id) ||
+      Boolean(workspaceUser.blackbaud_lookup_id);
+    if (!hasBlackbaudLink) return;
+
+    const shouldBootstrap =
+      !workspaceUser.blackbaud_portfolio_seeded_at ||
+      Boolean(workspaceUser.blackbaud_portfolio_seed_error);
+    if (!shouldBootstrap) return;
+
+    const attemptKey = [
+      workspaceUser.id,
+      workspaceUser.blackbaud_lookup_id || "",
+      workspaceUser.blackbaud_constituent_id || "",
+      workspaceUser.blackbaud_portfolio_seeded_at || "",
+      workspaceUser.blackbaud_portfolio_seed_error || "",
+    ].join(":");
+
+    if (autoBootstrapAttemptRef.current === attemptKey) return;
+    autoBootstrapAttemptRef.current = attemptKey;
+
+    (async () => {
+      try {
+        await fetch("/api/users/profile?bootstrapPortfolio=1");
+      } catch (error) {
+        console.error("Automatic portfolio bootstrap failed:", error);
+      } finally {
+        queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
+        queryClient.invalidateQueries({ queryKey: ["prospects"] });
+        queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+        queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
+      }
+    })();
+  }, [profileStatus, queryClient, user]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -325,7 +325,10 @@ export default function AccessManagementPage() {
       }
 
       setWorkspaceUser(data?.actingUser || user);
-      window.location.href = "/my-top-prospects";
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("mgo-gpt:admin-view-mode", "mgo");
+      }
+      window.location.href = "/";
     } catch (err) {
       console.error(err);
       const message = err instanceof Error ? err.message : "Failed to switch workspace view";
