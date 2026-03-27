@@ -4996,6 +4996,7 @@ export default function MyTopProspectsPage() {
       return data;
     },
     enabled: !!user,
+    refetchOnMount: "always",
   });
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
@@ -5168,7 +5169,7 @@ export default function MyTopProspectsPage() {
       queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
-      window.location.href = "/access-management";
+      window.location.href = "/my-top-prospects";
     },
   });
 
@@ -5396,7 +5397,7 @@ export default function MyTopProspectsPage() {
                   cursor: stopViewingMutation.isPending ? "not-allowed" : "pointer",
                 }}
               >
-                {stopViewingMutation.isPending ? "Returning..." : "Return to admin view"}
+                {stopViewingMutation.isPending ? "Returning..." : "Return to my MGO view"}
               </button>
             </div>
           ) : null}

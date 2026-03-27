@@ -477,7 +477,7 @@ export default function Page() {
     setViewMode(nextMode);
 
     if (nextMode === "mgo" && typeof window !== "undefined") {
-      window.location.href = "/my-top-prospects";
+      window.location.replace("/my-top-prospects");
     }
   }
 
