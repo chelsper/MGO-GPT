@@ -7,6 +7,8 @@ const BLACKBAUD_AUTHORIZE_URL = "https://oauth2.sky.blackbaud.com/authorization"
 const BLACKBAUD_TOKEN_URL = "https://oauth2.sky.blackbaud.com/token";
 const BLACKBAUD_CONSTITUENT_SEARCH_URL =
   "https://api.sky.blackbaud.com/constituent/v1/constituents/search";
+const BLACKBAUD_CONSTITUENT_LIST_URL =
+  "https://api.sky.blackbaud.com/constituent/v1/constituents";
 const BLACKBAUD_CONSTITUENT_CUSTOMSEARCH_URL =
   "https://api.sky.blackbaud.com/nxt-data-integration/v1/re/constituents/customsearch";
 const BLACKBAUD_CREATE_ACTION_URL =
@@ -700,6 +702,45 @@ export async function listBlackbaudFundraiserAssignments({
       authUserId,
       origin,
       searchParams: nextSearchParams,
+    });
+
+    const rows = Array.isArray(payload?.value)
+      ? payload.value
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    results.push(...rows);
+
+    nextPath = payload?.next_link || null;
+    nextSearchParams = undefined;
+    pageCount += 1;
+  }
+
+  return results;
+}
+
+export async function listBlackbaudConstituents({
+  userId,
+  authUserId,
+  origin,
+  searchParams,
+  pageLimit = 500,
+  maxPages = 20,
+} = {}) {
+  const results = [];
+  let nextPath = BLACKBAUD_CONSTITUENT_LIST_URL;
+  let nextSearchParams = {
+    limit: pageLimit,
+    ...searchParams,
+  };
+  let pageCount = 0;
+
+  while (nextPath && pageCount < maxPages) {
+    const payload = await blackbaudApiFetch(nextPath, {
+      userId,
+      authUserId,
+      origin,
+      searchParams: nextPath === BLACKBAUD_CONSTITUENT_LIST_URL ? nextSearchParams : undefined,
     });
 
     const rows = Array.isArray(payload?.value)

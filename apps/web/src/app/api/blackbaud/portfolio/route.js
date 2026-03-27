@@ -7,6 +7,7 @@ import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
+  listBlackbaudConstituents,
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
@@ -61,6 +62,93 @@ function classifyAssignmentType(type) {
   }
 
   return null;
+}
+
+function getAssignedFundraisers(constituent) {
+  return (
+    constituent?.constituent_assigned_fundraisers ||
+    constituent?.assigned_fundraisers ||
+    constituent?.fundraiser_assignments ||
+    constituent?.fundraisers ||
+    []
+  );
+}
+
+function getFundraiserIdentitySet(workspaceUser, fundraiserId) {
+  return new Set(
+    [
+      fundraiserId,
+      workspaceUser?.blackbaud_constituent_id,
+      workspaceUser?.blackbaud_lookup_id,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
+}
+
+function getAssignedFundraiserId(assignment) {
+  return (
+    assignment?.fundraiser_id ||
+    assignment?.fundraiser?.id ||
+    assignment?.fundraiser_constituent_id ||
+    assignment?.constituent_id ||
+    assignment?.id ||
+    null
+  );
+}
+
+async function listAssignmentsFromConstituentFallback({
+  userId,
+  authUserId,
+  origin,
+  workspaceUser,
+  fundraiserId,
+}) {
+  const fundraiserIdentitySet = getFundraiserIdentitySet(workspaceUser, fundraiserId);
+  const constituents = await listBlackbaudConstituents({
+    userId,
+    authUserId,
+    origin,
+    searchParams: {
+      constituent_assigned_fundraisers: true,
+    },
+    pageLimit: 500,
+    maxPages: 20,
+  }).catch(() => []);
+
+  const assignments = [];
+
+  for (const constituent of constituents) {
+    const assignedFundraisers = getAssignedFundraisers(constituent);
+    if (!Array.isArray(assignedFundraisers) || assignedFundraisers.length === 0) {
+      continue;
+    }
+
+    for (const assignedFundraiser of assignedFundraisers) {
+      const assignedFundraiserId = String(
+        getAssignedFundraiserId(assignedFundraiser) || "",
+      ).trim();
+      if (!assignedFundraiserId || !fundraiserIdentitySet.has(assignedFundraiserId)) {
+        continue;
+      }
+
+      assignments.push({
+        constituent_id:
+          constituent?.id || constituent?.constituent_id || constituent?.lookup_id || null,
+        type:
+          assignedFundraiser?.type ||
+          assignedFundraiser?.assignment_type ||
+          assignedFundraiser?.fundraiser_type ||
+          (assignedFundraisers.length === 1 ? "Lead Solicitor" : "Secondary Solicitor"),
+        end:
+          assignedFundraiser?.end ||
+          assignedFundraiser?.end_date ||
+          null,
+      });
+    }
+  }
+
+  return assignments;
 }
 
 function mapConstituentBasics(constituent) {
@@ -249,7 +337,7 @@ export async function GET(request) {
       });
     }
 
-    const assignments = await listBlackbaudFundraiserAssignments({
+    let assignments = await listBlackbaudFundraiserAssignments({
       userId: workspaceUser.id,
       authUserId,
       origin,
@@ -258,6 +346,16 @@ export async function GET(request) {
         include_inactive: false,
       },
     });
+
+    if (!assignments.length) {
+      assignments = await listAssignmentsFromConstituentFallback({
+        userId: workspaceUser.id,
+        authUserId,
+        origin,
+        workspaceUser,
+        fundraiserId,
+      });
+    }
 
     const leadAssignments = new Map();
     const supportAssignments = new Map();
