@@ -24,6 +24,7 @@ const STATUS_PRIORITY = {
   Identification: 3,
 };
 const AUTO_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const OPPORTUNITY_DETAIL_BATCH_SIZE = 8;
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -70,6 +71,72 @@ function getOpportunityAmount(opportunity) {
       opportunity?.funded_amount?.value ??
       0,
   );
+}
+
+function getImportedOpportunityStatus(opportunity) {
+  const normalizedStatus = normalizeText(opportunity?.status);
+  const fundedAmount = Number(opportunity?.funded_amount?.value ?? 0);
+  const fundedDate = opportunity?.funded_date || null;
+
+  if (fundedAmount > 0 || fundedDate) {
+    return "Closed – Gift Secured";
+  }
+
+  if (
+    normalizedStatus.includes("declined") ||
+    normalizedStatus.includes("lost") ||
+    normalizedStatus.includes("cancel") ||
+    normalizedStatus.includes("rejected")
+  ) {
+    return "Closed – Declined";
+  }
+
+  return "Active";
+}
+
+async function enrichOpportunityDetails({ userId, authUserId, origin, opportunities }) {
+  const enriched = [];
+
+  for (let index = 0; index < opportunities.length; index += OPPORTUNITY_DETAIL_BATCH_SIZE) {
+    const chunk = opportunities.slice(index, index + OPPORTUNITY_DETAIL_BATCH_SIZE);
+    const detailedChunk = await Promise.all(
+      chunk.map(async (opportunity) => {
+        if (
+          opportunity?.ask_date &&
+          opportunity?.expected_date &&
+          (opportunity?.funded_amount?.value != null || opportunity?.funded_date)
+        ) {
+          return opportunity;
+        }
+
+        if (!opportunity?.id) {
+          return opportunity;
+        }
+
+        try {
+          const detailedOpportunity = await blackbaudApiFetch(
+            `/opportunity/v1/opportunities/${encodeURIComponent(String(opportunity.id))}`,
+            {
+              userId,
+              authUserId,
+              origin,
+            },
+          );
+
+          return {
+            ...opportunity,
+            ...detailedOpportunity,
+          };
+        } catch {
+          return opportunity;
+        }
+      }),
+    );
+
+    enriched.push(...detailedChunk);
+  }
+
+  return enriched;
 }
 
 function compareOpportunities(left, right) {
@@ -217,9 +284,11 @@ async function upsertProspectOpportunity({
     title: opportunity?.name || "Imported Blackbaud opportunity",
     currentStage: opportunity?.status || "Identification",
     estimatedAmount: getOpportunityAmount(opportunity) || null,
-    opportunityStatus: "Active",
+    opportunityStatus: getImportedOpportunityStatus(opportunity),
     askDate: opportunity?.ask_date || null,
     expectedDate: opportunity?.expected_date || null,
+    closedAmount: opportunity?.funded_amount?.value ?? null,
+    closeDate: opportunity?.funded_date || null,
   };
 
   if (existingRows[0]?.id) {
@@ -232,6 +301,8 @@ async function upsertProspectOpportunity({
         ask_date = ${payload.askDate},
         expected_date = ${payload.expectedDate},
         opportunity_status = ${payload.opportunityStatus},
+        closed_amount = ${payload.closedAmount},
+        close_date = ${payload.closeDate},
         constituent_id = ${constituentId || null},
         updated_at = NOW()
       WHERE id = ${existingRows[0].id}
@@ -250,6 +321,8 @@ async function upsertProspectOpportunity({
       estimated_amount,
       ask_date,
       expected_date,
+      closed_amount,
+      close_date,
       created_at,
       updated_at
     ) VALUES (
@@ -262,6 +335,8 @@ async function upsertProspectOpportunity({
       ${payload.estimatedAmount},
       ${payload.askDate},
       ${payload.expectedDate},
+      ${payload.closedAmount},
+      ${payload.closeDate},
       NOW(),
       NOW()
     )
@@ -332,13 +407,32 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
     blackbaudLookupId: userBlackbaudConstituent.lookupId,
   });
 
-  const opportunities = await listBlackbaudOpportunities({
+  const listedOpportunities = await listBlackbaudOpportunities({
     userId,
     authUserId,
     origin,
     searchParams: {
       limit: 500,
     },
+  });
+
+  const assignedOpportunities = listedOpportunities.filter((opportunity) => {
+    const assignedFundraisers = Array.isArray(opportunity?.fundraisers)
+      ? opportunity.fundraisers
+      : [];
+
+    return assignedFundraisers.some(
+      (fundraiser) =>
+        String(fundraiser?.constituent_id || "") ===
+        String(userBlackbaudConstituent.blackbaudConstituentId),
+    );
+  });
+
+  const opportunities = await enrichOpportunityDetails({
+    userId,
+    authUserId,
+    origin,
+    opportunities: assignedOpportunities,
   });
 
   const qualifying = opportunities.filter((opportunity) => {
@@ -352,19 +446,19 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
     if (!opportunity?.expected_date || !opportunity?.constituent_id) {
       return false;
     }
-
-    const assignedFundraisers = Array.isArray(opportunity?.fundraisers)
-      ? opportunity.fundraisers
-      : [];
-
-    return assignedFundraisers.some(
-      (fundraiser) =>
-        String(fundraiser?.constituent_id || "") ===
-        String(userBlackbaudConstituent.blackbaudConstituentId),
-    );
+    return true;
   });
 
   const groupedByConstituent = new Map();
+  const allAssignedByConstituent = new Map();
+  opportunities.forEach((opportunity) => {
+    const key = String(opportunity.constituent_id || "");
+    if (!key) return;
+    const bucket = allAssignedByConstituent.get(key) || [];
+    bucket.push(opportunity);
+    allAssignedByConstituent.set(key, bucket);
+  });
+
   qualifying.forEach((opportunity) => {
     const key = String(opportunity.constituent_id);
     const bucket = groupedByConstituent.get(key) || [];
@@ -391,7 +485,8 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
       return {
         blackbaudConstituentId,
         constituent,
-        opportunities: sortedItems,
+        opportunities:
+          allAssignedByConstituent.get(blackbaudConstituentId) || sortedItems,
         primaryOpportunity: sortedItems[0],
       };
     }),
