@@ -211,8 +211,8 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
   const entries = Array.from(groupedAssignments.values());
   const enriched = [];
 
-  for (let index = 0; index < entries.length; index += 5) {
-    const chunk = entries.slice(index, index + 5);
+  for (let index = 0; index < entries.length; index += 20) {
+    const chunk = entries.slice(index, index + 20);
     const results = await Promise.all(
       chunk.map(async (entry) => {
         const details = await fetchPortfolioConstituent({
@@ -442,6 +442,21 @@ export async function GET(request) {
         selectedResolutionPath = candidate.resolutionPath;
         break;
       }
+    }
+
+    if (
+      assignments.length &&
+      selectedFundraiserId &&
+      String(workspaceUser?.blackbaud_constituent_id || "").trim() !==
+        String(selectedFundraiserId).trim()
+    ) {
+      await sql`
+        UPDATE users
+        SET
+          blackbaud_constituent_id = ${String(selectedFundraiserId)},
+          updated_at = NOW()
+        WHERE id = ${workspaceUser.id}
+      `;
     }
 
     if (!assignments.length && resolutionAttempts.length > 0) {

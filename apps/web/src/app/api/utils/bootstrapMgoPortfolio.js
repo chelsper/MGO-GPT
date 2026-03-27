@@ -136,13 +136,6 @@ async function markSeedAttempt({ userId, error = null, seeded = false }) {
 }
 
 async function resolveUserBlackbaudConstituent({ user, authUserId, origin }) {
-  if (user?.blackbaud_constituent_id) {
-    return {
-      blackbaudConstituentId: user.blackbaud_constituent_id,
-      lookupId: user.blackbaud_lookup_id || null,
-    };
-  }
-
   const exactLookupMatch = await findBlackbaudConstituentByLookupId({
     userId: user.id,
     authUserId,
@@ -151,6 +144,13 @@ async function resolveUserBlackbaudConstituent({ user, authUserId, origin }) {
   }).catch(() => null);
   if (exactLookupMatch?.blackbaudConstituentId) {
     return exactLookupMatch;
+  }
+
+  if (user?.blackbaud_constituent_id) {
+    return {
+      blackbaudConstituentId: user.blackbaud_constituent_id,
+      lookupId: user.blackbaud_lookup_id || null,
+    };
   }
 
   const exactEmailMatch = await findBlackbaudConstituentByEmail({

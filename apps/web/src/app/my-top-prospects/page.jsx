@@ -5030,6 +5030,7 @@ export default function MyTopProspectsPage() {
       "blackbaud-portfolio",
       profileStatus?.workspaceUser?.id,
       profileStatus?.workspaceUser?.blackbaud_constituent_id,
+      profileStatus?.workspaceUser?.blackbaud_lookup_id,
     ],
     queryFn: async () => {
       const res = await fetch("/api/blackbaud/portfolio");
@@ -5039,7 +5040,12 @@ export default function MyTopProspectsPage() {
       }
       return data;
     },
-    enabled: !!user && !!profileStatus?.workspaceUser?.blackbaud_constituent_id,
+    enabled:
+      !!user &&
+      !!(
+        profileStatus?.workspaceUser?.blackbaud_constituent_id ||
+        profileStatus?.workspaceUser?.blackbaud_lookup_id
+      ),
   });
 
   useEffect(() => {
