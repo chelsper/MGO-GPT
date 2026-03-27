@@ -109,10 +109,8 @@ async function refreshImportedBlackbaudOpportunities({
       AND (
         po.ask_date IS NULL
         OR po.expected_date IS NULL
-        OR (
-          po.opportunity_status = 'Closed – Gift Secured'
-          AND (po.closed_amount IS NULL OR po.close_date IS NULL)
-        )
+        OR po.closed_amount IS NULL
+        OR po.close_date IS NULL
       )
   `;
 

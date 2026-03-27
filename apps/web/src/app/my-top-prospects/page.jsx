@@ -1715,12 +1715,19 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   };
 
   const startEditingOpportunity = (opportunity) => {
+    const inferredOpportunityStatus =
+      opportunity.opportunity_status === "Closed – Gift Secured" ||
+      opportunity.closed_amount != null ||
+      opportunity.close_date
+        ? "Closed – Gift Secured"
+        : opportunity.opportunity_status || "Active";
+
     setEditingOpportunityId(opportunity.id);
     setOpportunityEditError("");
     setOpportunityEditData({
       title: opportunity.title || "",
       currentStage: opportunity.current_stage || "Identification",
-      opportunityStatus: opportunity.opportunity_status || "Active",
+      opportunityStatus: inferredOpportunityStatus,
       estimatedAmount:
         opportunity.estimated_amount != null
           ? String(opportunity.estimated_amount)
@@ -4285,7 +4292,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                                   marginBottom: "4px",
                                 }}
                               >
-                                Closed amount
+                                Amount Funded
                               </label>
                               <input
                                 type="number"
@@ -4316,7 +4323,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                                   marginBottom: "4px",
                                 }}
                               >
-                                Close date
+                                Date Funded
                               </label>
                               <input
                                 type="date"
@@ -4475,8 +4482,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                             {opportunity.latest_notes}
                           </p>
                         ) : null}
-                        {opportunity.opportunity_status === "Closed – Gift Secured" &&
-                        (opportunity.closed_amount != null || opportunity.close_date) ? (
+                        {(opportunity.closed_amount != null || opportunity.close_date) ? (
                           <div
                             style={{
                               fontSize: "12px",
@@ -4486,11 +4492,11 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                             }}
                           >
                             {opportunity.closed_amount != null
-                              ? `Closed amount ${formatCurrency(opportunity.closed_amount)}`
+                              ? `Amount Funded ${formatCurrency(opportunity.closed_amount)}`
                               : null}
                             {opportunity.closed_amount != null && opportunity.close_date ? " · " : ""}
                             {opportunity.close_date
-                              ? `Closed ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
+                              ? `Funded ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
                                   month: "long",
                                   day: "numeric",
                                   year: "numeric",
