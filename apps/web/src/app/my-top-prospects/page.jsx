@@ -1241,6 +1241,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [editingOpportunityId, setEditingOpportunityId] = useState(null);
   const [opportunityEditData, setOpportunityEditData] = useState({});
   const [opportunityEditError, setOpportunityEditError] = useState("");
+  const [opportunityEditFeedback, setOpportunityEditFeedback] = useState("");
   const [actionError, setActionError] = useState("");
 
   useEffect(() => {
@@ -1531,13 +1532,18 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       }
       return payload;
     },
-    onSuccess: () => {
+    onSuccess: (payload) => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setEditingOpportunityId(null);
       setOpportunityEditData({});
       setOpportunityEditError("");
+      setOpportunityEditFeedback(
+        payload?.blackbaudSync?.status === "synced"
+          ? "Saved and updated in NXT."
+          : "Saved locally.",
+      );
     },
     onError: (error) => {
       setOpportunityEditError(
@@ -1724,6 +1730,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
 
     setEditingOpportunityId(opportunity.id);
     setOpportunityEditError("");
+    setOpportunityEditFeedback("");
     setOpportunityEditData({
       title: opportunity.title || "",
       currentStage: opportunity.current_stage || "Identification",
@@ -4430,6 +4437,22 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                             {opportunityEditError}
                           </div>
                         ) : null}
+                        {opportunityEditFeedback ? (
+                          <div
+                            style={{
+                              marginBottom: "10px",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              backgroundColor: "#ECFDF5",
+                              border: "1px solid #A7F3D0",
+                              color: "#166534",
+                              fontSize: "13px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {opportunityEditFeedback}
+                          </div>
+                        ) : null}
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button
                             type="button"
@@ -4453,6 +4476,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                               setEditingOpportunityId(null);
                               setOpportunityEditData({});
                               setOpportunityEditError("");
+                              setOpportunityEditFeedback("");
                             }}
                             style={{
                               padding: "8px 14px",

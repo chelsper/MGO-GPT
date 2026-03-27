@@ -853,6 +853,104 @@ export async function deleteBlackbaudAction({ userId, origin, actionId }) {
   );
 }
 
+function toBlackbaudDateTime(value) {
+  if (!value) return undefined;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+    return `${value}T00:00:00Z`;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed.toISOString();
+}
+
+export function buildBlackbaudOpportunityPayload({
+  title,
+  currentStage,
+  estimatedAmount,
+  askDate,
+  expectedDate,
+  opportunityStatus,
+  closedAmount,
+  closeDate,
+}) {
+  const payload = {};
+
+  const normalizedTitle = String(title || "").trim();
+  if (normalizedTitle) {
+    payload.name = normalizedTitle;
+  }
+
+  const normalizedStage = String(currentStage || "").trim();
+  if (normalizedStage) {
+    payload.status = normalizedStage;
+  }
+
+  if (estimatedAmount !== undefined && estimatedAmount !== null && estimatedAmount !== "") {
+    const numericAmount = Number(estimatedAmount);
+    if (Number.isFinite(numericAmount)) {
+      payload.expected_amount = { value: numericAmount };
+
+      if (askDate) {
+        payload.ask_amount = { value: numericAmount };
+      }
+    }
+  }
+
+  const normalizedAskDate = toBlackbaudDateTime(askDate);
+  if (normalizedAskDate) {
+    payload.ask_date = normalizedAskDate;
+  }
+
+  const normalizedExpectedDate = toBlackbaudDateTime(expectedDate);
+  if (normalizedExpectedDate) {
+    payload.expected_date = normalizedExpectedDate;
+  }
+
+  if (opportunityStatus === "Closed – Gift Secured") {
+    const numericFundedAmount = Number(
+      closedAmount ?? estimatedAmount ?? null,
+    );
+    if (Number.isFinite(numericFundedAmount)) {
+      payload.funded_amount = { value: numericFundedAmount };
+    }
+
+    const normalizedFundedDate = toBlackbaudDateTime(closeDate);
+    if (normalizedFundedDate) {
+      payload.funded_date = normalizedFundedDate;
+    }
+  }
+
+  return payload;
+}
+
+export async function updateBlackbaudOpportunity({
+  userId,
+  authUserId,
+  origin,
+  opportunityId,
+  payload,
+}) {
+  if (!opportunityId) {
+    throw new Error("A Blackbaud opportunity ID is required to update an opportunity");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_OPPORTUNITIES_URL}/${encodeURIComponent(String(opportunityId))}`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
+}
+
 export function buildBlackbaudAuthorizeUrl({ origin, state }) {
   const config = getBlackbaudConfig(origin);
   const params = new URLSearchParams({

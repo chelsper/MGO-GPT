@@ -2,6 +2,10 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { syncProspectAskAmount } from "@/app/api/utils/prospectOpportunities";
+import {
+  buildBlackbaudOpportunityPayload,
+  updateBlackbaudOpportunity,
+} from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 export async function PUT(request, { params }) {
@@ -13,10 +17,15 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(
+      session,
+      request,
+    );
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
+    const authUserId = isActing ? sessionUser.id : user.id;
+    const origin = request?.url ? new URL(request.url).origin : null;
 
     const opportunityId = params.id;
     const body = await request.json();
@@ -79,6 +88,41 @@ export async function PUT(request, { params }) {
           ? null
           : existing.decline_reason;
 
+    if (existing.blackbaud_opportunity_id) {
+      const blackbaudPayload = buildBlackbaudOpportunityPayload({
+        title: nextTitle,
+        currentStage: nextStage,
+        estimatedAmount: nextEstimatedAmount,
+        askDate: askDate || existing.ask_date || null,
+        expectedDate: expectedDate || existing.expected_date || null,
+        opportunityStatus: nextOpportunityStatus,
+        closedAmount: nextClosedAmount,
+        closeDate: nextCloseDate,
+      });
+
+      if (Object.keys(blackbaudPayload).length > 0) {
+        try {
+          await updateBlackbaudOpportunity({
+            userId: user.id,
+            authUserId,
+            origin,
+            opportunityId: existing.blackbaud_opportunity_id,
+            payload: blackbaudPayload,
+          });
+        } catch (error) {
+          return Response.json(
+            {
+              error:
+                error instanceof Error && error.message
+                  ? `Could not update NXT opportunity: ${error.message}`
+                  : "Could not update NXT opportunity",
+            },
+            { status: 502 },
+          );
+        }
+      }
+    }
+
     const updatedRows = await sql`
       UPDATE prospect_opportunities
       SET
@@ -100,7 +144,17 @@ export async function PUT(request, { params }) {
     const updated = updatedRows[0];
     await syncProspectAskAmount(updated.prospect_id);
 
-    return Response.json(updated);
+    return Response.json({
+      ...updated,
+      blackbaudSync: existing.blackbaud_opportunity_id
+        ? {
+            status: "synced",
+            opportunityId: existing.blackbaud_opportunity_id,
+          }
+        : {
+            status: "local-only",
+          },
+    });
   } catch (error) {
     console.error("Error updating linked opportunity:", error);
     return Response.json(
