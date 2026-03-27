@@ -3,7 +3,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   blackbaudApiFetch,
+  findBlackbaudConstituentByEmail,
+  findBlackbaudConstituentByLookupId,
   getBlackbaudConfigIssues,
+  listBlackbaudOpportunities,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -124,6 +127,96 @@ async function backfillImportedFundedOpportunities({ userId, authUserId, origin 
   );
 }
 
+async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origin }) {
+  if (user?.blackbaud_lookup_id) {
+    const lookupMatch = await findBlackbaudConstituentByLookupId({
+      userId: user.id,
+      authUserId,
+      origin,
+      lookupId: user.blackbaud_lookup_id,
+    }).catch(() => null);
+
+    if (lookupMatch?.blackbaudConstituentId) {
+      return String(lookupMatch.blackbaudConstituentId);
+    }
+  }
+
+  if (user?.blackbaud_constituent_id) {
+    return String(user.blackbaud_constituent_id);
+  }
+
+  if (user?.email) {
+    const emailMatch = await findBlackbaudConstituentByEmail({
+      userId: user.id,
+      authUserId,
+      origin,
+      email: user.email,
+    }).catch(() => null);
+
+    if (emailMatch?.blackbaudConstituentId) {
+      return String(emailMatch.blackbaudConstituentId);
+    }
+  }
+
+  return null;
+}
+
+async function getLiveBlackbaudClosedThisFY({
+  user,
+  authUserId,
+  origin,
+  fiscalYearStart,
+  fiscalYearEnd,
+}) {
+  const fundraiserConstituentId = await resolveWorkspaceFundraiserConstituentId({
+    user,
+    authUserId,
+    origin,
+  });
+
+  if (!fundraiserConstituentId) {
+    return 0;
+  }
+
+  const opportunities = await listBlackbaudOpportunities({
+    userId: user.id,
+    authUserId,
+    origin,
+    searchParams: {
+      limit: 500,
+    },
+  }).catch(() => []);
+
+  const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
+  const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
+
+  return opportunities.reduce((sum, opportunity) => {
+    const fundraisers = Array.isArray(opportunity?.fundraisers)
+      ? opportunity.fundraisers
+      : [];
+    const isAssigned = fundraisers.some(
+      (fundraiser) =>
+        String(fundraiser?.constituent_id || "") === fundraiserConstituentId,
+    );
+
+    if (!isAssigned) return sum;
+
+    const fundedDate = getOpportunityFundedDate(opportunity);
+    if (!fundedDate) return sum;
+
+    const fundedTimestamp = new Date(fundedDate).getTime();
+    if (Number.isNaN(fundedTimestamp)) return sum;
+    if (fundedTimestamp < fiscalStart || fundedTimestamp > fiscalEnd) return sum;
+
+    const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
+    if (fundedAmount > 0) {
+      return sum + fundedAmount;
+    }
+
+    return sum;
+  }, 0);
+}
+
 // GET prospect summary stats for dashboard
 export async function GET(request) {
   try {
@@ -200,10 +293,30 @@ export async function GET(request) {
         )
     `;
 
+    let closedThisFY = parseFloat(closedResult[0].closed_total) || 0;
+
+    if (
+      closedThisFY === 0 &&
+      (user.blackbaud_constituent_id || user.blackbaud_lookup_id) &&
+      origin
+    ) {
+      const liveClosedThisFY = await getLiveBlackbaudClosedThisFY({
+        user,
+        authUserId,
+        origin,
+        fiscalYearStart,
+        fiscalYearEnd,
+      }).catch(() => 0);
+
+      if (liveClosedThisFY > 0) {
+        closedThisFY = liveClosedThisFY;
+      }
+    }
+
     return Response.json({
       activeCount: parseInt(activeResult[0].active_count) || 0,
       totalAskPipeline: parseFloat(activeResult[0].total_pipeline) || 0,
-      closedThisFY: parseFloat(closedResult[0].closed_total) || 0,
+      closedThisFY,
       currentFY,
     });
   } catch (error) {
