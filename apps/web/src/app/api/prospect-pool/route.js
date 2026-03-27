@@ -56,7 +56,7 @@ export async function GET(request) {
                   (pp.constituent_id IS NOT NULL AND p.constituent_id = pp.constituent_id)
                   OR (
                     pp.normalized_name IS NOT NULL
-                    AND p.normalized_name = pp.normalized_name
+                    AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(p.prospect_name, '')), '\s+', ' ', 'g')) = pp.normalized_name
                   )
                 )
               ORDER BY
@@ -109,7 +109,7 @@ export async function GET(request) {
                   (pp.constituent_id IS NOT NULL AND p.constituent_id = pp.constituent_id)
                   OR (
                     pp.normalized_name IS NOT NULL
-                    AND p.normalized_name = pp.normalized_name
+                    AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(p.prospect_name, '')), '\s+', ' ', 'g')) = pp.normalized_name
                   )
                 )
               ORDER BY
