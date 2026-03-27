@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   blackbaudApiFetch,
+  findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
   listBlackbaudOpportunities,
   searchBlackbaudConstituents,
@@ -140,6 +141,16 @@ async function resolveUserBlackbaudConstituent({ user, authUserId, origin }) {
       blackbaudConstituentId: user.blackbaud_constituent_id,
       lookupId: user.blackbaud_lookup_id || null,
     };
+  }
+
+  const exactLookupMatch = await findBlackbaudConstituentByLookupId({
+    userId: user.id,
+    authUserId,
+    origin,
+    lookupId: user.blackbaud_lookup_id,
+  }).catch(() => null);
+  if (exactLookupMatch?.blackbaudConstituentId) {
+    return exactLookupMatch;
   }
 
   const exactEmailMatch = await findBlackbaudConstituentByEmail({

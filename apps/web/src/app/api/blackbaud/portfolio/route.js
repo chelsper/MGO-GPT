@@ -4,14 +4,12 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import {
   blackbaudApiFetch,
+  findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
-
-const LEAD_TYPES = new Set(["lead solicitor"]);
-const SUPPORT_TYPES = new Set(["secondary solicitor", "athletics solicitor"]);
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -40,8 +38,29 @@ function getAssignmentConstituentId(assignment) {
     assignment?.constituentId ||
     assignment?.assigned_constituent_id ||
     assignment?.assigned_constituent?.id ||
+    assignment?.constituent?.id ||
     null
   );
+}
+
+function classifyAssignmentType(type) {
+  const normalizedType = normalizeText(type);
+
+  if (
+    normalizedType.includes("lead solicitor") ||
+    normalizedType.includes("primary solicitor")
+  ) {
+    return "lead";
+  }
+
+  if (
+    normalizedType.includes("secondary solicitor") ||
+    normalizedType.includes("athletics solicitor")
+  ) {
+    return "support";
+  }
+
+  return null;
 }
 
 function mapConstituentBasics(constituent) {
@@ -145,6 +164,17 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
     return workspaceUser.blackbaud_constituent_id;
   }
 
+  const exactLookupMatch = await findBlackbaudConstituentByLookupId({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    lookupId: workspaceUser.blackbaud_lookup_id,
+  }).catch(() => null);
+
+  if (exactLookupMatch?.blackbaudConstituentId) {
+    return exactLookupMatch.blackbaudConstituentId;
+  }
+
   const exactEmailMatch = await findBlackbaudConstituentByEmail({
     userId: workspaceUser.id,
     authUserId,
@@ -239,12 +269,13 @@ export async function GET(request) {
         if (!constituentId) return;
 
         const type = getAssignmentType(assignment);
-        const normalizedType = normalizeText(type);
-        const targetMap = LEAD_TYPES.has(normalizedType)
-          ? leadAssignments
-          : SUPPORT_TYPES.has(normalizedType)
-            ? supportAssignments
-            : null;
+        const assignmentBucket = classifyAssignmentType(type);
+        const targetMap =
+          assignmentBucket === "lead"
+            ? leadAssignments
+            : assignmentBucket === "support"
+              ? supportAssignments
+              : null;
 
         if (!targetMap) return;
 

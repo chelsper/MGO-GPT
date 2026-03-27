@@ -424,7 +424,8 @@ export async function searchBlackbaudConstituents({ userId, authUserId, origin, 
       customMappedRows = filteredCustomRows.map((item) => ({
         blackbaudConstituentId:
           item?.constituent_id || item?.id || item?.record_id?.toString() || null,
-        blackbaudLookupId: item?.constituent_id || null,
+        blackbaudLookupId:
+          item?.lookup_id || item?.constituent_id || item?.record_id?.toString() || null,
         blackbaudRecordId: item?.record_id?.toString() || null,
         name:
           [
@@ -449,7 +450,8 @@ export async function searchBlackbaudConstituents({ userId, authUserId, origin, 
           ]
             .filter(Boolean)
             .join("\n") || null,
-        lookupId: item?.constituent_id || item?.record_id?.toString() || null,
+        lookupId:
+          item?.lookup_id || item?.constituent_id || item?.record_id?.toString() || null,
         raw: item,
       }));
     } catch (error) {
@@ -587,6 +589,45 @@ export async function findBlackbaudConstituentByEmail({
         .trim() || null,
     email: exactMatch?.primary_email || exactMatch?.matched_email || null,
     raw: exactMatch,
+  };
+}
+
+export async function findBlackbaudConstituentByLookupId({
+  userId,
+  authUserId,
+  origin,
+  lookupId,
+}) {
+  const normalizedLookupId = String(lookupId || "").trim();
+  if (!normalizedLookupId) {
+    return null;
+  }
+
+  const matches = await searchBlackbaudConstituents({
+    userId,
+    authUserId,
+    origin,
+    query: normalizedLookupId,
+  });
+
+  const exactMatch =
+    matches.find(
+      (item) =>
+        String(item?.lookupId || item?.blackbaudLookupId || "").trim() ===
+        normalizedLookupId,
+    ) || matches[0];
+
+  if (!exactMatch) {
+    return null;
+  }
+
+  return {
+    blackbaudConstituentId: exactMatch.blackbaudConstituentId || null,
+    lookupId:
+      exactMatch.lookupId || exactMatch.blackbaudLookupId || normalizedLookupId,
+    name: exactMatch.name || null,
+    email: exactMatch.email || null,
+    raw: exactMatch.raw || exactMatch,
   };
 }
 
