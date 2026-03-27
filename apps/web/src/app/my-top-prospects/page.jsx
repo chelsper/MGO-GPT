@@ -4996,7 +4996,9 @@ export default function MyTopProspectsPage() {
       return data;
     },
     enabled: !!user,
+    staleTime: 30 * 1000,
     refetchOnMount: "always",
+    refetchOnWindowFocus: false,
   });
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
@@ -5009,6 +5011,8 @@ export default function MyTopProspectsPage() {
       return res.json();
     },
     enabled: !!user && !!activeWorkspaceUserId,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const { data: summary } = useQuery({
@@ -5019,6 +5023,8 @@ export default function MyTopProspectsPage() {
       return res.json();
     },
     enabled: !!user && !!activeWorkspaceUserId,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const {
@@ -5042,10 +5048,13 @@ export default function MyTopProspectsPage() {
     },
     enabled:
       !!user &&
+      activeWorkspaceTab === "portfolio" &&
       !!(
         profileStatus?.workspaceUser?.blackbaud_constituent_id ||
         profileStatus?.workspaceUser?.blackbaud_lookup_id
       ),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {

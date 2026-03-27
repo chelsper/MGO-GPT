@@ -678,6 +678,47 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospects_user_status_priority
+      ON prospects (user_id, status, priority_order, created_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospects_user_constituent
+      ON prospects (user_id, constituent_id)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_prospect_status
+      ON prospect_opportunities (prospect_id, opportunity_status, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_prospect_close
+      ON prospect_opportunities (prospect_id, close_date)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_updates_prospect_created
+      ON prospect_updates (prospect_id, created_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_submissions_user_prospect_activity
+      ON submissions (user_id, prospect_id, updated_at DESC, date_submitted DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_submissions_user_constituent_activity
+      ON submissions (user_id, constituent_id, updated_at DESC, date_submitted DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_discussion_items_owner_status_prospect
+      ON discussion_items (owner_user_id, status, prospect_id, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_discussion_items_owner_status_constituent
+      ON discussion_items (owner_user_id, status, constituent_id, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_discussion_items_assigned_status_due
+      ON discussion_items (assigned_user_id, status, due_date, updated_at DESC)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS blackbaud_field_mappings (
         mapping_key TEXT PRIMARY KEY,
         app_entity TEXT NOT NULL,
