@@ -2,7 +2,101 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities";
+import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+
+function getImportedOpportunityStatus(opportunity) {
+  const normalizedStatus = String(opportunity?.status || "").trim().toLowerCase();
+  const fundedAmount = Number(opportunity?.funded_amount?.value ?? 0);
+  const fundedDate = opportunity?.funded_date || null;
+
+  if (fundedAmount > 0 || fundedDate) {
+    return "Closed – Gift Secured";
+  }
+
+  if (
+    normalizedStatus.includes("declined") ||
+    normalizedStatus.includes("lost") ||
+    normalizedStatus.includes("cancel") ||
+    normalizedStatus.includes("rejected")
+  ) {
+    return "Closed – Declined";
+  }
+
+  return "Active";
+}
+
+async function refreshImportedBlackbaudOpportunities({
+  userId,
+  authUserId,
+  origin,
+  prospectId,
+}) {
+  const configIssues = getBlackbaudConfigIssues(origin);
+  if (configIssues.length > 0) return;
+
+  const rowsNeedingRefresh = await sql`
+    SELECT po.id, po.blackbaud_opportunity_id, po.opportunity_status, po.ask_date, po.expected_date, po.closed_amount, po.close_date
+    FROM prospect_opportunities po
+    INNER JOIN prospects p ON p.id = po.prospect_id
+    WHERE po.prospect_id = ${prospectId}
+      AND p.user_id = ${userId}
+      AND po.blackbaud_opportunity_id IS NOT NULL
+      AND (
+        po.ask_date IS NULL
+        OR po.expected_date IS NULL
+        OR (
+          po.opportunity_status = 'Closed – Gift Secured'
+          AND (po.closed_amount IS NULL OR po.close_date IS NULL)
+        )
+      )
+  `;
+
+  if (!rowsNeedingRefresh.length) return;
+
+  await Promise.all(
+    rowsNeedingRefresh.map(async (row) => {
+      try {
+        const opportunity = await blackbaudApiFetch(
+          `/opportunity/v1/opportunities/${encodeURIComponent(String(row.blackbaud_opportunity_id))}`,
+          {
+            userId,
+            authUserId,
+            origin,
+          },
+        );
+
+        const nextStatus = getImportedOpportunityStatus(opportunity);
+        const nextClosedAmount =
+          nextStatus === "Closed – Gift Secured"
+            ? opportunity?.funded_amount?.value ?? row.closed_amount ?? null
+            : nextStatus === "Active"
+              ? null
+              : row.closed_amount;
+        const nextCloseDate =
+          nextStatus === "Closed – Gift Secured"
+            ? opportunity?.funded_date || row.close_date || null
+            : nextStatus === "Active"
+              ? null
+              : row.close_date;
+
+        await sql`
+          UPDATE prospect_opportunities
+          SET
+            ask_date = COALESCE(${opportunity?.ask_date || null}, ask_date),
+            expected_date = COALESCE(${opportunity?.expected_date || null}, expected_date),
+            opportunity_status = ${nextStatus},
+            closed_amount = ${nextClosedAmount},
+            close_date = ${nextCloseDate},
+            updated_at = NOW()
+          WHERE id = ${row.id}
+        `;
+      } catch (error) {
+        console.error("Refresh imported Blackbaud opportunity error:", error);
+      }
+    }),
+  );
+}
 
 // GET a single prospect with its updates
 export async function GET(request, { params }) {
@@ -14,9 +108,11 @@ export async function GET(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(session, request);
     if (!user)
       return Response.json({ error: "User not found" }, { status: 404 });
+    const authUserId = isActing ? sessionUser.id : user.id;
+    const origin = request?.url ? new URL(request.url).origin : null;
 
     const prospectId = params.id;
 
@@ -35,6 +131,13 @@ export async function GET(request, { params }) {
     }
 
     const constituentId = prospects[0].constituent_id || null;
+
+    await refreshImportedBlackbaudOpportunities({
+      userId: user.id,
+      authUserId,
+      origin,
+      prospectId,
+    });
 
     const [updates, opportunities, linkedSubmissions, discussionItems] = await Promise.all([
       sql`
