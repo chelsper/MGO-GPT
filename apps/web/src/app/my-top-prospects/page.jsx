@@ -171,6 +171,23 @@ function formatShortDate(value) {
   });
 }
 
+function normalizeDateInputValue(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+      return trimmed.slice(0, 10);
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
 function formatPortfolioContact(person) {
   return [person?.email, person?.phone].filter(Boolean).join(" · ");
 }
@@ -1708,12 +1725,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
         opportunity.estimated_amount != null
           ? String(opportunity.estimated_amount)
           : "",
-      askDate: opportunity.ask_date || "",
-      expectedDate: opportunity.expected_date || "",
+      askDate: normalizeDateInputValue(opportunity.ask_date),
+      expectedDate: normalizeDateInputValue(opportunity.expected_date),
       latestNotes: opportunity.latest_notes || "",
       closedAmount:
         opportunity.closed_amount != null ? String(opportunity.closed_amount) : "",
-      closeDate: opportunity.close_date || "",
+      closeDate: normalizeDateInputValue(opportunity.close_date),
       declineReason: opportunity.decline_reason || "",
     });
   };
