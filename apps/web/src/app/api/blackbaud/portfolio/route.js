@@ -249,7 +249,10 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
 
 async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origin }) {
   if (workspaceUser?.blackbaud_constituent_id) {
-    return workspaceUser.blackbaud_constituent_id;
+    return {
+      fundraiserId: workspaceUser.blackbaud_constituent_id,
+      resolutionPath: "workspace-blackbaud-constituent-id",
+    };
   }
 
   const exactLookupMatch = await findBlackbaudConstituentByLookupId({
@@ -260,7 +263,10 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
   }).catch(() => null);
 
   if (exactLookupMatch?.blackbaudConstituentId) {
-    return exactLookupMatch.blackbaudConstituentId;
+    return {
+      fundraiserId: exactLookupMatch.blackbaudConstituentId,
+      resolutionPath: "workspace-blackbaud-lookup-id",
+    };
   }
 
   const exactEmailMatch = await findBlackbaudConstituentByEmail({
@@ -271,7 +277,10 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
   }).catch(() => null);
 
   if (exactEmailMatch?.blackbaudConstituentId) {
-    return exactEmailMatch.blackbaudConstituentId;
+    return {
+      fundraiserId: exactEmailMatch.blackbaudConstituentId,
+      resolutionPath: "email-match",
+    };
   }
 
   const matches = await searchBlackbaudConstituents({
@@ -295,7 +304,17 @@ async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origi
     ) ||
     null;
 
-  return match?.blackbaudConstituentId || null;
+  if (match?.blackbaudConstituentId) {
+    return {
+      fundraiserId: match.blackbaudConstituentId,
+      resolutionPath: "name-search-match",
+    };
+  }
+
+  return {
+    fundraiserId: null,
+    resolutionPath: "not-resolved",
+  };
 }
 
 export async function GET(request) {
@@ -322,8 +341,13 @@ export async function GET(request) {
     await getOrCreateUser(session);
     const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
+    const includeDiagnostics =
+      new URL(request.url).searchParams.get("debug") === "1";
 
-    const fundraiserId = await resolveFundraiserConstituentId({
+    const {
+      fundraiserId,
+      resolutionPath,
+    } = await resolveFundraiserConstituentId({
       workspaceUser,
       authUserId,
       origin,
@@ -334,9 +358,20 @@ export async function GET(request) {
         leadSolicitor: [],
         supportingSolicitor: [],
         warning: "Connect this MGO to a Blackbaud user to view portfolio assignments.",
+        diagnostics: includeDiagnostics
+          ? {
+              workspaceUserId: workspaceUser?.id || null,
+              workspaceUserEmail: workspaceUser?.email || null,
+              authUserId,
+              isActing,
+              resolutionPath,
+              fundraiserId: null,
+            }
+          : undefined,
       });
     }
 
+    let assignmentSource = "fundraiser-assignments";
     let assignments = await listBlackbaudFundraiserAssignments({
       userId: workspaceUser.id,
       authUserId,
@@ -348,6 +383,7 @@ export async function GET(request) {
     });
 
     if (!assignments.length) {
+      assignmentSource = "constituent-fallback";
       assignments = await listAssignmentsFromConstituentFallback({
         userId: workspaceUser.id,
         authUserId,
@@ -411,6 +447,21 @@ export async function GET(request) {
         leadCount: leadSolicitor.length,
         supportingCount: supportingSolicitor.length,
       },
+      diagnostics: includeDiagnostics
+        ? {
+            workspaceUserId: workspaceUser?.id || null,
+            workspaceUserEmail: workspaceUser?.email || null,
+            authUserId,
+            isActing,
+            resolutionPath,
+            fundraiserId,
+            assignmentSource,
+            assignmentCount: assignments.length,
+            assignmentTypes: Array.from(
+              new Set(assignments.map((assignment) => getAssignmentType(assignment)).filter(Boolean)),
+            ),
+          }
+        : undefined,
     });
   } catch (error) {
     console.error("Blackbaud portfolio error:", error);
