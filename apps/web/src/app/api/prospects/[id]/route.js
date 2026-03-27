@@ -5,10 +5,74 @@ import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities"
 import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
+function getNestedValue(source, path) {
+  return path.split(".").reduce((current, key) => {
+    if (current == null) return undefined;
+    return current[key];
+  }, source);
+}
+
+function firstDefined(source, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getOpportunityAskDate(opportunity) {
+  return firstDefined(opportunity, [
+    "ask_date",
+    "askDate",
+    "date_asked",
+    "dateAsked",
+    "date_ask",
+    "ask.date",
+  ]);
+}
+
+function getOpportunityExpectedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "expected_date",
+    "expectedDate",
+    "date_expected",
+    "dateExpected",
+    "anticipated_date",
+    "anticipatedDate",
+    "deadline",
+  ]);
+}
+
+function getOpportunityFundedAmount(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_amount.value",
+    "fundedAmount.value",
+    "funded_amount",
+    "fundedAmount",
+    "amount_funded.value",
+    "amountFunded.value",
+    "amount_funded",
+    "amountFunded",
+  ]);
+}
+
+function getOpportunityFundedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_date",
+    "fundedDate",
+    "date_funded",
+    "dateFunded",
+    "close_date",
+    "closeDate",
+  ]);
+}
+
 function getImportedOpportunityStatus(opportunity) {
   const normalizedStatus = String(opportunity?.status || "").trim().toLowerCase();
-  const fundedAmount = Number(opportunity?.funded_amount?.value ?? 0);
-  const fundedDate = opportunity?.funded_date || null;
+  const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
+  const fundedDate = getOpportunityFundedDate(opportunity);
 
   if (fundedAmount > 0 || fundedDate) {
     return "Closed – Gift Secured";
@@ -69,13 +133,13 @@ async function refreshImportedBlackbaudOpportunities({
         const nextStatus = getImportedOpportunityStatus(opportunity);
         const nextClosedAmount =
           nextStatus === "Closed – Gift Secured"
-            ? opportunity?.funded_amount?.value ?? row.closed_amount ?? null
+            ? getOpportunityFundedAmount(opportunity) ?? row.closed_amount ?? null
             : nextStatus === "Active"
               ? null
               : row.closed_amount;
         const nextCloseDate =
           nextStatus === "Closed – Gift Secured"
-            ? opportunity?.funded_date || row.close_date || null
+            ? getOpportunityFundedDate(opportunity) || row.close_date || null
             : nextStatus === "Active"
               ? null
               : row.close_date;
@@ -83,8 +147,8 @@ async function refreshImportedBlackbaudOpportunities({
         await sql`
           UPDATE prospect_opportunities
           SET
-            ask_date = COALESCE(${opportunity?.ask_date || null}, ask_date),
-            expected_date = COALESCE(${opportunity?.expected_date || null}, expected_date),
+            ask_date = COALESCE(${getOpportunityAskDate(opportunity)}, ask_date),
+            expected_date = COALESCE(${getOpportunityExpectedDate(opportunity)}, expected_date),
             opportunity_status = ${nextStatus},
             closed_amount = ${nextClosedAmount},
             close_date = ${nextCloseDate},

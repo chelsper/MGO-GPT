@@ -13,6 +13,70 @@ function mapFundraiser(fundraiser) {
   };
 }
 
+function getNestedValue(source, path) {
+  return path.split(".").reduce((current, key) => {
+    if (current == null) return undefined;
+    return current[key];
+  }, source);
+}
+
+function firstDefined(source, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getOpportunityAskDate(opportunity) {
+  return firstDefined(opportunity, [
+    "ask_date",
+    "askDate",
+    "date_asked",
+    "dateAsked",
+    "date_ask",
+    "ask.date",
+  ]);
+}
+
+function getOpportunityExpectedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "expected_date",
+    "expectedDate",
+    "date_expected",
+    "dateExpected",
+    "anticipated_date",
+    "anticipatedDate",
+    "deadline",
+  ]);
+}
+
+function getOpportunityFundedAmount(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_amount.value",
+    "fundedAmount.value",
+    "funded_amount",
+    "fundedAmount",
+    "amount_funded.value",
+    "amountFunded.value",
+    "amount_funded",
+    "amountFunded",
+  ]);
+}
+
+function getOpportunityFundedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_date",
+    "fundedDate",
+    "date_funded",
+    "dateFunded",
+    "close_date",
+    "closeDate",
+  ]);
+}
+
 function mapOpportunity(opportunity) {
   return {
     id: opportunity?.id || null,
@@ -23,11 +87,11 @@ function mapOpportunity(opportunity) {
     campaignId: opportunity?.campaign_id || null,
     fundId: opportunity?.fund_id || null,
     askAmount: opportunity?.ask_amount?.value ?? null,
-    askDate: opportunity?.ask_date || null,
+    askDate: getOpportunityAskDate(opportunity),
     expectedAmount: opportunity?.expected_amount?.value ?? null,
-    expectedDate: opportunity?.expected_date || null,
-    fundedAmount: opportunity?.funded_amount?.value ?? null,
-    fundedDate: opportunity?.funded_date || null,
+    expectedDate: getOpportunityExpectedDate(opportunity),
+    fundedAmount: getOpportunityFundedAmount(opportunity),
+    fundedDate: getOpportunityFundedDate(opportunity),
     deadline: opportunity?.deadline || null,
     inactive: opportunity?.inactive ?? null,
     linkedGifts: Array.isArray(opportunity?.linked_gifts)

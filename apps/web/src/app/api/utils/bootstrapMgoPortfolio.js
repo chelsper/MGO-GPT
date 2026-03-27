@@ -26,6 +26,70 @@ const STATUS_PRIORITY = {
 const AUTO_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const OPPORTUNITY_DETAIL_BATCH_SIZE = 8;
 
+function getNestedValue(source, path) {
+  return path.split(".").reduce((current, key) => {
+    if (current == null) return undefined;
+    return current[key];
+  }, source);
+}
+
+function firstDefined(source, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getOpportunityAskDate(opportunity) {
+  return firstDefined(opportunity, [
+    "ask_date",
+    "askDate",
+    "date_asked",
+    "dateAsked",
+    "date_ask",
+    "ask.date",
+  ]);
+}
+
+function getOpportunityExpectedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "expected_date",
+    "expectedDate",
+    "date_expected",
+    "dateExpected",
+    "anticipated_date",
+    "anticipatedDate",
+    "deadline",
+  ]);
+}
+
+function getOpportunityFundedAmount(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_amount.value",
+    "fundedAmount.value",
+    "funded_amount",
+    "fundedAmount",
+    "amount_funded.value",
+    "amountFunded.value",
+    "amount_funded",
+    "amountFunded",
+  ]);
+}
+
+function getOpportunityFundedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_date",
+    "fundedDate",
+    "date_funded",
+    "dateFunded",
+    "close_date",
+    "closeDate",
+  ]);
+}
+
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -68,15 +132,15 @@ function getOpportunityAmount(opportunity) {
   return Number(
     opportunity?.expected_amount?.value ??
       opportunity?.ask_amount?.value ??
-      opportunity?.funded_amount?.value ??
+      getOpportunityFundedAmount(opportunity) ??
       0,
   );
 }
 
 function getImportedOpportunityStatus(opportunity) {
   const normalizedStatus = normalizeText(opportunity?.status);
-  const fundedAmount = Number(opportunity?.funded_amount?.value ?? 0);
-  const fundedDate = opportunity?.funded_date || null;
+  const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
+  const fundedDate = getOpportunityFundedDate(opportunity);
 
   if (fundedAmount > 0 || fundedDate) {
     return "Closed – Gift Secured";
@@ -102,9 +166,9 @@ async function enrichOpportunityDetails({ userId, authUserId, origin, opportunit
     const detailedChunk = await Promise.all(
       chunk.map(async (opportunity) => {
         if (
-          opportunity?.ask_date &&
-          opportunity?.expected_date &&
-          (opportunity?.funded_amount?.value != null || opportunity?.funded_date)
+          getOpportunityAskDate(opportunity) &&
+          getOpportunityExpectedDate(opportunity) &&
+          (getOpportunityFundedAmount(opportunity) != null || getOpportunityFundedDate(opportunity))
         ) {
           return opportunity;
         }
@@ -285,10 +349,10 @@ async function upsertProspectOpportunity({
     currentStage: opportunity?.status || "Identification",
     estimatedAmount: getOpportunityAmount(opportunity) || null,
     opportunityStatus: getImportedOpportunityStatus(opportunity),
-    askDate: opportunity?.ask_date || null,
-    expectedDate: opportunity?.expected_date || null,
-    closedAmount: opportunity?.funded_amount?.value ?? null,
-    closeDate: opportunity?.funded_date || null,
+    askDate: getOpportunityAskDate(opportunity),
+    expectedDate: getOpportunityExpectedDate(opportunity),
+    closedAmount: getOpportunityFundedAmount(opportunity),
+    closeDate: getOpportunityFundedDate(opportunity),
   };
 
   if (existingRows[0]?.id) {
