@@ -287,10 +287,10 @@ export async function getValidBlackbaudConnection(userId, origin) {
 
 export async function blackbaudApiFetch(
   path,
-  { userId, origin, searchParams, method = "GET", body } = {},
+  { userId, authUserId, origin, searchParams, method = "GET", body } = {},
 ) {
   const config = getBlackbaudConfig(origin);
-  const connection = await getValidBlackbaudConnection(userId, origin);
+  const connection = await getValidBlackbaudConnection(authUserId || userId, origin);
 
   if (!connection?.access_token) {
     throw new Error("Blackbaud is not connected for this user");
@@ -359,7 +359,7 @@ export async function blackbaudApiFetch(
   throw new Error("Blackbaud request failed after retries");
 }
 
-export async function searchBlackbaudConstituents({ userId, origin, query }) {
+export async function searchBlackbaudConstituents({ userId, authUserId, origin, query }) {
   const queryParts = String(query || "")
     .trim()
     .split(/\s+/)
@@ -378,6 +378,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
         BLACKBAUD_CONSTITUENT_CUSTOMSEARCH_URL,
         {
           userId,
+          authUserId,
           origin,
           searchParams: {
             first_name: firstName || undefined,
@@ -461,6 +462,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
     try {
       const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
         userId,
+        authUserId,
         origin,
         searchParams: {
           search_text: query,
@@ -539,6 +541,7 @@ export async function searchBlackbaudConstituents({ userId, origin, query }) {
 
 export async function findBlackbaudConstituentByEmail({
   userId,
+  authUserId,
   origin,
   email,
 }) {
@@ -549,6 +552,7 @@ export async function findBlackbaudConstituentByEmail({
 
   const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_CUSTOMSEARCH_URL, {
     userId,
+    authUserId,
     origin,
     searchParams: {
       email: normalizedEmail,
@@ -588,6 +592,7 @@ export async function findBlackbaudConstituentByEmail({
 
 export async function listBlackbaudOpportunities({
   userId,
+  authUserId,
   origin,
   searchParams,
   pageLimit = 500,
@@ -604,6 +609,7 @@ export async function listBlackbaudOpportunities({
   while (nextPath && pageCount < maxPages) {
     const payload = await blackbaudApiFetch(nextPath, {
       userId,
+      authUserId,
       origin,
       searchParams: nextPath === BLACKBAUD_OPPORTUNITIES_URL ? nextSearchParams : undefined,
     });
@@ -625,6 +631,7 @@ export async function listBlackbaudOpportunities({
 
 export async function listBlackbaudFundraiserAssignments({
   userId,
+  authUserId,
   origin,
   fundraiserId,
   searchParams,
@@ -648,6 +655,7 @@ export async function listBlackbaudFundraiserAssignments({
   while (nextPath && pageCount < maxPages) {
     const payload = await blackbaudApiFetch(nextPath, {
       userId,
+      authUserId,
       origin,
       searchParams: nextSearchParams,
     });

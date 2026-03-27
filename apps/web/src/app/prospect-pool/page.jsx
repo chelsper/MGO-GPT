@@ -102,7 +102,7 @@ export default function ProspectPoolPage() {
         const profileData = await profileResponse.json();
 
         if (active) {
-          setProfile(profileData.user || null);
+          setProfile(profileData.workspaceUser || profileData.user || null);
         }
       } catch (err) {
         if (active) {

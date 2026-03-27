@@ -134,7 +134,7 @@ async function markSeedAttempt({ userId, error = null, seeded = false }) {
   `;
 }
 
-async function resolveUserBlackbaudConstituent({ user, origin }) {
+async function resolveUserBlackbaudConstituent({ user, authUserId, origin }) {
   if (user?.blackbaud_constituent_id) {
     return {
       blackbaudConstituentId: user.blackbaud_constituent_id,
@@ -144,6 +144,7 @@ async function resolveUserBlackbaudConstituent({ user, origin }) {
 
   const exactEmailMatch = await findBlackbaudConstituentByEmail({
     userId: user.id,
+    authUserId,
     origin,
     email: user.email,
   });
@@ -153,6 +154,7 @@ async function resolveUserBlackbaudConstituent({ user, origin }) {
 
   const fallbackMatches = await searchBlackbaudConstituents({
     userId: user.id,
+    authUserId,
     origin,
     query: user.name || user.email,
   });
@@ -170,11 +172,12 @@ async function resolveUserBlackbaudConstituent({ user, origin }) {
   return nameMatch;
 }
 
-async function fetchConstituentBasics({ userId, origin, blackbaudConstituentId }) {
+async function fetchConstituentBasics({ userId, authUserId, origin, blackbaudConstituentId }) {
   const constituent = await blackbaudApiFetch(
     `/constituent/v1/constituents/${encodeURIComponent(String(blackbaudConstituentId))}`,
     {
       userId,
+      authUserId,
       origin,
     },
   );
@@ -268,6 +271,7 @@ async function getNextActivePriorityOrder(userId) {
 
 export async function bootstrapMgoPortfolioFromBlackbaud({
   userId,
+  authUserId,
   origin,
   force = false,
 } = {}) {
@@ -290,6 +294,7 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
 
   const userBlackbaudConstituent = await resolveUserBlackbaudConstituent({
     user,
+    authUserId,
     origin,
   });
 
@@ -310,6 +315,7 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
 
   const opportunities = await listBlackbaudOpportunities({
     userId,
+    authUserId,
     origin,
     searchParams: {
       limit: 500,
@@ -356,6 +362,7 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
       if (!constituent) {
         constituent = await fetchConstituentBasics({
           userId,
+          authUserId,
           origin,
           blackbaudConstituentId,
         });

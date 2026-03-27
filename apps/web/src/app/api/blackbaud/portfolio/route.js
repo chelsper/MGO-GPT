@@ -65,12 +65,13 @@ function mapLifetimeGiving(lifetimeGiving) {
   };
 }
 
-async function fetchPortfolioConstituent({ userId, origin, constituentId }) {
+async function fetchPortfolioConstituent({ userId, authUserId, origin, constituentId }) {
   const [constituentResult, lifetimeGivingResult] = await Promise.allSettled([
     blackbaudApiFetch(
       `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
       {
         userId,
+        authUserId,
         origin,
       },
     ),
@@ -80,6 +81,7 @@ async function fetchPortfolioConstituent({ userId, origin, constituentId }) {
       )}/givingsummary/lifetimegiving`,
       {
         userId,
+        authUserId,
         origin,
       },
     ),
@@ -96,7 +98,7 @@ async function fetchPortfolioConstituent({ userId, origin, constituentId }) {
   };
 }
 
-async function enrichConstituents({ userId, origin, groupedAssignments }) {
+async function enrichConstituents({ userId, authUserId, origin, groupedAssignments }) {
   const entries = Array.from(groupedAssignments.values());
   const enriched = [];
 
@@ -106,6 +108,7 @@ async function enrichConstituents({ userId, origin, groupedAssignments }) {
       chunk.map(async (entry) => {
         const details = await fetchPortfolioConstituent({
           userId,
+          authUserId,
           origin,
           constituentId: entry.constituentId,
         }).catch(() => null);
@@ -157,7 +160,8 @@ export async function GET(request) {
 
   try {
     await getOrCreateUser(session);
-    const { workspaceUser } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
+    const authUserId = isActing ? sessionUser.id : workspaceUser.id;
 
     if (!workspaceUser?.blackbaud_constituent_id) {
       return Response.json({
@@ -169,6 +173,7 @@ export async function GET(request) {
 
     const assignments = await listBlackbaudFundraiserAssignments({
       userId: workspaceUser.id,
+      authUserId,
       origin,
       fundraiserId: workspaceUser.blackbaud_constituent_id,
       searchParams: {
@@ -210,11 +215,13 @@ export async function GET(request) {
     const [leadSolicitor, supportingSolicitor] = await Promise.all([
       enrichConstituents({
         userId: workspaceUser.id,
+        authUserId,
         origin,
         groupedAssignments: leadAssignments,
       }),
       enrichConstituents({
         userId: workspaceUser.id,
+        authUserId,
         origin,
         groupedAssignments: supportAssignments,
       }),

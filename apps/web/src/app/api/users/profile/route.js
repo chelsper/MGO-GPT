@@ -30,6 +30,7 @@ export async function GET(request) {
     const context = await getWorkspaceUser(session, request);
     const user = context.sessionUser;
     const workspaceUser = context.workspaceUser;
+    const authUserId = context.isActing ? user.id : workspaceUser.id;
     const origin = request?.url ? new URL(request.url).origin : null;
     const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
@@ -38,7 +39,7 @@ export async function GET(request) {
       Boolean(workspaceUser?.blackbaud_constituent_id);
 
     if (workspaceUser?.role === "mgo" || canSeedBootstrapAdmin) {
-      const hasBlackbaudConnection = await getValidBlackbaudConnection(workspaceUser.id, origin).catch(
+      const hasBlackbaudConnection = await getValidBlackbaudConnection(authUserId, origin).catch(
         () => null,
       );
 
@@ -46,6 +47,7 @@ export async function GET(request) {
         try {
           await bootstrapMgoPortfolioFromBlackbaud({
             userId: workspaceUser.id,
+            authUserId,
             origin,
           });
         } catch (bootstrapError) {

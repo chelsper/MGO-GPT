@@ -16,7 +16,8 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { sessionUser, workspaceUser } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
+    const authUserId = isActing ? sessionUser.id : workspaceUser.id;
     const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
       Boolean(bootstrapAdminEmail) &&
@@ -32,7 +33,7 @@ export async function POST(request) {
     }
 
     const origin = request?.url ? new URL(request.url).origin : null;
-    const hasBlackbaudConnection = await getValidBlackbaudConnection(workspaceUser.id, origin).catch(
+    const hasBlackbaudConnection = await getValidBlackbaudConnection(authUserId, origin).catch(
       () => null,
     );
 
@@ -45,6 +46,7 @@ export async function POST(request) {
 
     const result = await bootstrapMgoPortfolioFromBlackbaud({
       userId: workspaceUser.id,
+      authUserId,
       origin,
       force: true,
     });

@@ -463,6 +463,24 @@ export default function Page() {
     [isReviewer, worklist],
   );
 
+  async function handleViewModeChange(nextMode) {
+    if (!isAdmin) return;
+
+    if (nextMode === "mgo") {
+      try {
+        await fetch("/api/admin/workspace-user", { method: "DELETE" });
+      } catch (error) {
+        console.error("Failed to clear acting workspace user:", error);
+      }
+    }
+
+    setViewMode(nextMode);
+
+    if (nextMode === "mgo" && typeof window !== "undefined") {
+      window.location.href = "/my-top-prospects";
+    }
+  }
+
   if (loading || !user || profileLoading) {
     return (
       <div
@@ -742,7 +760,7 @@ export default function Page() {
                             <button
                               key={option.value}
                               type="button"
-                              onClick={() => setViewMode(option.value)}
+                              onClick={() => handleViewModeChange(option.value)}
                               style={{
                                 border: "none",
                                 borderRadius: "999px",
@@ -894,7 +912,7 @@ export default function Page() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setViewMode(option.value)}
+                    onClick={() => handleViewModeChange(option.value)}
                     style={{
                       border: "none",
                       borderRadius: "999px",
