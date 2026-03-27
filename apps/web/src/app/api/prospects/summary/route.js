@@ -31,21 +31,26 @@ export async function GET(request) {
       WHERE user_id = ${user.id} AND status = 'Active'
     `;
 
-    // Calculate current fiscal year (July 1 - June 30)
-    // FY26 = July 1 2025 - June 30 2026
+    // Calculate current fiscal year window (July 1 - June 30)
     const now = new Date();
-    const currentMonth = now.getMonth(); // 0-indexed
+    const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-    const fyYear = currentMonth >= 6 ? currentYear + 1 : currentYear;
-    const currentFY = "FY" + fyYear.toString().slice(-2);
+    const fiscalStartYear = currentMonth >= 6 ? currentYear : currentYear - 1;
+    const fiscalEndYear = fiscalStartYear + 1;
+    const currentFY = `FY${String(fiscalEndYear).slice(-2)}`;
+    const fiscalYearStart = `${fiscalStartYear}-07-01`;
+    const fiscalYearEnd = `${fiscalEndYear}-06-30`;
 
-    // Closed gifts this FY
+    // Closed revenue this FY should come from funded opportunities, not prospect rollups.
     const closedResult = await sql`
-      SELECT COALESCE(SUM(closed_amount), 0) as closed_total
-      FROM prospects
-      WHERE user_id = ${user.id}
-        AND expected_close_fy = ${currentFY}
-        AND closed_amount IS NOT NULL
+      SELECT COALESCE(SUM(COALESCE(po.closed_amount, 0)), 0) AS closed_total
+      FROM prospect_opportunities po
+      INNER JOIN prospects p ON p.id = po.prospect_id
+      WHERE p.user_id = ${user.id}
+        AND po.opportunity_status = 'Closed – Gift Secured'
+        AND po.close_date IS NOT NULL
+        AND po.close_date >= ${fiscalYearStart}
+        AND po.close_date <= ${fiscalYearEnd}
     `;
 
     return Response.json({
