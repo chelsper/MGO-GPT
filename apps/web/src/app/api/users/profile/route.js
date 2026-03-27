@@ -32,13 +32,15 @@ export async function GET(request) {
     const workspaceUser = context.workspaceUser;
     const authUserId = context.isActing ? user.id : workspaceUser.id;
     const origin = request?.url ? new URL(request.url).origin : null;
+    const shouldBootstrapPortfolio =
+      new URL(request.url).searchParams.get("bootstrapPortfolio") === "1";
     const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
       Boolean(bootstrapAdminEmail) &&
       workspaceUser?.email === bootstrapAdminEmail &&
       Boolean(workspaceUser?.blackbaud_constituent_id);
 
-    if (workspaceUser?.role === "mgo" || canSeedBootstrapAdmin) {
+    if (shouldBootstrapPortfolio && (workspaceUser?.role === "mgo" || canSeedBootstrapAdmin)) {
       const hasBlackbaudConnection = await getValidBlackbaudConnection(authUserId, origin).catch(
         () => null,
       );
