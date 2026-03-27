@@ -423,7 +423,7 @@ export async function searchBlackbaudConstituents({ userId, authUserId, origin, 
 
       customMappedRows = filteredCustomRows.map((item) => ({
         blackbaudConstituentId:
-          item?.constituent_id || item?.id || item?.record_id?.toString() || null,
+          item?.record_id?.toString() || item?.id || item?.constituent_id || null,
         blackbaudLookupId:
           item?.lookup_id || item?.constituent_id || item?.record_id?.toString() || null,
         blackbaudRecordId: item?.record_id?.toString() || null,
@@ -580,8 +580,9 @@ export async function findBlackbaudConstituentByEmail({
 
   return {
     blackbaudConstituentId:
-      exactMatch?.constituent_id || exactMatch?.id || null,
-    lookupId: exactMatch?.lookup_id || exactMatch?.record_id?.toString() || null,
+      exactMatch?.record_id?.toString() || exactMatch?.id || exactMatch?.constituent_id || null,
+    lookupId:
+      exactMatch?.lookup_id || exactMatch?.constituent_id || exactMatch?.record_id?.toString() || null,
     name:
       [exactMatch?.first_name, exactMatch?.middle_name, exactMatch?.last_name]
         .filter(Boolean)
