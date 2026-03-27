@@ -4987,26 +4987,6 @@ export default function MyTopProspectsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [addProspectInitialData, setAddProspectInitialData] = useState(null);
 
-  const { data: prospects = [], isLoading } = useQuery({
-    queryKey: ["prospects"],
-    queryFn: async () => {
-      const res = await fetch("/api/prospects");
-      if (!res.ok) throw new Error("Failed to fetch prospects");
-      return res.json();
-    },
-    enabled: !!user,
-  });
-
-  const { data: summary } = useQuery({
-    queryKey: ["prospect-summary"],
-    queryFn: async () => {
-      const res = await fetch("/api/prospects/summary");
-      if (!res.ok) throw new Error("Failed to fetch summary");
-      return res.json();
-    },
-    enabled: !!user,
-  });
-
   const { data: profileStatus } = useQuery({
     queryKey: ["profile-sync-status"],
     queryFn: async () => {
@@ -5016,6 +4996,28 @@ export default function MyTopProspectsPage() {
       return data;
     },
     enabled: !!user,
+  });
+
+  const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
+
+  const { data: prospects = [], isLoading } = useQuery({
+    queryKey: ["prospects", activeWorkspaceUserId],
+    queryFn: async () => {
+      const res = await fetch("/api/prospects");
+      if (!res.ok) throw new Error("Failed to fetch prospects");
+      return res.json();
+    },
+    enabled: !!user && !!activeWorkspaceUserId,
+  });
+
+  const { data: summary } = useQuery({
+    queryKey: ["prospect-summary", activeWorkspaceUserId],
+    queryFn: async () => {
+      const res = await fetch("/api/prospects/summary");
+      if (!res.ok) throw new Error("Failed to fetch summary");
+      return res.json();
+    },
+    enabled: !!user && !!activeWorkspaceUserId,
   });
 
   const {
