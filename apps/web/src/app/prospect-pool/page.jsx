@@ -1020,143 +1020,6 @@ export default function ProspectPoolPage() {
                     fontSize: "14px",
                   }}
                 />
-                {blackbaudMatches.length > 0 ? (
-                  <div
-                    style={{
-                      marginTop: "12px",
-                      padding: "12px",
-                      borderRadius: "10px",
-                      border: "1px solid #BFDBFE",
-                      backgroundColor: "#EFF6FF",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        color: "#1D4ED8",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      Blackbaud matches
-                    </div>
-                    <div style={{ display: "grid", gap: "8px" }}>
-                      {blackbaudMatches.map((match) => {
-                        const selected =
-                          selectedBlackbaudMatch?.blackbaudConstituentId ===
-                          match.blackbaudConstituentId;
-                        return (
-                          <div
-                            key={match.blackbaudConstituentId || match.name}
-                            style={{
-                              padding: "10px 12px",
-                              borderRadius: "8px",
-                              border: selected
-                                ? "2px solid #2563EB"
-                                : "1px solid #DBEAFE",
-                              backgroundColor: selected ? "#DBEAFE" : "white",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: "13px",
-                                fontWeight: "700",
-                                color: "#111827",
-                              }}
-                            >
-                              {match.name || "Unnamed constituent"}
-                            </div>
-                            {match.lookupId ? (
-                              <div
-                                style={{
-                                  marginTop: "2px",
-                                  fontSize: "12px",
-                                  color: "#4B5563",
-                                }}
-                              >
-                                Lookup ID: {match.lookupId}
-                              </div>
-                            ) : null}
-                            {match.email ? (
-                              <div
-                                style={{
-                                  marginTop: "2px",
-                                  fontSize: "12px",
-                                  color: "#4B5563",
-                                }}
-                              >
-                                Email: {match.email}
-                              </div>
-                            ) : null}
-                            {match.address ? (
-                              <div
-                                style={{
-                                  marginTop: "2px",
-                                  fontSize: "12px",
-                                  color: "#4B5563",
-                                  whiteSpace: "pre-wrap",
-                                }}
-                              >
-                                Address: {match.address}
-                              </div>
-                            ) : null}
-                            <div style={{ marginTop: "10px" }}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedBlackbaudMatch(match);
-                                  setCreateForm((current) => ({
-                                    ...current,
-                                    prospectName: match.name || current.prospectName,
-                                    email: match.email || current.email,
-                                  }));
-                                }}
-                                style={{
-                                  padding: "7px 12px",
-                                  borderRadius: "999px",
-                                  border: selected
-                                    ? "1px solid #1D4ED8"
-                                    : "1px solid #93C5FD",
-                                  backgroundColor: selected ? "#1D4ED8" : "white",
-                                  color: selected ? "white" : "#1D4ED8",
-                                  fontSize: "12px",
-                                  fontWeight: "700",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                {selected
-                                  ? "Blackbaud match selected"
-                                  : "Use this Blackbaud match"}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-                {selectedBlackbaudMatch ? (
-                  <div
-                    style={{
-                      marginTop: "12px",
-                      padding: "12px",
-                      borderRadius: "10px",
-                      border: "1px solid #93C5FD",
-                      backgroundColor: "#EFF6FF",
-                      fontSize: "13px",
-                      color: "#1F2937",
-                    }}
-                  >
-                    {selectedBlackbaudMatch.name} will be linked
-                    {selectedBlackbaudMatch.lookupId ? (
-                      <>
-                        {" "}with Lookup ID <strong>{selectedBlackbaudMatch.lookupId}</strong>.
-                      </>
-                    ) : (
-                      "."
-                    )}
-                  </div>
-                ) : null}
               </label>
 
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
@@ -1184,6 +1047,141 @@ export default function ProspectPoolPage() {
                   ))}
                 </select>
               </label>
+
+              {(blackbaudMatches.length > 0 || selectedBlackbaudMatch) ? (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    padding: "12px",
+                    borderRadius: "12px",
+                    border: "1px solid #BFDBFE",
+                    backgroundColor: "#EFF6FF",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      marginBottom: blackbaudMatches.length > 0 ? "10px" : 0,
+                    }}
+                  >
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#1D4ED8" }}>
+                      NXT constituent match
+                    </div>
+                    {selectedBlackbaudMatch ? (
+                      <div style={{ fontSize: "12px", color: "#1F2937" }}>
+                        {selectedBlackbaudMatch.name}
+                        {selectedBlackbaudMatch.lookupId ? (
+                          <> · Lookup ID <strong>{selectedBlackbaudMatch.lookupId}</strong></>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                  {blackbaudMatches.length > 0 ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: "8px",
+                        maxHeight: "240px",
+                        overflowY: "auto",
+                        paddingRight: "4px",
+                      }}
+                    >
+                      {blackbaudMatches.map((match) => {
+                        const selected =
+                          selectedBlackbaudMatch?.blackbaudConstituentId ===
+                          match.blackbaudConstituentId;
+                        return (
+                          <div
+                            key={match.blackbaudConstituentId || match.name}
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              border: selected
+                                ? "2px solid #2563EB"
+                                : "1px solid #DBEAFE",
+                              backgroundColor: selected ? "#DBEAFE" : "white",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: "10px",
+                                alignItems: "flex-start",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                                <div
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: "700",
+                                    color: "#111827",
+                                  }}
+                                >
+                                  {match.name || "Unnamed constituent"}
+                                </div>
+                                {match.lookupId ? (
+                                  <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                                    Lookup ID: {match.lookupId}
+                                  </div>
+                                ) : null}
+                                {match.email ? (
+                                  <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                                    Email: {match.email}
+                                  </div>
+                                ) : null}
+                                {match.address ? (
+                                  <div
+                                    style={{
+                                      marginTop: "2px",
+                                      fontSize: "12px",
+                                      color: "#4B5563",
+                                      whiteSpace: "pre-wrap",
+                                    }}
+                                  >
+                                    Address: {match.address}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBlackbaudMatch(match);
+                                  setCreateForm((current) => ({
+                                    ...current,
+                                    prospectName: match.name || current.prospectName,
+                                    email: match.email || current.email,
+                                  }));
+                                }}
+                                style={{
+                                  padding: "7px 12px",
+                                  borderRadius: "999px",
+                                  border: selected
+                                    ? "1px solid #1D4ED8"
+                                    : "1px solid #93C5FD",
+                                  backgroundColor: selected ? "#1D4ED8" : "white",
+                                  color: selected ? "white" : "#1D4ED8",
+                                  fontSize: "12px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                  flex: "0 0 auto",
+                                }}
+                              >
+                                {selected ? "Selected" : "Use match"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Email
