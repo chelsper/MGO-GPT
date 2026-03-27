@@ -170,6 +170,58 @@ function mapPrimaryBusinessRelationship(relationships) {
   };
 }
 
+function mapJacksonvilleUniversityEducation(educationPayload) {
+  const rows = Array.isArray(educationPayload?.value)
+    ? educationPayload.value
+    : Array.isArray(educationPayload)
+      ? educationPayload
+      : [];
+
+  return rows
+    .filter((education) => {
+      const schoolName = String(
+        education?.school || education?.school_name || education?.name || "",
+      )
+        .trim()
+        .toLowerCase();
+
+      return schoolName === "jacksonville university";
+    })
+    .map((education) => ({
+      educationId: education?.id || null,
+      school: education?.school || education?.school_name || education?.name || null,
+      classOf:
+        education?.class_of ||
+        education?.class_year ||
+        education?.year ||
+        education?.date_graduated ||
+        null,
+      majors: Array.isArray(education?.majors)
+        ? education.majors
+            .map((major) =>
+              typeof major === "string"
+                ? major
+                : major?.major || major?.name || null,
+            )
+            .filter(Boolean)
+        : [education?.major, education?.major_1, education?.major_2].filter(Boolean),
+      degrees: Array.isArray(education?.degrees)
+        ? education.degrees
+            .map((degree) =>
+              typeof degree === "string"
+                ? degree
+                : degree?.degree || degree?.name || degree?.abbreviation || null,
+            )
+            .filter(Boolean)
+        : [
+            education?.degree,
+            education?.degree_name,
+            education?.degree_1,
+            education?.degree_2,
+          ].filter(Boolean),
+    }));
+}
+
 async function loadBlackbaudSection(label, requestFactory) {
   try {
     const payload = await requestFactory();
@@ -234,6 +286,7 @@ export async function GET(request, { params }) {
       lifetimeGivingResult,
       fundraiserAssignmentsResult,
       relationshipsResult,
+      educationResult,
     ] =
       await Promise.all([
         loadBlackbaudSection("lifetimeGiving", () =>
@@ -270,6 +323,15 @@ export async function GET(request, { params }) {
             },
           ),
         ),
+        loadBlackbaudSection("education", () =>
+          blackbaudApiFetch(
+            `/constituent/v1/constituents/${encodeURIComponent(resolvedConstituentId)}/educations`,
+            {
+              userId: user.id,
+              origin,
+            },
+          ),
+        ),
       ]);
 
     const constituent = constituentPayload;
@@ -280,6 +342,7 @@ export async function GET(request, { params }) {
       ? fundraiserAssignmentsResult.payload
       : null;
     const relationships = relationshipsResult.ok ? relationshipsResult.payload : null;
+    const education = educationResult.ok ? educationResult.payload : null;
 
     const assignments = Array.isArray(fundraiserAssignments?.value)
       ? fundraiserAssignments.value
@@ -293,6 +356,7 @@ export async function GET(request, { params }) {
         lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
         fundraiserAssignments: assignments.map(mapFundraiserAssignment),
         primaryBusinessRelationship: mapPrimaryBusinessRelationship(relationships),
+        jacksonvilleUniversityEducation: mapJacksonvilleUniversityEducation(education),
       },
       warnings: {
         lifetimeGiving: lifetimeGivingResult.ok ? null : lifetimeGivingResult.error,
@@ -300,6 +364,7 @@ export async function GET(request, { params }) {
           ? null
           : fundraiserAssignmentsResult.error,
         relationships: relationshipsResult.ok ? null : relationshipsResult.error,
+        education: educationResult.ok ? null : educationResult.error,
       },
       ...(includeRaw
         ? {
@@ -308,6 +373,7 @@ export async function GET(request, { params }) {
               lifetimeGiving,
               fundraiserAssignments,
               relationships,
+              education,
             },
           }
         : {}),

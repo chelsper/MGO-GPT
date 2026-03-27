@@ -42,6 +42,17 @@ function getQuickRequestLabel(entry) {
   return "No open requests";
 }
 
+function formatEducationLine(education) {
+  const degreeText = Array.isArray(education?.degrees) ? education.degrees.join(", ") : "";
+  const majorText = Array.isArray(education?.majors) ? education.majors.join(", ") : "";
+  const classOf = education?.classOf ? String(education.classOf) : "";
+
+  const parts = [degreeText, majorText ? `Major: ${majorText}` : "", classOf ? `Class of ${classOf}` : ""]
+    .filter(Boolean);
+
+  return parts.join(" · ");
+}
+
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -1471,6 +1482,10 @@ export default function ProspectPoolPage() {
               blackbaudSummaryState?.payload?.mapped?.lifetimeGiving || null;
             const blackbaudAssignments =
               blackbaudSummaryState?.payload?.mapped?.fundraiserAssignments || [];
+            const primaryBusinessRelationship =
+              blackbaudSummaryState?.payload?.mapped?.primaryBusinessRelationship || null;
+            const juEducation =
+              blackbaudSummaryState?.payload?.mapped?.jacksonvilleUniversityEducation || [];
 
             return (
               <article
@@ -1672,6 +1687,70 @@ export default function ProspectPoolPage() {
                                 </div>
                               </div>
                             </div>
+                            {primaryBusinessRelationship ? (
+                              <div
+                                style={{
+                                  marginTop: "12px",
+                                  paddingTop: "12px",
+                                  borderTop: "1px solid rgba(147, 197, 253, 0.45)",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: "12px",
+                                    fontWeight: 700,
+                                    color: "#6B7280",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.04em",
+                                    marginBottom: "6px",
+                                  }}
+                                >
+                                  Primary business
+                                </div>
+                                <div style={{ fontSize: "14px", color: "#111827", fontWeight: 600 }}>
+                                  {primaryBusinessRelationship.organizationName || "Unavailable"}
+                                </div>
+                                <div style={{ marginTop: "4px", fontSize: "13px", color: "#4B5563" }}>
+                                  Role: {primaryBusinessRelationship.position || primaryBusinessRelationship.type || "Unavailable"}
+                                </div>
+                              </div>
+                            ) : null}
+                            {juEducation.length > 0 ? (
+                              <div
+                                style={{
+                                  marginTop: "12px",
+                                  paddingTop: "12px",
+                                  borderTop: "1px solid rgba(147, 197, 253, 0.45)",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: "12px",
+                                    fontWeight: 700,
+                                    color: "#6B7280",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.04em",
+                                    marginBottom: "8px",
+                                  }}
+                                >
+                                  Jacksonville University education
+                                </div>
+                                <div style={{ display: "grid", gap: "6px" }}>
+                                  {juEducation.map((education, index) => (
+                                    <div
+                                      key={education.educationId || `${entry.id}-ju-education-${index}`}
+                                      style={{
+                                        fontSize: "13px",
+                                        color: "#374151",
+                                        lineHeight: 1.6,
+                                      }}
+                                    >
+                                      {formatEducationLine(education)}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
                             {blackbaudAssignments.length > 0 ? (
                               <div style={{ marginTop: "12px", fontSize: "13px", color: "#374151" }}>
                                 Current assignment:{" "}
