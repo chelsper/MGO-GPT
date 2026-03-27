@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 
@@ -44,6 +45,7 @@ function getQuickRequestLabel(entry) {
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
+  const [profileStatus, setProfileStatus] = useState(null);
   const [entries, setEntries] = useState([]);
   const [mgos, setMgos] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -85,6 +87,21 @@ export default function ProspectPoolPage() {
 
   const { isReviewerView } = useWorkspaceView(profile?.role);
   const isReviewer = isReviewerView;
+  const stopViewingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/workspace-user", {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to return to your MGO workspace");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      window.location.href = "/my-top-prospects";
+    },
+  });
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -102,6 +119,7 @@ export default function ProspectPoolPage() {
         const profileData = await profileResponse.json();
 
         if (active) {
+          setProfileStatus(profileData || null);
           setProfile(profileData.workspaceUser || profileData.user || null);
         }
       } catch (err) {
@@ -608,6 +626,85 @@ export default function ProspectPoolPage() {
           <ArrowLeft size={16} />
           Back to dashboard
         </a>
+
+        {!isReviewer ? (
+          <div
+            style={{
+              display: "inline-flex",
+              gap: "6px",
+              padding: "4px",
+              borderRadius: "999px",
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              marginBottom: "18px",
+              flexWrap: "wrap",
+            }}
+          >
+            {[
+              { href: "/#today-worklist", label: "Today" },
+              { href: "/my-top-prospects", label: "Top Prospects" },
+              { href: "/my-top-prospects?tab=portfolio", label: "My Portfolio" },
+              { href: "/prospect-pool", label: "Prospect Pool", selected: true },
+              { href: "/team-discussion", label: "Team Discussion" },
+              { href: "/action-opportunity-update", label: "Log Update" },
+            ].map((item) => (
+              <a
+                key={item.label}
+                href={item.href}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: "999px",
+                  padding: "10px 16px",
+                  backgroundColor: item.selected ? "#111827" : "transparent",
+                  color: item.selected ? "white" : "#4B5563",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
+
+        {profileStatus?.actingAsUser && !isReviewer ? (
+          <div
+            style={{
+              marginBottom: "18px",
+              backgroundColor: "#ECFEFF",
+              border: "1px solid #A5F3FC",
+              borderRadius: "14px",
+              padding: "12px 16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
+              You are editing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace.
+            </div>
+            <button
+              type="button"
+              onClick={() => stopViewingMutation.mutate()}
+              disabled={stopViewingMutation.isPending}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "10px",
+                border: "1px solid #67E8F9",
+                backgroundColor: "white",
+                color: "#0F766E",
+                fontWeight: "700",
+                cursor: stopViewingMutation.isPending ? "not-allowed" : "pointer",
+              }}
+            >
+              {stopViewingMutation.isPending ? "Returning..." : "Return to my MGO view"}
+            </button>
+          </div>
+        ) : null}
 
         <div
           style={{
