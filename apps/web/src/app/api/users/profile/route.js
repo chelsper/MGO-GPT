@@ -43,12 +43,13 @@ export async function GET(request) {
         () => null,
       );
 
-      if (hasBlackbaudConnection && shouldAutoSyncPortfolio(workspaceUser)) {
+      if (hasBlackbaudConnection && (context.isActing || shouldAutoSyncPortfolio(workspaceUser))) {
         try {
           await bootstrapMgoPortfolioFromBlackbaud({
             userId: workspaceUser.id,
             authUserId,
             origin,
+            force: context.isActing,
           });
         } catch (bootstrapError) {
           console.error("Profile Blackbaud bootstrap error:", bootstrapError);

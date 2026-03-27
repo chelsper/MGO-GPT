@@ -4,8 +4,10 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import {
   blackbaudApiFetch,
+  findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
   listBlackbaudFundraiserAssignments,
+  searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
 const LEAD_TYPES = new Set(["lead solicitor"]);
@@ -138,6 +140,46 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
   );
 }
 
+async function resolveFundraiserConstituentId({ workspaceUser, authUserId, origin }) {
+  if (workspaceUser?.blackbaud_constituent_id) {
+    return workspaceUser.blackbaud_constituent_id;
+  }
+
+  const exactEmailMatch = await findBlackbaudConstituentByEmail({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    email: workspaceUser.email,
+  }).catch(() => null);
+
+  if (exactEmailMatch?.blackbaudConstituentId) {
+    return exactEmailMatch.blackbaudConstituentId;
+  }
+
+  const matches = await searchBlackbaudConstituents({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    query: workspaceUser.name || workspaceUser.email,
+  }).catch(() => []);
+
+  const normalizedName = String(workspaceUser?.name || "").trim().toLowerCase();
+  const normalizedEmail = String(workspaceUser?.email || "").trim().toLowerCase();
+  const match =
+    matches.find(
+      (candidate) =>
+        String(candidate?.name || "").trim().toLowerCase() === normalizedName &&
+        String(candidate?.email || "").trim().toLowerCase() === normalizedEmail,
+    ) ||
+    matches.find(
+      (candidate) =>
+        String(candidate?.name || "").trim().toLowerCase() === normalizedName,
+    ) ||
+    null;
+
+  return match?.blackbaudConstituentId || null;
+}
+
 export async function GET(request) {
   const session = await auth(request);
   if (!session?.user?.email) {
@@ -163,7 +205,13 @@ export async function GET(request) {
     const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
 
-    if (!workspaceUser?.blackbaud_constituent_id) {
+    const fundraiserId = await resolveFundraiserConstituentId({
+      workspaceUser,
+      authUserId,
+      origin,
+    });
+
+    if (!fundraiserId) {
       return Response.json({
         leadSolicitor: [],
         supportingSolicitor: [],
@@ -175,7 +223,7 @@ export async function GET(request) {
       userId: workspaceUser.id,
       authUserId,
       origin,
-      fundraiserId: workspaceUser.blackbaud_constituent_id,
+      fundraiserId,
       searchParams: {
         include_inactive: false,
       },

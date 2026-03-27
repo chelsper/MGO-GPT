@@ -5459,7 +5459,9 @@ export default function MyTopProspectsPage() {
           </a>
         </div>
 
-        {activeWorkspaceTab === "portfolio" && profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
+        {activeWorkspaceTab === "portfolio" &&
+        (profileStatus?.workspaceUser?.blackbaud_constituent_id ||
+          profileStatus?.workspaceUser?.blackbaud_lookup_id) ? (
           <div
             style={{
               backgroundColor: "white",
@@ -5549,7 +5551,9 @@ export default function MyTopProspectsPage() {
           </div>
         ) : null}
 
-        {activeWorkspaceTab === "portfolio" && !profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
+        {activeWorkspaceTab === "portfolio" &&
+        !profileStatus?.workspaceUser?.blackbaud_constituent_id &&
+        !profileStatus?.workspaceUser?.blackbaud_lookup_id ? (
           <div
             style={{
               backgroundColor: "white",
