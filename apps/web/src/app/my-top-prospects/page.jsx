@@ -6070,12 +6070,6 @@ export default function MyTopProspectsPage() {
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setSelectedProspectId(p.id);
-                                if (typeof window !== "undefined") {
-                                  const url = new URL(window.location.href);
-                                  url.searchParams.set("prospectId", String(p.id));
-                                  url.searchParams.set("panel", "action");
-                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
-                                }
                               }}
                               style={{
                                 padding: "9px 12px",
@@ -6083,50 +6077,6 @@ export default function MyTopProspectsPage() {
                                 border: "none",
                                 backgroundColor: "#6A5BFF",
                                 color: "white",
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Log Action
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedProspectId(p.id);
-                                if (typeof window !== "undefined") {
-                                  const url = new URL(window.location.href);
-                                  url.searchParams.set("prospectId", String(p.id));
-                                  url.searchParams.set("panel", "next-step");
-                                  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
-                                }
-                              }}
-                              style={{
-                                padding: "9px 12px",
-                                borderRadius: "999px",
-                                border: "1px solid #FED7AA",
-                                backgroundColor: "#FFF7ED",
-                                color: "#C2410C",
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Set Next Step
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedProspectId(p.id);
-                              }}
-                              style={{
-                                padding: "9px 12px",
-                                borderRadius: "999px",
-                                border: "1px solid #D1D5DB",
-                                backgroundColor: "white",
-                                color: "#374151",
                                 fontSize: "12px",
                                 fontWeight: 700,
                                 cursor: "pointer",
