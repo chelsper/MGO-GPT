@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import sql from "@/app/api/utils/sql";
 import {
   blackbaudApiFetch,
   findBlackbaudConstituentByLookupId,
@@ -11,6 +12,8 @@ import {
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
+
+const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -247,6 +250,45 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
   );
 }
 
+function isFreshCache(timestamp) {
+  if (!timestamp) return false;
+  const parsed = new Date(timestamp).getTime();
+  if (Number.isNaN(parsed)) return false;
+  return Date.now() - parsed < PORTFOLIO_CACHE_TTL_MS;
+}
+
+async function getCachedPortfolio(workspaceUserId, cacheKey) {
+  if (!workspaceUserId || !cacheKey) return null;
+
+  const rows = await sql`
+    SELECT blackbaud_portfolio_cache, blackbaud_portfolio_cached_at, blackbaud_portfolio_cache_key
+    FROM users
+    WHERE id = ${workspaceUserId}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+  if (!row?.blackbaud_portfolio_cache) return null;
+  if (String(row.blackbaud_portfolio_cache_key || "") !== String(cacheKey)) return null;
+  if (!isFreshCache(row.blackbaud_portfolio_cached_at)) return null;
+
+  return row.blackbaud_portfolio_cache;
+}
+
+async function saveCachedPortfolio(workspaceUserId, cacheKey, payload) {
+  if (!workspaceUserId || !cacheKey || !payload) return;
+
+  await sql`
+    UPDATE users
+    SET
+      blackbaud_portfolio_cache = ${JSON.stringify(payload)}::jsonb,
+      blackbaud_portfolio_cache_key = ${String(cacheKey)},
+      blackbaud_portfolio_cached_at = NOW(),
+      updated_at = NOW()
+    WHERE id = ${workspaceUserId}
+  `;
+}
+
 function addFundraiserCandidate(candidates, fundraiserId, resolutionPath) {
   const normalizedId = String(fundraiserId || "").trim();
   if (!normalizedId) return;
@@ -386,6 +428,18 @@ export async function GET(request) {
       });
     }
 
+    const initialCacheKey =
+      resolutionCandidates.map((candidate) => candidate.fundraiserId).filter(Boolean).join("|") ||
+      fundraiserId ||
+      null;
+    const cachedPortfolio = includeDiagnostics
+      ? null
+      : await getCachedPortfolio(workspaceUser.id, initialCacheKey);
+
+    if (cachedPortfolio) {
+      return Response.json(cachedPortfolio);
+    }
+
     let assignmentSource = "fundraiser-assignments";
     let fundraiserAssignmentsError = null;
     let assignments = [];
@@ -514,7 +568,7 @@ export async function GET(request) {
       }),
     ]);
 
-    return Response.json({
+    const responsePayload = {
       leadSolicitor,
       supportingSolicitor,
       summary: {
@@ -542,7 +596,17 @@ export async function GET(request) {
             ),
           }
         : undefined,
-    });
+    };
+
+    if (!includeDiagnostics) {
+      await saveCachedPortfolio(
+        workspaceUser.id,
+        selectedFundraiserId || initialCacheKey,
+        responsePayload,
+      );
+    }
+
+    return Response.json(responsePayload);
   } catch (error) {
     console.error("Blackbaud portfolio error:", error);
     return Response.json(
