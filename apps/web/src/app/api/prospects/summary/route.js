@@ -1,7 +1,128 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import {
+  blackbaudApiFetch,
+  getBlackbaudConfigIssues,
+} from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+
+function getNestedValue(source, path) {
+  return path.split(".").reduce((current, key) => {
+    if (current == null) return undefined;
+    return current[key];
+  }, source);
+}
+
+function firstDefined(source, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getOpportunityFundedAmount(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_amount.value",
+    "fundedAmount.value",
+    "funded_amount",
+    "fundedAmount",
+    "amount_funded.value",
+    "amountFunded.value",
+    "amount_funded",
+    "amountFunded",
+  ]);
+}
+
+function getOpportunityFundedDate(opportunity) {
+  return firstDefined(opportunity, [
+    "funded_date",
+    "fundedDate",
+    "date_funded",
+    "dateFunded",
+    "close_date",
+    "closeDate",
+  ]);
+}
+
+function getImportedOpportunityStatus(opportunity) {
+  const normalizedStatus = String(opportunity?.status || "").trim().toLowerCase();
+  const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
+  const fundedDate = getOpportunityFundedDate(opportunity);
+
+  if (fundedAmount > 0 || fundedDate) {
+    return "Closed – Gift Secured";
+  }
+
+  if (
+    normalizedStatus.includes("declined") ||
+    normalizedStatus.includes("lost") ||
+    normalizedStatus.includes("cancel") ||
+    normalizedStatus.includes("rejected")
+  ) {
+    return "Closed – Declined";
+  }
+
+  return "Active";
+}
+
+async function backfillImportedFundedOpportunities({ userId, authUserId, origin }) {
+  const configIssues = getBlackbaudConfigIssues(origin);
+  if (configIssues.length > 0) return;
+
+  const rowsNeedingRefresh = await sql`
+    SELECT po.id, po.blackbaud_opportunity_id
+    FROM prospect_opportunities po
+    INNER JOIN prospects p ON p.id = po.prospect_id
+    WHERE p.user_id = ${userId}
+      AND po.blackbaud_opportunity_id IS NOT NULL
+      AND (
+        po.closed_amount IS NULL
+        OR po.close_date IS NULL
+      )
+    ORDER BY po.updated_at DESC
+    LIMIT 25
+  `;
+
+  if (!rowsNeedingRefresh.length) return;
+
+  await Promise.all(
+    rowsNeedingRefresh.map(async (row) => {
+      try {
+        const opportunity = await blackbaudApiFetch(
+          `/opportunity/v1/opportunities/${encodeURIComponent(String(row.blackbaud_opportunity_id))}`,
+          {
+            userId,
+            authUserId,
+            origin,
+          },
+        );
+
+        const nextClosedAmount = getOpportunityFundedAmount(opportunity);
+        const nextCloseDate = getOpportunityFundedDate(opportunity);
+        const nextStatus = getImportedOpportunityStatus(opportunity);
+
+        await sql`
+          UPDATE prospect_opportunities
+          SET
+            opportunity_status = CASE
+              WHEN ${nextStatus} = 'Closed – Gift Secured' THEN 'Closed – Gift Secured'
+              ELSE opportunity_status
+            END,
+            closed_amount = COALESCE(${nextClosedAmount}, closed_amount),
+            close_date = COALESCE(${nextCloseDate}, close_date),
+            updated_at = NOW()
+          WHERE id = ${row.id}
+        `;
+      } catch (error) {
+        console.error("Summary funded backfill error:", error);
+      }
+    }),
+  );
+}
 
 // GET prospect summary stats for dashboard
 export async function GET(request) {
@@ -13,7 +134,10 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(
+      session,
+      request,
+    );
     if (!user) {
       return Response.json({
         activeCount: 0,
@@ -21,6 +145,8 @@ export async function GET(request) {
         closedThisFY: 0,
       });
     }
+    const authUserId = isActing ? sessionUser.id : user.id;
+    const origin = request?.url ? new URL(request.url).origin : null;
 
     // Count active prospects
     const activeResult = await sql`
@@ -40,6 +166,12 @@ export async function GET(request) {
     const currentFY = `FY${String(fiscalEndYear).slice(-2)}`;
     const fiscalYearStart = `${fiscalStartYear}-07-01`;
     const fiscalYearEnd = `${fiscalEndYear}-06-30`;
+
+    await backfillImportedFundedOpportunities({
+      userId: user.id,
+      authUserId,
+      origin,
+    });
 
     // Funded revenue this FY should come from funded opportunities, not prospect rollups.
     // Imported NXT data can lag on local status normalization, so use funded fields first
