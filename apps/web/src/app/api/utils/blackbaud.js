@@ -21,6 +21,7 @@ const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
+const DEFAULT_BLACKBAUD_SCOPES = "offline_access rnxt.r rnxt.w";
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -29,7 +30,7 @@ export function getBlackbaudConfig(origin) {
   const redirectUri =
     process.env.BLACKBAUD_REDIRECT_URI ||
     (origin ? `${origin}/api/blackbaud/callback` : "");
-  const scopes = (process.env.BLACKBAUD_SCOPES || "offline_access")
+  const scopes = (process.env.BLACKBAUD_SCOPES || DEFAULT_BLACKBAUD_SCOPES)
     .split(/[,\s]+/)
     .map((value) => value.trim())
     .filter(Boolean);
