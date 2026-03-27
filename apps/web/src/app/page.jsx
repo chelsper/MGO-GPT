@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
@@ -197,6 +197,7 @@ function groupNavItems(navItems) {
 }
 
 export default function Page() {
+  const queryClient = useQueryClient();
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -310,7 +311,6 @@ export default function Page() {
   const groupedNavItems = useMemo(() => groupNavItems(navItems), [navItems]);
   const {
     data: actingWorkspaceStatus,
-    refetch: refetchActingWorkspaceStatus,
   } = useQuery({
     queryKey: ["acting-workspace-status", profile?.id, effectiveRole],
     queryFn: async () => {
@@ -370,7 +370,10 @@ export default function Page() {
         if (!response.ok) {
           throw new Error(payload?.error || "Failed to return to your workspace");
         }
-        await refetchActingWorkspaceStatus();
+        queryClient.setQueryData(["acting-workspace-status", profile?.id, effectiveRole], {
+          adminUser: profile,
+          actingUser: null,
+        });
         setWorkspaceSwitchMessage("Viewing your MGO workspace");
       } else {
         const response = await fetch("/api/admin/workspace-user", {
@@ -382,7 +385,10 @@ export default function Page() {
         if (!response.ok) {
           throw new Error(payload?.error || "Failed to switch MGO workspace");
         }
-        await refetchActingWorkspaceStatus();
+        queryClient.setQueryData(["acting-workspace-status", profile?.id, effectiveRole], {
+          adminUser: profile,
+          actingUser: payload?.actingUser || null,
+        });
         setWorkspaceSwitchMessage(
           payload?.actingUser?.name
             ? `Viewing ${payload.actingUser.name}'s MGO workspace`
