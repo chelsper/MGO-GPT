@@ -218,6 +218,8 @@ async function upsertProspectOpportunity({
     currentStage: opportunity?.status || "Identification",
     estimatedAmount: getOpportunityAmount(opportunity) || null,
     opportunityStatus: "Active",
+    askDate: opportunity?.ask_date || null,
+    expectedDate: opportunity?.expected_date || null,
   };
 
   if (existingRows[0]?.id) {
@@ -227,6 +229,8 @@ async function upsertProspectOpportunity({
         title = ${payload.title},
         current_stage = ${payload.currentStage},
         estimated_amount = ${payload.estimatedAmount},
+        ask_date = ${payload.askDate},
+        expected_date = ${payload.expectedDate},
         opportunity_status = ${payload.opportunityStatus},
         constituent_id = ${constituentId || null},
         updated_at = NOW()
@@ -244,6 +248,8 @@ async function upsertProspectOpportunity({
       current_stage,
       opportunity_status,
       estimated_amount,
+      ask_date,
+      expected_date,
       created_at,
       updated_at
     ) VALUES (
@@ -254,6 +260,8 @@ async function upsertProspectOpportunity({
       ${payload.currentStage},
       ${payload.opportunityStatus},
       ${payload.estimatedAmount},
+      ${payload.askDate},
+      ${payload.expectedDate},
       NOW(),
       NOW()
     )
