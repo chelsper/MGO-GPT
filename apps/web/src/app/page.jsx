@@ -418,6 +418,23 @@ export default function Page() {
     );
   }
 
+  const primarySectionStyle = {
+    background:
+      "linear-gradient(180deg, rgba(0, 122, 94, 0.06) 0%, rgba(0, 122, 94, 0.02) 100%)",
+    border: "1px solid rgba(0, 122, 94, 0.22)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7)",
+  };
+
+  const secondaryCardStyle = {
+    backgroundColor: "#FBFDFC",
+    border: "1px solid rgba(0, 122, 94, 0.12)",
+  };
+
+  const supportCardStyle = {
+    backgroundColor: "#FCFCFD",
+    border: "1px solid #F3F4F6",
+  };
+
   return (
     <div
       style={{
@@ -955,12 +972,16 @@ export default function Page() {
               style={{
                 textDecoration: "none",
                 backgroundColor: "white",
-                border: index === 0 ? "2px solid #C7D2FE" : "1px solid #E5E7EB",
+                border:
+                  index === 0
+                    ? "1px solid rgba(0, 122, 94, 0.28)"
+                    : "1px solid rgba(0, 122, 94, 0.14)",
                 borderRadius: "14px",
                 padding: "18px",
                 color: "#111827",
+                ...(index === 0 ? primarySectionStyle : secondaryCardStyle),
               }}
-              >
+            >
                 <div
                   style={{
                     fontSize: "11px",
@@ -1003,8 +1024,8 @@ export default function Page() {
                   href={action.href}
                   style={{
                     textDecoration: "none",
-                    backgroundColor: "white",
-                    border: "1px solid #F3F4F6",
+                    backgroundColor: "#FBFDFC",
+                    border: "1px solid rgba(0, 122, 94, 0.12)",
                     borderRadius: "12px",
                     padding: "16px",
                     color: "#111827",
@@ -1042,8 +1063,7 @@ export default function Page() {
                   href={action.href}
                   style={{
                     textDecoration: "none",
-                    backgroundColor: "#FCFCFD",
-                    border: "1px solid #F3F4F6",
+                    ...supportCardStyle,
                     borderRadius: "12px",
                     padding: "16px",
                     color: "#111827",
@@ -1081,8 +1101,8 @@ export default function Page() {
                   href={item.href}
                   style={{
                     textDecoration: "none",
-                    backgroundColor: "white",
-                    border: "1px solid #E5E7EB",
+                    backgroundColor: "#FBFDFC",
+                    border: "1px solid rgba(0, 122, 94, 0.12)",
                     borderRadius: "12px",
                     padding: "16px",
                     color: "#111827",
