@@ -35,11 +35,50 @@ export async function GET(request) {
               assigned_user.name AS assigned_user_name,
               assigned_user.email AS assigned_user_email,
               creator.name AS created_by_name,
-              creator.email AS created_by_email
+              creator.email AS created_by_email,
+              matched_prospect.id AS matched_prospect_id,
+              matched_prospect.prospect_name AS matched_prospect_name,
+              matched_prospect_owner.name AS last_action_solicitor_name,
+              latest_action.update_date AS last_action_date,
+              latest_action.update_notes AS last_action_notes
             FROM prospect_pool pp
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
+            LEFT JOIN LATERAL (
+              SELECT
+                p.id,
+                p.user_id,
+                p.prospect_name
+              FROM prospects p
+              WHERE p.user_id = pp.assigned_user_id
+                AND (
+                  (pp.constituent_id IS NOT NULL AND p.constituent_id = pp.constituent_id)
+                  OR (
+                    pp.normalized_name IS NOT NULL
+                    AND p.normalized_name = pp.normalized_name
+                  )
+                )
+              ORDER BY
+                CASE
+                  WHEN pp.constituent_id IS NOT NULL AND p.constituent_id = pp.constituent_id THEN 0
+                  ELSE 1
+                END,
+                p.updated_at DESC,
+                p.created_at DESC
+              LIMIT 1
+            ) matched_prospect ON TRUE
+            LEFT JOIN users matched_prospect_owner
+              ON matched_prospect_owner.id = matched_prospect.user_id
+            LEFT JOIN LATERAL (
+              SELECT
+                pu.update_date,
+                pu.update_notes
+              FROM prospect_updates pu
+              WHERE pu.prospect_id = matched_prospect.id
+              ORDER BY pu.update_date DESC, pu.created_at DESC
+              LIMIT 1
+            ) latest_action ON TRUE
             ORDER BY pp.updated_at DESC, pp.created_at DESC
           `
         : await sql`
@@ -49,11 +88,50 @@ export async function GET(request) {
               assigned_user.name AS assigned_user_name,
               assigned_user.email AS assigned_user_email,
               creator.name AS created_by_name,
-              creator.email AS created_by_email
+              creator.email AS created_by_email,
+              matched_prospect.id AS matched_prospect_id,
+              matched_prospect.prospect_name AS matched_prospect_name,
+              matched_prospect_owner.name AS last_action_solicitor_name,
+              latest_action.update_date AS last_action_date,
+              latest_action.update_notes AS last_action_notes
             FROM prospect_pool pp
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
+            LEFT JOIN LATERAL (
+              SELECT
+                p.id,
+                p.user_id,
+                p.prospect_name
+              FROM prospects p
+              WHERE p.user_id = pp.assigned_user_id
+                AND (
+                  (pp.constituent_id IS NOT NULL AND p.constituent_id = pp.constituent_id)
+                  OR (
+                    pp.normalized_name IS NOT NULL
+                    AND p.normalized_name = pp.normalized_name
+                  )
+                )
+              ORDER BY
+                CASE
+                  WHEN pp.constituent_id IS NOT NULL AND p.constituent_id = pp.constituent_id THEN 0
+                  ELSE 1
+                END,
+                p.updated_at DESC,
+                p.created_at DESC
+              LIMIT 1
+            ) matched_prospect ON TRUE
+            LEFT JOIN users matched_prospect_owner
+              ON matched_prospect_owner.id = matched_prospect.user_id
+            LEFT JOIN LATERAL (
+              SELECT
+                pu.update_date,
+                pu.update_notes
+              FROM prospect_updates pu
+              WHERE pu.prospect_id = matched_prospect.id
+              ORDER BY pu.update_date DESC, pu.created_at DESC
+              LIMIT 1
+            ) latest_action ON TRUE
             WHERE pp.assigned_user_id = ${workspaceUser.id}
             ORDER BY pp.updated_at DESC, pp.created_at DESC
           `;

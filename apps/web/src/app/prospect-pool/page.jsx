@@ -53,6 +53,29 @@ function formatEducationLine(education) {
   return parts.join(" · ");
 }
 
+function formatShortDate(value) {
+  if (!value) return "No action logged";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getActionTypeFromNotes(value) {
+  const firstLine = String(value || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  if (!firstLine || !firstLine.includes(":")) return null;
+  const [candidate] = firstLine.split(":");
+  const normalized = candidate.trim();
+  return normalized || null;
+}
+
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -1486,6 +1509,7 @@ export default function ProspectPoolPage() {
               blackbaudSummaryState?.payload?.mapped?.primaryBusinessRelationship || null;
             const juEducation =
               blackbaudSummaryState?.payload?.mapped?.jacksonvilleUniversityEducation || [];
+            const lastActionType = getActionTypeFromNotes(entry.last_action_notes);
 
             return (
               <article
@@ -1748,6 +1772,90 @@ export default function ProspectPoolPage() {
                                       {formatEducationLine(education)}
                                     </div>
                                   ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {entry.last_action_date || entry.last_action_solicitor_name ? (
+                              <div
+                                style={{
+                                  marginTop: "12px",
+                                  paddingTop: "12px",
+                                  borderTop: "1px solid rgba(147, 197, 253, 0.45)",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: "12px",
+                                    fontWeight: 700,
+                                    color: "#6B7280",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.04em",
+                                    marginBottom: "8px",
+                                  }}
+                                >
+                                  Last action
+                                </div>
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                                    gap: "10px",
+                                  }}
+                                >
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "#6B7280",
+                                        fontWeight: 700,
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.04em",
+                                        marginBottom: "4px",
+                                      }}
+                                    >
+                                      Date
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {formatShortDate(entry.last_action_date)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "#6B7280",
+                                        fontWeight: 700,
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.04em",
+                                        marginBottom: "4px",
+                                      }}
+                                    >
+                                      Type
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {lastActionType || "Logged update"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "#6B7280",
+                                        fontWeight: 700,
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.04em",
+                                        marginBottom: "4px",
+                                      }}
+                                    >
+                                      Solicitor
+                                    </div>
+                                    <div style={{ fontSize: "14px", color: "#111827" }}>
+                                      {entry.last_action_solicitor_name ||
+                                        entry.assigned_user_name ||
+                                        entry.assigned_user_email ||
+                                        "Unavailable"}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             ) : null}
