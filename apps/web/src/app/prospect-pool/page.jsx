@@ -611,7 +611,7 @@ export default function ProspectPoolPage() {
         ) : null}
 
         <a
-          href="/"
+          href="/my-top-prospects"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -624,7 +624,7 @@ export default function ProspectPoolPage() {
           }}
         >
           <ArrowLeft size={16} />
-          Back to dashboard
+          Back to My Prospects
         </a>
 
         {!isReviewer ? (
@@ -641,12 +641,9 @@ export default function ProspectPoolPage() {
             }}
           >
             {[
-              { href: "/#today-worklist", label: "Today" },
               { href: "/my-top-prospects", label: "Top Prospects" },
               { href: "/my-top-prospects?tab=portfolio", label: "My Portfolio" },
               { href: "/prospect-pool", label: "Prospect Pool", selected: true },
-              { href: "/team-discussion", label: "Team Discussion" },
-              { href: "/action-opportunity-update", label: "Log Update" },
             ].map((item) => (
               <a
                 key={item.label}
@@ -710,7 +707,7 @@ export default function ProspectPoolPage() {
           style={{
             backgroundColor: "white",
             borderRadius: "18px",
-            padding: "24px",
+            padding: "20px 22px",
             marginBottom: "18px",
             display: "flex",
             justifyContent: "space-between",
@@ -733,7 +730,7 @@ export default function ProspectPoolPage() {
             >
               {isReviewer
                 ? "Route new names, review open requests, and keep the shared pool moving."
-                : "Review assigned names, request what you need, and move on to the next person."}
+                : "Review assigned names, request what you need, and move on."}
             </p>
           </div>
 

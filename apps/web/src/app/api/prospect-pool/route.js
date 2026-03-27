@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
@@ -19,6 +20,7 @@ export async function GET(request) {
     }
 
     const currentUser = await getOrCreateUser(session);
+    const { workspaceUser } = await getWorkspaceUser(session, request);
     const { searchParams } = new URL(request.url);
     const requestedView = searchParams.get("view");
     const treatAsReviewer =
@@ -52,7 +54,7 @@ export async function GET(request) {
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
-            WHERE pp.assigned_user_id = ${currentUser.id}
+            WHERE pp.assigned_user_id = ${workspaceUser.id}
             ORDER BY pp.updated_at DESC, pp.created_at DESC
           `;
 
