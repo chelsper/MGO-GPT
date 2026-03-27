@@ -334,6 +334,7 @@ export default function Page() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [workspaceSwitchMessage, setWorkspaceSwitchMessage] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
@@ -458,10 +459,40 @@ export default function Page() {
     },
     enabled: Boolean(profile?.id),
   });
+  const {
+    data: actingWorkspaceStatus,
+    refetch: refetchActingWorkspaceStatus,
+  } = useQuery({
+    queryKey: ["acting-workspace-status", profile?.id, effectiveRole],
+    queryFn: async () => {
+      const response = await fetch("/api/admin/workspace-user");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load acting workspace");
+      }
+      return payload;
+    },
+    enabled: Boolean(isAdmin),
+  });
+  const {
+    data: mgoUsers = [],
+  } = useQuery({
+    queryKey: ["workspace-mgo-users", profile?.id, effectiveRole],
+    queryFn: async () => {
+      const response = await fetch("/api/users/mgos");
+      const payload = await response.json().catch(() => []);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load MGO users");
+      }
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: Boolean(isAdmin && isMgoView),
+  });
   const resumeWorkItem = useMemo(
     () => getResumeWorkItem(worklist, isReviewer),
     [isReviewer, worklist],
   );
+  const actingUser = actingWorkspaceStatus?.actingUser || null;
 
   async function handleViewModeChange(nextMode) {
     if (!isAdmin) return;
@@ -474,10 +505,54 @@ export default function Page() {
       }
     }
 
+    setWorkspaceSwitchMessage("");
     setViewMode(nextMode);
 
     if (nextMode === "mgo" && typeof window !== "undefined") {
       window.location.replace("/my-top-prospects");
+    }
+  }
+
+  async function handleActingWorkspaceChange(nextUserId) {
+    if (!isAdmin || !isMgoView) return;
+
+    try {
+      setWorkspaceSwitchMessage("");
+
+      if (!nextUserId || String(nextUserId) === String(profile?.id || "")) {
+        const response = await fetch("/api/admin/workspace-user", { method: "DELETE" });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to return to your workspace");
+        }
+        await refetchActingWorkspaceStatus();
+        setWorkspaceSwitchMessage("Viewing your MGO workspace");
+      } else {
+        const response = await fetch("/api/admin/workspace-user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: Number(nextUserId) }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to switch MGO workspace");
+        }
+        await refetchActingWorkspaceStatus();
+        setWorkspaceSwitchMessage(
+          payload?.actingUser?.name
+            ? `Viewing ${payload.actingUser.name}'s MGO workspace`
+            : "Workspace updated",
+        );
+      }
+
+      if (typeof window !== "undefined") {
+        window.location.replace("/my-top-prospects");
+      }
+    } catch (error) {
+      console.error("Failed to switch acting MGO workspace:", error);
+      setWorkspaceSwitchMessage(
+        error instanceof Error ? error.message : "Failed to switch workspace",
+      );
     }
   }
 
@@ -779,6 +854,44 @@ export default function Page() {
                       </div>
                     </div>
                   ) : null}
+                  {isAdmin && isMgoView ? (
+                    <div style={{ marginTop: "10px" }}>
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                          color: "#6B7280",
+                          marginBottom: "6px",
+                        }}
+                      >
+                        View as MGO
+                      </div>
+                      <select
+                        value={actingUser?.id || profile?.id || ""}
+                        onChange={(event) => handleActingWorkspaceChange(event.target.value)}
+                        style={{
+                          width: "100%",
+                          border: "1px solid #D1D5DB",
+                          borderRadius: "10px",
+                          padding: "10px 12px",
+                          fontSize: "13px",
+                          color: "#111827",
+                          backgroundColor: "white",
+                        }}
+                      >
+                        <option value={profile?.id || ""}>My MGO workspace</option>
+                        {mgoUsers
+                          .filter((mgoUser) => String(mgoUser.id) !== String(profile?.id || ""))
+                          .map((mgoUser) => (
+                            <option key={mgoUser.id} value={mgoUser.id}>
+                              {mgoUser.name || mgoUser.email}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : null}
                 </div>
 
                 <a
@@ -895,40 +1008,86 @@ export default function Page() {
 
             <div
               style={{
-                display: "inline-flex",
-                border: "1px solid #E5E7EB",
-                borderRadius: "999px",
-                padding: "4px",
-                gap: "4px",
-                backgroundColor: "#F9FAFB",
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                flexWrap: "wrap",
               }}
             >
-              {[
-                { value: "reviewer", label: "Advancement Services" },
-                { value: "mgo", label: "MGO" },
-              ].map((option) => {
-                const active = adminViewMode === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => handleViewModeChange(option.value)}
+              <div
+                style={{
+                  display: "inline-flex",
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "999px",
+                  padding: "4px",
+                  gap: "4px",
+                  backgroundColor: "#F9FAFB",
+                }}
+              >
+                {[
+                  { value: "reviewer", label: "Advancement Services" },
+                  { value: "mgo", label: "MGO" },
+                ].map((option) => {
+                  const active = adminViewMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleViewModeChange(option.value)}
+                      style={{
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "8px 12px",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        color: active ? "white" : "#4B5563",
+                        backgroundColor: active ? "#6A5BFF" : "transparent",
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {isMgoView ? (
+                <div style={{ minWidth: "240px", flex: "1 1 260px" }}>
+                  <select
+                    value={actingUser?.id || profile?.id || ""}
+                    onChange={(event) => handleActingWorkspaceChange(event.target.value)}
                     style={{
-                      border: "none",
-                      borderRadius: "999px",
-                      padding: "8px 12px",
+                      width: "100%",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "10px",
+                      padding: "10px 12px",
                       fontSize: "13px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      color: active ? "white" : "#4B5563",
-                      backgroundColor: active ? "#6A5BFF" : "transparent",
+                      color: "#111827",
+                      backgroundColor: "white",
                     }}
                   >
-                    {option.label}
-                  </button>
-                );
-              })}
+                    <option value={profile?.id || ""}>View as: My MGO workspace</option>
+                    {mgoUsers
+                      .filter((mgoUser) => String(mgoUser.id) !== String(profile?.id || ""))
+                      .map((mgoUser) => (
+                        <option key={mgoUser.id} value={mgoUser.id}>
+                          View as: {mgoUser.name || mgoUser.email}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : null}
             </div>
+          </div>
+        ) : null}
+        {workspaceSwitchMessage ? (
+          <div
+            style={{
+              marginBottom: "12px",
+              fontSize: "13px",
+              color: workspaceSwitchMessage.toLowerCase().includes("failed") ? "#B91C1C" : "#4B5563",
+            }}
+          >
+            {workspaceSwitchMessage}
           </div>
         ) : null}
 
