@@ -444,6 +444,21 @@ export default function ProspectPoolPage() {
     setDrafts((current) => ({
       ...current,
       [id]: {
+        assignedUserId:
+          current[id]?.assignedUserId ??
+          String(entries.find((entry) => entry.id === id)?.assigned_user_id || ""),
+        note:
+          current[id]?.note ??
+          entries.find((entry) => entry.id === id)?.note ??
+          "",
+        email:
+          current[id]?.email ??
+          entries.find((entry) => entry.id === id)?.email ??
+          "",
+        phone:
+          current[id]?.phone ??
+          entries.find((entry) => entry.id === id)?.phone ??
+          "",
         needsContactInfo:
           current[id]?.needsContactInfo ??
           entries.find((entry) => entry.id === id)?.needs_contact_info ??
@@ -459,6 +474,100 @@ export default function ProspectPoolPage() {
         ...updates,
       },
     }));
+  }
+
+  async function saveReviewerEntry(id) {
+    setSavingId(id);
+    setError("");
+    setActionMessage("");
+
+    try {
+      const draft = drafts[id] || {};
+      const response = await fetch(`/api/prospect-pool/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignedUserId: draft.assignedUserId ? Number(draft.assignedUserId) : undefined,
+          note: draft.note,
+          email: draft.email,
+          phone: draft.phone,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to update prospect pool entry");
+      }
+
+      const updated = await response.json();
+      const assignedUser =
+        mgos.find((item) => String(item.id) === String(updated.assigned_user_id)) || null;
+
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                ...updated,
+                assigned_user_name: assignedUser?.name || entry.assigned_user_name,
+                assigned_user_email: assignedUser?.email || entry.assigned_user_email,
+              }
+            : entry,
+        ),
+      );
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setActionMessage(`Updated ${updated.prospect_name}.`);
+      setToast({ tone: "success", message: `Updated ${updated.prospect_name}.` });
+    } catch (err) {
+      console.error(err);
+      const message = err.message || "Could not update this pool entry.";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function deleteReviewerEntry(entry) {
+    const confirmed = window.confirm(
+      `Remove ${entry.prospect_name} from the prospect pool?`,
+    );
+    if (!confirmed) return;
+
+    setSavingId(entry.id);
+    setError("");
+    setActionMessage("");
+
+    try {
+      const response = await fetch(`/api/prospect-pool/${entry.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to delete prospect pool entry");
+      }
+
+      setEntries((current) => current.filter((item) => item.id !== entry.id));
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[entry.id];
+        return next;
+      });
+      setActionMessage(`Removed ${entry.prospect_name} from the pool.`);
+      setToast({ tone: "success", message: `${entry.prospect_name} removed.` });
+    } catch (err) {
+      console.error(err);
+      const message = err.message || "Could not delete this pool entry.";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setSavingId(null);
+    }
   }
 
   async function createEntry(event) {
@@ -1593,25 +1702,155 @@ export default function ProspectPoolPage() {
                         fontSize: "14px",
                         color: "#111827",
                       }}
-                    >
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          color: "#6B7280",
+                      >
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#6B7280",
                           fontWeight: 700,
                           textTransform: "uppercase",
                           letterSpacing: "0.04em",
                           marginBottom: "10px",
+                          }}
+                        >
+                          Manage entry
+                        </div>
+                      <label
+                        style={{
+                          display: "grid",
+                          gap: "8px",
+                          fontSize: "14px",
+                          color: "#111827",
+                          marginBottom: "12px",
                         }}
                       >
-                        Requests from MGO
+                        Assigned MGO
+                        <select
+                          value={draft?.assignedUserId ?? String(entry.assigned_user_id || "")}
+                          onChange={(event) =>
+                            setDraft(entry.id, { assignedUserId: event.target.value })
+                          }
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "12px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            fontSize: "14px",
+                          }}
+                        >
+                          <option value="">Select MGO</option>
+                          {mgos.map((mgo) => (
+                            <option key={mgo.id} value={mgo.id}>
+                              {mgo.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label
+                        style={{
+                          display: "grid",
+                          gap: "8px",
+                          fontSize: "14px",
+                          color: "#111827",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        Internal note
+                        <textarea
+                          rows={3}
+                          value={draft?.note ?? entry.note ?? ""}
+                          onChange={(event) => setDraft(entry.id, { note: event.target.value })}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "12px",
+                            border: "1px solid #D1D5DB",
+                            fontSize: "14px",
+                            resize: "vertical",
+                            backgroundColor: "white",
+                          }}
+                        />
+                      </label>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: "10px",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
+                          Email
+                          <input
+                            type="email"
+                            value={draft?.email ?? entry.email ?? ""}
+                            onChange={(event) => setDraft(entry.id, { email: event.target.value })}
+                            style={{
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              border: "1px solid #D1D5DB",
+                              fontSize: "14px",
+                              backgroundColor: "white",
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
+                          Phone
+                          <input
+                            type="text"
+                            value={draft?.phone ?? entry.phone ?? ""}
+                            onChange={(event) => setDraft(entry.id, { phone: event.target.value })}
+                            style={{
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              border: "1px solid #D1D5DB",
+                              fontSize: "14px",
+                              backgroundColor: "white",
+                            }}
+                          />
+                        </label>
                       </div>
-                      <div>Needs contact info: {entry.needs_contact_info ? "Yes" : "No"}</div>
-                      <div style={{ marginTop: "6px" }}>
-                        Add me as solicitor: {entry.solicitor_requested ? "Yes" : "No"}
+                      <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6, marginBottom: "14px" }}>
+                        MGO requests: contact info {entry.needs_contact_info ? "needed" : "not needed"}
+                        {" · "}
+                        solicitor {entry.solicitor_requested ? "requested" : "not requested"}
                       </div>
-                      <div style={{ marginTop: "10px", color: "#6B7280", lineHeight: 1.6 }}>
-                        {entry.contact_info_request_note || "No contact info request note yet."}
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          disabled={savingId === entry.id}
+                          onClick={() => saveReviewerEntry(entry.id)}
+                          style={{
+                            flex: "1 1 150px",
+                            padding: "12px 16px",
+                            borderRadius: "12px",
+                            border: "none",
+                            backgroundColor: savingId === entry.id ? "#A5B4FC" : "#6A5BFF",
+                            color: "white",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: savingId === entry.id ? "wait" : "pointer",
+                          }}
+                        >
+                          {savingId === entry.id ? "Saving..." : "Save changes"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingId === entry.id}
+                          onClick={() => deleteReviewerEntry(entry)}
+                          style={{
+                            flex: "1 1 130px",
+                            padding: "12px 16px",
+                            borderRadius: "12px",
+                            border: "1px solid #FECACA",
+                            backgroundColor: "#FEF2F2",
+                            color: "#B91C1C",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: savingId === entry.id ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ) : (

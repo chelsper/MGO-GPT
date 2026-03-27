@@ -134,3 +134,45 @@ export async function PATCH(request, { params }) {
     );
   }
 }
+
+export async function DELETE(request, { params }) {
+  try {
+    await ensureAppSchema();
+
+    const session = await auth();
+    if (!session || !session.user?.email) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const currentUser = await getOrCreateUser(session);
+    if (!isReviewerRole(currentUser.role)) {
+      return Response.json(
+        { error: "Forbidden — reviewers only" },
+        { status: 403 },
+      );
+    }
+
+    const entryId = Number(params?.id);
+    if (!Number.isInteger(entryId) || entryId <= 0) {
+      return Response.json({ error: "Invalid prospect pool ID" }, { status: 400 });
+    }
+
+    const deleted = await sql`
+      DELETE FROM prospect_pool
+      WHERE id = ${entryId}
+      RETURNING id, prospect_name
+    `;
+
+    if (deleted.length === 0) {
+      return Response.json({ error: "Prospect pool entry not found" }, { status: 404 });
+    }
+
+    return Response.json({ ok: true, deleted: deleted[0] });
+  } catch (error) {
+    console.error("Error deleting prospect pool entry:", error);
+    return Response.json(
+      { error: error?.message || "Failed to delete prospect pool entry" },
+      { status: 500 },
+    );
+  }
+}
