@@ -870,6 +870,7 @@ function toBlackbaudDateTime(value) {
 }
 
 export function buildBlackbaudOpportunityPayload({
+  blackbaudConstituentId,
   title,
   currentStage,
   estimatedAmount,
@@ -880,6 +881,10 @@ export function buildBlackbaudOpportunityPayload({
   closeDate,
 }) {
   const payload = {};
+
+  if (blackbaudConstituentId) {
+    payload.constituent_id = String(blackbaudConstituentId);
+  }
 
   const normalizedTitle = String(title || "").trim();
   if (normalizedTitle) {
@@ -927,6 +932,21 @@ export function buildBlackbaudOpportunityPayload({
   }
 
   return payload;
+}
+
+export async function createBlackbaudOpportunity({
+  userId,
+  authUserId,
+  origin,
+  payload,
+}) {
+  return blackbaudApiFetch(BLACKBAUD_OPPORTUNITIES_URL, {
+    userId,
+    authUserId,
+    origin,
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function updateBlackbaudOpportunity({

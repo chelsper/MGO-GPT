@@ -226,6 +226,7 @@ export async function saveProspectOpportunity({
   prospectId,
   constituentId,
   opportunityId,
+  blackbaudOpportunityId = null,
   title,
   currentStage,
   askAmount,
@@ -269,6 +270,7 @@ export async function saveProspectOpportunity({
     const updatedRows = await sql`
       UPDATE prospect_opportunities
       SET
+        blackbaud_opportunity_id = COALESCE(${blackbaudOpportunityId}, blackbaud_opportunity_id),
         title = ${title || existing.title},
         current_stage = ${currentStage || existing.current_stage},
         estimated_amount = ${askAmount ?? existing.estimated_amount},
@@ -300,6 +302,7 @@ export async function saveProspectOpportunity({
       INSERT INTO prospect_opportunities (
         prospect_id,
         constituent_id,
+        blackbaud_opportunity_id,
         title,
         current_stage,
         opportunity_status,
@@ -313,6 +316,7 @@ export async function saveProspectOpportunity({
       ) VALUES (
         ${prospect.id},
         ${constituentId || prospect.constituent_id || null},
+        ${blackbaudOpportunityId},
         ${defaultTitle},
         ${currentStage},
         'Active',
