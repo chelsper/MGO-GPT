@@ -1,8 +1,8 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
-import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import {
   saveProspectOpportunity,
   syncJointSolicitationOpportunities,
@@ -15,7 +15,10 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getOrCreateUser(session);
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    if (!user) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
 
     const body = await request.json();
     const {

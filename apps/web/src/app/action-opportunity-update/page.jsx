@@ -280,10 +280,15 @@ export default function ActionOpportunityUpdatePage() {
       try {
         let mgoOptions = [];
         let primaryError = "";
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 4500);
 
         try {
-          const response = await fetch("/api/users/mgos");
+          const response = await fetch("/api/users/mgos", {
+            signal: controller.signal,
+          });
           const payload = await response.json().catch(() => null);
+          window.clearTimeout(timeoutId);
           if (!active) return;
 
           if (response.ok) {
@@ -295,6 +300,7 @@ export default function ActionOpportunityUpdatePage() {
             primaryError = payload?.error || "Teammate options are unavailable right now.";
           }
         } catch (_primaryLoadError) {
+          window.clearTimeout(timeoutId);
           primaryError = "Teammate options are unavailable right now.";
         }
 

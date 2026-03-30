@@ -232,7 +232,10 @@ export async function POST(request) {
   } catch (error) {
     console.error("Error creating prospect:", error);
     return Response.json(
-      { error: "Failed to create prospect" },
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to create prospect",
+      },
       { status: 500 },
     );
   }
