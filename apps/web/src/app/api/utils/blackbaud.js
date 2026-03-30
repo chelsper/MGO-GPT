@@ -809,9 +809,10 @@ export function buildBlackbaudActionPayload({
   };
 }
 
-export async function createBlackbaudAction({ userId, origin, payload }) {
+export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
   return blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
     userId,
+    authUserId,
     origin,
     method: "POST",
     body: payload,

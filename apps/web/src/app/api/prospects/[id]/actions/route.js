@@ -34,7 +34,7 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser: user } = await getWorkspaceUser(session, request);
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -127,6 +127,7 @@ export async function POST(request, { params }) {
       const origin = new URL(request.url).origin;
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
+        authUserId: sessionUser?.id || user.id,
         origin,
         payload: buildBlackbaudActionPayload({
           blackbaudConstituentId: linkedBlackbaudConstituentId,
