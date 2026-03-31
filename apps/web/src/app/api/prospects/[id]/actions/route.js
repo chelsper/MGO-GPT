@@ -9,18 +9,10 @@ import {
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 function formatActionUpdateNotes({
-  actionCategory,
-  interactionType,
-  summary,
   notes,
   nextStep,
 }) {
-  const normalizedType = interactionType
-    ? `${String(interactionType).trim().charAt(0).toUpperCase()}${String(interactionType).trim().slice(1)}`
-    : null;
   const parts = [
-    summary?.trim() ? `${normalizedType || "Action"}: ${summary.trim()}` : null,
-    actionCategory?.trim() ? `Category: ${actionCategory.trim()}` : null,
     notes?.trim() || null,
     nextStep?.trim() ? `Next step: ${nextStep.trim()}` : null,
   ].filter(Boolean);
@@ -94,9 +86,6 @@ export async function POST(request, { params }) {
     }
 
     const updateNotes = formatActionUpdateNotes({
-      actionCategory,
-      interactionType,
-      summary,
       notes,
       nextStep,
     });

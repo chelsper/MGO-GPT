@@ -796,9 +796,6 @@ export function buildBlackbaudActionPayload({
     Task: "Task",
   };
   const descriptionParts = [
-    appendActionSection("Summary", summaryText),
-    appendActionSection("Category", normalizedCategory),
-    appendActionSection("Action type", normalizedActionType),
     appendActionSection("Notes", actionNotes),
     appendActionSection("Next step", nextStep),
   ].filter(Boolean);
