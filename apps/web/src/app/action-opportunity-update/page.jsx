@@ -9,7 +9,7 @@ const UPDATE_MODES = [
   {
     value: "action",
     label: "Action",
-    description: "Log an interaction, visit, call, or follow-up step.",
+    description: "Log a completed fundraising action and any follow-up step.",
   },
   {
     value: "opportunity",
@@ -23,7 +23,14 @@ const UPDATE_MODES = [
   },
 ];
 
-const INTERACTION_TYPES = ["visit", "call", "email", "event"];
+const INTERACTION_TYPES = [
+  "Cultivation",
+  "Identification/Discovery",
+  "Other",
+  "Qualification/Re-engagement",
+  "Solicitation",
+  "Stewardship",
+];
 const COMMON_NEXT_STEPS = [
   "Send recap email",
   "Schedule next visit",
@@ -115,7 +122,7 @@ export default function ActionOpportunityUpdatePage() {
   const { data: user, loading } = useUser();
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
-  const [interactionType, setInteractionType] = useState("visit");
+  const [interactionType, setInteractionType] = useState(INTERACTION_TYPES[0]);
   const [actionNotes, setActionNotes] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [opportunityStage, setOpportunityStage] = useState("Identification");
@@ -1021,7 +1028,7 @@ export default function ActionOpportunityUpdatePage() {
           : null;
 
       setDonorName("");
-      setInteractionType("visit");
+      setInteractionType(INTERACTION_TYPES[0]);
       setActionNotes("");
       setNextStep("");
       setOpportunityStage("Identification");
@@ -2234,39 +2241,29 @@ export default function ActionOpportunityUpdatePage() {
                       marginBottom: "8px",
                     }}
                   >
-                    Interaction type
+                    Action type
                   </label>
-                  <div
+                  <select
+                    value={interactionType}
+                    onChange={(event) => setInteractionType(event.target.value)}
                     style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: "8px",
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: "12px",
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#111827",
+                      fontSize: "14px",
+                      fontWeight: 600,
                       marginBottom: "16px",
                     }}
                   >
-                    {INTERACTION_TYPES.map((type) => {
-                      const selected = interactionType === type;
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setInteractionType(type)}
-                          style={{
-                            padding: "10px 14px",
-                            borderRadius: "999px",
-                            border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
-                            backgroundColor: selected ? "#F5F3FF" : "white",
-                            color: selected ? "#5B21B6" : "#374151",
-                            fontSize: "14px",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {type.charAt(0).toUpperCase() + type.slice(1)}
-                        </button>
-                      );
-                    })}
-                  </div>
+                    {INTERACTION_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
 
                   <label
                     style={{

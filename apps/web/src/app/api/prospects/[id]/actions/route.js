@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   buildBlackbaudActionPayload,
   createBlackbaudAction,
+  findBlackbaudConstituentByLookupId,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -125,6 +126,22 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
+      let actionFundraiserBlackbaudId =
+        user.blackbaud_constituent_id || null;
+
+      if (user.blackbaud_lookup_id) {
+        const resolvedFundraiser = await findBlackbaudConstituentByLookupId({
+          userId: user.id,
+          authUserId: sessionUser?.id || user.id,
+          origin,
+          lookupId: user.blackbaud_lookup_id,
+        }).catch(() => null);
+
+        actionFundraiserBlackbaudId =
+          resolvedFundraiser?.blackbaudConstituentId ||
+          actionFundraiserBlackbaudId;
+      }
+
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
         authUserId: sessionUser?.id || user.id,
@@ -138,6 +155,7 @@ export async function POST(request, { params }) {
           interactionType,
           authorName: user.name,
           opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
+          fundraiserBlackbaudId: actionFundraiserBlackbaudId,
         }),
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",

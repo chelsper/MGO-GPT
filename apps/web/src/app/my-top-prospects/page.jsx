@@ -27,7 +27,14 @@ const ASK_TYPES = [
 ];
 
 const FY_OPTIONS = ["FY25", "FY26", "FY27", "FY28", "FY29", "FY30"];
-const ACTION_TYPES = ["visit", "call", "email", "event"];
+const ACTION_TYPES = [
+  "Cultivation",
+  "Identification/Discovery",
+  "Other",
+  "Qualification/Re-engagement",
+  "Solicitation",
+  "Stewardship",
+];
 const OPPORTUNITY_STAGE_OPTIONS = [
   "Identification",
   "Qualification",
@@ -1211,7 +1218,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [actionDate, setActionDate] = useState(
     new Date().toISOString().split("T")[0],
   );
-  const [actionType, setActionType] = useState("visit");
+  const [actionType, setActionType] = useState(ACTION_TYPES[0]);
   const [actionSummary, setActionSummary] = useState("");
   const [actionNotes, setActionNotes] = useState("");
   const [actionNextStep, setActionNextStep] = useState("");
@@ -1343,7 +1350,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setActionDate(new Date().toISOString().split("T")[0]);
-      setActionType("visit");
+      setActionType(ACTION_TYPES[0]);
       setActionSummary("");
       setActionNotes("");
       setActionNextStep("");
@@ -2919,37 +2926,37 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
               >
                 Capture the latest movement
               </h4>
-              <div
-                style={{
-                  marginBottom: "12px",
-                  display: "flex",
-                  gap: "8px",
-                  flexWrap: "wrap",
-                }}
-              >
-                {ACTION_TYPES.map((type) => {
-                  const selected = actionType === type;
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setActionType(type)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "999px",
-                        border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
-                        backgroundColor: selected ? "#EDE9FE" : "white",
-                        color: selected ? "#5B21B6" : "#374151",
-                        fontSize: "12px",
-                        fontWeight: "700",
-                        cursor: "pointer",
-                        textTransform: "capitalize",
-                      }}
-                    >
+              <div style={{ marginBottom: "12px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "#6B7280",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Action type
+                </label>
+                <select
+                  value={actionType}
+                  onChange={(e) => setActionType(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    backgroundColor: "white",
+                  }}
+                >
+                  {ACTION_TYPES.map((type) => (
+                    <option key={type} value={type}>
                       {type}
-                    </button>
-                  );
-                })}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label
@@ -3143,7 +3150,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 }}
               >
                 {linkedBlackbaudConstituentId
-                  ? "This action will be logged in the app and sent to the linked Blackbaud constituent."
+                  ? "This action will be logged in the app, sent to NXT, marked completed, and assigned to the current MGO."
                   : "This action will be saved in the app only because this prospect is not linked to Blackbaud."}
               </div>
               <div style={{ display: "flex", gap: "8px" }}>

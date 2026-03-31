@@ -774,6 +774,7 @@ export function buildBlackbaudActionPayload({
   interactionType,
   authorName,
   opportunityId,
+  fundraiserBlackbaudId,
 }) {
   if (!blackbaudConstituentId) {
     throw new Error("A linked Blackbaud constituent ID is required");
@@ -783,16 +784,11 @@ export function buildBlackbaudActionPayload({
     throw new Error("An action date is required");
   }
 
-  const categoryMap = {
-    call: "Phone Call",
-    visit: "Meeting",
-    email: "Email",
-    event: "Meeting",
-  };
-
   const summaryText = String(summary || "").trim();
+  const normalizedActionType = String(interactionType || "").trim() || "Other";
   const descriptionParts = [
     appendActionSection("Summary", summaryText),
+    appendActionSection("Action type", normalizedActionType),
     appendActionSection("Notes", actionNotes),
     appendActionSection("Next step", nextStep),
   ].filter(Boolean);
@@ -800,12 +796,16 @@ export function buildBlackbaudActionPayload({
   return {
     constituent_id: String(blackbaudConstituentId),
     date: new Date(actionDate).toISOString(),
-    category: categoryMap[String(interactionType || "").toLowerCase()] || "Task/Other",
+    category: "Task/Other",
+    type: normalizedActionType,
     direction: "Outbound",
+    completed: true,
+    completed_date: new Date(actionDate).toISOString(),
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
     author: String(authorName || "").trim() || undefined,
     opportunity_id: opportunityId ? String(opportunityId) : undefined,
+    fundraisers: fundraiserBlackbaudId ? [String(fundraiserBlackbaudId)] : undefined,
   };
 }
 
