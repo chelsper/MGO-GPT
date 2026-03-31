@@ -1234,8 +1234,11 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [discussionAssignedUserId, setDiscussionAssignedUserId] = useState("");
   const [discussionError, setDiscussionError] = useState("");
   const [nextStepTextDraft, setNextStepTextDraft] = useState("");
+  const [nextStepDetailsDraft, setNextStepDetailsDraft] = useState("");
   const [nextStepDueDateDraft, setNextStepDueDateDraft] = useState("");
   const [nextStepCompletedDraft, setNextStepCompletedDraft] = useState(false);
+  const [nextStepNeedsDiscussionDraft, setNextStepNeedsDiscussionDraft] = useState(false);
+  const [nextStepDiscussionNoteDraft, setNextStepDiscussionNoteDraft] = useState("");
   const [newOpportunityData, setNewOpportunityData] = useState({
     title: "",
     currentStage: "Identification",
@@ -1596,22 +1599,65 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     },
   });
 
+  const savePendingActionMutation = useMutation({
+    mutationFn: async ({ id, body }) => {
+      const response = await fetch(id ? `/api/pending-actions/${id}` : "/api/pending-actions", {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to save pending action");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      setShowNextStepForm(false);
+      setActionError("");
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to save pending action",
+      );
+    },
+  });
+
   const prospect = data?.prospect;
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
   const linkedSubmissions = data?.linkedSubmissions || [];
   const discussionItems = data?.discussionItems || [];
+  const pendingActions = data?.pendingActions || [];
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
     blackbaudSummary?.mapped?.lifetimeGiving || null;
   const blackbaudAssignments =
     blackbaudSummary?.mapped?.fundraiserAssignments || [];
 
+  const primaryPendingAction =
+    pendingActions.find((item) => item.status === "Open" && item.is_primary) ||
+    pendingActions.find((item) => item.status === "Open") ||
+    pendingActions.find((item) => item.is_primary) ||
+    null;
+
   useEffect(() => {
-    setNextStepTextDraft(prospect?.next_action_text || "");
-    setNextStepDueDateDraft(prospect?.next_action_due_date || "");
-    setNextStepCompletedDraft(Boolean(prospect?.next_action_completed_at));
+    const source = primaryPendingAction;
+    setNextStepTextDraft(source?.title || prospect?.next_action_text || "");
+    setNextStepDetailsDraft(source?.details || "");
+    setNextStepDueDateDraft(source?.due_date || prospect?.next_action_due_date || "");
+    setNextStepCompletedDraft(
+      source ? source.status === "Done" : Boolean(prospect?.next_action_completed_at),
+    );
+    setNextStepNeedsDiscussionDraft(Boolean(source?.needs_discussion));
+    setNextStepDiscussionNoteDraft(source?.discussion_note || "");
   }, [
+    primaryPendingAction,
     prospect?.next_action_completed_at,
     prospect?.next_action_due_date,
     prospect?.next_action_text,
@@ -1945,13 +1991,19 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     letterSpacing: "0.5px",
   };
 
-  const nextStepSummary = prospect.next_action_text
-    ? prospect.next_action_completed_at
-      ? `Completed ${formatLongDate(prospect.next_action_completed_at)}`
-      : prospect.next_action_due_date
-        ? `Due ${formatLongDate(prospect.next_action_due_date)}`
+  const nextStepSummary = primaryPendingAction
+    ? primaryPendingAction.status === "Done"
+      ? `Completed ${formatLongDate(primaryPendingAction.completed_at)}`
+      : primaryPendingAction.due_date
+        ? `Due ${formatLongDate(primaryPendingAction.due_date)}`
         : "No due date set"
-    : "No next action set.";
+    : prospect.next_action_text
+      ? prospect.next_action_completed_at
+        ? `Completed ${formatLongDate(prospect.next_action_completed_at)}`
+        : prospect.next_action_due_date
+          ? `Due ${formatLongDate(prospect.next_action_due_date)}`
+          : "No due date set"
+      : "No pending action set.";
 
   const startEditingTimelineUpdate = (event) => {
     const raw = event.raw || {};
@@ -1980,10 +2032,21 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const saveNextStep = () => {
     setActionError("");
     const trimmed = nextStepTextDraft.trim();
-    editMutation.mutate({
-      nextActionText: trimmed || null,
-      nextActionDueDate: trimmed ? nextStepDueDateDraft || null : null,
-      nextActionCompletedAt: trimmed && nextStepCompletedDraft ? new Date().toISOString() : null,
+    savePendingActionMutation.mutate({
+      id: primaryPendingAction?.id || null,
+      body: {
+        prospectId,
+        constituentId: prospect?.constituent_id || null,
+        title: trimmed || null,
+        details: nextStepDetailsDraft.trim() || null,
+        dueDate: trimmed ? nextStepDueDateDraft || null : null,
+        status: nextStepCompletedDraft ? "Done" : "Open",
+        isPrimary: true,
+        needsDiscussion: nextStepNeedsDiscussionDraft,
+        discussionNote: nextStepNeedsDiscussionDraft
+          ? nextStepDiscussionNoteDraft.trim() || null
+          : null,
+      },
     });
   };
 
@@ -2798,18 +2861,109 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 borderColor: "#FDE68A",
               }}
             >
-              <p style={sectionEyebrowStyle}>Next Step</p>
+              <p style={sectionEyebrowStyle}>Pending Actions</p>
               <p style={{ margin: "0 0 14px", fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
-                Keep the follow-up itself current here without opening the full Action form.
+                Keep one clear pending action on this prospect, set a due date, and flag it for discussion when it needs coordination.
               </p>
+              {pendingActions.length ? (
+                <div
+                  style={{
+                    marginBottom: "14px",
+                    display: "grid",
+                    gap: "8px",
+                  }}
+                >
+                  {pendingActions.slice(0, 3).map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "12px",
+                        border: `1px solid ${item.status === "Done" ? "#D1D5DB" : "#FDE68A"}`,
+                        backgroundColor: item.status === "Done" ? "#F9FAFB" : "#FFFBEB",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          alignItems: "center",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        <strong style={{ color: "#111827", fontSize: "14px" }}>{item.title}</strong>
+                        <span style={{ fontSize: "12px", color: "#6B7280", whiteSpace: "nowrap" }}>
+                          {item.status === "Done"
+                            ? `Done ${formatShortDate(item.completed_at)}`
+                            : item.due_date
+                              ? `Due ${formatShortDate(item.due_date)}`
+                              : "No due date"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        {item.is_primary ? (
+                          <span
+                            style={{
+                              padding: "2px 8px",
+                              borderRadius: "999px",
+                              border: "1px solid #FCD34D",
+                              backgroundColor: "#FEF3C7",
+                              color: "#92400E",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                            }}
+                          >
+                            Primary
+                          </span>
+                        ) : null}
+                        {item.needs_discussion ? (
+                          <span
+                            style={{
+                              padding: "2px 8px",
+                              borderRadius: "999px",
+                              border: "1px solid #BFDBFE",
+                              backgroundColor: "#EFF6FF",
+                              color: "#1D4ED8",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                            }}
+                          >
+                            Needs discussion
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               <div style={{ display: "grid", gap: "14px" }}>
                 <div>
-                  <label style={detailLabelStyle}>Next Step</label>
+                  <label style={detailLabelStyle}>Pending Action</label>
                   <textarea
                     rows={3}
                     value={nextStepTextDraft}
                     onChange={(event) => setNextStepTextDraft(event.target.value)}
                     placeholder="What should happen next?"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "10px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={detailLabelStyle}>Details</label>
+                  <textarea
+                    rows={2}
+                    value={nextStepDetailsDraft}
+                    onChange={(event) => setNextStepDetailsDraft(event.target.value)}
+                    placeholder="Optional context, handoff note, or prep detail."
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -2860,14 +3014,82 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       checked={nextStepCompletedDraft}
                       onChange={(event) => setNextStepCompletedDraft(event.target.checked)}
                     />
-                    Mark next step complete
+                    Mark pending action complete
                   </label>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "14px",
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "14px",
+                      color: "#374151",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={nextStepNeedsDiscussionDraft}
+                      onChange={(event) => setNextStepNeedsDiscussionDraft(event.target.checked)}
+                    />
+                    Needs discussion
+                  </label>
+                  {nextStepNeedsDiscussionDraft ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDiscussionForm(true);
+                        setShowNextStepForm(false);
+                      }}
+                      style={{
+                        justifySelf: "start",
+                        padding: "10px 14px",
+                        borderRadius: "999px",
+                        border: "1px solid #BFDBFE",
+                        backgroundColor: "#EFF6FF",
+                        color: "#1D4ED8",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Open Team Discussion
+                    </button>
+                  ) : null}
+                </div>
+                {nextStepNeedsDiscussionDraft ? (
+                  <div>
+                    <label style={detailLabelStyle}>Discussion note</label>
+                    <textarea
+                      rows={2}
+                      value={nextStepDiscussionNoteDraft}
+                      onChange={(event) => setNextStepDiscussionNoteDraft(event.target.value)}
+                      placeholder="What needs review, input, or handoff?"
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "10px",
+                        fontSize: "14px",
+                        boxSizing: "border-box",
+                        fontFamily: "inherit",
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                ) : null}
                 </div>
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={saveNextStep}
-                    disabled={editMutation.isPending}
+                    disabled={savePendingActionMutation.isPending}
                     style={{
                       padding: "10px 14px",
                       borderRadius: "999px",
@@ -2879,17 +3101,24 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       cursor: "pointer",
                     }}
                   >
-                    {editMutation.isPending ? "Saving..." : "Save next step"}
+                    {savePendingActionMutation.isPending ? "Saving..." : "Save pending action"}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setShowNextStepForm(false);
-                      setNextStepTextDraft(prospect.next_action_text || "");
-                      setNextStepDueDateDraft(prospect.next_action_due_date || "");
-                      setNextStepCompletedDraft(Boolean(prospect.next_action_completed_at));
+                      setNextStepTextDraft(primaryPendingAction?.title || prospect.next_action_text || "");
+                      setNextStepDetailsDraft(primaryPendingAction?.details || "");
+                      setNextStepDueDateDraft(primaryPendingAction?.due_date || prospect.next_action_due_date || "");
+                      setNextStepCompletedDraft(
+                        primaryPendingAction
+                          ? primaryPendingAction.status === "Done"
+                          : Boolean(prospect.next_action_completed_at),
+                      );
+                      setNextStepNeedsDiscussionDraft(Boolean(primaryPendingAction?.needs_discussion));
+                      setNextStepDiscussionNoteDraft(primaryPendingAction?.discussion_note || "");
                     }}
-                    disabled={editMutation.isPending}
+                    disabled={savePendingActionMutation.isPending}
                     style={{
                       padding: "10px 14px",
                       borderRadius: "999px",
