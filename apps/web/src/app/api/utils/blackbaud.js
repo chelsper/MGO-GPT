@@ -793,7 +793,7 @@ export function buildBlackbaudActionPayload({
     "Phone Call": "Phone Call",
     Email: "Email",
     Mail: "Mail",
-    Task: "Task",
+    Task: "Task/Other",
   };
   const descriptionParts = [
     appendActionSection("Notes", actionNotes),
@@ -818,6 +818,49 @@ export function buildBlackbaudActionPayload({
 
 export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
   const variants = [
+    {
+      label: "legacy-stable",
+      body: {
+        constituent_id: payload.constituent_id,
+        date: payload.date,
+        category: payload.category,
+        direction: payload.direction,
+        summary: payload.summary,
+        description: payload.description,
+        author: payload.author,
+        opportunity_id: payload.opportunity_id,
+      },
+    },
+    {
+      label: "with-type",
+      body: {
+        constituent_id: payload.constituent_id,
+        date: payload.date,
+        category: payload.category,
+        type: payload.type,
+        direction: payload.direction,
+        summary: payload.summary,
+        description: payload.description,
+        author: payload.author,
+        opportunity_id: payload.opportunity_id,
+      },
+    },
+    {
+      label: "with-completion",
+      body: {
+        constituent_id: payload.constituent_id,
+        date: payload.date,
+        category: payload.category,
+        type: payload.type,
+        direction: payload.direction,
+        completed: payload.completed,
+        completed_date: payload.completed_date,
+        summary: payload.summary,
+        description: payload.description,
+        author: payload.author,
+        opportunity_id: payload.opportunity_id,
+      },
+    },
     {
       label: "full",
       body: payload,
