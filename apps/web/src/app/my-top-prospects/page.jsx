@@ -1366,7 +1366,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       setActionError(
         result?.blackbaudAction?.error
           ? `Saved in the app, but Blackbaud sync failed: ${result.blackbaudAction.error}`
-          : "",
+          : result?.blackbaudAction?.syncWarning
+            ? `Saved in NXT, but the follow-up action update was incomplete: ${result.blackbaudAction.syncWarning}`
+            : "",
       );
     },
     onError: (mutationError) => {

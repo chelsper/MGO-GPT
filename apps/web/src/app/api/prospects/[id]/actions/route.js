@@ -28,6 +28,18 @@ function normalizeActionLabel(value) {
   return text || null;
 }
 
+function getBlackbaudActionId(payload) {
+  return (
+    payload?.id ||
+    payload?.action_id ||
+    payload?.constituent_action_id ||
+    payload?.value?.id ||
+    payload?.value?.action_id ||
+    payload?.value?.constituent_action_id ||
+    null
+  );
+}
+
 export async function POST(request, { params }) {
   try {
     await ensureAppSchema();
@@ -117,6 +129,7 @@ export async function POST(request, { params }) {
       )
       RETURNING *
     `;
+    let savedUpdate = updateRows[0] || null;
 
     const nextActionText = nextStep?.trim() || null;
     await sql`
@@ -183,11 +196,14 @@ export async function POST(request, { params }) {
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
       }));
 
-      const createdActionId =
-        blackbaudAction?.id ||
-        blackbaudAction?.action_id ||
-        blackbaudAction?.constituent_action_id ||
-        null;
+      const createdActionId = getBlackbaudActionId(blackbaudAction);
+
+      if (!blackbaudAction?.error && !createdActionId) {
+        blackbaudAction = {
+          ...blackbaudAction,
+          error: "Blackbaud action sync returned no action id",
+        };
+      }
 
       if (!blackbaudAction?.error && createdActionId) {
         const updatePayload = buildBlackbaudActionUpdatePayload({
@@ -224,9 +240,23 @@ export async function POST(request, { params }) {
       }
     }
 
+    if (savedUpdate) {
+      const syncedActionId = getBlackbaudActionId(blackbaudAction);
+      const updatedRows = await sql`
+        UPDATE prospect_updates
+        SET
+          blackbaud_action_id = ${syncedActionId ? String(syncedActionId) : null},
+          blackbaud_sync_variant = ${blackbaudAction?.syncVariant || null},
+          blackbaud_sync_warning = ${blackbaudAction?.error || blackbaudAction?.syncWarning || null}
+        WHERE id = ${savedUpdate.id}
+        RETURNING *
+      `;
+      savedUpdate = updatedRows[0] || savedUpdate;
+    }
+
     return Response.json(
       {
-        update: updateRows[0],
+        update: savedUpdate,
         blackbaudAction,
       },
       { status: 201 },

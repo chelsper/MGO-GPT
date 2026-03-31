@@ -589,6 +589,9 @@ export default async function ensureAppSchema() {
         update_title TEXT,
         action_category TEXT,
         action_type TEXT,
+        blackbaud_action_id TEXT,
+        blackbaud_sync_variant TEXT,
+        blackbaud_sync_warning TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
@@ -604,6 +607,18 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_updates
       ADD COLUMN IF NOT EXISTS action_type TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS blackbaud_action_id TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS blackbaud_sync_variant TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS blackbaud_sync_warning TEXT
     `;
 
     await sql`
