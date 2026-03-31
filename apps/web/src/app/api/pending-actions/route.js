@@ -2,7 +2,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
+import {
+  syncPendingActionDiscussion,
+  syncPrimaryPendingAction,
+} from "@/app/api/utils/pendingActions";
 
 export async function GET(request) {
   try {
@@ -13,7 +16,7 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
     const url = new URL(request.url);
     const status = url.searchParams.get("status") || "Open";
     const prospectId = url.searchParams.get("prospectId");
@@ -78,7 +81,26 @@ export async function POST(request) {
       discussionNote: body.discussionNote || null,
     });
 
-    return Response.json(result, { status: 201 });
+    const discussionItemId = await syncPendingActionDiscussion({
+      ownerUserId: user.id,
+      createdByUserId: sessionUser?.id || user.id,
+      pendingActionId: result?.id,
+      prospectId: result?.prospect_id || Number(body.prospectId),
+      constituentId: result?.constituent_id || body.constituentId || null,
+      title: result?.title || body.title,
+      dueDate: result?.due_date || body.dueDate || null,
+      needsDiscussion: Boolean(result?.needs_discussion),
+      discussionNote: result?.discussion_note || body.discussionNote || null,
+      existingDiscussionItemId: result?.discussion_item_id || null,
+    });
+
+    return Response.json(
+      {
+        ...result,
+        discussion_item_id: discussionItemId,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("Error creating pending action:", error);
     return Response.json(

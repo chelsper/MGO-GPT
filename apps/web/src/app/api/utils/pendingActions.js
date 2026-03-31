@@ -127,10 +127,13 @@ export async function getPendingActionsForProspect({ ownerUserId, prospectId, co
     SELECT
       pa.*,
       assigned_user.name AS owner_user_name,
-      po.title AS opportunity_title
+      po.title AS opportunity_title,
+      di.status AS discussion_status,
+      di.subject AS discussion_subject
     FROM pending_actions pa
     LEFT JOIN users assigned_user ON assigned_user.id = pa.owner_user_id
     LEFT JOIN prospect_opportunities po ON po.id = pa.prospect_opportunity_id
+    LEFT JOIN discussion_items di ON di.id = pa.discussion_item_id
     WHERE pa.owner_user_id = ${ownerUserId}
       AND (
         pa.prospect_id = ${prospectId}
@@ -142,4 +145,107 @@ export async function getPendingActionsForProspect({ ownerUserId, prospectId, co
       pa.due_date ASC NULLS LAST,
       pa.updated_at DESC
   `;
+}
+
+export async function syncPendingActionDiscussion({
+  ownerUserId,
+  createdByUserId,
+  pendingActionId,
+  prospectId = null,
+  constituentId = null,
+  title,
+  dueDate = null,
+  needsDiscussion = false,
+  discussionNote = null,
+  existingDiscussionItemId = null,
+}) {
+  await ensureAppSchema();
+
+  const normalizedTitle = normalizeText(title);
+  const normalizedDiscussionNote = normalizeText(discussionNote);
+
+  if (!pendingActionId || !normalizedTitle) {
+    return null;
+  }
+
+  if (!needsDiscussion) {
+    if (existingDiscussionItemId) {
+      await sql`
+        UPDATE discussion_items
+        SET
+          status = 'Resolved',
+          updated_at = NOW()
+        WHERE id = ${existingDiscussionItemId}
+          AND owner_user_id = ${ownerUserId}
+      `;
+    }
+
+    await sql`
+      UPDATE pending_actions
+      SET discussion_item_id = NULL
+      WHERE id = ${pendingActionId}
+        AND owner_user_id = ${ownerUserId}
+    `;
+
+    return null;
+  }
+
+  if (existingDiscussionItemId) {
+    const updatedRows = await sql`
+      UPDATE discussion_items
+      SET
+        subject = ${normalizedTitle},
+        body = ${normalizedDiscussionNote || "Pending action flagged for discussion."},
+        due_date = ${dueDate || null},
+        status = 'Open',
+        updated_at = NOW()
+      WHERE id = ${existingDiscussionItemId}
+        AND owner_user_id = ${ownerUserId}
+      RETURNING id
+    `;
+
+    if (updatedRows[0]?.id) {
+      return updatedRows[0].id;
+    }
+  }
+
+  const createdRows = await sql`
+    INSERT INTO discussion_items (
+      owner_user_id,
+      created_by,
+      prospect_id,
+      constituent_id,
+      subject,
+      body,
+      due_date,
+      status,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${ownerUserId},
+      ${createdByUserId || ownerUserId},
+      ${prospectId || null},
+      ${constituentId || null},
+      ${normalizedTitle},
+      ${normalizedDiscussionNote || "Pending action flagged for discussion."},
+      ${dueDate || null},
+      'Open',
+      NOW(),
+      NOW()
+    )
+    RETURNING id
+  `;
+
+  const discussionItemId = createdRows[0]?.id || null;
+
+  if (discussionItemId) {
+    await sql`
+      UPDATE pending_actions
+      SET discussion_item_id = ${discussionItemId}
+      WHERE id = ${pendingActionId}
+        AND owner_user_id = ${ownerUserId}
+    `;
+  }
+
+  return discussionItemId;
 }

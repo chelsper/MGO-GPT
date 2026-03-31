@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
+import { syncPendingActionDiscussion } from "@/app/api/utils/pendingActions";
 
 export async function PUT(request, { params }) {
   try {
@@ -12,7 +13,7 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
     const body = await request.json();
     const pendingActionId = params.id;
 
@@ -65,7 +66,23 @@ export async function PUT(request, { params }) {
       `;
     }
 
-    return Response.json(updated);
+    const discussionItemId = await syncPendingActionDiscussion({
+      ownerUserId: user.id,
+      createdByUserId: sessionUser?.id || user.id,
+      pendingActionId: updated?.id,
+      prospectId: updated?.prospect_id || null,
+      constituentId: updated?.constituent_id || null,
+      title: updated?.title,
+      dueDate: updated?.due_date || null,
+      needsDiscussion: Boolean(updated?.needs_discussion),
+      discussionNote: updated?.discussion_note || null,
+      existingDiscussionItemId: updated?.discussion_item_id || existing[0]?.discussion_item_id || null,
+    });
+
+    return Response.json({
+      ...updated,
+      discussion_item_id: discussionItemId,
+    });
   } catch (error) {
     console.error("Error updating pending action:", error);
     return Response.json(

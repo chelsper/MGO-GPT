@@ -465,6 +465,10 @@ export default async function ensureAppSchema() {
       ALTER TABLE pending_actions
       ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ
     `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS discussion_item_id BIGINT REFERENCES discussion_items(id) ON DELETE SET NULL
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunities (
