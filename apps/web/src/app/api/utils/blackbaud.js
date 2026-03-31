@@ -790,10 +790,10 @@ export function buildBlackbaudActionPayload({
   const normalizedCategory = String(actionCategory || "").trim() || "Task";
   const categoryMap = {
     Meeting: "Meeting",
-    "Phone Call": "Phone call",
+    "Phone Call": "Phone Call",
     Email: "Email",
     Mail: "Mail",
-    Task: "Task/Other",
+    Task: "Task",
   };
   const descriptionParts = [
     appendActionSection("Summary", summaryText),
@@ -820,13 +820,61 @@ export function buildBlackbaudActionPayload({
 }
 
 export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
-  return blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
-    userId,
-    authUserId,
-    origin,
-    method: "POST",
-    body: payload,
-  });
+  const variants = [
+    {
+      label: "full",
+      body: payload,
+    },
+    {
+      label: "without-fundraisers",
+      body: {
+        ...payload,
+        fundraisers: undefined,
+      },
+    },
+    {
+      label: "without-assignment-or-completion",
+      body: {
+        ...payload,
+        fundraisers: undefined,
+        completed: undefined,
+        completed_date: undefined,
+      },
+    },
+    {
+      label: "category-only",
+      body: {
+        ...payload,
+        fundraisers: undefined,
+        completed: undefined,
+        completed_date: undefined,
+        type: undefined,
+      },
+    },
+  ];
+
+  let lastError = null;
+
+  for (const variant of variants) {
+    try {
+      const result = await blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
+        userId,
+        authUserId,
+        origin,
+        method: "POST",
+        body: variant.body,
+      });
+
+      return {
+        ...result,
+        syncVariant: variant.label,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Failed to create Blackbaud action");
 }
 
 export async function updateBlackbaudAction({
