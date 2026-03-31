@@ -106,35 +106,35 @@ export async function GET(request) {
           SELECT
             p.id,
             p.prospect_name,
-            p.next_action_text,
-            p.next_action_due_date,
+            pa.title AS next_action_text,
+            pa.due_date AS next_action_due_date,
             p.ask_type,
             p.expected_close_fy
-          FROM prospects p
-          WHERE p.user_id = ${user.id}
+          FROM pending_actions pa
+          INNER JOIN prospects p ON p.id = pa.prospect_id
+          WHERE pa.owner_user_id = ${user.id}
+            AND pa.status = 'Open'
             AND p.status = 'Active'
-            AND p.next_action_text IS NOT NULL
-            AND p.next_action_completed_at IS NULL
-            AND p.next_action_due_date IS NOT NULL
-            AND p.next_action_due_date < CURRENT_DATE
-          ORDER BY p.next_action_due_date ASC
+            AND pa.due_date IS NOT NULL
+            AND pa.due_date < CURRENT_DATE
+          ORDER BY pa.due_date ASC, pa.updated_at DESC
           LIMIT 8
         `,
         sql`
           SELECT
             p.id,
             p.prospect_name,
-            p.next_action_text,
-            p.next_action_due_date,
+            pa.title AS next_action_text,
+            pa.due_date AS next_action_due_date,
             p.ask_type,
             p.expected_close_fy
-          FROM prospects p
-          WHERE p.user_id = ${user.id}
+          FROM pending_actions pa
+          INNER JOIN prospects p ON p.id = pa.prospect_id
+          WHERE pa.owner_user_id = ${user.id}
+            AND pa.status = 'Open'
             AND p.status = 'Active'
-            AND p.next_action_text IS NOT NULL
-            AND p.next_action_completed_at IS NULL
-            AND p.next_action_due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
-          ORDER BY p.next_action_due_date ASC
+            AND pa.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+          ORDER BY pa.due_date ASC, pa.updated_at DESC
           LIMIT 8
         `,
         sql`
@@ -161,7 +161,13 @@ export async function GET(request) {
           LEFT JOIN activity a ON a.prospect_id = p.id
           WHERE p.user_id = ${user.id}
             AND p.status = 'Active'
-            AND COALESCE(p.next_action_text, '') = ''
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pending_actions pa
+              WHERE pa.owner_user_id = ${user.id}
+                AND pa.prospect_id = p.id
+                AND pa.status = 'Open'
+            )
             AND (
               a.latest_activity_at IS NULL
               OR a.latest_activity_at < NOW() - INTERVAL '21 days'

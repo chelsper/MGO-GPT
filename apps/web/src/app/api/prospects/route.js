@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 
 // GET all prospects for current user
 export async function GET(request) {
@@ -227,6 +228,16 @@ export async function POST(request) {
       )
       RETURNING *
     `;
+
+    if (nextActionText) {
+      await syncPrimaryPendingAction({
+        ownerUserId: user.id,
+        prospectId: Number(result[0].id),
+        constituentId: constituent?.id || null,
+        title: nextActionText,
+        dueDate: nextActionDueDate || null,
+      });
+    }
 
     return Response.json(result[0], { status: 201 });
   } catch (error) {

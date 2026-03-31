@@ -7,6 +7,7 @@ import {
   findBlackbaudConstituentByLookupId,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 
 function formatActionUpdateNotes({
   notes,
@@ -110,6 +111,16 @@ export async function POST(request, { params }) {
         updated_at = NOW()
       WHERE id = ${prospectId}
     `;
+
+    await syncPrimaryPendingAction({
+      ownerUserId: user.id,
+      prospectId: Number(prospectId),
+      constituentId: prospect.constituent_id || null,
+      prospectOpportunityId: linkedOpportunity?.id || null,
+      title: nextActionText,
+      dueDate: nextActionText ? nextActionDueDate || null : null,
+      completedAt: nextActionText ? null : prospect.next_action_completed_at,
+    });
 
     let blackbaudAction = null;
     const linkedBlackbaudConstituentId =

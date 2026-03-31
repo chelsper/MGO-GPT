@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities";
 import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { getPendingActionsForProspect, syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -201,7 +202,7 @@ export async function GET(request, { params }) {
       prospectId,
     });
 
-    const [updates, opportunities, linkedSubmissions, discussionItems] = await Promise.all([
+    const [updates, opportunities, linkedSubmissions, discussionItems, pendingActions] = await Promise.all([
       sql`
         SELECT * FROM prospect_updates
         WHERE prospect_id = ${prospectId}
@@ -254,6 +255,11 @@ export async function GET(request, { params }) {
           di.due_date ASC NULLS LAST,
           di.updated_at DESC
       `,
+      getPendingActionsForProspect({
+        ownerUserId: user.id,
+        prospectId: Number(prospectId),
+        constituentId,
+      }),
     ]);
 
     return Response.json({
@@ -262,6 +268,7 @@ export async function GET(request, { params }) {
       opportunities,
       linkedSubmissions,
       discussionItems,
+      pendingActions,
     });
   } catch (error) {
     console.error("Error fetching prospect:", error);
@@ -296,7 +303,7 @@ export async function PUT(request, { params }) {
 
     // Verify ownership and capture current state for status transitions
     const existing = await sql`
-      SELECT id, status
+      SELECT id, status, constituent_id, next_action_text, next_action_due_date, next_action_completed_at
       FROM prospects
       WHERE id = ${prospectId} AND user_id = ${user.id}
       LIMIT 1
@@ -365,6 +372,35 @@ export async function PUT(request, { params }) {
 
     const queryStr = `UPDATE prospects SET ${setClauses.join(", ")} WHERE id = $${idParam} AND user_id = $${userIdParam} RETURNING *`;
     const result = await sql(queryStr, values);
+
+    if (
+      body.nextActionText !== undefined ||
+      body.nextActionDueDate !== undefined ||
+      body.nextActionCompletedAt !== undefined
+    ) {
+      const updatedProspect = result[0] || currentProspect;
+      const nextTitle =
+        body.nextActionText !== undefined
+          ? body.nextActionText
+          : updatedProspect.next_action_text;
+      const nextDueDate =
+        body.nextActionDueDate !== undefined
+          ? body.nextActionDueDate
+          : updatedProspect.next_action_due_date;
+      const nextCompletedAt =
+        body.nextActionCompletedAt !== undefined
+          ? body.nextActionCompletedAt
+          : updatedProspect.next_action_completed_at;
+
+      await syncPrimaryPendingAction({
+        ownerUserId: user.id,
+        prospectId: Number(prospectId),
+        constituentId: updatedProspect.constituent_id || null,
+        title: nextTitle,
+        dueDate: nextTitle ? nextDueDate || null : null,
+        completedAt: nextCompletedAt || null,
+      });
+    }
 
     return Response.json(result[0]);
   } catch (error) {

@@ -399,6 +399,74 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS pending_actions (
+        id BIGSERIAL PRIMARY KEY,
+        owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        prospect_opportunity_id BIGINT REFERENCES prospect_opportunities(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        details TEXT,
+        due_date DATE,
+        status TEXT NOT NULL DEFAULT 'Open',
+        is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+        needs_discussion BOOLEAN NOT NULL DEFAULT FALSE,
+        discussion_note TEXT,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS prospect_opportunity_id BIGINT REFERENCES prospect_opportunities(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS title TEXT
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS details TEXT
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS due_date DATE
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Open'
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS needs_discussion BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS discussion_note TEXT
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunities (
         id BIGSERIAL PRIMARY KEY,
         prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
@@ -716,6 +784,14 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_discussion_items_assigned_status_due
       ON discussion_items (assigned_user_id, status, due_date, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_status_due
+      ON pending_actions (owner_user_id, status, due_date, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_prospect_primary
+      ON pending_actions (owner_user_id, prospect_id, is_primary, status, updated_at DESC)
     `;
 
     await sql`
