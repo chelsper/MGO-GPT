@@ -9,6 +9,7 @@ import {
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 function formatActionUpdateNotes({
+  actionCategory,
   interactionType,
   summary,
   notes,
@@ -19,6 +20,7 @@ function formatActionUpdateNotes({
     : null;
   const parts = [
     summary?.trim() ? `${normalizedType || "Action"}: ${summary.trim()}` : null,
+    actionCategory?.trim() ? `Category: ${actionCategory.trim()}` : null,
     notes?.trim() || null,
     nextStep?.trim() ? `Next step: ${nextStep.trim()}` : null,
   ].filter(Boolean);
@@ -44,6 +46,7 @@ export async function POST(request, { params }) {
     const body = await request.json();
     const {
       actionDate,
+      actionCategory,
       interactionType,
       summary,
       notes,
@@ -91,6 +94,7 @@ export async function POST(request, { params }) {
     }
 
     const updateNotes = formatActionUpdateNotes({
+      actionCategory,
       interactionType,
       summary,
       notes,
@@ -149,6 +153,7 @@ export async function POST(request, { params }) {
         payload: buildBlackbaudActionPayload({
           blackbaudConstituentId: linkedBlackbaudConstituentId,
           actionDate,
+          actionCategory,
           summary: summary || `${prospect.prospect_name} action`,
           actionNotes: notes,
           nextStep,

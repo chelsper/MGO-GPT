@@ -27,6 +27,7 @@ const ASK_TYPES = [
 ];
 
 const FY_OPTIONS = ["FY25", "FY26", "FY27", "FY28", "FY29", "FY30"];
+const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Mail", "Task"];
 const ACTION_TYPES = [
   "Cultivation",
   "Identification/Discovery",
@@ -1218,6 +1219,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [actionDate, setActionDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+  const [actionCategory, setActionCategory] = useState(ACTION_CATEGORIES[0]);
   const [actionType, setActionType] = useState(ACTION_TYPES[0]);
   const [actionSummary, setActionSummary] = useState("");
   const [actionNotes, setActionNotes] = useState("");
@@ -1350,6 +1352,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
       setActionDate(new Date().toISOString().split("T")[0]);
+      setActionCategory(ACTION_CATEGORIES[0]);
       setActionType(ACTION_TYPES[0]);
       setActionSummary("");
       setActionNotes("");
@@ -1784,6 +1787,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     setActionError("");
     addActionMutation.mutate({
       actionDate,
+      actionCategory,
       interactionType: actionType,
       summary: actionSummary,
       notes: actionNotes,
@@ -2938,6 +2942,39 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 >
                   Action type
                 </label>
+                <div style={{ marginBottom: "12px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Action category
+                  </label>
+                  <select
+                    value={actionCategory}
+                    onChange={(e) => setActionCategory(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    {ACTION_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <select
                   value={actionType}
                   onChange={(e) => setActionType(e.target.value)}

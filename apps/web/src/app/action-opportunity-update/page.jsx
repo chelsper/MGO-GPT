@@ -23,6 +23,7 @@ const UPDATE_MODES = [
   },
 ];
 
+const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Mail", "Task"];
 const INTERACTION_TYPES = [
   "Cultivation",
   "Identification/Discovery",
@@ -122,6 +123,7 @@ export default function ActionOpportunityUpdatePage() {
   const { data: user, loading } = useUser();
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
+  const [actionCategory, setActionCategory] = useState(ACTION_CATEGORIES[0]);
   const [interactionType, setInteractionType] = useState(INTERACTION_TYPES[0]);
   const [actionNotes, setActionNotes] = useState("");
   const [nextStep, setNextStep] = useState("");
@@ -1028,6 +1030,7 @@ export default function ActionOpportunityUpdatePage() {
           : null;
 
       setDonorName("");
+      setActionCategory(ACTION_CATEGORIES[0]);
       setInteractionType(INTERACTION_TYPES[0]);
       setActionNotes("");
       setNextStep("");
@@ -1266,6 +1269,7 @@ export default function ActionOpportunityUpdatePage() {
             blackbaudConstituentId,
             createNewConstituent,
             interactionType,
+            actionCategory,
             notes: combinedActionNotes,
             nextStep,
             estimatedAmount: askAmount ? parseFloat(askAmount) : null,
@@ -2232,6 +2236,39 @@ export default function ActionOpportunityUpdatePage() {
               </button>
               {actionDetailsOpen ? (
                 <div style={{ marginTop: "16px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Action category
+                  </label>
+                  <select
+                    value={actionCategory}
+                    onChange={(event) => setActionCategory(event.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: "12px",
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#111827",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      marginBottom: "12px",
+                    }}
+                  >
+                    {ACTION_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+
                   <label
                     style={{
                       display: "block",

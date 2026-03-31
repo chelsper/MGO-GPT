@@ -768,6 +768,7 @@ function appendActionSection(label, value) {
 export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
+  actionCategory,
   summary,
   actionNotes,
   nextStep,
@@ -786,8 +787,17 @@ export function buildBlackbaudActionPayload({
 
   const summaryText = String(summary || "").trim();
   const normalizedActionType = String(interactionType || "").trim() || "Other";
+  const normalizedCategory = String(actionCategory || "").trim() || "Task";
+  const categoryMap = {
+    Meeting: "Meeting",
+    "Phone Call": "Phone call",
+    Email: "Email",
+    Mail: "Mail",
+    Task: "Task/Other",
+  };
   const descriptionParts = [
     appendActionSection("Summary", summaryText),
+    appendActionSection("Category", normalizedCategory),
     appendActionSection("Action type", normalizedActionType),
     appendActionSection("Notes", actionNotes),
     appendActionSection("Next step", nextStep),
@@ -796,7 +806,7 @@ export function buildBlackbaudActionPayload({
   return {
     constituent_id: String(blackbaudConstituentId),
     date: new Date(actionDate).toISOString(),
-    category: "Task/Other",
+    category: categoryMap[normalizedCategory] || "Task/Other",
     type: normalizedActionType,
     direction: "Outbound",
     completed: true,
