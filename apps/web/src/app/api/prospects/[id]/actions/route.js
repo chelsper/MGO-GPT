@@ -105,53 +105,6 @@ export async function POST(request, { params }) {
       linkedOpportunity = opportunityRows[0] || null;
     }
 
-    const updateNotes = formatActionUpdateNotes({
-      notes,
-      nextStep,
-    });
-
-    const updateRows = await sql`
-      INSERT INTO prospect_updates (
-        prospect_id,
-        update_date,
-        update_notes,
-        update_title,
-        action_category,
-        action_type
-      )
-      VALUES (
-        ${prospectId},
-        ${actionDate},
-        ${updateNotes},
-        ${normalizeActionLabel(summary) || "Action logged"},
-        ${normalizeActionLabel(actionCategory)},
-        ${normalizeActionLabel(interactionType)}
-      )
-      RETURNING *
-    `;
-    let savedUpdate = updateRows[0] || null;
-
-    const nextActionText = nextStep?.trim() || null;
-    await sql`
-      UPDATE prospects
-      SET
-        next_action_text = ${nextActionText},
-        next_action_due_date = ${nextActionText ? nextActionDueDate || null : null},
-        next_action_completed_at = ${nextActionText ? null : prospect.next_action_completed_at},
-        updated_at = NOW()
-      WHERE id = ${prospectId}
-    `;
-
-    await syncPrimaryPendingAction({
-      ownerUserId: user.id,
-      prospectId: Number(prospectId),
-      constituentId: prospect.constituent_id || null,
-      prospectOpportunityId: linkedOpportunity?.id || null,
-      title: nextActionText,
-      dueDate: nextActionText ? nextActionDueDate || null : null,
-      completedAt: nextActionText ? null : prospect.next_action_completed_at,
-    });
-
     let blackbaudAction = null;
     const linkedBlackbaudConstituentId =
       prospect.linked_blackbaud_constituent_id ||
@@ -238,21 +191,78 @@ export async function POST(request, { params }) {
           };
         }
       }
+
+      if (blackbaudAction?.error) {
+        return Response.json(
+          {
+            error: `Could not create NXT action: ${blackbaudAction.error}`,
+          },
+          { status: 502 },
+        );
+      }
+
+      if (blackbaudAction?.syncWarning) {
+        return Response.json(
+          {
+            error: `NXT action was created but follow-up action metadata failed: ${blackbaudAction.syncWarning}`,
+          },
+          { status: 502 },
+        );
+      }
     }
 
-    if (savedUpdate) {
-      const syncedActionId = getBlackbaudActionId(blackbaudAction);
-      const updatedRows = await sql`
-        UPDATE prospect_updates
-        SET
-          blackbaud_action_id = ${syncedActionId ? String(syncedActionId) : null},
-          blackbaud_sync_variant = ${blackbaudAction?.syncVariant || null},
-          blackbaud_sync_warning = ${blackbaudAction?.error || blackbaudAction?.syncWarning || null}
-        WHERE id = ${savedUpdate.id}
-        RETURNING *
-      `;
-      savedUpdate = updatedRows[0] || savedUpdate;
-    }
+    const updateNotes = formatActionUpdateNotes({
+      notes,
+      nextStep,
+    });
+
+    const updateRows = await sql`
+      INSERT INTO prospect_updates (
+        prospect_id,
+        update_date,
+        update_notes,
+        update_title,
+        action_category,
+        action_type,
+        blackbaud_action_id,
+        blackbaud_sync_variant,
+        blackbaud_sync_warning
+      )
+      VALUES (
+        ${prospectId},
+        ${actionDate},
+        ${updateNotes},
+        ${normalizeActionLabel(summary) || "Action logged"},
+        ${normalizeActionLabel(actionCategory)},
+        ${normalizeActionLabel(interactionType)},
+        ${getBlackbaudActionId(blackbaudAction) ? String(getBlackbaudActionId(blackbaudAction)) : null},
+        ${blackbaudAction?.syncVariant || null},
+        ${blackbaudAction?.syncWarning || null}
+      )
+      RETURNING *
+    `;
+    const savedUpdate = updateRows[0] || null;
+
+    const nextActionText = nextStep?.trim() || null;
+    await sql`
+      UPDATE prospects
+      SET
+        next_action_text = ${nextActionText},
+        next_action_due_date = ${nextActionText ? nextActionDueDate || null : null},
+        next_action_completed_at = ${nextActionText ? null : prospect.next_action_completed_at},
+        updated_at = NOW()
+      WHERE id = ${prospectId}
+    `;
+
+    await syncPrimaryPendingAction({
+      ownerUserId: user.id,
+      prospectId: Number(prospectId),
+      constituentId: prospect.constituent_id || null,
+      prospectOpportunityId: linkedOpportunity?.id || null,
+      title: nextActionText,
+      dueDate: nextActionText ? nextActionDueDate || null : null,
+      completedAt: nextActionText ? null : prospect.next_action_completed_at,
+    });
 
     return Response.json(
       {
