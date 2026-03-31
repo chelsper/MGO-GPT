@@ -3,10 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   buildBlackbaudActionPayload,
-  buildBlackbaudActionUpdatePayload,
   createBlackbaudAction,
-  findBlackbaudConstituentByLookupId,
-  updateBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
@@ -113,22 +110,6 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
-      let actionFundraiserBlackbaudId =
-        user.blackbaud_constituent_id || null;
-
-      if (user.blackbaud_lookup_id) {
-        const resolvedFundraiser = await findBlackbaudConstituentByLookupId({
-          userId: user.id,
-          authUserId: sessionUser?.id || user.id,
-          origin,
-          lookupId: user.blackbaud_lookup_id,
-        }).catch(() => null);
-
-        actionFundraiserBlackbaudId =
-          resolvedFundraiser?.blackbaudConstituentId ||
-          actionFundraiserBlackbaudId;
-      }
-
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
         authUserId: sessionUser?.id || user.id,
@@ -140,10 +121,8 @@ export async function POST(request, { params }) {
           summary: summary || `${prospect.prospect_name} action`,
           actionNotes: notes,
           nextStep,
-          interactionType,
           authorName: user.name,
           opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
-          fundraiserBlackbaudId: actionFundraiserBlackbaudId,
         }),
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
@@ -158,40 +137,6 @@ export async function POST(request, { params }) {
         };
       }
 
-      if (!blackbaudAction?.error && createdActionId) {
-        const updatePayload = buildBlackbaudActionUpdatePayload({
-          actionDate,
-          actionCategory,
-          interactionType,
-          fundraiserBlackbaudId: actionFundraiserBlackbaudId,
-        });
-
-        try {
-          const patchedAction = await updateBlackbaudAction({
-            userId: user.id,
-            authUserId: sessionUser?.id || user.id,
-            origin,
-            actionId: createdActionId,
-            payload: updatePayload,
-          });
-
-          blackbaudAction = {
-            ...blackbaudAction,
-            ...patchedAction,
-            syncPatched: true,
-          };
-        } catch (patchError) {
-          blackbaudAction = {
-            ...blackbaudAction,
-            syncPatched: false,
-            syncWarning:
-              patchError instanceof Error
-                ? patchError.message
-                : "Created in NXT, but follow-up action update failed",
-          };
-        }
-      }
-
       if (blackbaudAction?.error) {
         return Response.json(
           {
@@ -201,14 +146,6 @@ export async function POST(request, { params }) {
         );
       }
 
-      if (blackbaudAction?.syncWarning) {
-        return Response.json(
-          {
-            error: `NXT action was created but follow-up action metadata failed: ${blackbaudAction.syncWarning}`,
-          },
-          { status: 502 },
-        );
-      }
     }
 
     const updateNotes = formatActionUpdateNotes({

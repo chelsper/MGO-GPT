@@ -772,10 +772,8 @@ export function buildBlackbaudActionPayload({
   summary,
   actionNotes,
   nextStep,
-  interactionType,
   authorName,
   opportunityId,
-  fundraiserBlackbaudId,
 }) {
   if (!blackbaudConstituentId) {
     throw new Error("A linked Blackbaud constituent ID is required");
@@ -786,7 +784,6 @@ export function buildBlackbaudActionPayload({
   }
 
   const summaryText = String(summary || "").trim();
-  const normalizedActionType = String(interactionType || "").trim() || "Other";
   const normalizedCategory = String(actionCategory || "").trim() || "Task";
   const categoryMap = {
     Meeting: "Meeting",
@@ -804,165 +801,22 @@ export function buildBlackbaudActionPayload({
     constituent_id: String(blackbaudConstituentId),
     date: new Date(actionDate).toISOString(),
     category: categoryMap[normalizedCategory] || "Task/Other",
-    type: normalizedActionType,
     direction: "Outbound",
-    completed: true,
-    completed_date: new Date(actionDate).toISOString(),
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
     author: String(authorName || "").trim() || undefined,
     opportunity_id: opportunityId ? String(opportunityId) : undefined,
-    fundraisers: fundraiserBlackbaudId ? [String(fundraiserBlackbaudId)] : undefined,
-  };
-}
-
-export function buildBlackbaudActionUpdatePayload({
-  actionDate,
-  actionCategory,
-  interactionType,
-  fundraiserBlackbaudId,
-}) {
-  const normalizedActionType = String(interactionType || "").trim() || undefined;
-  const normalizedCategory = String(actionCategory || "").trim() || "Task";
-  const categoryMap = {
-    Meeting: "Meeting",
-    "Phone Call": "Phone Call",
-    Email: "Email",
-    Mail: "Mail",
-    Task: "Task/Other",
-  };
-
-  return {
-    category: categoryMap[normalizedCategory] || "Task/Other",
-    type: normalizedActionType,
-    completed: true,
-    completed_date: new Date(actionDate).toISOString(),
-    fundraisers: fundraiserBlackbaudId ? [String(fundraiserBlackbaudId)] : undefined,
   };
 }
 
 export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
-  const variants = [
-    {
-      label: "legacy-stable",
-      body: {
-        constituent_id: payload.constituent_id,
-        date: payload.date,
-        category: payload.category,
-        direction: payload.direction,
-        summary: payload.summary,
-        description: payload.description,
-        author: payload.author,
-        opportunity_id: payload.opportunity_id,
-      },
-    },
-    {
-      label: "with-type",
-      body: {
-        constituent_id: payload.constituent_id,
-        date: payload.date,
-        category: payload.category,
-        type: payload.type,
-        direction: payload.direction,
-        summary: payload.summary,
-        description: payload.description,
-        author: payload.author,
-        opportunity_id: payload.opportunity_id,
-      },
-    },
-    {
-      label: "with-completion",
-      body: {
-        constituent_id: payload.constituent_id,
-        date: payload.date,
-        category: payload.category,
-        type: payload.type,
-        direction: payload.direction,
-        completed: payload.completed,
-        completed_date: payload.completed_date,
-        summary: payload.summary,
-        description: payload.description,
-        author: payload.author,
-        opportunity_id: payload.opportunity_id,
-      },
-    },
-    {
-      label: "full",
-      body: payload,
-    },
-    {
-      label: "without-fundraisers",
-      body: {
-        ...payload,
-        fundraisers: undefined,
-      },
-    },
-    {
-      label: "without-assignment-or-completion",
-      body: {
-        ...payload,
-        fundraisers: undefined,
-        completed: undefined,
-        completed_date: undefined,
-      },
-    },
-    {
-      label: "category-only",
-      body: {
-        ...payload,
-        fundraisers: undefined,
-        completed: undefined,
-        completed_date: undefined,
-        type: undefined,
-      },
-    },
-  ];
-
-  let lastError = null;
-
-  for (const variant of variants) {
-    try {
-      const result = await blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
-        userId,
-        authUserId,
-        origin,
-        method: "POST",
-        body: variant.body,
-      });
-
-      return {
-        ...result,
-        syncVariant: variant.label,
-      };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error("Failed to create Blackbaud action");
-}
-
-export async function updateBlackbaudAction({
-  userId,
-  authUserId,
-  origin,
-  actionId,
-  payload,
-}) {
-  if (!actionId) {
-    throw new Error("A Blackbaud action ID is required to update an action");
-  }
-
-  return blackbaudApiFetch(
-    `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
-    {
-      userId,
-      authUserId,
-      origin,
-      method: "PATCH",
-      body: payload,
-    },
-  );
+  return blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
+    userId,
+    authUserId,
+    origin,
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function deleteBlackbaudAction({ userId, origin, actionId }) {
