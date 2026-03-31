@@ -3,8 +3,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   buildBlackbaudActionPayload,
+  buildBlackbaudActionUpdatePayload,
   createBlackbaudAction,
   findBlackbaudConstituentByLookupId,
+  updateBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
@@ -180,6 +182,46 @@ export async function POST(request, { params }) {
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
       }));
+
+      const createdActionId =
+        blackbaudAction?.id ||
+        blackbaudAction?.action_id ||
+        blackbaudAction?.constituent_action_id ||
+        null;
+
+      if (!blackbaudAction?.error && createdActionId) {
+        const updatePayload = buildBlackbaudActionUpdatePayload({
+          actionDate,
+          actionCategory,
+          interactionType,
+          fundraiserBlackbaudId: actionFundraiserBlackbaudId,
+        });
+
+        try {
+          const patchedAction = await updateBlackbaudAction({
+            userId: user.id,
+            authUserId: sessionUser?.id || user.id,
+            origin,
+            actionId: createdActionId,
+            payload: updatePayload,
+          });
+
+          blackbaudAction = {
+            ...blackbaudAction,
+            ...patchedAction,
+            syncPatched: true,
+          };
+        } catch (patchError) {
+          blackbaudAction = {
+            ...blackbaudAction,
+            syncPatched: false,
+            syncWarning:
+              patchError instanceof Error
+                ? patchError.message
+                : "Created in NXT, but follow-up action update failed",
+          };
+        }
+      }
     }
 
     return Response.json(

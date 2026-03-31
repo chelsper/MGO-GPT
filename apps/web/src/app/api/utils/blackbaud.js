@@ -816,6 +816,31 @@ export function buildBlackbaudActionPayload({
   };
 }
 
+export function buildBlackbaudActionUpdatePayload({
+  actionDate,
+  actionCategory,
+  interactionType,
+  fundraiserBlackbaudId,
+}) {
+  const normalizedActionType = String(interactionType || "").trim() || undefined;
+  const normalizedCategory = String(actionCategory || "").trim() || "Task";
+  const categoryMap = {
+    Meeting: "Meeting",
+    "Phone Call": "Phone Call",
+    Email: "Email",
+    Mail: "Mail",
+    Task: "Task/Other",
+  };
+
+  return {
+    category: categoryMap[normalizedCategory] || "Task/Other",
+    type: normalizedActionType,
+    completed: true,
+    completed_date: new Date(actionDate).toISOString(),
+    fundraisers: fundraiserBlackbaudId ? [String(fundraiserBlackbaudId)] : undefined,
+  };
+}
+
 export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
   const variants = [
     {
@@ -919,6 +944,7 @@ export async function createBlackbaudAction({ userId, authUserId, origin, payloa
 
 export async function updateBlackbaudAction({
   userId,
+  authUserId,
   origin,
   actionId,
   payload,
@@ -931,6 +957,7 @@ export async function updateBlackbaudAction({
     `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
     {
       userId,
+      authUserId,
       origin,
       method: "PATCH",
       body: payload,
