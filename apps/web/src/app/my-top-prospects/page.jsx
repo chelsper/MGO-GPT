@@ -3041,26 +3041,52 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                     Needs discussion
                   </label>
                   {nextStepNeedsDiscussionDraft ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowDiscussionForm(true);
-                        setShowNextStepForm(false);
-                      }}
-                      style={{
-                        justifySelf: "start",
-                        padding: "10px 14px",
-                        borderRadius: "999px",
-                        border: "1px solid #BFDBFE",
-                        backgroundColor: "#EFF6FF",
-                        color: "#1D4ED8",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Team Discussion
-                    </button>
+                    primaryPendingAction?.discussion_item_id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = new URL(window.location.href);
+                          url.pathname = "/team-discussion";
+                          url.searchParams.set("discussionId", String(primaryPendingAction.discussion_item_id));
+                          url.searchParams.set("edit", "1");
+                          window.location.href = url.toString();
+                        }}
+                        style={{
+                          justifySelf: "start",
+                          padding: "10px 14px",
+                          borderRadius: "999px",
+                          border: "1px solid #BFDBFE",
+                          backgroundColor: "#EFF6FF",
+                          color: "#1D4ED8",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Open linked discussion
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowDiscussionForm(true);
+                          setShowNextStepForm(false);
+                        }}
+                        style={{
+                          justifySelf: "start",
+                          padding: "10px 14px",
+                          borderRadius: "999px",
+                          border: "1px solid #BFDBFE",
+                          backgroundColor: "#EFF6FF",
+                          color: "#1D4ED8",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Open Team Discussion
+                      </button>
+                    )
                   ) : null}
                 </div>
                 {nextStepNeedsDiscussionDraft ? (
@@ -3084,7 +3110,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                     />
                   </div>
                 ) : null}
-                </div>
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"

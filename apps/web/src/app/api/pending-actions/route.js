@@ -58,7 +58,7 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
     const body = await request.json();
 
     if (!body?.prospectId || !String(body?.title || "").trim()) {
