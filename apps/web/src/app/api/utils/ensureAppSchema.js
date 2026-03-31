@@ -586,8 +586,24 @@ export default async function ensureAppSchema() {
         prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
         update_date DATE NOT NULL DEFAULT CURRENT_DATE,
         update_notes TEXT NOT NULL,
+        update_title TEXT,
+        action_category TEXT,
+        action_type TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS update_title TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS action_category TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS action_type TEXT
     `;
 
     await sql`

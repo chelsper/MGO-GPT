@@ -21,6 +21,11 @@ function formatActionUpdateNotes({
   return parts.join("\n\n");
 }
 
+function normalizeActionLabel(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
 export async function POST(request, { params }) {
   try {
     await ensureAppSchema();
@@ -92,11 +97,21 @@ export async function POST(request, { params }) {
     });
 
     const updateRows = await sql`
-      INSERT INTO prospect_updates (prospect_id, update_date, update_notes)
+      INSERT INTO prospect_updates (
+        prospect_id,
+        update_date,
+        update_notes,
+        update_title,
+        action_category,
+        action_type
+      )
       VALUES (
         ${prospectId},
         ${actionDate},
-        ${updateNotes}
+        ${updateNotes},
+        ${normalizeActionLabel(summary) || "Action logged"},
+        ${normalizeActionLabel(actionCategory)},
+        ${normalizeActionLabel(interactionType)}
       )
       RETURNING *
     `;

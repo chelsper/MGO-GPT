@@ -1908,9 +1908,15 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       id: `progress-${update.id}`,
       occurredAt: update.update_date || update.created_at,
       kind: "progress",
-      title: "Progress update",
+      title: update.update_title || "Progress update",
       description: update.update_notes,
-      meta: formatLongDate(update.update_date || update.created_at),
+      meta: [
+        update.action_category || null,
+        update.action_type || null,
+        formatLongDate(update.update_date || update.created_at),
+      ]
+        .filter(Boolean)
+        .join(" · "),
       accent: "#6A5BFF",
       border: "#DDD6FE",
       background: "#F5F3FF",
