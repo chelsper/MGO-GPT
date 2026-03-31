@@ -819,6 +819,27 @@ export async function createBlackbaudAction({ userId, authUserId, origin, payloa
   });
 }
 
+export async function getBlackbaudAction({
+  userId,
+  authUserId,
+  origin,
+  actionId,
+}) {
+  if (!actionId) {
+    throw new Error("A Blackbaud action ID is required to fetch an action");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "GET",
+    },
+  );
+}
+
 export async function deleteBlackbaudAction({ userId, origin, actionId }) {
   if (!actionId) {
     throw new Error("A Blackbaud action ID is required to delete an action");

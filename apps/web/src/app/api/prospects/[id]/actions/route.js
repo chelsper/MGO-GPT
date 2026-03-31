@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   buildBlackbaudActionPayload,
   createBlackbaudAction,
+  getBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
@@ -33,6 +34,18 @@ function getBlackbaudActionId(payload) {
     payload?.value?.id ||
     payload?.value?.action_id ||
     payload?.value?.constituent_action_id ||
+    null
+  );
+}
+
+function getBlackbaudActionConstituentId(payload) {
+  return (
+    payload?.constituent_id ||
+    payload?.constituent?.id ||
+    payload?.constituent?.constituent_id ||
+    payload?.value?.constituent_id ||
+    payload?.value?.constituent?.id ||
+    payload?.value?.constituent?.constituent_id ||
     null
   );
 }
@@ -135,6 +148,44 @@ export async function POST(request, { params }) {
           ...blackbaudAction,
           error: "Blackbaud action sync returned no action id",
         };
+      }
+
+      if (!blackbaudAction?.error && createdActionId) {
+        try {
+          const verifiedAction = await getBlackbaudAction({
+            userId: user.id,
+            authUserId: sessionUser?.id || user.id,
+            origin,
+            actionId: createdActionId,
+          });
+          const verifiedConstituentId = getBlackbaudActionConstituentId(verifiedAction);
+          if (
+            verifiedConstituentId &&
+            String(verifiedConstituentId) !== String(linkedBlackbaudConstituentId)
+          ) {
+            blackbaudAction = {
+              ...blackbaudAction,
+              error: `NXT created the action on constituent ${verifiedConstituentId}, expected ${linkedBlackbaudConstituentId}`,
+            };
+          } else {
+            blackbaudAction = {
+              ...blackbaudAction,
+              verifiedActionId: String(createdActionId),
+              verifiedConstituentId:
+                verifiedConstituentId != null
+                  ? String(verifiedConstituentId)
+                  : null,
+            };
+          }
+        } catch (verificationError) {
+          blackbaudAction = {
+            ...blackbaudAction,
+            error:
+              verificationError instanceof Error
+                ? `NXT action create could not be verified: ${verificationError.message}`
+                : "NXT action create could not be verified",
+          };
+        }
       }
 
       if (blackbaudAction?.error) {
