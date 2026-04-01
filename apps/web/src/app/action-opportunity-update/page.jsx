@@ -663,10 +663,12 @@ export default function ActionOpportunityUpdatePage() {
   }, [blackbaudExactMatch, blackbaudMatches, selectedBlackbaudMatch]);
 
   useEffect(() => {
-    if (!includeOpportunity || !exactMatch || matchDecision === "new") {
+    if (!(includeAction || includeOpportunity) || !exactMatch || matchDecision === "new") {
       setLinkedProspectContext(null);
-      setOpportunityLinkMode("create");
-      setSelectedOpportunityId("");
+      if (!includeOpportunity) {
+        setOpportunityLinkMode("create");
+        setSelectedOpportunityId("");
+      }
       return;
     }
 
@@ -692,8 +694,10 @@ export default function ActionOpportunityUpdatePage() {
 
         if (!matchedProspect) {
           setLinkedProspectContext(null);
-          setOpportunityLinkMode("create");
-          setSelectedOpportunityId("");
+          if (!includeOpportunity) {
+            setOpportunityLinkMode("create");
+            setSelectedOpportunityId("");
+          }
           return;
         }
 
@@ -708,6 +712,10 @@ export default function ActionOpportunityUpdatePage() {
           : [];
 
         setLinkedProspectContext(detail?.prospect ? detail : null);
+        if (!includeOpportunity) {
+          return;
+        }
+
         if (opportunities.length > 0) {
           setOpportunityLinkMode("update");
           setSelectedOpportunityId(String(opportunities[0].id));
@@ -726,7 +734,7 @@ export default function ActionOpportunityUpdatePage() {
     return () => {
       active = false;
     };
-  }, [donorName, exactMatch, includeOpportunity, matchDecision]);
+  }, [donorName, exactMatch, includeAction, includeOpportunity, matchDecision]);
 
   useEffect(() => {
     if (!includeOpportunity) return;
@@ -961,15 +969,37 @@ export default function ActionOpportunityUpdatePage() {
       const results = {};
 
       if (payload.includeAction) {
-        const donorResponse = await fetch("/api/submissions/donor-update", {
+        const useDirectProspectAction = Boolean(payload.actionBody?.linkedProspectId);
+        const actionEndpoint = useDirectProspectAction
+          ? `/api/prospects/${payload.actionBody.linkedProspectId}/actions`
+          : "/api/submissions/donor-update";
+        const actionRequestBody = useDirectProspectAction
+          ? {
+              actionDate: new Date().toISOString().split("T")[0],
+              actionCategory: payload.actionBody.actionCategory,
+              interactionType: payload.actionBody.interactionType,
+              summary: payload.actionBody.summary || "",
+              notes: payload.actionBody.notes,
+              nextStep: payload.actionBody.nextStep,
+              nextActionDueDate: payload.actionBody.nextActionDueDate || null,
+              linkedOpportunityId: payload.actionBody.linkedOpportunityId || null,
+            }
+          : payload.actionBody;
+
+        const donorResponse = await fetch(actionEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload.actionBody),
+          body: JSON.stringify(actionRequestBody),
         });
 
         if (!donorResponse.ok) {
           const errorData = await donorResponse.json().catch(() => null);
-          throw new Error(errorData?.error || "Failed to submit action update");
+          throw new Error(
+            errorData?.error ||
+              (useDirectProspectAction
+                ? "Failed to save action to the prospect record"
+                : "Failed to submit action update"),
+          );
         }
 
         results.action = await donorResponse.json();
@@ -1270,11 +1300,18 @@ export default function ActionOpportunityUpdatePage() {
             createNewConstituent,
             interactionType,
             actionCategory,
+            summary: donorName.trim() ? `${donorName.trim()} action` : "",
             notes: combinedActionNotes,
             nextStep,
+            nextActionDueDate: nextStepDueDate || null,
             estimatedAmount: askAmount ? parseFloat(askAmount) : null,
             transcript: null,
             attachments: [],
+            linkedProspectId: linkedProspectContext?.prospect?.id || null,
+            linkedOpportunityId:
+              linkedProspectContext?.prospect && opportunityLinkMode === "update"
+                ? Number(selectedOpportunityId) || null
+                : null,
           }
         : null,
       opportunityBody: includeOpportunity

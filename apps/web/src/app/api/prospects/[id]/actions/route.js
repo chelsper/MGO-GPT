@@ -256,6 +256,8 @@ export async function POST(request, { params }) {
       {
         update: savedUpdate,
         blackbaudAction,
+        prospect_id: Number(prospectId),
+        constituent_id: prospect.constituent_id || null,
       },
       { status: 201 },
     );
