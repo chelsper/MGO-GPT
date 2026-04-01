@@ -3,8 +3,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   buildBlackbaudActionPayload,
+  buildBlackbaudActionMetadataPayload,
   createBlackbaudAction,
   getBlackbaudAction,
+  updateBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
@@ -176,6 +178,27 @@ export async function POST(request, { params }) {
                   ? String(verifiedConstituentId)
                   : null,
             };
+
+            try {
+              await updateBlackbaudAction({
+                userId: user.id,
+                authUserId: sessionUser?.id || user.id,
+                origin,
+                actionId: createdActionId,
+                payload: buildBlackbaudActionMetadataPayload({
+                  actionDate,
+                  interactionType,
+                }),
+              });
+            } catch (metadataError) {
+              blackbaudAction = {
+                ...blackbaudAction,
+                syncWarning:
+                  metadataError instanceof Error
+                    ? metadataError.message
+                    : "Created in NXT, but action type/status could not be updated",
+              };
+            }
           }
         } catch (verificationError) {
           blackbaudAction = {

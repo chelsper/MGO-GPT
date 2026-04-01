@@ -1030,8 +1030,16 @@ export default function ActionOpportunityUpdatePage() {
       return results;
     },
     onSuccess: async (data) => {
-      setSuccessMessage(getSuccessLabel(updateMode));
-      setToast({ tone: "success", message: getSuccessLabel(updateMode) });
+      const actionSyncWarning = data?.action?.blackbaudAction?.syncWarning || "";
+      const successLabel = getSuccessLabel(updateMode);
+      setSuccessMessage(successLabel);
+      setToast({
+        tone: actionSyncWarning ? "error" : "success",
+        message: actionSyncWarning
+          ? `Saved, but NXT action metadata is incomplete: ${actionSyncWarning}`
+          : successLabel,
+      });
+      setError(actionSyncWarning);
       setProspectError("");
       setProspectAdded(false);
       setNextStepSaved(false);

@@ -840,6 +840,42 @@ export async function getBlackbaudAction({
   );
 }
 
+export function buildBlackbaudActionMetadataPayload({
+  actionDate,
+  interactionType,
+}) {
+  const normalizedActionType = String(interactionType || "").trim() || undefined;
+
+  return {
+    type: normalizedActionType,
+    completed: true,
+    completed_date: new Date(actionDate).toISOString(),
+  };
+}
+
+export async function updateBlackbaudAction({
+  userId,
+  authUserId,
+  origin,
+  actionId,
+  payload,
+}) {
+  if (!actionId) {
+    throw new Error("A Blackbaud action ID is required to update an action");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
+}
+
 export async function deleteBlackbaudAction({ userId, origin, actionId }) {
   if (!actionId) {
     throw new Error("A Blackbaud action ID is required to delete an action");
