@@ -751,6 +751,19 @@ async function loadBlackbaudSection(label, requestFactory) {
   }
 }
 
+async function loadOptionalSection(label, requestFactory) {
+  try {
+    const payload = await requestFactory();
+    return { ok: true, payload };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : `Failed to build ${label}`,
+    };
+  }
+}
+
 export async function GET(request, { params }) {
   const session = await auth(request);
   if (!session?.user?.email) {
@@ -879,18 +892,26 @@ export async function GET(request, { params }) {
       "last_gift.date",
       "most_recent_gift_date",
     ]);
-    const proposalSummary = await loadProposalSummary({
-      workspaceUserId: user.id,
-      constituentId: resolvedConstituentId,
-      currentFYNumber,
-    });
-    const familySummary = await buildSpouseAndFamilySummary({
-      userId: user.id,
-      authUserId,
-      origin,
-      relationshipsPayload: relationships,
-      educationRecords,
-    });
+    const proposalSummaryResult = await loadOptionalSection("proposalSummary", () =>
+      loadProposalSummary({
+        workspaceUserId: user.id,
+        constituentId: resolvedConstituentId,
+        currentFYNumber,
+      }),
+    );
+    const familySummaryResult = await loadOptionalSection("familySummary", () =>
+      buildSpouseAndFamilySummary({
+        userId: user.id,
+        authUserId,
+        origin,
+        relationshipsPayload: relationships,
+        educationRecords,
+      }),
+    );
+    const proposalSummary = proposalSummaryResult.ok ? proposalSummaryResult.payload : [];
+    const familySummary = familySummaryResult.ok
+      ? familySummaryResult.payload
+      : { spouse: null, children: [] };
     const eventSummary = [];
     const mappedConstituent = mapConstituent(constituent);
     const mappedLifetimeGiving = mapLifetimeGiving(lifetimeGiving);
@@ -929,6 +950,8 @@ export async function GET(request, { params }) {
           : fundraiserAssignmentsResult.error,
         relationships: relationshipsResult.ok ? null : relationshipsResult.error,
         education: educationResult.ok ? null : educationResult.error,
+        proposalSummary: proposalSummaryResult.ok ? null : proposalSummaryResult.error,
+        familySummary: familySummaryResult.ok ? null : familySummaryResult.error,
       },
       ...(includeRaw
         ? {
