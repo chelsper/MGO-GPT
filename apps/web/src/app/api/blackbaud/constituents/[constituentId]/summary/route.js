@@ -447,22 +447,13 @@ function buildSolicitorCoverageSentence(assignments) {
 
 function buildGivingSentence({ name, lifetimeGiving, lastGiftDate }) {
   const totalGivingValue = Number(lifetimeGiving?.totalGiving);
-  const totalReceivedValue = Number(lifetimeGiving?.totalReceivedGiving);
-  const pledgeBalanceValue = Number(lifetimeGiving?.totalPledgeBalance);
   const consecutiveYears = lifetimeGiving?.consecutiveYearsGiven ?? null;
   const yearsSinceLastGift = formatWholeYearsSince(lastGiftDate);
   const lifetime = totalGivingValue > 0 ? formatCurrency(totalGivingValue) : null;
-  const received = totalReceivedValue > 0 ? formatCurrency(totalReceivedValue) : null;
-  const pledgeBalance =
-    pledgeBalanceValue > 0 ? formatCurrency(pledgeBalanceValue) : null;
 
   if (!lifetime && !consecutiveYears && yearsSinceLastGift == null) {
     return null;
   }
-
-  const supportMix = [];
-  if (received) supportMix.push(`${received} in cash and gifts received`);
-  if (pledgeBalance) supportMix.push(`${pledgeBalance} in active pledges`);
 
   const openingParts = [];
   if (consecutiveYears) {
@@ -485,13 +476,9 @@ function buildGivingSentence({ name, lifetimeGiving, lastGiftDate }) {
 
   sentence = `${name} ${sentence}`;
 
-  if (supportMix.length) {
-    sentence += `, including ${formatSentenceList(supportMix)}`;
-  }
-
   sentence += ".";
 
-  if (yearsSinceLastGift !== null) {
+  if (!consecutiveYears && !lifetime && yearsSinceLastGift !== null) {
     sentence +=
       yearsSinceLastGift === 0
         ? " The most recent gift was made within the past year."
@@ -540,9 +527,11 @@ function buildIdentitySentence({
   constituencyLabels,
   educationRecords,
   spouseSummary,
+  primaryBusinessRelationship,
 }) {
   const name = getDisplayName(constituent);
   const primaryIdentity = resolvePrimaryIdentity(constituencyLabels);
+  const businessOrg = normalizeLabel(primaryBusinessRelationship?.organizationName);
   const hasBachelorAlumni = constituencyLabels.some((label) =>
     normalizeLabel(label).includes("alumni bachelor's degree"),
   );
@@ -562,7 +551,9 @@ function buildIdentitySentence({
     .filter(Boolean);
   const identityPhrases = [];
 
-  if (hasBachelorAlumni || hasGraduateAlumni || hasOrthodonticsAlumni) {
+  if (primaryIdentity === "Employee" && businessOrg === "jacksonville university") {
+    identityPhrases.push("is an employee of Jacksonville University");
+  } else if (hasBachelorAlumni || hasGraduateAlumni || hasOrthodonticsAlumni) {
     identityPhrases.push("is a Jacksonville University graduate");
   } else if (primaryIdentity === "Trustee") {
     identityPhrases.push("has served Jacksonville University as a trustee");
@@ -613,41 +604,67 @@ function buildBusinessSentence(name, primaryBusinessRelationship) {
     return null;
   }
 
-  if (primaryBusinessRelationship.organizationName && primaryBusinessRelationship.position) {
-    const role = compactWhitespace(primaryBusinessRelationship.position);
-    const organization = compactWhitespace(
-      primaryBusinessRelationship.organizationName,
-    );
+  const role = compactWhitespace(primaryBusinessRelationship.position);
+  const organization = compactWhitespace(
+    primaryBusinessRelationship.organizationName,
+  );
+  const isJUEmployer = normalizeLabel(organization) === "jacksonville university";
+
+  if (organization && role) {
     if (!role || !organization) return null;
+    if (isJUEmployer) {
+      return `${name} serves as ${role.toLowerCase()}.`;
+    }
     const article = /^[aeiou]/i.test(role) ? "an" : "a";
-    return `Professionally, ${name} is ${article} ${role.toLowerCase()} at ${organization}.`;
+    return `${name} is ${article} ${role.toLowerCase()} at ${organization}.`;
   }
 
-  if (primaryBusinessRelationship.position) {
-    return `Professionally, ${name} serves as ${
-      /^[aeiou]/i.test(primaryBusinessRelationship.position) ? "an" : "a"
-    } ${compactWhitespace(primaryBusinessRelationship.position).toLowerCase()}.`;
+  if (role) {
+    return `${name} serves as ${
+      /^[aeiou]/i.test(role) ? "an" : "a"
+    } ${role.toLowerCase()}.`;
   }
 
-  return `Professionally, ${name} is connected with ${compactWhitespace(primaryBusinessRelationship.organizationName)}.`;
+  return `${name} is connected with ${organization}.`;
 }
 
 function buildFamilySentence(familySummary) {
   if (!familySummary?.children?.length) return null;
 
-  const childBits = familySummary.children
-    .map((child) => {
+  const groupedChildren = familySummary.children.reduce(
+    (accumulator, child) => {
       const childName = compactWhitespace(child.name);
-      if (!childName) return null;
-      if (child.childConstituencyLabel) {
-        return `${childName}, who is also connected to JU as ${child.childConstituencyLabel.toLowerCase()}`;
+      if (!childName) return accumulator;
+      const relationshipType = normalizeLabel(child.relationshipType);
+      if (relationshipType === "son") {
+        accumulator.sons.push(childName);
+      } else if (relationshipType === "daughter") {
+        accumulator.daughters.push(childName);
+      } else {
+        accumulator.children.push(childName);
       }
-      return childName;
-    })
-    .filter(Boolean);
+      return accumulator;
+    },
+    { sons: [], daughters: [], children: [] },
+  );
 
-  if (!childBits.length) return null;
-  return `The family’s connection to JU also includes ${formatSentenceList(childBits)}.`;
+  const familyBits = [];
+  if (groupedChildren.sons.length) {
+    familyBits.push(
+      `${groupedChildren.sons.length === 1 ? "son" : "sons"} ${formatSentenceList(groupedChildren.sons)}`,
+    );
+  }
+  if (groupedChildren.daughters.length) {
+    familyBits.push(
+      `${groupedChildren.daughters.length === 1 ? "daughter" : "daughters"} ${formatSentenceList(groupedChildren.daughters)}`,
+    );
+  }
+  if (groupedChildren.children.length) {
+    familyBits.push(formatSentenceList(groupedChildren.children));
+  }
+
+  if (!familyBits.length) return null;
+  return `Additional JU connections include ${formatSentenceList(familyBits)}.`;
 }
 
 function buildEngagementSentence(eventSummary) {
@@ -742,6 +759,7 @@ async function buildSpouseAndFamilySummary({
       return {
         name: child.name || "their child",
         childConstituencyLabel,
+        relationshipType: child.type || null,
       };
     }),
   );
@@ -797,6 +815,7 @@ function buildProspectSummaryNarrative({
     constituencyLabels,
     educationRecords,
     spouseSummary: familySummary?.spouse,
+    primaryBusinessRelationship,
   });
 
   const businessSentence = buildBusinessSentence(name, primaryBusinessRelationship);
