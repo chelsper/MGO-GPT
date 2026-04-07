@@ -1641,6 +1641,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     blackbaudSummary?.mapped?.lifetimeGiving || null;
   const blackbaudAssignments =
     blackbaudSummary?.mapped?.fundraiserAssignments || [];
+  const blackbaudNarrativeSummary =
+    blackbaudSummary?.mapped?.prospectSummaryNarrative || "";
+  const blackbaudProposalSummary =
+    blackbaudSummary?.mapped?.proposalSummary || [];
 
   const primaryPendingAction =
     pendingActions.find((item) => item.status === "Open" && item.is_primary) ||
@@ -3987,124 +3991,99 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 </div>
               ) : (
                 <>
+                  {blackbaudNarrativeSummary ? (
+                    <div
+                      style={{
+                        padding: "14px 16px",
+                        borderRadius: "12px",
+                        backgroundColor: "white",
+                        border: "1px solid #BFDBFE",
+                        fontSize: "14px",
+                        lineHeight: 1.7,
+                        color: "#1F2937",
+                      }}
+                    >
+                      {blackbaudNarrativeSummary}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: "10px",
+                        backgroundColor: "white",
+                        border: "1px solid #DBEAFE",
+                        fontSize: "13px",
+                        color: "#4B5563",
+                      }}
+                    >
+                      No concise NXT summary is available for this constituent yet.
+                    </div>
+                  )}
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "14px",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                      gap: "12px",
+                      marginTop: "14px",
                     }}
                   >
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Constituent Name
-                      </p>
-                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
-                        {blackbaudConstituent?.name || "Unavailable"}
-                      </p>
-                    </div>
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Preferred Name
-                      </p>
-                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
-                        {blackbaudConstituent?.preferredName || "Unavailable"}
-                      </p>
-                    </div>
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Email
-                      </p>
-                      <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                        {blackbaudConstituent?.email || "Unavailable"}
-                      </p>
-                    </div>
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Phone
-                      </p>
-                      <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                        {blackbaudConstituent?.phone || "Unavailable"}
-                      </p>
-                    </div>
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Lifetime Giving
-                      </p>
-                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
-                        {formatBlackbaudCurrency(
-                          blackbaudLifetimeGiving?.totalGiving,
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Years Given
-                      </p>
-                      <p style={{ fontSize: "15px", fontWeight: "600", color: "#111827", margin: 0 }}>
-                        {blackbaudLifetimeGiving?.totalYearsGiven ?? "Unavailable"}
-                      </p>
-                    </div>
+                    {blackbaudConstituent?.preferredName ? (
+                      <div>
+                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Preferred Name
+                        </p>
+                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
+                          {blackbaudConstituent.preferredName}
+                        </p>
+                      </div>
+                    ) : null}
+                    {blackbaudConstituent?.email ? (
+                      <div>
+                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Email
+                        </p>
+                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
+                          {blackbaudConstituent.email}
+                        </p>
+                      </div>
+                    ) : null}
+                    {blackbaudConstituent?.phone ? (
+                      <div>
+                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Phone
+                        </p>
+                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
+                          {blackbaudConstituent.phone}
+                        </p>
+                      </div>
+                    ) : null}
+                    {blackbaudLifetimeGiving?.totalGiving ? (
+                      <div>
+                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Lifetime Giving
+                        </p>
+                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
+                          {formatBlackbaudCurrency(blackbaudLifetimeGiving.totalGiving)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {blackbaudProposalSummary.length ? (
+                      <div>
+                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Open Proposals
+                        </p>
+                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
+                          {blackbaudProposalSummary.length}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                   {blackbaudConstituent?.address ? (
                     <div style={{ marginTop: "14px" }}>
                       <p
                         style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
+                          fontSize: "11px",
+                          fontWeight: "700",
                           color: "#6B7280",
                           marginBottom: "2px",
                           textTransform: "uppercase",
@@ -4123,44 +4102,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                       >
                         {blackbaudConstituent.address}
                       </p>
-                    </div>
-                  ) : null}
-                  {blackbaudAssignments.length > 0 ? (
-                    <div style={{ marginTop: "14px" }}>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          color: "#6B7280",
-                          marginBottom: "6px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Active Fundraiser Assignment
-                      </p>
-                      <div
-                        style={{
-                          padding: "10px 12px",
-                          borderRadius: "8px",
-                          backgroundColor: "white",
-                          border: "1px solid #DBEAFE",
-                          fontSize: "13px",
-                          color: "#374151",
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        <div>
-                          Type:{" "}
-                          <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
-                        </div>
-                        <div>
-                          Fundraiser ID:{" "}
-                          <strong>
-                            {blackbaudAssignments[0]?.fundraiserId || "Unavailable"}
-                          </strong>
-                        </div>
-                      </div>
                     </div>
                   ) : null}
                 </>

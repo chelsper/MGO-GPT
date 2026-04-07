@@ -1505,6 +1505,8 @@ export default function ProspectPoolPage() {
               blackbaudSummaryState?.payload?.mapped?.lifetimeGiving || null;
             const blackbaudAssignments =
               blackbaudSummaryState?.payload?.mapped?.fundraiserAssignments || [];
+            const blackbaudNarrativeSummary =
+              blackbaudSummaryState?.payload?.mapped?.prospectSummaryNarrative || "";
             const primaryBusinessRelationship =
               blackbaudSummaryState?.payload?.mapped?.primaryBusinessRelationship || null;
             const juEducation =
@@ -1670,6 +1672,22 @@ export default function ProspectPoolPage() {
                           </div>
                         ) : (
                           <>
+                            {blackbaudNarrativeSummary ? (
+                              <div
+                                style={{
+                                  padding: "12px 14px",
+                                  borderRadius: "12px",
+                                  backgroundColor: "white",
+                                  border: "1px solid rgba(147, 197, 253, 0.55)",
+                                  fontSize: "14px",
+                                  lineHeight: 1.7,
+                                  color: "#1F2937",
+                                  marginBottom: "12px",
+                                }}
+                              >
+                                {blackbaudNarrativeSummary}
+                              </div>
+                            ) : null}
                             <div
                               style={{
                                 display: "grid",
