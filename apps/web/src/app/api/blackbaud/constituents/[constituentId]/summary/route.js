@@ -305,6 +305,22 @@ function formatList(items) {
   return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
 }
 
+function formatSentenceList(items) {
+  const values = items.filter(Boolean);
+  if (!values.length) return null;
+  if (values.length === 1) return values[0];
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+}
+
+function getDisplayName(constituent) {
+  return (
+    compactWhitespace(constituent?.preferred_name) ||
+    compactWhitespace(constituent?.name) ||
+    "This constituent"
+  );
+}
+
 function getConstituencyLabels(constituent, educationRecords) {
   const rawValues = [
     constituent?.type,
@@ -420,53 +436,71 @@ function buildSolicitorCoverageSentence(assignments) {
   const coverage = getSolicitorCoverage(assignments);
   const parts = [];
 
-  if (coverage.lead.length) parts.push("lead solicitor coverage");
-  if (coverage.secondary.length) parts.push("secondary solicitor coverage");
-  if (coverage.presidential.length) parts.push("presidential coverage");
-  if (coverage.athletics.length) parts.push("athletics coverage");
+  if (coverage.lead.length) parts.push("a lead gift officer");
+  if (coverage.secondary.length) parts.push("secondary solicitor support");
+  if (coverage.presidential.length) parts.push("presidential involvement");
+  if (coverage.athletics.length) parts.push("athletics involvement");
 
   if (!parts.length) return null;
-  return `Solicitor coverage includes ${formatList(parts)}.`;
+  return `Current solicitor assignments include ${formatSentenceList(parts)}.`;
 }
 
-function buildGivingSentence({ lifetimeGiving, lastGiftDate }) {
-  const parts = [];
-  const lifetime = formatCurrency(lifetimeGiving?.totalGiving);
-  const received = formatCurrency(lifetimeGiving?.totalReceivedGiving);
-  const pledgeBalance = formatCurrency(lifetimeGiving?.totalPledgeBalance);
-  const softCredits = formatCurrency(lifetimeGiving?.totalSoftCredits);
+function buildGivingSentence({ name, lifetimeGiving, lastGiftDate }) {
+  const totalGivingValue = Number(lifetimeGiving?.totalGiving);
+  const totalReceivedValue = Number(lifetimeGiving?.totalReceivedGiving);
+  const pledgeBalanceValue = Number(lifetimeGiving?.totalPledgeBalance);
   const consecutiveYears = lifetimeGiving?.consecutiveYearsGiven ?? null;
   const yearsSinceLastGift = formatWholeYearsSince(lastGiftDate);
+  const lifetime = totalGivingValue > 0 ? formatCurrency(totalGivingValue) : null;
+  const received = totalReceivedValue > 0 ? formatCurrency(totalReceivedValue) : null;
+  const pledgeBalance =
+    pledgeBalanceValue > 0 ? formatCurrency(pledgeBalanceValue) : null;
+
+  if (!lifetime && !consecutiveYears && yearsSinceLastGift == null) {
+    return null;
+  }
+
+  const supportMix = [];
+  if (received) supportMix.push(`${received} in cash and gifts received`);
+  if (pledgeBalance) supportMix.push(`${pledgeBalance} in active pledges`);
+
+  const openingParts = [];
+  if (consecutiveYears) {
+    openingParts.push(
+      `has given consistently over ${consecutiveYears} consecutive year${
+        consecutiveYears === 1 ? "" : "s"
+      }`,
+    );
+  } else if (lifetime) {
+    openingParts.push("has meaningful giving on record");
+  }
 
   if (lifetime) {
-    const supportParts = [];
-    if (received) supportParts.push(`${received} in cash and gifts received`);
-    if (pledgeBalance) supportParts.push(`${pledgeBalance} in pledge balance`);
-    const supportMix = supportParts.length
-      ? `, including ${formatList(supportParts)}`
-      : "";
-    parts.push(`Lifetime giving totals ${lifetime}${supportMix}.`);
+    openingParts.push(`with lifetime support totaling ${lifetime}`);
   }
 
-  if (consecutiveYears) {
-    parts.push(
-      `${consecutiveYears} consecutive year${consecutiveYears === 1 ? "" : "s"} of giving are on record, including soft credits.`,
-    );
+  let sentence = openingParts.length
+    ? `${openingParts.join(" ")}`
+    : `has lifetime support totaling ${lifetime}`;
+
+  sentence = `${name} ${sentence}`;
+
+  if (supportMix.length) {
+    sentence += `, including ${formatSentenceList(supportMix)}`;
   }
+
+  sentence += ".";
 
   if (yearsSinceLastGift !== null) {
-    parts.push(
+    sentence +=
       yearsSinceLastGift === 0
-        ? "The last gift was made within the past year."
-        : `${yearsSinceLastGift} year${yearsSinceLastGift === 1 ? "" : "s"} have passed since the last gift.`,
-    );
+        ? " The most recent gift was made within the past year."
+        : ` The last gift was ${yearsSinceLastGift} year${
+            yearsSinceLastGift === 1 ? "" : "s"
+          } ago.`;
   }
 
-  if (softCredits && Number(lifetimeGiving?.totalSoftCredits) > 0) {
-    parts.push(`Soft-credit support totals ${softCredits}.`);
-  }
-
-  return parts.length ? parts.join(" ") : null;
+  return sentence;
 }
 
 function buildPipelineSentence(proposals, assignments) {
@@ -474,17 +508,23 @@ function buildPipelineSentence(proposals, assignments) {
 
   if (proposals.length) {
     const proposalSummary = proposals
+      .slice(0, 2)
       .map((proposal) => {
-        const amount = formatCurrency(proposal.estimated_amount || proposal.ask_amount);
-        const fy = compactWhitespace(proposal.expected_close_fy);
+        const name = compactWhitespace(
+          proposal.opportunity_title || proposal.prospect_name,
+        );
         const stage = compactWhitespace(proposal.current_stage || proposal.ask_type);
-        const name = compactWhitespace(proposal.opportunity_title || proposal.prospect_name);
-
-        return [name, stage, amount, fy].filter(Boolean).join(" · ");
+        const amount = formatCurrency(
+          proposal.estimated_amount || proposal.ask_amount,
+        );
+        const fy = compactWhitespace(proposal.expected_close_fy);
+        return [name, amount, stage, fy].filter(Boolean).join(", ");
       })
-      .slice(0, 3);
+      .filter(Boolean);
 
-    parts.push(`Open proposals include ${proposalSummary.join("; ")}.`);
+    if (proposalSummary.length) {
+      parts.push(`Current pipeline includes ${proposalSummary.join("; ")}.`);
+    }
   }
 
   const solicitorSentence = buildSolicitorCoverageSentence(assignments);
@@ -501,7 +541,7 @@ function buildIdentitySentence({
   educationRecords,
   spouseSummary,
 }) {
-  const segments = [];
+  const name = getDisplayName(constituent);
   const primaryIdentity = resolvePrimaryIdentity(constituencyLabels);
   const hasBachelorAlumni = constituencyLabels.some((label) =>
     normalizeLabel(label).includes("alumni bachelor's degree"),
@@ -513,70 +553,101 @@ function buildIdentitySentence({
     normalizeLabel(label).includes("orthodontics"),
   );
   const juDegrees = educationRecords.flatMap((education) => education.degrees || []);
-  const juMajors = educationRecords.flatMap((education) => education.majors || []);
-  const classYears = educationRecords.map((education) => education.classOf).filter(Boolean);
+  const classYears = educationRecords
+    .map((education) => compactWhitespace(education.classOf))
+    .filter(Boolean);
   const varsitySports = educationRecords
     .filter((education) => normalizeLabel(education?.attribution) === "varsity sports")
     .map((education) => compactWhitespace(education?.sport))
     .filter(Boolean);
-
-  if (primaryIdentity) {
-    segments.push(`${constituent?.name || "This constituent"} is best understood first as ${primaryIdentity.toLowerCase()}.`);
-  }
+  const identityPhrases = [];
 
   if (hasBachelorAlumni || hasGraduateAlumni || hasOrthodonticsAlumni) {
-    const alumniDetails = [];
-    if (juDegrees.length) alumniDetails.push(formatList(juDegrees));
-    if (juMajors.length) alumniDetails.push(`majors in ${formatList(juMajors)}`);
-    if (classYears.length) alumniDetails.push(`class years ${formatList(classYears.map(String))}`);
-    segments.push(
-      alumniDetails.length
-        ? `Their Jacksonville University alumni connection includes ${alumniDetails.join(", ")}.`
-        : "They have a Jacksonville University alumni connection.",
+    identityPhrases.push("is a Jacksonville University graduate");
+  } else if (primaryIdentity === "Trustee") {
+    identityPhrases.push("has served Jacksonville University as a trustee");
+  } else if (primaryIdentity === "Parent – Current") {
+    identityPhrases.push("is connected to Jacksonville University as a current parent");
+  } else if (primaryIdentity === "Parent – Former") {
+    identityPhrases.push("is connected to Jacksonville University as a former parent");
+  } else if (primaryIdentity === "Employee") {
+    identityPhrases.push("is connected to Jacksonville University as an employee");
+  } else if (primaryIdentity === "Employee – Former") {
+    identityPhrases.push("has a past connection to Jacksonville University as an employee");
+  } else if (primaryIdentity === "Parent Non-Graduate") {
+    identityPhrases.push("is connected to Jacksonville University through family");
+  } else {
+    identityPhrases.push("has a relationship with Jacksonville University");
+  }
+
+  const identityDetails = [];
+  if (juDegrees.length) {
+    identityDetails.push(formatSentenceList(juDegrees.map(compactWhitespace).filter(Boolean)));
+  }
+  if (classYears.length) {
+    identityDetails.push(
+      `class ${formatSentenceList(classYears.map((year) => String(year)))}`,
     );
   }
-
   if (educationRecords.length >= 2) {
-    segments.push("They are a Double Dolphin.");
+    identityDetails.push("Double Dolphin");
   }
-
   if (spouseSummary?.isAlumniSpouse) {
-    segments.push("They are part of a Dolphin Couple.");
+    identityDetails.push("part of a Dolphin Couple");
   }
-
   if (varsitySports.length) {
-    segments.push(`Varsity sports affiliation on record includes ${formatList(varsitySports)}.`);
+    identityDetails.push(`with a varsity connection in ${formatSentenceList(varsitySports)}`);
   }
 
-  return segments.length ? segments.join(" ") : null;
+  let sentence = `${name} ${identityPhrases[0]}`;
+  if (identityDetails.length) {
+    sentence += `, ${identityDetails.join(", ")}`;
+  }
+  sentence += ".";
+
+  return sentence;
 }
 
-function buildBusinessSentence(primaryBusinessRelationship) {
+function buildBusinessSentence(name, primaryBusinessRelationship) {
   if (!primaryBusinessRelationship?.organizationName && !primaryBusinessRelationship?.position) {
     return null;
   }
 
   if (primaryBusinessRelationship.organizationName && primaryBusinessRelationship.position) {
-    return `${primaryBusinessRelationship.position} at ${primaryBusinessRelationship.organizationName}.`;
+    const role = compactWhitespace(primaryBusinessRelationship.position);
+    const organization = compactWhitespace(
+      primaryBusinessRelationship.organizationName,
+    );
+    if (!role || !organization) return null;
+    const article = /^[aeiou]/i.test(role) ? "an" : "a";
+    return `Professionally, ${name} is ${article} ${role.toLowerCase()} at ${organization}.`;
   }
 
-  return `${primaryBusinessRelationship.position || primaryBusinessRelationship.organizationName}.`;
+  if (primaryBusinessRelationship.position) {
+    return `Professionally, ${name} serves as ${
+      /^[aeiou]/i.test(primaryBusinessRelationship.position) ? "an" : "a"
+    } ${compactWhitespace(primaryBusinessRelationship.position).toLowerCase()}.`;
+  }
+
+  return `Professionally, ${name} is connected with ${compactWhitespace(primaryBusinessRelationship.organizationName)}.`;
 }
 
 function buildFamilySentence(familySummary) {
-  const parts = [];
+  if (!familySummary?.children?.length) return null;
 
-  if (familySummary?.children?.length) {
-    const childBits = familySummary.children.map((child) => {
-      const constituency = child.childConstituencyLabel
-        ? ` who is also connected to JU as ${child.childConstituencyLabel.toLowerCase()}`
-        : "";
-      return `${child.name}${constituency}`;
-    });
-    parts.push(`Family ties include ${formatList(childBits)}.`);
-  }
+  const childBits = familySummary.children
+    .map((child) => {
+      const childName = compactWhitespace(child.name);
+      if (!childName) return null;
+      if (child.childConstituencyLabel) {
+        return `${childName}, who is also connected to JU as ${child.childConstituencyLabel.toLowerCase()}`;
+      }
+      return childName;
+    })
+    .filter(Boolean);
 
-  return parts.length ? parts.join(" ") : null;
+  if (!childBits.length) return null;
+  return `The family’s connection to JU also includes ${formatSentenceList(childBits)}.`;
 }
 
 function buildEngagementSentence(eventSummary) {
@@ -720,21 +791,34 @@ function buildProspectSummaryNarrative({
   lastGiftDate,
 }) {
   const constituencyLabels = getConstituencyLabels(constituent, educationRecords);
+  const name = getDisplayName(constituent);
+  const identitySentence = buildIdentitySentence({
+    constituent,
+    constituencyLabels,
+    educationRecords,
+    spouseSummary: familySummary?.spouse,
+  });
+
+  const businessSentence = buildBusinessSentence(name, primaryBusinessRelationship);
+  const givingSentence = buildGivingSentence({
+    name,
+    lifetimeGiving,
+    lastGiftDate,
+  });
+  const pipelineSentence = buildPipelineSentence(proposalSummary, fundraiserAssignments);
+  const familySentence = buildFamilySentence(familySummary);
+  const engagementSentence = buildEngagementSentence(eventSummary);
 
   return [
-    buildIdentitySentence({
-      constituent,
-      constituencyLabels,
-      educationRecords,
-      spouseSummary: familySummary?.spouse,
-    }),
-    buildBusinessSentence(primaryBusinessRelationship),
-    buildGivingSentence({ lifetimeGiving, lastGiftDate }),
-    buildPipelineSentence(proposalSummary, fundraiserAssignments),
-    buildFamilySentence(familySummary),
-    buildEngagementSentence(eventSummary),
+    identitySentence,
+    businessSentence,
+    givingSentence,
+    pipelineSentence,
+    familySentence,
+    engagementSentence,
   ]
     .filter(Boolean)
+    .slice(0, 5)
     .join(" ");
 }
 
