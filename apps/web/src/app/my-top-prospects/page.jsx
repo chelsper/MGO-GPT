@@ -226,6 +226,49 @@ function PortfolioTier({
   onAddToTopProspects,
   isAdding,
 }) {
+  const [expandedSummaries, setExpandedSummaries] = useState({});
+  const [summaryStates, setSummaryStates] = useState({});
+
+  const toggleSummary = async (constituentId) => {
+    const nextExpanded = !expandedSummaries[constituentId];
+    setExpandedSummaries((current) => ({
+      ...current,
+      [constituentId]: nextExpanded,
+    }));
+
+    if (!nextExpanded || summaryStates[constituentId]) {
+      return;
+    }
+
+    setSummaryStates((current) => ({
+      ...current,
+      [constituentId]: { status: "loading" },
+    }));
+
+    try {
+      const response = await fetch(
+        `/api/blackbaud/constituents/${constituentId}/summary`,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load NXT summary");
+      }
+
+      setSummaryStates((current) => ({
+        ...current,
+        [constituentId]: { status: "success", payload },
+      }));
+    } catch (error) {
+      setSummaryStates((current) => ({
+        ...current,
+        [constituentId]: {
+          status: "error",
+          error: error instanceof Error ? error.message : "Failed to load NXT summary",
+        },
+      }));
+    }
+  };
+
   return (
     <div
       style={{
@@ -280,6 +323,16 @@ function PortfolioTier({
                 gap: "6px",
               }}
             >
+              {(() => {
+                const summaryState = summaryStates[person.constituentId];
+                const isSummaryExpanded = Boolean(
+                  expandedSummaries[person.constituentId],
+                );
+                const narrativeSummary =
+                  summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
+
+                return (
+                  <>
               <div
                 style={{
                   display: "flex",
@@ -310,11 +363,91 @@ function PortfolioTier({
               <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
                 {formatPortfolioContact(person) || "No email or phone in NXT"}
               </div>
-              {person.address ? (
+                  {person.address ? (
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                   {person.address}
                 </div>
               ) : null}
+              <div
+                style={{
+                  marginTop: "4px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #DBEAFE",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleSummary(person.constituentId)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    border: "none",
+                    backgroundColor: "transparent",
+                    padding: 0,
+                    cursor: "pointer",
+                    color: "#1D4ED8",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                  }}
+                >
+                  <span>NXT Summary</span>
+                  {isSummaryExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+                {isSummaryExpanded ? (
+                  <div style={{ marginTop: "10px" }}>
+                    {summaryState?.status === "loading" ? (
+                      <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                        Loading NXT summary...
+                      </div>
+                    ) : summaryState?.status === "error" ? (
+                      <div
+                        style={{
+                          fontSize: "13px",
+                          color: "#991B1B",
+                          backgroundColor: "#FEF2F2",
+                          border: "1px solid #FECACA",
+                          borderRadius: "8px",
+                          padding: "10px 12px",
+                        }}
+                      >
+                        {summaryState.error || "Linked Blackbaud data could not be loaded right now."}
+                      </div>
+                    ) : narrativeSummary ? (
+                      <div
+                        style={{
+                          padding: "12px 14px",
+                          borderRadius: "10px",
+                          backgroundColor: "white",
+                          border: "1px solid #BFDBFE",
+                          fontSize: "14px",
+                          lineHeight: 1.7,
+                          color: "#1F2937",
+                        }}
+                      >
+                        {narrativeSummary}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          backgroundColor: "white",
+                          border: "1px solid #DBEAFE",
+                          fontSize: "13px",
+                          color: "#4B5563",
+                        }}
+                      >
+                        No concise NXT summary is available for this constituent yet.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
               <div
                 style={{
                   display: "flex",
@@ -360,6 +493,9 @@ function PortfolioTier({
                   </button>
                 </div>
               </div>
+                  </>
+                );
+              })()}
             </div>
           ))}
         </div>
@@ -1255,6 +1391,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
   const [opportunityEditError, setOpportunityEditError] = useState("");
   const [opportunityEditFeedback, setOpportunityEditFeedback] = useState("");
   const [actionError, setActionError] = useState("");
+  const [showBlackbaudNarrativeSummary, setShowBlackbaudNarrativeSummary] =
+    useState(true);
 
   useEffect(() => {
     if (!prospectId) return;
@@ -1668,6 +1806,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     prospect?.next_action_due_date,
     prospect?.next_action_text,
   ]);
+
+  useEffect(() => {
+    setShowBlackbaudNarrativeSummary(true);
+  }, [linkedBlackbaudConstituentId]);
 
   if (isLoading) {
     return (
@@ -3991,34 +4133,74 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 </div>
               ) : (
                 <>
-                  {blackbaudNarrativeSummary ? (
-                    <div
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: "12px",
+                      backgroundColor: "#DBEAFE",
+                      border: "1px solid #BFDBFE",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowBlackbaudNarrativeSummary((current) => !current)
+                      }
                       style={{
-                        padding: "14px 16px",
-                        borderRadius: "12px",
-                        backgroundColor: "white",
-                        border: "1px solid #BFDBFE",
-                        fontSize: "14px",
-                        lineHeight: 1.7,
-                        color: "#1F2937",
-                      }}
-                    >
-                      {blackbaudNarrativeSummary}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: "10px",
-                        backgroundColor: "white",
-                        border: "1px solid #DBEAFE",
+                        width: "100%",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "12px",
+                        border: "none",
+                        backgroundColor: "transparent",
+                        padding: 0,
+                        cursor: "pointer",
+                        color: "#1D4ED8",
                         fontSize: "13px",
-                        color: "#4B5563",
+                        fontWeight: "700",
                       }}
                     >
-                      No concise NXT summary is available for this constituent yet.
-                    </div>
-                  )}
+                      <span>NXT Summary</span>
+                      {showBlackbaudNarrativeSummary ? (
+                        <ChevronUp size={16} />
+                      ) : (
+                        <ChevronDown size={16} />
+                      )}
+                    </button>
+                    {showBlackbaudNarrativeSummary ? (
+                      <div style={{ marginTop: "10px" }}>
+                        {blackbaudNarrativeSummary ? (
+                          <div
+                            style={{
+                              padding: "14px 16px",
+                              borderRadius: "12px",
+                              backgroundColor: "white",
+                              border: "1px solid #BFDBFE",
+                              fontSize: "14px",
+                              lineHeight: 1.7,
+                              color: "#1F2937",
+                            }}
+                          >
+                            {blackbaudNarrativeSummary}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              padding: "12px 14px",
+                              borderRadius: "10px",
+                              backgroundColor: "white",
+                              border: "1px solid #DBEAFE",
+                              fontSize: "13px",
+                              color: "#4B5563",
+                            }}
+                          >
+                            No concise NXT summary is available for this constituent yet.
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                   <div
                     style={{
                       display: "grid",

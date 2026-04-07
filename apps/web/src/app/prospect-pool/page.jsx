@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
@@ -99,6 +99,7 @@ export default function ProspectPoolPage() {
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
+  const [expandedNarrativeSummaries, setExpandedNarrativeSummaries] = useState({});
   const [reviewerFilters, setReviewerFilters] = useState({
     assignedUserId: "all",
     requestState: "all",
@@ -112,6 +113,13 @@ export default function ProspectPoolPage() {
     const timeoutId = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timeoutId);
   }, [toast]);
+
+  const toggleNarrativeSummary = (entryId) => {
+    setExpandedNarrativeSummaries((current) => ({
+      ...current,
+      [entryId]: !current[entryId],
+    }));
+  };
 
   useEffect(() => {
     if (!loading && !sessionUser) {
@@ -1672,22 +1680,73 @@ export default function ProspectPoolPage() {
                           </div>
                         ) : (
                           <>
-                            {blackbaudNarrativeSummary ? (
-                              <div
+                            <div
+                              style={{
+                                padding: "10px 12px",
+                                borderRadius: "12px",
+                                backgroundColor: "rgba(255,255,255,0.7)",
+                                border: "1px solid rgba(147, 197, 253, 0.55)",
+                                marginBottom: "12px",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleNarrativeSummary(entry.id)}
                                 style={{
-                                  padding: "12px 14px",
-                                  borderRadius: "12px",
-                                  backgroundColor: "white",
-                                  border: "1px solid rgba(147, 197, 253, 0.55)",
-                                  fontSize: "14px",
-                                  lineHeight: 1.7,
-                                  color: "#1F2937",
-                                  marginBottom: "12px",
+                                  width: "100%",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  gap: "12px",
+                                  border: "none",
+                                  backgroundColor: "transparent",
+                                  padding: 0,
+                                  cursor: "pointer",
+                                  color: "#1D4ED8",
+                                  fontSize: "13px",
+                                  fontWeight: "700",
                                 }}
                               >
-                                {blackbaudNarrativeSummary}
-                              </div>
-                            ) : null}
+                                <span>NXT Summary</span>
+                                {expandedNarrativeSummaries[entry.id] ? (
+                                  <ChevronUp size={16} />
+                                ) : (
+                                  <ChevronDown size={16} />
+                                )}
+                              </button>
+                              {expandedNarrativeSummaries[entry.id] ? (
+                                <div style={{ marginTop: "10px" }}>
+                                  {blackbaudNarrativeSummary ? (
+                                    <div
+                                      style={{
+                                        padding: "12px 14px",
+                                        borderRadius: "12px",
+                                        backgroundColor: "white",
+                                        border: "1px solid rgba(147, 197, 253, 0.55)",
+                                        fontSize: "14px",
+                                        lineHeight: 1.7,
+                                        color: "#1F2937",
+                                      }}
+                                    >
+                                      {blackbaudNarrativeSummary}
+                                    </div>
+                                  ) : (
+                                    <div
+                                      style={{
+                                        padding: "10px 12px",
+                                        borderRadius: "10px",
+                                        backgroundColor: "white",
+                                        border: "1px solid rgba(147, 197, 253, 0.4)",
+                                        fontSize: "13px",
+                                        color: "#4B5563",
+                                      }}
+                                    >
+                                      No concise NXT summary is available for this constituent yet.
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
                             <div
                               style={{
                                 display: "grid",
