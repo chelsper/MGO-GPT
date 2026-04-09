@@ -634,14 +634,18 @@ function buildFamilySentence(familySummary) {
   const groupedChildren = familySummary.children.reduce(
     (accumulator, child) => {
       const childName = compactWhitespace(child.name);
-      if (!childName) return accumulator;
+      if (!childName || !child.constituencyLabels?.length) return accumulator;
       const relationshipType = normalizeLabel(child.relationshipType);
+      const constituencyText = formatSentenceList(child.constituencyLabels);
+      const childDescriptor = constituencyText
+        ? `${childName} (${constituencyText})`
+        : childName;
       if (relationshipType === "son") {
-        accumulator.sons.push(childName);
+        accumulator.sons.push(childDescriptor);
       } else if (relationshipType === "daughter") {
-        accumulator.daughters.push(childName);
+        accumulator.daughters.push(childDescriptor);
       } else {
-        accumulator.children.push(childName);
+        accumulator.children.push(childDescriptor);
       }
       return accumulator;
     },
@@ -742,6 +746,7 @@ async function buildSpouseAndFamilySummary({
   const children = await Promise.all(
     childRows.map(async (child) => {
       let childConstituencyLabel = null;
+      let childConstituencyLabels = [];
       if (child.relationId) {
         const childPayload = await tryFetchConstituentById({
           userId,
@@ -750,15 +755,15 @@ async function buildSpouseAndFamilySummary({
           candidateId: child.relationId,
         }).catch(() => null);
         if (childPayload) {
-          childConstituencyLabel = resolvePrimaryIdentity(
-            getConstituencyLabels(childPayload, []),
-          );
+          childConstituencyLabels = getConstituencyLabels(childPayload, []);
+          childConstituencyLabel = resolvePrimaryIdentity(childConstituencyLabels);
         }
       }
 
       return {
         name: child.name || "their child",
         childConstituencyLabel,
+        constituencyLabels: childConstituencyLabels,
         relationshipType: child.type || null,
       };
     }),
