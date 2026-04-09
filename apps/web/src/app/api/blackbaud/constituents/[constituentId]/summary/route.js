@@ -144,6 +144,12 @@ function mapFundraiserAssignment(assignment) {
   return {
     assignmentId: assignment?.id || null,
     fundraiserId: assignment?.fundraiser_id || null,
+    fundraiserName:
+      assignment?.fundraiser_name ||
+      assignment?.fundraiser?.name ||
+      assignment?.solicitor_name ||
+      assignment?.solicitor?.name ||
+      null,
     amount: assignment?.amount?.value ?? null,
     appealId: assignment?.appeal_id || null,
     campaignId: assignment?.campaign_id || null,
@@ -417,32 +423,82 @@ function getSolicitorCoverage(assignments) {
     const type = compactWhitespace(assignment?.type);
     if (!type) continue;
     const normalized = normalizeLabel(type);
+    const entry = {
+      type,
+      fundraiserId: assignment?.fundraiserId || null,
+      fundraiserName: compactWhitespace(assignment?.fundraiserName) || null,
+    };
 
     if (normalized.includes("lead solicitor") || normalized.includes("primary solicitor")) {
-      coverage.lead.push(type);
+      coverage.lead.push(entry);
     } else if (normalized.includes("secondary solicitor")) {
-      coverage.secondary.push(type);
+      coverage.secondary.push(entry);
     } else if (normalized.includes("presidential")) {
-      coverage.presidential.push(type);
+      coverage.presidential.push(entry);
     } else if (normalized.includes("athletics")) {
-      coverage.athletics.push(type);
+      coverage.athletics.push(entry);
     }
   }
 
   return coverage;
 }
 
-function buildSolicitorCoverageSentence(assignments) {
+function buildSolicitorCoverageSentence(assignments, workspaceUser) {
   const coverage = getSolicitorCoverage(assignments);
-  const parts = [];
+  const workspaceName = compactWhitespace(
+    workspaceUser?.name || workspaceUser?.full_name || workspaceUser?.display_name,
+  );
+  const workspaceConstituentId = String(
+    workspaceUser?.blackbaud_constituent_id || "",
+  ).trim();
 
-  if (coverage.lead.length) parts.push("a lead gift officer");
-  if (coverage.secondary.length) parts.push("secondary solicitor support");
-  if (coverage.presidential.length) parts.push("presidential involvement");
-  if (coverage.athletics.length) parts.push("athletics involvement");
+  const describeRole = (entries, label) => {
+    if (!entries.length) return null;
+    const matchingEntry =
+      entries.find((entry) => {
+        const fundraiserId = String(entry?.fundraiserId || "").trim();
+        if (workspaceConstituentId && fundraiserId && fundraiserId === workspaceConstituentId) {
+          return true;
+        }
+        return (
+          workspaceName &&
+          entry?.fundraiserName &&
+          normalizeLabel(entry.fundraiserName) === normalizeLabel(workspaceName)
+        );
+      }) || entries[0];
+
+    if (!matchingEntry) return null;
+    const isWorkspaceMatch =
+      (workspaceConstituentId &&
+        String(matchingEntry?.fundraiserId || "").trim() === workspaceConstituentId) ||
+      (workspaceName &&
+        matchingEntry?.fundraiserName &&
+        normalizeLabel(matchingEntry.fundraiserName) === normalizeLabel(workspaceName));
+
+    if (isWorkspaceMatch) {
+      return `you are the ${label}`;
+    }
+    if (matchingEntry.fundraiserName) {
+      return `${matchingEntry.fundraiserName} is the ${label}`;
+    }
+    return `there is a ${label}`;
+  };
+
+  const parts = [
+    describeRole(coverage.lead, "lead solicitor"),
+    describeRole(coverage.secondary, "secondary solicitor"),
+    describeRole(coverage.presidential, "presidential solicitor"),
+    describeRole(coverage.athletics, "athletics solicitor"),
+  ].filter(Boolean);
 
   if (!parts.length) return null;
-  return `Current solicitor assignments include ${formatSentenceList(parts)}.`;
+  const [first, ...rest] = parts;
+  if (!rest.length) {
+    return `${first.charAt(0).toUpperCase()}${first.slice(1)}.`;
+  }
+  return `${first.charAt(0).toUpperCase()}${first.slice(1)}. ${rest
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}.`)
+    .join(" ")}`;
 }
 
 function buildGivingSentence({ name, lifetimeGiving, lastGiftDate }) {
@@ -490,7 +546,7 @@ function buildGivingSentence({ name, lifetimeGiving, lastGiftDate }) {
   return sentence;
 }
 
-function buildPipelineSentence(proposals, assignments) {
+function buildPipelineSentence(proposals, assignments, workspaceUser) {
   const parts = [];
 
   if (proposals.length) {
@@ -514,7 +570,7 @@ function buildPipelineSentence(proposals, assignments) {
     }
   }
 
-  const solicitorSentence = buildSolicitorCoverageSentence(assignments);
+  const solicitorSentence = buildSolicitorCoverageSentence(assignments, workspaceUser);
   if (solicitorSentence) {
     parts.push(solicitorSentence);
   }
@@ -812,6 +868,7 @@ function buildProspectSummaryNarrative({
   familySummary,
   eventSummary,
   lastGiftDate,
+  workspaceUser,
 }) {
   const constituencyLabels = getConstituencyLabels(constituent, educationRecords);
   const name = getDisplayName(constituent);
@@ -829,7 +886,11 @@ function buildProspectSummaryNarrative({
     lifetimeGiving,
     lastGiftDate,
   });
-  const pipelineSentence = buildPipelineSentence(proposalSummary, fundraiserAssignments);
+  const pipelineSentence = buildPipelineSentence(
+    proposalSummary,
+    fundraiserAssignments,
+    workspaceUser,
+  );
   const familySentence = buildFamilySentence(familySummary);
   const engagementSentence = buildEngagementSentence(eventSummary);
 
@@ -1035,6 +1096,7 @@ export async function GET(request, { params }) {
       familySummary,
       eventSummary,
       lastGiftDate,
+      workspaceUser,
     });
 
     return Response.json({
