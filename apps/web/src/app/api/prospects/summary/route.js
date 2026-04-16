@@ -25,6 +25,12 @@ function firstDefined(source, paths) {
   return null;
 }
 
+function normalizeGiftToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 const CLOSED_FY_GIFT_TYPES = new Set(
   [
     "one-time gift",
@@ -33,10 +39,12 @@ const CLOSED_FY_GIFT_TYPES = new Set(
     "gift-in-kind",
     "other",
     "matching gift pledge",
+    "matching gift payment",
     "pledge",
     "planned gift",
     "recurring gift payment",
-  ].map((value) => value.toLowerCase()),
+    "donation",
+  ].map(normalizeGiftToken),
 );
 
 function getGiftAmount(gift) {
@@ -64,7 +72,7 @@ function getGiftDate(gift) {
 }
 
 function getGiftType(gift) {
-  return String(
+  return normalizeGiftToken(
     firstDefined(gift, [
       "gift_type",
       "giftType",
@@ -72,9 +80,7 @@ function getGiftType(gift) {
       "type_name",
       "category",
     ]) || "",
-  )
-    .trim()
-    .toLowerCase();
+  );
 }
 
 function getGiftFundraisers(gift) {
@@ -134,7 +140,7 @@ function normalizePersonName(value) {
 }
 
 function getGiftFundraiserName(fundraiser) {
-  return String(
+  const direct = String(
     firstDefined(fundraiser, [
       "fundraiser_name",
       "fundraiserName",
@@ -145,6 +151,22 @@ function getGiftFundraiserName(fundraiser) {
       "displayName",
     ]) || "",
   ).trim();
+
+  if (direct) {
+    return direct;
+  }
+
+  const first = String(
+    firstDefined(fundraiser, ["first_name", "firstName", "first"]) || "",
+  ).trim();
+  const middle = String(
+    firstDefined(fundraiser, ["middle_name", "middleName", "middle"]) || "",
+  ).trim();
+  const last = String(
+    firstDefined(fundraiser, ["last_name", "lastName", "last"]) || "",
+  ).trim();
+
+  return [first, middle, last].filter(Boolean).join(" ").trim();
 }
 
 function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserConstituentId) {
@@ -283,6 +305,7 @@ async function getLiveBlackbaudClosedThisFY({
             fundraiser?.id ||
             null,
           name: getGiftFundraiserName(fundraiser) || null,
+          raw: fundraiser,
         })),
         matchingFundraisers: matchingFundraisers.map((fundraiser) => ({
           id:
