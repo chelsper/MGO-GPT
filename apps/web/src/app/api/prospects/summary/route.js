@@ -5,6 +5,7 @@ import {
   findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
   listBlackbaudGifts,
+  searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -169,11 +170,11 @@ function getGiftFundraiserName(fundraiser) {
   return [first, middle, last].filter(Boolean).join(" ").trim();
 }
 
-function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserConstituentId) {
+function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserIdentitySet) {
   const fundraiserId = String(
     fundraiser?.constituent_id || fundraiser?.fundraiser_id || fundraiser?.id || "",
   ).trim();
-  if (fundraiserConstituentId && fundraiserId === fundraiserConstituentId) {
+  if (fundraiserId && fundraiserIdentitySet.has(fundraiserId)) {
     return true;
   }
 
@@ -205,7 +206,20 @@ function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserConstit
   );
 }
 
-async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origin }) {
+function addFundraiserCandidate(candidates, fundraiserId) {
+  const normalizedId = String(fundraiserId || "").trim();
+  if (!normalizedId || candidates.has(normalizedId)) {
+    return;
+  }
+  candidates.add(normalizedId);
+}
+
+async function resolveWorkspaceFundraiserIdentitySet({ user, authUserId, origin }) {
+  const candidates = new Set();
+
+  addFundraiserCandidate(candidates, user?.blackbaud_constituent_id);
+  addFundraiserCandidate(candidates, user?.blackbaud_lookup_id);
+
   if (user?.blackbaud_lookup_id) {
     const lookupMatch = await findBlackbaudConstituentByLookupId({
       userId: user.id,
@@ -215,12 +229,8 @@ async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origi
     }).catch(() => null);
 
     if (lookupMatch?.blackbaudConstituentId) {
-      return String(lookupMatch.blackbaudConstituentId);
+      addFundraiserCandidate(candidates, lookupMatch.blackbaudConstituentId);
     }
-  }
-
-  if (user?.blackbaud_constituent_id) {
-    return String(user.blackbaud_constituent_id);
   }
 
   if (user?.email) {
@@ -232,11 +242,34 @@ async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origi
     }).catch(() => null);
 
     if (emailMatch?.blackbaudConstituentId) {
-      return String(emailMatch.blackbaudConstituentId);
+      addFundraiserCandidate(candidates, emailMatch.blackbaudConstituentId);
     }
   }
 
-  return null;
+  const matches = await searchBlackbaudConstituents({
+    userId: user.id,
+    authUserId,
+    origin,
+    query: user?.name || user?.email,
+  }).catch(() => []);
+
+  const normalizedName = String(user?.name || "").trim().toLowerCase();
+  const normalizedEmail = String(user?.email || "").trim().toLowerCase();
+
+  for (const match of matches) {
+    const matchName = String(match?.name || "").trim().toLowerCase();
+    const matchEmail = String(match?.email || "").trim().toLowerCase();
+    const exactName = normalizedName && matchName === normalizedName;
+    const exactEmail = normalizedEmail && matchEmail === normalizedEmail;
+    if (exactName || exactEmail) {
+      addFundraiserCandidate(
+        candidates,
+        match?.blackbaudConstituentId || match?.id || null,
+      );
+    }
+  }
+
+  return candidates;
 }
 
 async function getLiveBlackbaudClosedThisFY({
@@ -247,7 +280,7 @@ async function getLiveBlackbaudClosedThisFY({
   fiscalYearEnd,
   debug = false,
 }) {
-  const fundraiserConstituentId = await resolveWorkspaceFundraiserConstituentId({
+  const fundraiserIdentitySet = await resolveWorkspaceFundraiserIdentitySet({
     user,
     authUserId,
     origin,
@@ -275,7 +308,7 @@ async function getLiveBlackbaudClosedThisFY({
     const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
     const fundraisers = getGiftFundraisers(gift);
     const matchingFundraisers = fundraisers.filter((fundraiser) =>
-      isWorkspaceFundraiserMatch(fundraiser, user, fundraiserConstituentId),
+      isWorkspaceFundraiserMatch(fundraiser, user, fundraiserIdentitySet),
     );
     const hasSolicitorCredit = matchingFundraisers.length > 0;
     const giftDate = getGiftDate(gift);
@@ -336,7 +369,7 @@ async function getLiveBlackbaudClosedThisFY({
       closedTotal,
       debug: {
         workspaceFundraiserName,
-        workspaceFundraiserConstituentId: fundraiserConstituentId || null,
+        workspaceFundraiserIdentitySet: Array.from(fundraiserIdentitySet),
         totalGiftRowsFetched: gifts.length,
         countedGiftRows: debugRows.filter((row) => row.included).length,
         sampledGifts: debugRows,
