@@ -78,11 +78,51 @@ function getGiftType(gift) {
 }
 
 function getGiftFundraisers(gift) {
-  return Array.isArray(gift?.fundraisers)
-    ? gift.fundraisers
-    : Array.isArray(gift?.solicitors)
-      ? gift.solicitors
-      : [];
+  const candidates = [];
+
+  const arrayPaths = [
+    "fundraisers",
+    "solicitors",
+    "gift_fundraisers",
+    "giftFundraisers",
+    "gift_fundraiser",
+    "giftFundraiser",
+    "gift_fundraiser_names",
+    "giftFundraiserNames",
+    "fundraiser_credits",
+    "fundraiserCredits",
+    "solicitor_credits",
+    "solicitorCredits",
+  ];
+
+  for (const path of arrayPaths) {
+    const value = getNestedValue(gift, path);
+    if (Array.isArray(value)) {
+      candidates.push(...value);
+    }
+  }
+
+  const singlePaths = [
+    "fundraiser",
+    "solicitor",
+    "gift_fundraiser",
+    "giftFundraiser",
+    "gift_fundraiser_name",
+    "giftFundraiserName",
+    "gift_fundraiser.full_name",
+    "giftFundraiser.fullName",
+  ];
+
+  for (const path of singlePaths) {
+    const value = getNestedValue(gift, path);
+    if (typeof value === "string" && value.trim()) {
+      candidates.push({ fundraiser_name: value.trim() });
+    } else if (value && typeof value === "object") {
+      candidates.push(value);
+    }
+  }
+
+  return candidates.filter(Boolean);
 }
 
 function normalizePersonName(value) {
@@ -129,7 +169,18 @@ function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserConstit
   const fundraiserFirst = fundraiserTokens[0];
   const fundraiserLast = fundraiserTokens[fundraiserTokens.length - 1];
 
-  return workspaceFirst === fundraiserFirst && workspaceLast === fundraiserLast;
+  if (workspaceFirst === fundraiserFirst && workspaceLast === fundraiserLast) {
+    return true;
+  }
+
+  const workspaceFull = workspaceTokens.join(" ");
+  const fundraiserFull = fundraiserTokens.join(" ");
+
+  return (
+    fundraiserFull.includes(workspaceFull) ||
+    workspaceFull.includes(fundraiserFull) ||
+    fundraiserLast === workspaceLast
+  );
 }
 
 async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origin }) {
@@ -172,16 +223,13 @@ async function getLiveBlackbaudClosedThisFY({
   origin,
   fiscalYearStart,
   fiscalYearEnd,
+  debug = false,
 }) {
   const fundraiserConstituentId = await resolveWorkspaceFundraiserConstituentId({
     user,
     authUserId,
     origin,
   });
-
-  if (!fundraiserConstituentId) {
-    return 0;
-  }
 
   const gifts = await listBlackbaudGifts({
     userId: user.id,
@@ -194,33 +242,86 @@ async function getLiveBlackbaudClosedThisFY({
 
   const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
+  const workspaceFundraiserName =
+    user?.name || user?.full_name || user?.display_name || null;
 
-  return gifts.reduce((sum, gift) => {
-    if (!CLOSED_FY_GIFT_TYPES.has(getGiftType(gift))) {
-      return sum;
-    }
+  let closedTotal = 0;
+  const debugRows = [];
 
+  for (const gift of gifts) {
+    const giftType = getGiftType(gift);
+    const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
     const fundraisers = getGiftFundraisers(gift);
-    const hasSolicitorCredit = fundraisers.some((fundraiser) =>
+    const matchingFundraisers = fundraisers.filter((fundraiser) =>
       isWorkspaceFundraiserMatch(fundraiser, user, fundraiserConstituentId),
     );
-
-    if (!hasSolicitorCredit) return sum;
-
+    const hasSolicitorCredit = matchingFundraisers.length > 0;
     const giftDate = getGiftDate(gift);
-    if (!giftDate) return sum;
-
-    const giftTimestamp = new Date(giftDate).getTime();
-    if (Number.isNaN(giftTimestamp)) return sum;
-    if (giftTimestamp < fiscalStart || giftTimestamp > fiscalEnd) return sum;
-
+    const giftTimestamp = giftDate ? new Date(giftDate).getTime() : Number.NaN;
+    const inFiscalYear =
+      !Number.isNaN(giftTimestamp) &&
+      giftTimestamp >= fiscalStart &&
+      giftTimestamp <= fiscalEnd;
     const giftAmount = Number(getGiftAmount(gift) ?? 0);
-    if (giftAmount > 0) {
-      return sum + giftAmount;
+    const included =
+      typeAllowed && hasSolicitorCredit && inFiscalYear && giftAmount > 0;
+
+    if (included) {
+      closedTotal += giftAmount;
     }
 
-    return sum;
-  }, 0);
+    if (debug && debugRows.length < 50) {
+      debugRows.push({
+        id: gift?.id || null,
+        date: giftDate || null,
+        amount: giftAmount || 0,
+        giftType: giftType || null,
+        fundraisers: fundraisers.map((fundraiser) => ({
+          id:
+            fundraiser?.constituent_id ||
+            fundraiser?.fundraiser_id ||
+            fundraiser?.id ||
+            null,
+          name: getGiftFundraiserName(fundraiser) || null,
+        })),
+        matchingFundraisers: matchingFundraisers.map((fundraiser) => ({
+          id:
+            fundraiser?.constituent_id ||
+            fundraiser?.fundraiser_id ||
+            fundraiser?.id ||
+            null,
+          name: getGiftFundraiserName(fundraiser) || null,
+        })),
+        included,
+        exclusionReason: included
+          ? null
+          : !typeAllowed
+            ? "gift_type_not_allowed"
+            : !hasSolicitorCredit
+              ? "no_matching_fundraiser"
+              : !inFiscalYear
+                ? "outside_fiscal_year"
+                : giftAmount <= 0
+                  ? "no_amount"
+                  : "excluded",
+      });
+    }
+  }
+
+  if (debug) {
+    return {
+      closedTotal,
+      debug: {
+        workspaceFundraiserName,
+        workspaceFundraiserConstituentId: fundraiserConstituentId || null,
+        totalGiftRowsFetched: gifts.length,
+        countedGiftRows: debugRows.filter((row) => row.included).length,
+        sampledGifts: debugRows,
+      },
+    };
+  }
+
+  return closedTotal;
 }
 
 // GET prospect summary stats for dashboard
@@ -246,6 +347,9 @@ export async function GET(request) {
     }
     const authUserId = isActing ? sessionUser.id : user.id;
     const origin = request?.url ? new URL(request.url).origin : null;
+    const debug = request?.url
+      ? new URL(request.url).searchParams.get("debug") === "1"
+      : false;
 
     // Count active prospects
     const activeResult = await sql`
@@ -267,15 +371,24 @@ export async function GET(request) {
     const fiscalYearEnd = `${fiscalEndYear}-06-30`;
 
     let closedThisFY = 0;
+    let closedDebug = null;
 
-    if ((user.blackbaud_constituent_id || user.blackbaud_lookup_id) && origin) {
-      closedThisFY = await getLiveBlackbaudClosedThisFY({
+    if (origin) {
+      const closedPayload = await getLiveBlackbaudClosedThisFY({
         user,
         authUserId,
         origin,
         fiscalYearStart,
         fiscalYearEnd,
-      }).catch(() => 0);
+        debug,
+      }).catch(() => (debug ? { closedTotal: 0, debug: null } : 0));
+
+      if (debug) {
+        closedThisFY = Number(closedPayload?.closedTotal || 0);
+        closedDebug = closedPayload?.debug || null;
+      } else {
+        closedThisFY = Number(closedPayload || 0);
+      }
     }
 
     return Response.json({
@@ -283,6 +396,7 @@ export async function GET(request) {
       totalAskPipeline: parseFloat(activeResult[0].total_pipeline) || 0,
       closedThisFY,
       currentFY,
+      ...(debug ? { closedDebug } : {}),
     });
   } catch (error) {
     console.error("Error fetching prospect summary:", error);
