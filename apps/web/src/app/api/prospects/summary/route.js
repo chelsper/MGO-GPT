@@ -2,11 +2,9 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
-  blackbaudApiFetch,
   findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
-  getBlackbaudConfigIssues,
-  listBlackbaudOpportunities,
+  listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -27,104 +25,64 @@ function firstDefined(source, paths) {
   return null;
 }
 
-function getOpportunityFundedAmount(opportunity) {
-  return firstDefined(opportunity, [
-    "funded_amount.value",
-    "fundedAmount.value",
-    "funded_amount",
-    "fundedAmount",
-    "amount_funded.value",
-    "amountFunded.value",
-    "amount_funded",
-    "amountFunded",
+const CLOSED_FY_GIFT_TYPES = new Set(
+  [
+    "one-time gift",
+    "stock",
+    "sold stock",
+    "gift-in-kind",
+    "other",
+    "matching gift pledge",
+    "pledge",
+    "planned gift",
+    "recurring gift payment",
+  ].map((value) => value.toLowerCase()),
+);
+
+function getGiftAmount(gift) {
+  return firstDefined(gift, [
+    "amount.value",
+    "gift_amount.value",
+    "giftAmount.value",
+    "amount",
+    "gift_amount",
+    "giftAmount",
+    "payments.0.amount.value",
   ]);
 }
 
-function getOpportunityFundedDate(opportunity) {
-  return firstDefined(opportunity, [
-    "funded_date",
-    "fundedDate",
-    "date_funded",
-    "dateFunded",
-    "close_date",
-    "closeDate",
+function getGiftDate(gift) {
+  return firstDefined(gift, [
+    "date",
+    "gift_date",
+    "giftDate",
+    "date_received",
+    "dateReceived",
+    "received_date",
+    "receivedDate",
   ]);
 }
 
-function getImportedOpportunityStatus(opportunity) {
-  const normalizedStatus = String(opportunity?.status || "").trim().toLowerCase();
-  const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
-  const fundedDate = getOpportunityFundedDate(opportunity);
-
-  if (fundedAmount > 0 || fundedDate) {
-    return "Closed – Gift Secured";
-  }
-
-  if (
-    normalizedStatus.includes("declined") ||
-    normalizedStatus.includes("lost") ||
-    normalizedStatus.includes("cancel") ||
-    normalizedStatus.includes("rejected")
-  ) {
-    return "Closed – Declined";
-  }
-
-  return "Active";
+function getGiftType(gift) {
+  return String(
+    firstDefined(gift, [
+      "gift_type",
+      "giftType",
+      "type",
+      "type_name",
+      "category",
+    ]) || "",
+  )
+    .trim()
+    .toLowerCase();
 }
 
-async function backfillImportedFundedOpportunities({ userId, authUserId, origin }) {
-  const configIssues = getBlackbaudConfigIssues(origin);
-  if (configIssues.length > 0) return;
-
-  const rowsNeedingRefresh = await sql`
-    SELECT po.id, po.blackbaud_opportunity_id
-    FROM prospect_opportunities po
-    INNER JOIN prospects p ON p.id = po.prospect_id
-    WHERE p.user_id = ${userId}
-      AND po.blackbaud_opportunity_id IS NOT NULL
-      AND (
-        po.closed_amount IS NULL
-        OR po.close_date IS NULL
-      )
-    ORDER BY po.updated_at DESC
-    LIMIT 25
-  `;
-
-  if (!rowsNeedingRefresh.length) return;
-
-  await Promise.all(
-    rowsNeedingRefresh.map(async (row) => {
-      try {
-        const opportunity = await blackbaudApiFetch(
-          `/opportunity/v1/opportunities/${encodeURIComponent(String(row.blackbaud_opportunity_id))}`,
-          {
-            userId,
-            authUserId,
-            origin,
-          },
-        );
-
-        const nextClosedAmount = getOpportunityFundedAmount(opportunity);
-        const nextCloseDate = getOpportunityFundedDate(opportunity);
-        const nextStatus = getImportedOpportunityStatus(opportunity);
-
-        await sql`
-          UPDATE prospect_opportunities
-          SET
-            opportunity_status = CASE
-              WHEN ${nextStatus} = 'Closed – Gift Secured' THEN 'Closed – Gift Secured'
-              ELSE opportunity_status
-            END,
-            closed_amount = COALESCE(${nextClosedAmount}, closed_amount),
-            close_date = COALESCE(${nextCloseDate}, close_date),
-            updated_at = NOW()
-          WHERE id = ${row.id}
-        `;
-      } catch (error) {
-        console.error("Summary funded backfill error:", error);
-      }
-    }),
-  );
+function getGiftFundraisers(gift) {
+  return Array.isArray(gift?.fundraisers)
+    ? gift.fundraisers
+    : Array.isArray(gift?.solicitors)
+      ? gift.solicitors
+      : [];
 }
 
 async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origin }) {
@@ -178,7 +136,7 @@ async function getLiveBlackbaudClosedThisFY({
     return 0;
   }
 
-  const opportunities = await listBlackbaudOpportunities({
+  const gifts = await listBlackbaudGifts({
     userId: user.id,
     authUserId,
     origin,
@@ -190,27 +148,34 @@ async function getLiveBlackbaudClosedThisFY({
   const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
 
-  return opportunities.reduce((sum, opportunity) => {
-    const fundraisers = Array.isArray(opportunity?.fundraisers)
-      ? opportunity.fundraisers
-      : [];
-    const isAssigned = fundraisers.some(
+  return gifts.reduce((sum, gift) => {
+    if (!CLOSED_FY_GIFT_TYPES.has(getGiftType(gift))) {
+      return sum;
+    }
+
+    const fundraisers = getGiftFundraisers(gift);
+    const hasSolicitorCredit = fundraisers.some(
       (fundraiser) =>
-        String(fundraiser?.constituent_id || "") === fundraiserConstituentId,
+        String(
+          fundraiser?.constituent_id ||
+            fundraiser?.fundraiser_id ||
+            fundraiser?.id ||
+            "",
+        ) === fundraiserConstituentId,
     );
 
-    if (!isAssigned) return sum;
+    if (!hasSolicitorCredit) return sum;
 
-    const fundedDate = getOpportunityFundedDate(opportunity);
-    if (!fundedDate) return sum;
+    const giftDate = getGiftDate(gift);
+    if (!giftDate) return sum;
 
-    const fundedTimestamp = new Date(fundedDate).getTime();
-    if (Number.isNaN(fundedTimestamp)) return sum;
-    if (fundedTimestamp < fiscalStart || fundedTimestamp > fiscalEnd) return sum;
+    const giftTimestamp = new Date(giftDate).getTime();
+    if (Number.isNaN(giftTimestamp)) return sum;
+    if (giftTimestamp < fiscalStart || giftTimestamp > fiscalEnd) return sum;
 
-    const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
-    if (fundedAmount > 0) {
-      return sum + fundedAmount;
+    const giftAmount = Number(getGiftAmount(gift) ?? 0);
+    if (giftAmount > 0) {
+      return sum + giftAmount;
     }
 
     return sum;
@@ -260,57 +225,16 @@ export async function GET(request) {
     const fiscalYearStart = `${fiscalStartYear}-07-01`;
     const fiscalYearEnd = `${fiscalEndYear}-06-30`;
 
-    await backfillImportedFundedOpportunities({
-      userId: user.id,
-      authUserId,
-      origin,
-    });
+    let closedThisFY = 0;
 
-    // Funded revenue this FY should come from funded opportunities, not prospect rollups.
-    // Imported NXT data can lag on local status normalization, so use funded fields first
-    // and fall back to the estimated amount only when the row is explicitly secured.
-    const closedResult = await sql`
-      SELECT
-        COALESCE(
-          SUM(
-            CASE
-              WHEN COALESCE(po.closed_amount, 0) > 0 THEN COALESCE(po.closed_amount, 0)
-              WHEN po.opportunity_status = 'Closed – Gift Secured' THEN COALESCE(po.estimated_amount, 0)
-              ELSE 0
-            END
-          ),
-          0
-        ) AS closed_total
-      FROM prospect_opportunities po
-      INNER JOIN prospects p ON p.id = po.prospect_id
-      WHERE p.user_id = ${user.id}
-        AND po.close_date IS NOT NULL
-        AND po.close_date >= ${fiscalYearStart}
-        AND po.close_date <= ${fiscalYearEnd}
-        AND (
-          COALESCE(po.closed_amount, 0) > 0
-          OR po.opportunity_status = 'Closed – Gift Secured'
-        )
-    `;
-
-    let closedThisFY = parseFloat(closedResult[0].closed_total) || 0;
-
-    if (
-      closedThisFY === 0 &&
-      (user.blackbaud_constituent_id || user.blackbaud_lookup_id) &&
-      origin
-    ) {
-      const liveClosedThisFY = await getLiveBlackbaudClosedThisFY({
+    if ((user.blackbaud_constituent_id || user.blackbaud_lookup_id) && origin) {
+      closedThisFY = await getLiveBlackbaudClosedThisFY({
         user,
         authUserId,
         origin,
         fiscalYearStart,
         fiscalYearEnd,
       }).catch(() => 0);
-
-      if (liveClosedThisFY > 0) {
-        closedThisFY = liveClosedThisFY;
-      }
     }
 
     return Response.json({
