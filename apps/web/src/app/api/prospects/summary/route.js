@@ -85,6 +85,53 @@ function getGiftFundraisers(gift) {
       : [];
 }
 
+function normalizePersonName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function getGiftFundraiserName(fundraiser) {
+  return String(
+    firstDefined(fundraiser, [
+      "fundraiser_name",
+      "fundraiserName",
+      "name",
+      "full_name",
+      "fullName",
+      "display_name",
+      "displayName",
+    ]) || "",
+  ).trim();
+}
+
+function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserConstituentId) {
+  const fundraiserId = String(
+    fundraiser?.constituent_id || fundraiser?.fundraiser_id || fundraiser?.id || "",
+  ).trim();
+  if (fundraiserConstituentId && fundraiserId === fundraiserConstituentId) {
+    return true;
+  }
+
+  const workspaceTokens = normalizePersonName(
+    workspaceUser?.name || workspaceUser?.full_name || workspaceUser?.display_name,
+  );
+  const fundraiserTokens = normalizePersonName(getGiftFundraiserName(fundraiser));
+
+  if (workspaceTokens.length < 2 || fundraiserTokens.length < 2) {
+    return false;
+  }
+
+  const workspaceFirst = workspaceTokens[0];
+  const workspaceLast = workspaceTokens[workspaceTokens.length - 1];
+  const fundraiserFirst = fundraiserTokens[0];
+  const fundraiserLast = fundraiserTokens[fundraiserTokens.length - 1];
+
+  return workspaceFirst === fundraiserFirst && workspaceLast === fundraiserLast;
+}
+
 async function resolveWorkspaceFundraiserConstituentId({ user, authUserId, origin }) {
   if (user?.blackbaud_lookup_id) {
     const lookupMatch = await findBlackbaudConstituentByLookupId({
@@ -154,14 +201,8 @@ async function getLiveBlackbaudClosedThisFY({
     }
 
     const fundraisers = getGiftFundraisers(gift);
-    const hasSolicitorCredit = fundraisers.some(
-      (fundraiser) =>
-        String(
-          fundraiser?.constituent_id ||
-            fundraiser?.fundraiser_id ||
-            fundraiser?.id ||
-            "",
-        ) === fundraiserConstituentId,
+    const hasSolicitorCredit = fundraisers.some((fundraiser) =>
+      isWorkspaceFundraiserMatch(fundraiser, user, fundraiserConstituentId),
     );
 
     if (!hasSolicitorCredit) return sum;
