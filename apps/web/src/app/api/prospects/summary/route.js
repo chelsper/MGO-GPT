@@ -34,17 +34,15 @@ function normalizeGiftToken(value) {
 
 const CLOSED_FY_GIFT_TYPES = new Set(
   [
-    "one-time gift",
-    "stock",
-    "sold stock",
-    "gift-in-kind",
-    "other",
-    "matching gift pledge",
-    "matching gift payment",
-    "pledge",
-    "planned gift",
-    "recurring gift payment",
-    "donation",
+    "Donation",
+    "Stock",
+    "SoldStock",
+    "Other",
+    "RecurringGiftPayment",
+    "PlannedGift",
+    "Pledge",
+    "GiftInKind",
+    "MatchingGiftPledge",
   ].map(normalizeGiftToken),
 );
 
