@@ -196,6 +196,32 @@ function groupNavItems(navItems) {
     .filter((group) => group.items.length);
 }
 
+function DiscussionAlertBadge({ count, compact = false }) {
+  if (!count) return null;
+
+  return (
+    <span
+      aria-label={`${count} open team discussion ${count === 1 ? "item" : "items"}`}
+      title={`${count} open team discussion ${count === 1 ? "item" : "items"}`}
+      style={{
+        display: "inline-grid",
+        placeItems: "center",
+        minWidth: compact ? "18px" : "24px",
+        height: compact ? "18px" : "24px",
+        borderRadius: "999px",
+        backgroundColor: "#F59E0B",
+        color: "white",
+        fontSize: compact ? "11px" : "13px",
+        fontWeight: 900,
+        lineHeight: 1,
+        boxShadow: "0 0 0 3px rgba(245, 158, 11, 0.16)",
+      }}
+    >
+      !
+    </span>
+  );
+}
+
 export default function Page() {
   const queryClient = useQueryClient();
   const { data: user, loading } = useUser();
@@ -338,6 +364,20 @@ export default function Page() {
     enabled: Boolean(isAdmin && isMgoView),
   });
   const actingUser = actingWorkspaceStatus?.actingUser || null;
+  const { data: worklist } = useQuery({
+    queryKey: ["homepage-worklist", profile?.id, actingUser?.id || "self", isReviewer ? "reviewer" : "mgo"],
+    queryFn: async () => {
+      const response = await fetch(`/api/worklist?view=${encodeURIComponent(isReviewer ? "reviewer" : "mgo")}`);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load worklist");
+      }
+      return payload;
+    },
+    enabled: Boolean(user && profile),
+    staleTime: 60 * 1000,
+  });
+  const openDiscussionItems = Number(worklist?.summary?.openDiscussionItems || 0);
 
   async function handleViewModeChange(nextMode) {
     if (!isAdmin) return;
@@ -566,9 +606,14 @@ export default function Page() {
                               fontWeight: 600,
                               backgroundColor:
                                 group.section === "My Work" ? "#FCFCFD" : "white",
+                              justifyContent: "space-between",
+                              gap: "10px",
                             }}
                           >
-                            {item.label}
+                            <span>{item.label}</span>
+                            {item.href === "/team-discussion" ? (
+                              <DiscussionAlertBadge count={openDiscussionItems} compact />
+                            ) : null}
                           </a>
                         ))}
                       </div>
@@ -976,6 +1021,7 @@ export default function Page() {
               key={action.href}
               href={action.href}
               style={{
+                position: "relative",
                 textDecoration: "none",
                 backgroundColor: "white",
                 border:
@@ -988,6 +1034,11 @@ export default function Page() {
                 ...(index === 0 ? primarySectionStyle : secondaryCardStyle),
               }}
             >
+              {action.href === "/team-discussion" ? (
+                <div style={{ position: "absolute", top: "14px", right: "14px" }}>
+                  <DiscussionAlertBadge count={openDiscussionItems} />
+                </div>
+              ) : null}
                 <div
                   style={{
                     fontSize: "11px",
@@ -1029,6 +1080,7 @@ export default function Page() {
                   key={action.href}
                   href={action.href}
                   style={{
+                    position: "relative",
                     textDecoration: "none",
                     backgroundColor: "#FBFDFC",
                     border: "1px solid rgba(0, 122, 94, 0.12)",
@@ -1037,6 +1089,11 @@ export default function Page() {
                     color: "#111827",
                   }}
                 >
+                  {action.href === "/team-discussion" ? (
+                    <div style={{ position: "absolute", top: "12px", right: "12px" }}>
+                      <DiscussionAlertBadge count={openDiscussionItems} compact />
+                    </div>
+                  ) : null}
                   <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
                     {action.title}
                   </div>
