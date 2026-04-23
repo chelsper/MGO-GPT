@@ -36,6 +36,12 @@ export async function PATCH(request, { params }) {
         AND (
           owner_user_id = ${user.id}
           OR assigned_user_id = ${user.id}
+          OR EXISTS (
+            SELECT 1
+            FROM discussion_item_participants dip_visible
+            WHERE dip_visible.discussion_item_id = discussion_items.id
+              AND dip_visible.user_id = ${user.id}
+          )
         )
       LIMIT 1
     `;
@@ -75,6 +81,12 @@ export async function PATCH(request, { params }) {
          AND (
            owner_user_id = $${paramCount}
            OR assigned_user_id = $${paramCount}
+           OR EXISTS (
+             SELECT 1
+             FROM discussion_item_participants dip_visible
+             WHERE dip_visible.discussion_item_id = discussion_items.id
+               AND dip_visible.user_id = $${paramCount}
+           )
          )
        RETURNING *`,
       values,

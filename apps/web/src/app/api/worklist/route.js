@@ -189,6 +189,12 @@ export async function GET(request) {
             AND (
               di.owner_user_id = ${user.id}
               OR di.assigned_user_id = ${user.id}
+              OR EXISTS (
+                SELECT 1
+                FROM discussion_item_participants dip_visible
+                WHERE dip_visible.discussion_item_id = di.id
+                  AND dip_visible.user_id = ${user.id}
+              )
             )
           ORDER BY
             CASE

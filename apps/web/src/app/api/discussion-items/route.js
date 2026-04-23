@@ -35,7 +35,16 @@ export async function GET(request) {
       LEFT JOIN prospect_opportunities po ON po.id = di.prospect_opportunity_id
       LEFT JOIN users assigned_user ON assigned_user.id = di.assigned_user_id
       LEFT JOIN users creator ON creator.id = di.created_by
-      WHERE di.owner_user_id = ${user.id}
+      WHERE (
+          di.owner_user_id = ${user.id}
+          OR di.assigned_user_id = ${user.id}
+          OR EXISTS (
+            SELECT 1
+            FROM discussion_item_participants dip_visible
+            WHERE dip_visible.discussion_item_id = di.id
+              AND dip_visible.user_id = ${user.id}
+          )
+        )
         AND (${prospectId || null}::BIGINT IS NULL OR di.prospect_id = ${prospectId || null})
         AND (${status || null}::TEXT IS NULL OR di.status = ${status || null})
       ORDER BY

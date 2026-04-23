@@ -701,6 +701,10 @@ export default async function ensureAppSchema() {
         PRIMARY KEY (discussion_item_id, user_id)
       )
     `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_discussion_item_participants_user
+      ON discussion_item_participants (user_id, discussion_item_id)
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS blackbaud_connections (
