@@ -4,10 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   getBlackbaudConstituentById,
   getBlackbaudFundraiserById,
-  findBlackbaudConstituentByEmail,
-  findBlackbaudConstituentByLookupId,
   listBlackbaudGifts,
-  searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -349,70 +346,18 @@ async function getMatchingFundraisers({
   return matches;
 }
 
-function addFundraiserCandidate(candidates, fundraiserId) {
-  const normalizedId = String(fundraiserId || "").trim();
-  if (!normalizedId || candidates.has(normalizedId)) {
-    return;
-  }
-  candidates.add(normalizedId);
-}
-
-async function resolveWorkspaceFundraiserIdentitySet({ user, authUserId, origin }) {
-  const candidates = new Set();
-
-  addFundraiserCandidate(candidates, user?.blackbaud_constituent_id);
-  addFundraiserCandidate(candidates, user?.blackbaud_lookup_id);
-
-  if (user?.blackbaud_lookup_id) {
-    const lookupMatch = await findBlackbaudConstituentByLookupId({
-      userId: user.id,
-      authUserId,
-      origin,
-      lookupId: user.blackbaud_lookup_id,
-    }).catch(() => null);
-
-    if (lookupMatch?.blackbaudConstituentId) {
-      addFundraiserCandidate(candidates, lookupMatch.blackbaudConstituentId);
-    }
+function resolveWorkspaceFundraiserIdentitySet(user) {
+  const exactId = String(user?.blackbaud_constituent_id || "").trim();
+  if (exactId) {
+    return new Set([exactId]);
   }
 
-  if (user?.email) {
-    const emailMatch = await findBlackbaudConstituentByEmail({
-      userId: user.id,
-      authUserId,
-      origin,
-      email: user.email,
-    }).catch(() => null);
-
-    if (emailMatch?.blackbaudConstituentId) {
-      addFundraiserCandidate(candidates, emailMatch.blackbaudConstituentId);
-    }
+  const lookupId = String(user?.blackbaud_lookup_id || "").trim();
+  if (lookupId) {
+    return new Set([lookupId]);
   }
 
-  const matches = await searchBlackbaudConstituents({
-    userId: user.id,
-    authUserId,
-    origin,
-    query: user?.name || user?.email,
-  }).catch(() => []);
-
-  const normalizedName = String(user?.name || "").trim().toLowerCase();
-  const normalizedEmail = String(user?.email || "").trim().toLowerCase();
-
-  for (const match of matches) {
-    const matchName = String(match?.name || "").trim().toLowerCase();
-    const matchEmail = String(match?.email || "").trim().toLowerCase();
-    const exactName = normalizedName && matchName === normalizedName;
-    const exactEmail = normalizedEmail && matchEmail === normalizedEmail;
-    if (exactName || exactEmail) {
-      addFundraiserCandidate(
-        candidates,
-        match?.blackbaudConstituentId || match?.id || null,
-      );
-    }
-  }
-
-  return candidates;
+  return new Set();
 }
 
 async function getLiveBlackbaudClosedThisFY({
@@ -423,11 +368,7 @@ async function getLiveBlackbaudClosedThisFY({
   fiscalYearEnd,
   debug = false,
 }) {
-  const fundraiserIdentitySet = await resolveWorkspaceFundraiserIdentitySet({
-    user,
-    authUserId,
-    origin,
-  });
+  const fundraiserIdentitySet = resolveWorkspaceFundraiserIdentitySet(user);
 
   const gifts = await listBlackbaudGifts({
     userId: user.id,
@@ -446,8 +387,10 @@ async function getLiveBlackbaudClosedThisFY({
 
   let closedTotal = 0;
   const debugRows = [];
+  const matchedRows = [];
   let fiscalYearGiftRows = 0;
   let eligibleFyGiftRows = 0;
+  const unmatchedFundraiserSummary = new Map();
 
   for (const gift of gifts) {
     const giftDate = getGiftDate(gift);
@@ -490,13 +433,10 @@ async function getLiveBlackbaudClosedThisFY({
     const giftAmount = Number(getGiftAmount(gift) ?? 0);
     const included =
       hasSolicitorCredit && giftAmount > 0;
+    let debugFundraisers = null;
 
-    if (included) {
-      closedTotal += giftAmount;
-    }
-
-    if (debug && debugRows.length < 50) {
-      const debugFundraisers = [];
+    if (debug) {
+      debugFundraisers = [];
       for (const fundraiser of fundraisers) {
         const resolvedName =
           getGiftFundraiserName(fundraiser) ||
@@ -519,13 +459,45 @@ async function getLiveBlackbaudClosedThisFY({
           raw: fundraiser,
         });
       }
+    }
 
+    if (included) {
+      closedTotal += giftAmount;
+      if (debug && matchedRows.length < 25) {
+        matchedRows.push({
+          id: gift?.id || null,
+          date: giftDate || null,
+          amount: giftAmount || 0,
+          giftType: giftType || null,
+          matchingFundraisers: matchingFundraisers.map((fundraiser) => ({
+            id: getGiftFundraiserId(fundraiser) || null,
+            name: getGiftFundraiserName(fundraiser) || null,
+          })),
+        });
+      }
+    } else if (debug && giftAmount > 0) {
+      for (const fundraiser of debugFundraisers || []) {
+        const summaryKey = String(fundraiser.id || fundraiser.name || "uncredited").trim();
+        if (!summaryKey) continue;
+        const current = unmatchedFundraiserSummary.get(summaryKey) || {
+          id: fundraiser.id || null,
+          name: fundraiser.name || null,
+          giftCount: 0,
+          totalAmount: 0,
+        };
+        current.giftCount += 1;
+        current.totalAmount += giftAmount;
+        unmatchedFundraiserSummary.set(summaryKey, current);
+      }
+    }
+
+    if (debug && debugRows.length < 50) {
       debugRows.push({
         id: gift?.id || null,
         date: giftDate || null,
         amount: giftAmount || 0,
         giftType: giftType || null,
-        fundraisers: debugFundraisers,
+        fundraisers: debugFundraisers || [],
         matchingFundraisers: matchingFundraisers.map((fundraiser) => ({
           id: getGiftFundraiserId(fundraiser) || null,
           name: getGiftFundraiserName(fundraiser) || null,
@@ -547,11 +519,16 @@ async function getLiveBlackbaudClosedThisFY({
       closedTotal,
       debug: {
         workspaceFundraiserName,
+        workspaceFundraiserIdUsed: Array.from(fundraiserIdentitySet)[0] || null,
         workspaceFundraiserIdentitySet: Array.from(fundraiserIdentitySet),
         totalGiftRowsFetched: gifts.length,
         fiscalYearGiftRows,
         eligibleFyGiftRows,
         countedGiftRows: debugRows.filter((row) => row.included).length,
+        matchedGiftRows: matchedRows,
+        unmatchedTopFundraisers: Array.from(unmatchedFundraiserSummary.values())
+          .sort((a, b) => b.totalAmount - a.totalAmount)
+          .slice(0, 15),
         sampledGifts: debugRows,
       },
     };
