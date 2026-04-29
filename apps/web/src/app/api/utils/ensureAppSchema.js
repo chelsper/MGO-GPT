@@ -22,6 +22,9 @@ export default async function ensureAppSchema() {
         blackbaud_portfolio_cache JSONB,
         blackbaud_portfolio_cache_key TEXT,
         blackbaud_portfolio_cached_at TIMESTAMPTZ,
+        blackbaud_summary_cache JSONB,
+        blackbaud_summary_cache_key TEXT,
+        blackbaud_summary_cached_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -66,6 +69,18 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS blackbaud_portfolio_cached_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_summary_cache JSONB
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_summary_cache_key TEXT
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_summary_cached_at TIMESTAMPTZ
     `;
 
     await sql`

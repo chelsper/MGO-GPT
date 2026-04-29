@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   getBlackbaudConstituentById,
+  getBlackbaudFundraiserById,
   findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
   listBlackbaudGifts,
@@ -46,6 +47,8 @@ const CLOSED_FY_GIFT_TYPES = new Set(
     "MatchingGiftPledge",
   ].map(normalizeGiftToken),
 );
+
+const SUMMARY_CACHE_TTL_MS = 15 * 60 * 1000;
 
 function getGiftAmount(gift) {
   return firstDefined(gift, [
@@ -228,6 +231,19 @@ async function resolveFundraiserDisplayName({
     return cache.get(fundraiserId) || null;
   }
 
+  const fundraiserRecord = await getBlackbaudFundraiserById({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    fundraiserId,
+  }).catch(() => null);
+
+  const fundraiserRecordName = String(fundraiserRecord?.name || "").trim() || null;
+  if (fundraiserRecordName) {
+    cache.set(fundraiserId, fundraiserRecordName);
+    return fundraiserRecordName;
+  }
+
   const resolved = await getBlackbaudConstituentById({
     userId: workspaceUser.id,
     authUserId,
@@ -238,6 +254,44 @@ async function resolveFundraiserDisplayName({
   const resolvedName = String(resolved?.name || "").trim() || null;
   cache.set(fundraiserId, resolvedName);
   return resolvedName;
+}
+
+function isFreshSummaryCache(cachedAt) {
+  if (!cachedAt) return false;
+  const cachedTime = new Date(cachedAt).getTime();
+  if (!Number.isFinite(cachedTime)) return false;
+  return Date.now() - cachedTime <= SUMMARY_CACHE_TTL_MS;
+}
+
+async function getCachedBlackbaudSummary(workspaceUserId, cacheKey) {
+  if (!workspaceUserId || !cacheKey) return null;
+
+  const rows = await sql`
+    SELECT blackbaud_summary_cache, blackbaud_summary_cached_at, blackbaud_summary_cache_key
+    FROM users
+    WHERE id = ${workspaceUserId}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+  if (!row?.blackbaud_summary_cache) return null;
+  if (String(row.blackbaud_summary_cache_key || "") !== String(cacheKey)) return null;
+  if (!isFreshSummaryCache(row.blackbaud_summary_cached_at)) return null;
+  return row.blackbaud_summary_cache;
+}
+
+async function saveCachedBlackbaudSummary(workspaceUserId, cacheKey, payload) {
+  if (!workspaceUserId || !cacheKey || !payload) return;
+
+  await sql`
+    UPDATE users
+    SET
+      blackbaud_summary_cache = ${JSON.stringify(payload)}::jsonb,
+      blackbaud_summary_cache_key = ${String(cacheKey)},
+      blackbaud_summary_cached_at = NOW(),
+      updated_at = NOW()
+    WHERE id = ${workspaceUserId}
+  `;
 }
 
 async function getMatchingFundraisers({
@@ -523,25 +577,52 @@ export async function GET(request) {
     const currentFY = `FY${String(fiscalEndYear).slice(-2)}`;
     const fiscalYearStart = `${fiscalStartYear}-07-01`;
     const fiscalYearEnd = `${fiscalEndYear}-06-30`;
+    const summaryCacheKey = [
+      currentFY,
+      user.id,
+      user.blackbaud_constituent_id || "",
+      user.blackbaud_lookup_id || "",
+      user.email || "",
+      user.name || "",
+    ].join("|");
 
     let closedThisFY = 0;
     let closedDebug = null;
 
     if (origin) {
-      const closedPayload = await getLiveBlackbaudClosedThisFY({
-        user,
-        authUserId,
-        origin,
-        fiscalYearStart,
-        fiscalYearEnd,
-        debug,
-      }).catch(() => (debug ? { closedTotal: 0, debug: null } : 0));
+      if (!debug) {
+        const cachedSummary = await getCachedBlackbaudSummary(user.id, summaryCacheKey);
+        if (cachedSummary && typeof cachedSummary === "object") {
+          closedThisFY = Number(cachedSummary.closedThisFY || 0);
+        } else {
+          closedThisFY = Number(
+            await getLiveBlackbaudClosedThisFY({
+              user,
+              authUserId,
+              origin,
+              fiscalYearStart,
+              fiscalYearEnd,
+              debug: false,
+            }).catch(() => 0),
+          );
 
-      if (debug) {
+          await saveCachedBlackbaudSummary(user.id, summaryCacheKey, {
+            currentFY,
+            closedThisFY,
+          });
+        }
+      } else {
+        const closedPayload = await getLiveBlackbaudClosedThisFY({
+          user,
+          authUserId,
+          origin,
+          fiscalYearStart,
+          fiscalYearEnd,
+          debug: true,
+        }).catch(() => ({ closedTotal: 0, debug: null }));
+
         closedThisFY = Number(closedPayload?.closedTotal || 0);
         closedDebug = closedPayload?.debug || null;
-      } else {
-        closedThisFY = Number(closedPayload || 0);
       }
     }
 
