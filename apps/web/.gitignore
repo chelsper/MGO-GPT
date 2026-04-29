@@ -1,0 +1,13 @@
+.vercel
+
+# Dependencies and build output
+node_modules/
+build/
+
+# Editor and OS artifacts
+*.swp
+*.swo
+.DS_Store
+
+# Tool-generated local config
+src/tsconfig.json
