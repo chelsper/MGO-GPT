@@ -636,6 +636,43 @@ export async function findBlackbaudConstituentByLookupId({
   };
 }
 
+export async function getBlackbaudConstituentById({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+}) {
+  const normalizedId = String(constituentId || "").trim();
+  if (!normalizedId) {
+    return null;
+  }
+
+  const payload = await blackbaudApiFetch(
+    `${BLACKBAUD_CONSTITUENT_LIST_URL}/${encodeURIComponent(normalizedId)}`,
+    {
+      userId,
+      authUserId,
+      origin,
+    },
+  );
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  return {
+    blackbaudConstituentId:
+      payload?.id?.toString() || payload?.constituent_id?.toString() || normalizedId,
+    lookupId: payload?.lookup_id || payload?.lookupId || null,
+    name:
+      payload?.name ||
+      [payload?.first, payload?.middle, payload?.last].filter(Boolean).join(" ").trim() ||
+      null,
+    email: payload?.address?.email?.address || payload?.email?.address || null,
+    raw: payload,
+  };
+}
+
 export async function listBlackbaudOpportunities({
   userId,
   authUserId,

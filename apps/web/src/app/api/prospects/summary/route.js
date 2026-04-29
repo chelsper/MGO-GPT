@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
+  getBlackbaudConstituentById,
   findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
   listBlackbaudGifts,
@@ -204,6 +205,83 @@ function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserIdentit
   );
 }
 
+async function resolveFundraiserDisplayName({
+  fundraiser,
+  workspaceUser,
+  authUserId,
+  origin,
+  cache,
+}) {
+  const directName = getGiftFundraiserName(fundraiser);
+  if (directName) {
+    return directName;
+  }
+
+  const fundraiserId = String(
+    fundraiser?.constituent_id || fundraiser?.fundraiser_id || fundraiser?.id || "",
+  ).trim();
+  if (!fundraiserId) {
+    return null;
+  }
+
+  if (cache.has(fundraiserId)) {
+    return cache.get(fundraiserId) || null;
+  }
+
+  const resolved = await getBlackbaudConstituentById({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    constituentId: fundraiserId,
+  }).catch(() => null);
+
+  const resolvedName = String(resolved?.name || "").trim() || null;
+  cache.set(fundraiserId, resolvedName);
+  return resolvedName;
+}
+
+async function getMatchingFundraisers({
+  fundraisers,
+  workspaceUser,
+  fundraiserIdentitySet,
+  authUserId,
+  origin,
+  resolvedNameCache,
+}) {
+  const matches = [];
+
+  for (const fundraiser of fundraisers) {
+    if (isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserIdentitySet)) {
+      matches.push(fundraiser);
+      continue;
+    }
+
+    const resolvedName = await resolveFundraiserDisplayName({
+      fundraiser,
+      workspaceUser,
+      authUserId,
+      origin,
+      cache: resolvedNameCache,
+    });
+
+    if (!resolvedName) {
+      continue;
+    }
+
+    if (
+      isWorkspaceFundraiserMatch(
+        { ...fundraiser, fundraiser_name: resolvedName },
+        workspaceUser,
+        fundraiserIdentitySet,
+      )
+    ) {
+      matches.push({ ...fundraiser, fundraiser_name: resolvedName });
+    }
+  }
+
+  return matches;
+}
+
 function addFundraiserCandidate(candidates, fundraiserId) {
   const normalizedId = String(fundraiserId || "").trim();
   if (!normalizedId || candidates.has(normalizedId)) {
@@ -297,6 +375,7 @@ async function getLiveBlackbaudClosedThisFY({
   const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
   const workspaceFundraiserName =
     user?.name || user?.full_name || user?.display_name || null;
+  const resolvedNameCache = new Map();
 
   let closedTotal = 0;
   const debugRows = [];
@@ -305,9 +384,14 @@ async function getLiveBlackbaudClosedThisFY({
     const giftType = getGiftType(gift);
     const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
     const fundraisers = getGiftFundraisers(gift);
-    const matchingFundraisers = fundraisers.filter((fundraiser) =>
-      isWorkspaceFundraiserMatch(fundraiser, user, fundraiserIdentitySet),
-    );
+    const matchingFundraisers = await getMatchingFundraisers({
+      fundraisers,
+      workspaceUser: user,
+      fundraiserIdentitySet,
+      authUserId,
+      origin,
+      resolvedNameCache,
+    });
     const hasSolicitorCredit = matchingFundraisers.length > 0;
     const giftDate = getGiftDate(gift);
     const giftTimestamp = giftDate ? new Date(giftDate).getTime() : Number.NaN;
@@ -324,20 +408,36 @@ async function getLiveBlackbaudClosedThisFY({
     }
 
     if (debug && debugRows.length < 50) {
-      debugRows.push({
-        id: gift?.id || null,
-        date: giftDate || null,
-        amount: giftAmount || 0,
-        giftType: giftType || null,
-        fundraisers: fundraisers.map((fundraiser) => ({
+      const debugFundraisers = [];
+      for (const fundraiser of fundraisers) {
+        const resolvedName =
+          getGiftFundraiserName(fundraiser) ||
+          (await resolveFundraiserDisplayName({
+            fundraiser,
+            workspaceUser: user,
+            authUserId,
+            origin,
+            cache: resolvedNameCache,
+          })) ||
+          null;
+
+        debugFundraisers.push({
           id:
             fundraiser?.constituent_id ||
             fundraiser?.fundraiser_id ||
             fundraiser?.id ||
             null,
-          name: getGiftFundraiserName(fundraiser) || null,
+          name: resolvedName,
           raw: fundraiser,
-        })),
+        });
+      }
+
+      debugRows.push({
+        id: gift?.id || null,
+        date: giftDate || null,
+        amount: giftAmount || 0,
+        giftType: giftType || null,
+        fundraisers: debugFundraisers,
         matchingFundraisers: matchingFundraisers.map((fundraiser) => ({
           id:
             fundraiser?.constituent_id ||
