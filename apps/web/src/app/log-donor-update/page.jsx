@@ -653,7 +653,7 @@ export default function LogDonorUpdatePage() {
         </div>
       </header>
 
-      <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px" }}>
+      <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px 24px 140px" }}>
         {submitMutation.isPending && (
           <div
             style={{
@@ -1346,23 +1346,77 @@ export default function LogDonorUpdatePage() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={submitMutation.isPending}
+          <div
             style={{
-              width: "100%",
-              padding: "14px",
-              backgroundColor: submitMutation.isPending ? "#9CA3AF" : "#6A5BFF",
-              color: "white",
-              border: "none",
-              borderRadius: "12px",
-              fontSize: "16px",
-              fontWeight: "600",
-              cursor: submitMutation.isPending ? "not-allowed" : "pointer",
+              position: "sticky",
+              bottom: "16px",
+              marginTop: "20px",
+              padding: "14px 16px",
+              borderRadius: "16px",
+              border: "1px solid #E5E7EB",
+              backgroundColor: "rgba(255,255,255,0.96)",
+              backdropFilter: "blur(10px)",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "14px",
+              flexWrap: "wrap",
             }}
           >
-            {submitMutation.isPending ? "Submitting..." : "Submit Update"}
-          </button>
+            <div style={{ minWidth: "220px" }}>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  color: "#6B7280",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: "4px",
+                }}
+              >
+                Ready to send
+              </div>
+              <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.5 }}>
+                Send this donor update into the shared submission tracker.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginLeft: "auto" }}>
+              <a
+                href="/"
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  border: "1px solid #D1D5DB",
+                  backgroundColor: "white",
+                  color: "#374151",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  textDecoration: "none",
+                }}
+              >
+                Cancel
+              </a>
+              <button
+                type="submit"
+                disabled={submitMutation.isPending}
+                style={{
+                  minWidth: "180px",
+                  padding: "12px 18px",
+                  backgroundColor: submitMutation.isPending ? "#9CA3AF" : "#6A5BFF",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "12px",
+                  fontSize: "15px",
+                  fontWeight: "700",
+                  cursor: submitMutation.isPending ? "not-allowed" : "pointer",
+                }}
+              >
+                {submitMutation.isPending ? "Submitting..." : "Submit Update"}
+              </button>
+            </div>
+          </div>
         </form>
       </main>
 
