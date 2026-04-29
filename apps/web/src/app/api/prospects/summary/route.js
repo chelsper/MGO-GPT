@@ -172,6 +172,17 @@ function getGiftFundraiserName(fundraiser) {
   return [first, middle, last].filter(Boolean).join(" ").trim();
 }
 
+function getGiftFundraiserId(fundraiser) {
+  return String(
+    fundraiser?.constituent_id || fundraiser?.fundraiser_id || fundraiser?.id || "",
+  ).trim();
+}
+
+function isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet) {
+  const fundraiserId = getGiftFundraiserId(fundraiser);
+  return Boolean(fundraiserId && fundraiserIdentitySet.has(fundraiserId));
+}
+
 function isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserIdentitySet) {
   const fundraiserId = String(
     fundraiser?.constituent_id || fundraiser?.fundraiser_id || fundraiser?.id || "",
@@ -305,11 +316,13 @@ async function getMatchingFundraisers({
   const matches = [];
 
   for (const fundraiser of fundraisers) {
-    if (isWorkspaceFundraiserMatch(fundraiser, workspaceUser, fundraiserIdentitySet)) {
+    if (isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet)) {
       matches.push(fundraiser);
       continue;
     }
 
+    // Debug-only/fallback name resolution can help explain mismatches, but
+    // inclusion for Closed FY is still driven by the credited Blackbaud ID.
     const resolvedName = await resolveFundraiserDisplayName({
       fundraiser,
       workspaceUser,
@@ -433,29 +446,50 @@ async function getLiveBlackbaudClosedThisFY({
 
   let closedTotal = 0;
   const debugRows = [];
+  let fiscalYearGiftRows = 0;
+  let eligibleFyGiftRows = 0;
 
   for (const gift of gifts) {
-    const giftType = getGiftType(gift);
-    const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
-    const fundraisers = getGiftFundraisers(gift);
-    const matchingFundraisers = await getMatchingFundraisers({
-      fundraisers,
-      workspaceUser: user,
-      fundraiserIdentitySet,
-      authUserId,
-      origin,
-      resolvedNameCache,
-    });
-    const hasSolicitorCredit = matchingFundraisers.length > 0;
     const giftDate = getGiftDate(gift);
     const giftTimestamp = giftDate ? new Date(giftDate).getTime() : Number.NaN;
     const inFiscalYear =
       !Number.isNaN(giftTimestamp) &&
       giftTimestamp >= fiscalStart &&
       giftTimestamp <= fiscalEnd;
+    if (!inFiscalYear) {
+      continue;
+    }
+
+    fiscalYearGiftRows += 1;
+
+    const giftType = getGiftType(gift);
+    const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
+    if (!typeAllowed) {
+      if (debug && debugRows.length < 50) {
+        debugRows.push({
+          id: gift?.id || null,
+          date: giftDate || null,
+          amount: Number(getGiftAmount(gift) ?? 0) || 0,
+          giftType: giftType || null,
+          fundraisers: [],
+          matchingFundraisers: [],
+          included: false,
+          exclusionReason: "gift_type_not_allowed",
+        });
+      }
+      continue;
+    }
+
+    eligibleFyGiftRows += 1;
+
+    const fundraisers = getGiftFundraisers(gift);
+    const matchingFundraisers = fundraisers.filter((fundraiser) =>
+      isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet),
+    );
+    const hasSolicitorCredit = matchingFundraisers.length > 0;
     const giftAmount = Number(getGiftAmount(gift) ?? 0);
     const included =
-      typeAllowed && hasSolicitorCredit && inFiscalYear && giftAmount > 0;
+      hasSolicitorCredit && giftAmount > 0;
 
     if (included) {
       closedTotal += giftAmount;
@@ -493,25 +527,17 @@ async function getLiveBlackbaudClosedThisFY({
         giftType: giftType || null,
         fundraisers: debugFundraisers,
         matchingFundraisers: matchingFundraisers.map((fundraiser) => ({
-          id:
-            fundraiser?.constituent_id ||
-            fundraiser?.fundraiser_id ||
-            fundraiser?.id ||
-            null,
+          id: getGiftFundraiserId(fundraiser) || null,
           name: getGiftFundraiserName(fundraiser) || null,
         })),
         included,
         exclusionReason: included
           ? null
-          : !typeAllowed
-            ? "gift_type_not_allowed"
-            : !hasSolicitorCredit
-              ? "no_matching_fundraiser"
-              : !inFiscalYear
-                ? "outside_fiscal_year"
-                : giftAmount <= 0
-                  ? "no_amount"
-                  : "excluded",
+          : !hasSolicitorCredit
+            ? "no_matching_fundraiser"
+            : giftAmount <= 0
+              ? "no_amount"
+              : "excluded",
       });
     }
   }
@@ -523,6 +549,8 @@ async function getLiveBlackbaudClosedThisFY({
         workspaceFundraiserName,
         workspaceFundraiserIdentitySet: Array.from(fundraiserIdentitySet),
         totalGiftRowsFetched: gifts.length,
+        fiscalYearGiftRows,
+        eligibleFyGiftRows,
         countedGiftRows: debugRows.filter((row) => row.included).length,
         sampledGifts: debugRows,
       },
