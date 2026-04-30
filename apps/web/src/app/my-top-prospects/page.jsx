@@ -1491,7 +1491,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setActionDate(new Date().toISOString().split("T")[0]);
       setActionCategory(ACTION_CATEGORIES[0]);
       setActionType(ACTION_TYPES[0]);
@@ -1581,7 +1582,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setNewOpportunityData({
         title: "",
         currentStage: "Identification",
@@ -1615,7 +1617,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setShowCloseModal(false);
     },
   });
@@ -1633,7 +1636,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setEditMode(false);
       setShowNextStepForm(false);
       setActionError("");
@@ -1660,7 +1664,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       onClose();
     },
     onError: (mutationError) => {
@@ -1688,7 +1693,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: (payload) => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setEditingOpportunityId(null);
       setOpportunityEditData({});
       setOpportunityEditError("");
@@ -1724,7 +1730,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setEditingUpdateId(null);
       setEditingUpdateNotes("");
       setEditingUpdateDate("");
@@ -1755,7 +1762,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setShowNextStepForm(false);
       setActionError("");
     },
@@ -5493,14 +5501,26 @@ export default function MyTopProspectsPage() {
   });
 
   const { data: summary } = useQuery({
-    queryKey: ["prospect-summary", activeWorkspaceUserId],
+    queryKey: ["prospect-summary-base", activeWorkspaceUserId],
+    queryFn: async () => {
+      const res = await fetch("/api/prospects/summary?includeClosed=0");
+      if (!res.ok) throw new Error("Failed to fetch summary");
+      return res.json();
+    },
+    enabled: !!user && !!activeWorkspaceUserId,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: closedSummary, isLoading: isClosedSummaryLoading } = useQuery({
+    queryKey: ["prospect-summary-closed", activeWorkspaceUserId],
     queryFn: async () => {
       const res = await fetch("/api/prospects/summary");
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
     enabled: !!user && !!activeWorkspaceUserId,
-    staleTime: 60 * 1000,
+    staleTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
@@ -5567,7 +5587,8 @@ export default function MyTopProspectsPage() {
       } finally {
         queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
         queryClient.invalidateQueries({ queryKey: ["prospects"] });
-        queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+        queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+        queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
         queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
       }
     })();
@@ -5645,7 +5666,8 @@ export default function MyTopProspectsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       setShowAddModal(false);
       setAddProspectInitialData(null);
     },
@@ -5680,7 +5702,8 @@ export default function MyTopProspectsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
     },
   });
@@ -5699,7 +5722,8 @@ export default function MyTopProspectsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       window.location.href = "/my-top-prospects";
     },
   });
@@ -5719,6 +5743,17 @@ export default function MyTopProspectsPage() {
     });
     setShowAddModal(true);
   };
+
+  const combinedSummary =
+    summary || closedSummary
+      ? {
+          activeCount: summary?.activeCount ?? closedSummary?.activeCount ?? 0,
+          totalAskPipeline:
+            summary?.totalAskPipeline ?? closedSummary?.totalAskPipeline ?? 0,
+          currentFY: closedSummary?.currentFY ?? summary?.currentFY ?? "FY",
+          closedThisFY: closedSummary?.closedThisFY,
+        }
+      : null;
 
   if (loading || !user) {
     return (
@@ -6104,7 +6139,7 @@ export default function MyTopProspectsPage() {
         {activeWorkspaceTab === "top-prospects" ? (
         <>
         {/* Summary Stats */}
-        {summary && (
+        {combinedSummary && (
           <div
             style={{
               display: "flex",
@@ -6150,7 +6185,7 @@ export default function MyTopProspectsPage() {
                   margin: 0,
                 }}
               >
-                {summary.activeCount}
+                {combinedSummary.activeCount}
               </p>
             </div>
             <div
@@ -6190,7 +6225,7 @@ export default function MyTopProspectsPage() {
                   margin: 0,
                 }}
               >
-                {formatCurrency(summary.totalAskPipeline)}
+                {formatCurrency(combinedSummary.totalAskPipeline)}
               </p>
             </div>
             <div
@@ -6219,7 +6254,7 @@ export default function MyTopProspectsPage() {
                     fontWeight: "500",
                   }}
                 >
-                  Closed {summary.currentFY}
+                  Closed {combinedSummary.currentFY}
                 </span>
               </div>
               <p
@@ -6230,7 +6265,9 @@ export default function MyTopProspectsPage() {
                   margin: 0,
                 }}
               >
-                {formatCurrency(summary.closedThisFY)}
+                {isClosedSummaryLoading && combinedSummary.closedThisFY == null
+                  ? "Loading..."
+                  : formatCurrency(combinedSummary.closedThisFY)}
               </p>
             </div>
           </div>

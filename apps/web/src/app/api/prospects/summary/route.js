@@ -57,7 +57,7 @@ const CLOSED_FY_GIFT_TYPE_QUERIES = [
   "MatchingGiftPledge",
 ];
 
-const SUMMARY_CACHE_TTL_MS = 15 * 60 * 1000;
+const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
 
 function getGiftAmount(gift) {
   return firstDefined(gift, [
@@ -766,10 +766,11 @@ export async function GET(request) {
       });
     }
     const authUserId = isActing ? sessionUser.id : user.id;
-    const origin = request?.url ? new URL(request.url).origin : null;
-    const debug = request?.url
-      ? new URL(request.url).searchParams.get("debug") === "1"
-      : false;
+    const requestUrl = request?.url ? new URL(request.url) : null;
+    const origin = requestUrl?.origin || null;
+    const debug = requestUrl ? requestUrl.searchParams.get("debug") === "1" : false;
+    const includeClosed =
+      requestUrl ? requestUrl.searchParams.get("includeClosed") !== "0" : true;
 
     // Count active prospects
     const activeResult = await sql`
@@ -798,10 +799,10 @@ export async function GET(request) {
       user.name || "",
     ].join("|");
 
-    let closedThisFY = 0;
+    let closedThisFY = null;
     let closedDebug = null;
 
-    if (origin) {
+    if (includeClosed && origin) {
       if (!debug) {
         const cachedSummary = await getCachedBlackbaudSummary(user.id, summaryCacheKey);
         if (cachedSummary && typeof cachedSummary === "object") {
