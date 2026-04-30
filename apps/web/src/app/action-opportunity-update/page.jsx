@@ -1030,6 +1030,7 @@ export default function ActionOpportunityUpdatePage() {
         }
 
         results.action = await donorResponse.json();
+        results.actionEndpoint = actionEndpoint;
       }
 
       if (payload.includeOpportunity) {
@@ -1059,14 +1060,22 @@ export default function ActionOpportunityUpdatePage() {
     onSuccess: async (data) => {
       const actionSyncWarning = data?.action?.blackbaudAction?.syncWarning || "";
       const successLabel = getSuccessLabel(updateMode);
+      const actionEndpointUsed = data?.actionEndpoint || "";
       setSuccessMessage(successLabel);
       setToast({
         tone: actionSyncWarning ? "error" : "success",
         message: actionSyncWarning
           ? `Saved, but NXT action metadata is incomplete: ${actionSyncWarning}`
-          : successLabel,
+          : actionEndpointUsed === "/api/submissions/donor-update"
+            ? `${successLabel} Saved through local donor update flow.`
+            : successLabel,
       });
-      setError(actionSyncWarning);
+      setError(
+        actionSyncWarning ||
+          (actionEndpointUsed
+            ? `Action save route: ${actionEndpointUsed}`
+            : ""),
+      );
       setProspectError("");
       setProspectAdded(false);
       setNextStepSaved(false);
