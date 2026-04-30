@@ -83,7 +83,7 @@ function getGiftType(gift) {
   );
 }
 
-function getGiftFundraisers(gift) {
+function getGiftFundraiserCandidates(gift) {
   const candidates = [];
 
   const arrayPaths = [
@@ -104,7 +104,12 @@ function getGiftFundraisers(gift) {
   for (const path of arrayPaths) {
     const value = getNestedValue(gift, path);
     if (Array.isArray(value)) {
-      candidates.push(...value);
+      candidates.push(
+        ...value.filter(Boolean).map((item) => ({
+          sourcePath: path,
+          value: item,
+        })),
+      );
     }
   }
 
@@ -122,13 +127,23 @@ function getGiftFundraisers(gift) {
   for (const path of singlePaths) {
     const value = getNestedValue(gift, path);
     if (typeof value === "string" && value.trim()) {
-      candidates.push({ fundraiser_name: value.trim() });
+      candidates.push({
+        sourcePath: path,
+        value: { fundraiser_name: value.trim() },
+      });
     } else if (value && typeof value === "object") {
-      candidates.push(value);
+      candidates.push({
+        sourcePath: path,
+        value,
+      });
     }
   }
 
   return candidates.filter(Boolean);
+}
+
+function getGiftFundraisers(gift) {
+  return getGiftFundraiserCandidates(gift).map((candidate) => candidate.value);
 }
 
 function normalizePersonName(value) {
@@ -173,6 +188,80 @@ function getGiftFundraiserId(fundraiser) {
   return String(
     fundraiser?.constituent_id || fundraiser?.fundraiser_id || fundraiser?.id || "",
   ).trim();
+}
+
+function normalizeWorkspaceFundraiserIds(user) {
+  const results = [];
+  const seen = new Set();
+
+  const candidates = [
+    {
+      id: String(user?.blackbaud_constituent_id || "").trim(),
+      source: "blackbaud_constituent_id",
+    },
+    {
+      id: String(user?.blackbaud_lookup_id || "").trim(),
+      source: "blackbaud_lookup_id",
+    },
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate.id || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    results.push(candidate);
+  }
+
+  return results;
+}
+
+function getFundraiserShapeKey(candidate) {
+  const fundraiser = candidate?.value || {};
+  const sampleKeys = Object.keys(fundraiser).sort();
+  const idFieldsPresent = [
+    "constituent_id",
+    "fundraiser_id",
+    "id",
+  ].filter((key) => fundraiser?.[key] !== undefined && fundraiser?.[key] !== null && fundraiser?.[key] !== "");
+  const nameFieldsPresent = [
+    "fundraiser_name",
+    "fundraiserName",
+    "name",
+    "full_name",
+    "fullName",
+    "display_name",
+    "displayName",
+    "first_name",
+    "firstName",
+    "last_name",
+    "lastName",
+  ].filter((key) => fundraiser?.[key] !== undefined && fundraiser?.[key] !== null && fundraiser?.[key] !== "");
+
+  return JSON.stringify({
+    sourcePath: candidate?.sourcePath || "unknown",
+    idFieldsPresent,
+    nameFieldsPresent,
+    sampleKeys,
+  });
+}
+
+function getWorkspaceNameTokens(name) {
+  const tokens = normalizePersonName(name);
+  if (tokens.length < 2) return null;
+  return {
+    first: tokens[0],
+    last: tokens[tokens.length - 1],
+  };
+}
+
+function fundraiserNameLooksLikeWorkspaceUser(name, workspaceName) {
+  const fundraiserTokens = getWorkspaceNameTokens(name);
+  const workspaceTokens = getWorkspaceNameTokens(workspaceName);
+  if (!fundraiserTokens || !workspaceTokens) return false;
+
+  return (
+    fundraiserTokens.first === workspaceTokens.first &&
+    fundraiserTokens.last === workspaceTokens.last
+  );
 }
 
 function isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet) {
@@ -346,20 +435,6 @@ async function getMatchingFundraisers({
   return matches;
 }
 
-function resolveWorkspaceGiftFundraiserId(user) {
-  const exactSystemRecordId = String(user?.blackbaud_constituent_id || "").trim();
-  if (exactSystemRecordId) {
-    return exactSystemRecordId;
-  }
-
-  const fallbackLookupId = String(user?.blackbaud_lookup_id || "").trim();
-  if (fallbackLookupId) {
-    return fallbackLookupId;
-  }
-
-  return null;
-}
-
 async function getLiveBlackbaudClosedThisFY({
   user,
   authUserId,
@@ -368,18 +443,22 @@ async function getLiveBlackbaudClosedThisFY({
   fiscalYearEnd,
   debug = false,
 }) {
-  const workspaceGiftFundraiserId = resolveWorkspaceGiftFundraiserId(user);
-  const fundraiserIdentitySet = workspaceGiftFundraiserId
-    ? new Set([workspaceGiftFundraiserId])
-    : new Set();
+  const workspaceFundraiserIds = normalizeWorkspaceFundraiserIds(user);
+  const fundraiserIdentitySet = new Set(
+    workspaceFundraiserIds.map((candidate) => candidate.id),
+  );
+  const pageLimit = 500;
+  const maxPages = 20;
 
   const gifts = await listBlackbaudGifts({
     userId: user.id,
     authUserId,
     origin,
     searchParams: {
-      limit: 500,
+      limit: pageLimit,
     },
+    pageLimit,
+    maxPages,
   }).catch(() => []);
 
   const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
@@ -393,7 +472,15 @@ async function getLiveBlackbaudClosedThisFY({
   const matchedRows = [];
   let fiscalYearGiftRows = 0;
   let eligibleFyGiftRows = 0;
+  let excludedWrongFyCount = 0;
+  let excludedWrongGiftTypeCount = 0;
+  let excludedPledgePaymentCount = 0;
+  let excludedNoMatchingFundraiserCount = 0;
   const unmatchedFundraiserSummary = new Map();
+  const fieldShapesSeen = new Map();
+  const fundraiserIdsSeenForWorkspaceName = new Map();
+  const giftsMatchedByEachWorkspaceId = new Map();
+  const countedGiftIds = [];
 
   for (const gift of gifts) {
     const giftDate = getGiftDate(gift);
@@ -403,6 +490,7 @@ async function getLiveBlackbaudClosedThisFY({
       giftTimestamp >= fiscalStart &&
       giftTimestamp <= fiscalEnd;
     if (!inFiscalYear) {
+      excludedWrongFyCount += 1;
       continue;
     }
 
@@ -411,6 +499,10 @@ async function getLiveBlackbaudClosedThisFY({
     const giftType = getGiftType(gift);
     const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
     if (!typeAllowed) {
+      excludedWrongGiftTypeCount += 1;
+      if (giftType === normalizeGiftToken("PledgePayment")) {
+        excludedPledgePaymentCount += 1;
+      }
       if (debug && debugRows.length < 50) {
         debugRows.push({
           id: gift?.id || null,
@@ -428,7 +520,8 @@ async function getLiveBlackbaudClosedThisFY({
 
     eligibleFyGiftRows += 1;
 
-    const fundraisers = getGiftFundraisers(gift);
+    const fundraiserCandidates = getGiftFundraiserCandidates(gift);
+    const fundraisers = fundraiserCandidates.map((candidate) => candidate.value);
     const matchingFundraisers = fundraisers.filter((fundraiser) =>
       isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet),
     );
@@ -440,7 +533,8 @@ async function getLiveBlackbaudClosedThisFY({
 
     if (debug) {
       debugFundraisers = [];
-      for (const fundraiser of fundraisers) {
+      for (const candidate of fundraiserCandidates) {
+        const fundraiser = candidate.value;
         const resolvedName =
           getGiftFundraiserName(fundraiser) ||
           (await resolveFundraiserDisplayName({
@@ -451,6 +545,28 @@ async function getLiveBlackbaudClosedThisFY({
             cache: resolvedNameCache,
           })) ||
           null;
+
+        const shapeKey = getFundraiserShapeKey(candidate);
+        const existingShape = fieldShapesSeen.get(shapeKey);
+        if (existingShape) {
+          existingShape.count += 1;
+        } else {
+          fieldShapesSeen.set(shapeKey, {
+            ...JSON.parse(shapeKey),
+            count: 1,
+          });
+        }
+
+        if (resolvedName && fundraiserNameLooksLikeWorkspaceUser(resolvedName, workspaceFundraiserName)) {
+          const fundraiserId = getGiftFundraiserId(fundraiser) || resolvedName;
+          const current = fundraiserIdsSeenForWorkspaceName.get(fundraiserId) || {
+            id: getGiftFundraiserId(fundraiser) || null,
+            name: resolvedName,
+            count: 0,
+          };
+          current.count += 1;
+          fundraiserIdsSeenForWorkspaceName.set(fundraiserId, current);
+        }
 
         debugFundraisers.push({
           id:
@@ -466,6 +582,25 @@ async function getLiveBlackbaudClosedThisFY({
 
     if (included) {
       closedTotal += giftAmount;
+      countedGiftIds.push(gift?.id || null);
+      for (const workspaceId of fundraiserIdentitySet) {
+        const matchedOnThisId = matchingFundraisers.some(
+          (fundraiser) => getGiftFundraiserId(fundraiser) === workspaceId,
+        );
+        if (!matchedOnThisId) continue;
+        const current = giftsMatchedByEachWorkspaceId.get(workspaceId) || {
+          workspaceId,
+          giftCount: 0,
+          totalAmount: 0,
+          giftIds: [],
+        };
+        current.giftCount += 1;
+        current.totalAmount += giftAmount;
+        if (current.giftIds.length < 50) {
+          current.giftIds.push(gift?.id || null);
+        }
+        giftsMatchedByEachWorkspaceId.set(workspaceId, current);
+      }
       if (debug && matchedRows.length < 25) {
         matchedRows.push({
           id: gift?.id || null,
@@ -479,6 +614,7 @@ async function getLiveBlackbaudClosedThisFY({
         });
       }
     } else if (debug && giftAmount > 0) {
+      excludedNoMatchingFundraiserCount += 1;
       for (const fundraiser of debugFundraisers || []) {
         const summaryKey = String(fundraiser.id || fundraiser.name || "uncredited").trim();
         if (!summaryKey) continue;
@@ -522,16 +658,43 @@ async function getLiveBlackbaudClosedThisFY({
       closedTotal,
       debug: {
         workspaceFundraiserName,
-        workspaceFundraiserIdUsed: workspaceGiftFundraiserId,
+        workspaceFundraiserIdUsed: workspaceFundraiserIds[0]?.id || null,
+        workspaceFundraiserAllIdsConsidered: workspaceFundraiserIds,
         workspaceFundraiserIdentitySet: Array.from(fundraiserIdentitySet),
         totalGiftRowsFetched: gifts.length,
         fiscalYearGiftRows,
         eligibleFyGiftRows,
-        countedGiftRows: debugRows.filter((row) => row.included).length,
+        countedGiftRows: countedGiftIds.length,
+        countedGiftAmountTotal: closedTotal,
+        countedGiftIds: countedGiftIds.slice(0, 200),
+        excludedPledgePaymentCount,
+        excludedWrongFyCount,
+        excludedWrongGiftTypeCount,
+        excludedNoMatchingFundraiserCount,
+        giftFundraiserFieldShapesSeen: Array.from(fieldShapesSeen.values())
+          .sort((a, b) => b.count - a.count),
+        fundraiserIdsSeenForWorkspaceName: Array.from(
+          fundraiserIdsSeenForWorkspaceName.values(),
+        ).sort((a, b) => b.count - a.count),
+        giftsMatchedByEachWorkspaceId: Array.from(
+          giftsMatchedByEachWorkspaceId.values(),
+        ).sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
         matchedGiftRows: matchedRows,
         unmatchedTopFundraisers: Array.from(unmatchedFundraiserSummary.values())
           .sort((a, b) => b.totalAmount - a.totalAmount)
           .slice(0, 15),
+        paginationInfo: {
+          pageLimit,
+          maxPages,
+          totalFetched: gifts.length,
+          clientCap: pageLimit * maxPages,
+          hitClientCap: gifts.length >= pageLimit * maxPages,
+          maybeHasMorePages: gifts.length >= pageLimit * maxPages,
+        },
+        fiscalYearRange: {
+          start: fiscalYearStart,
+          end: fiscalYearEnd,
+        },
         sampledGifts: debugRows,
       },
     };
