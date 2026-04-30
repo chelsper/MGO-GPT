@@ -996,9 +996,35 @@ export default function ActionOpportunityUpdatePage() {
       const results = {};
 
       if (payload.includeAction) {
-        const useDirectProspectAction = Boolean(payload.actionBody?.linkedProspectId);
+        let resolvedLinkedProspectId = payload.actionBody?.linkedProspectId || null;
+        const selectedBlackbaudConstituentId = String(
+          payload.actionBody?.blackbaudConstituentId || "",
+        ).trim();
+
+        if (!resolvedLinkedProspectId && selectedBlackbaudConstituentId) {
+          const prospectsResponse = await fetch("/api/prospects");
+          if (prospectsResponse.ok) {
+            const prospects = await prospectsResponse.json().catch(() => []);
+            const matchedProspect = Array.isArray(prospects)
+              ? prospects.find((prospect) => {
+                  const linkedBlackbaudConstituentId = String(
+                    prospect?.linked_blackbaud_constituent_id ||
+                      prospect?.blackbaud_constituent_id ||
+                      "",
+                  ).trim();
+                  return (
+                    linkedBlackbaudConstituentId &&
+                    linkedBlackbaudConstituentId === selectedBlackbaudConstituentId
+                  );
+                })
+              : null;
+            resolvedLinkedProspectId = matchedProspect?.id || null;
+          }
+        }
+
+        const useDirectProspectAction = Boolean(resolvedLinkedProspectId);
         const actionEndpoint = useDirectProspectAction
-          ? `/api/prospects/${payload.actionBody.linkedProspectId}/actions`
+          ? `/api/prospects/${resolvedLinkedProspectId}/actions`
           : "/api/submissions/donor-update";
         const actionRequestBody = useDirectProspectAction
           ? {
@@ -1031,6 +1057,7 @@ export default function ActionOpportunityUpdatePage() {
 
         results.action = await donorResponse.json();
         results.actionEndpoint = actionEndpoint;
+        results.actionResolvedProspectId = resolvedLinkedProspectId;
       }
 
       if (payload.includeOpportunity) {
@@ -1061,19 +1088,26 @@ export default function ActionOpportunityUpdatePage() {
       const actionSyncWarning = data?.action?.blackbaudAction?.syncWarning || "";
       const successLabel = getSuccessLabel(updateMode);
       const actionEndpointUsed = data?.actionEndpoint || "";
+      const actionResolvedProspectId = data?.actionResolvedProspectId || null;
       setSuccessMessage(successLabel);
       setToast({
         tone: actionSyncWarning ? "error" : "success",
         message: actionSyncWarning
           ? `Saved, but NXT action metadata is incomplete: ${actionSyncWarning}`
           : actionEndpointUsed === "/api/submissions/donor-update"
-            ? `${successLabel} Saved through local donor update flow.`
+            ? actionResolvedProspectId
+              ? `${successLabel} Saved through local donor update flow.`
+              : `${successLabel} Saved locally only because no tracked prospect matched the selected Blackbaud constituent.`
             : successLabel,
       });
       setError(
         actionSyncWarning ||
           (actionEndpointUsed
-            ? `Action save route: ${actionEndpointUsed}`
+            ? `Action save route: ${actionEndpointUsed}${
+                actionResolvedProspectId
+                  ? ` (prospect ${actionResolvedProspectId})`
+                  : ""
+              }`
             : ""),
       );
       setProspectError("");
