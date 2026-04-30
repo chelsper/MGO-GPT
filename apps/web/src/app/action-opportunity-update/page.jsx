@@ -1115,7 +1115,7 @@ export default function ActionOpportunityUpdatePage() {
       });
       setError(
         actionSyncWarning ||
-          (actionEndpointUsed
+          (!actionSyncedToBlackbaud && actionEndpointUsed
             ? `Action save route: ${actionEndpointUsed}${
                 actionResolvedProspectId
                   ? ` (prospect ${actionResolvedProspectId})`
