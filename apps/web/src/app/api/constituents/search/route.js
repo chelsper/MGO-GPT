@@ -1,8 +1,8 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
-import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { normalizeConstituentName } from "@/app/api/utils/constituents";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 async function hasProspectsTable() {
   const result = await sql`
@@ -21,7 +21,10 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await getOrCreateUser(session);
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    if (!user) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("q") || "";
     const normalizedQuery = normalizeConstituentName(query);
