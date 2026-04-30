@@ -1094,13 +1094,21 @@ export default function ActionOpportunityUpdatePage() {
       const successLabel = getSuccessLabel(updateMode);
       const actionEndpointUsed = data?.actionEndpoint || "";
       const actionResolvedProspectId = data?.actionResolvedProspectId || null;
+      const actionSyncedToBlackbaud = Boolean(
+        data?.action?.syncedToBlackbaud ||
+          data?.action?.blackbaudAction?.verifiedActionId ||
+          data?.action?.blackbaudAction?.id ||
+          data?.action?.blackbaudAction?.action_id,
+      );
       setSuccessMessage(successLabel);
       setToast({
         tone: actionSyncWarning ? "error" : "success",
         message: actionSyncWarning
           ? `Saved, but NXT action metadata is incomplete: ${actionSyncWarning}`
           : actionEndpointUsed === "/api/submissions/donor-update"
-            ? actionResolvedProspectId
+            ? actionSyncedToBlackbaud
+              ? `${successLabel} Synced to NXT through the constituent action route.`
+              : actionResolvedProspectId
               ? `${successLabel} Saved through local donor update flow.`
               : `${successLabel} Saved locally only because no tracked prospect matched the selected Blackbaud constituent.`
             : successLabel,
