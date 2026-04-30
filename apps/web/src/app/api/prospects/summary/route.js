@@ -45,6 +45,18 @@ const CLOSED_FY_GIFT_TYPES = new Set(
   ].map(normalizeGiftToken),
 );
 
+const CLOSED_FY_GIFT_TYPE_QUERIES = [
+  "Donation",
+  "Stock",
+  "SoldStock",
+  "Other",
+  "RecurringGiftPayment",
+  "PlannedGift",
+  "Pledge",
+  "GiftInKind",
+  "MatchingGiftPledge",
+];
+
 const SUMMARY_CACHE_TTL_MS = 15 * 60 * 1000;
 
 function getGiftAmount(gift) {
@@ -449,17 +461,44 @@ async function getLiveBlackbaudClosedThisFY({
   );
   const pageLimit = 500;
   const maxPages = 20;
+  const giftsById = new Map();
+  const paginationByGiftType = [];
+  let rawFetchedRows = 0;
 
-  const gifts = await listBlackbaudGifts({
-    userId: user.id,
-    authUserId,
-    origin,
-    searchParams: {
-      limit: pageLimit,
-    },
-    pageLimit,
-    maxPages,
-  }).catch(() => []);
+  for (const giftTypeQuery of CLOSED_FY_GIFT_TYPE_QUERIES) {
+    const typedGifts = await listBlackbaudGifts({
+      userId: user.id,
+      authUserId,
+      origin,
+      searchParams: {
+        limit: pageLimit,
+        gift_type: giftTypeQuery,
+        start_gift_date: fiscalYearStart,
+        end_gift_date: fiscalYearEnd,
+      },
+      pageLimit,
+      maxPages,
+    }).catch(() => []);
+
+    rawFetchedRows += typedGifts.length;
+    paginationByGiftType.push({
+      giftType: giftTypeQuery,
+      fetched: typedGifts.length,
+      clientCap: pageLimit * maxPages,
+      hitClientCap: typedGifts.length >= pageLimit * maxPages,
+      maybeHasMorePages: typedGifts.length >= pageLimit * maxPages,
+    });
+
+    for (const gift of typedGifts) {
+      const giftId = String(gift?.id || "").trim();
+      if (!giftId) continue;
+      if (!giftsById.has(giftId)) {
+        giftsById.set(giftId, gift);
+      }
+    }
+  }
+
+  const gifts = Array.from(giftsById.values());
 
   const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
@@ -687,9 +726,11 @@ async function getLiveBlackbaudClosedThisFY({
           pageLimit,
           maxPages,
           totalFetched: gifts.length,
-          clientCap: pageLimit * maxPages,
-          hitClientCap: gifts.length >= pageLimit * maxPages,
-          maybeHasMorePages: gifts.length >= pageLimit * maxPages,
+          rawFetchedRows,
+          dedupedByGiftId: rawFetchedRows - gifts.length,
+          hitClientCap: paginationByGiftType.some((entry) => entry.hitClientCap),
+          maybeHasMorePages: paginationByGiftType.some((entry) => entry.maybeHasMorePages),
+          byGiftType: paginationByGiftType,
         },
         fiscalYearRange: {
           start: fiscalYearStart,
