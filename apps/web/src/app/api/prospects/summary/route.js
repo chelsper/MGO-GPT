@@ -346,18 +346,18 @@ async function getMatchingFundraisers({
   return matches;
 }
 
-function resolveWorkspaceFundraiserIdentitySet(user) {
-  const exactId = String(user?.blackbaud_constituent_id || "").trim();
-  if (exactId) {
-    return new Set([exactId]);
+function resolveWorkspaceGiftFundraiserId(user) {
+  const exactSystemRecordId = String(user?.blackbaud_constituent_id || "").trim();
+  if (exactSystemRecordId) {
+    return exactSystemRecordId;
   }
 
-  const lookupId = String(user?.blackbaud_lookup_id || "").trim();
-  if (lookupId) {
-    return new Set([lookupId]);
+  const fallbackLookupId = String(user?.blackbaud_lookup_id || "").trim();
+  if (fallbackLookupId) {
+    return fallbackLookupId;
   }
 
-  return new Set();
+  return null;
 }
 
 async function getLiveBlackbaudClosedThisFY({
@@ -368,7 +368,10 @@ async function getLiveBlackbaudClosedThisFY({
   fiscalYearEnd,
   debug = false,
 }) {
-  const fundraiserIdentitySet = resolveWorkspaceFundraiserIdentitySet(user);
+  const workspaceGiftFundraiserId = resolveWorkspaceGiftFundraiserId(user);
+  const fundraiserIdentitySet = workspaceGiftFundraiserId
+    ? new Set([workspaceGiftFundraiserId])
+    : new Set();
 
   const gifts = await listBlackbaudGifts({
     userId: user.id,
@@ -519,7 +522,7 @@ async function getLiveBlackbaudClosedThisFY({
       closedTotal,
       debug: {
         workspaceFundraiserName,
-        workspaceFundraiserIdUsed: Array.from(fundraiserIdentitySet)[0] || null,
+        workspaceFundraiserIdUsed: workspaceGiftFundraiserId,
         workspaceFundraiserIdentitySet: Array.from(fundraiserIdentitySet),
         totalGiftRowsFetched: gifts.length,
         fiscalYearGiftRows,
