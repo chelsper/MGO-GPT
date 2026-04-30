@@ -663,7 +663,11 @@ export default function ActionOpportunityUpdatePage() {
   }, [blackbaudExactMatch, blackbaudMatches, selectedBlackbaudMatch]);
 
   useEffect(() => {
-    if (!(includeAction || includeOpportunity) || !exactMatch || matchDecision === "new") {
+    if (
+      !(includeAction || includeOpportunity) ||
+      (!exactMatch && !selectedBlackbaudMatch?.blackbaudConstituentId) ||
+      matchDecision === "new"
+    ) {
       setLinkedProspectContext(null);
       if (!includeOpportunity) {
         setOpportunityLinkMode("create");
@@ -683,9 +687,24 @@ export default function ActionOpportunityUpdatePage() {
         if (!active) return;
 
         const normalizedDonorName = normalizeName(donorName);
+        const selectedBlackbaudConstituentId = String(
+          selectedBlackbaudMatch?.blackbaudConstituentId || "",
+        ).trim();
         const matchedProspect = Array.isArray(prospects)
           ? prospects.find((prospect) => {
-              if (exactMatch.id && prospect.constituent_id) {
+              const linkedBlackbaudConstituentId = String(
+                prospect?.linked_blackbaud_constituent_id ||
+                  prospect?.blackbaud_constituent_id ||
+                  "",
+              ).trim();
+              if (
+                selectedBlackbaudConstituentId &&
+                linkedBlackbaudConstituentId &&
+                linkedBlackbaudConstituentId === selectedBlackbaudConstituentId
+              ) {
+                return true;
+              }
+              if (exactMatch?.id && prospect.constituent_id) {
                 return Number(prospect.constituent_id) === Number(exactMatch.id);
               }
               return normalizeName(prospect.prospect_name) === normalizedDonorName;
@@ -734,7 +753,15 @@ export default function ActionOpportunityUpdatePage() {
     return () => {
       active = false;
     };
-  }, [donorName, exactMatch, includeAction, includeOpportunity, matchDecision]);
+  }, [
+    donorName,
+    exactMatch,
+    includeAction,
+    includeOpportunity,
+    matchDecision,
+    selectedBlackbaudMatch?.blackbaudConstituentId,
+  ]);
+  
 
   useEffect(() => {
     if (!includeOpportunity) return;
