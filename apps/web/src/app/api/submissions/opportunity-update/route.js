@@ -7,6 +7,11 @@ import {
   saveProspectOpportunity,
   syncJointSolicitationOpportunities,
 } from "@/app/api/utils/prospectOpportunities";
+import {
+  buildBlackbaudOpportunityPayload,
+  createBlackbaudOpportunity,
+  updateBlackbaudOpportunity,
+} from "@/app/api/utils/blackbaud";
 
 export async function POST(request) {
   try {
@@ -15,7 +20,7 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser: user } = await getWorkspaceUser(session, request);
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -54,6 +59,78 @@ export async function POST(request) {
       blackbaudConstituentId,
       createNew: Boolean(createNewConstituent),
     });
+
+    const origin = new URL(request.url).origin;
+    const linkedBlackbaudConstituentId =
+      blackbaudConstituentId || constituent?.blackbaud_constituent_id || null;
+
+    let existingLinkedOpportunity = null;
+    if (linkedOpportunityId) {
+      const linkedOpportunityRows = await sql`
+        SELECT po.*, p.user_id
+        FROM prospect_opportunities po
+        INNER JOIN prospects p ON p.id = po.prospect_id
+        WHERE po.id = ${linkedOpportunityId} AND p.user_id = ${user.id}
+        LIMIT 1
+      `;
+      existingLinkedOpportunity = linkedOpportunityRows[0] || null;
+    }
+
+    let blackbaudOpportunity = null;
+    let blackbaudSync = null;
+
+    if (linkedBlackbaudConstituentId) {
+      const blackbaudPayload = buildBlackbaudOpportunityPayload({
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+        title: opportunityTitle,
+        currentStage: opportunityStage,
+        estimatedAmount: askAmount ?? null,
+        askDate: askDate || null,
+        expectedDate: expectedDate || null,
+      });
+
+      try {
+        if (existingLinkedOpportunity?.blackbaud_opportunity_id) {
+          await updateBlackbaudOpportunity({
+            userId: user.id,
+            authUserId: sessionUser?.id || user.id,
+            origin,
+            opportunityId: existingLinkedOpportunity.blackbaud_opportunity_id,
+            payload: blackbaudPayload,
+          });
+          blackbaudOpportunity = {
+            id: String(existingLinkedOpportunity.blackbaud_opportunity_id),
+          };
+          blackbaudSync = {
+            status: "synced",
+            opportunityId: String(existingLinkedOpportunity.blackbaud_opportunity_id),
+          };
+        } else {
+          blackbaudOpportunity = await createBlackbaudOpportunity({
+            userId: user.id,
+            authUserId: sessionUser?.id || user.id,
+            origin,
+            payload: blackbaudPayload,
+          });
+          blackbaudSync = blackbaudOpportunity?.id
+            ? {
+                status: "synced",
+                opportunityId: String(blackbaudOpportunity.id),
+              }
+            : null;
+        }
+      } catch (error) {
+        return Response.json(
+          {
+            error:
+              error instanceof Error && error.message
+                ? `Could not sync NXT opportunity: ${error.message}`
+                : "Could not sync NXT opportunity",
+          },
+          { status: 502 },
+        );
+      }
+    }
 
     const result = await sql`
       INSERT INTO submissions (
@@ -105,6 +182,8 @@ export async function POST(request) {
         prospectId: linkedProspectId,
         constituentId: constituent?.id || null,
         opportunityId: createNewOpportunity ? null : linkedOpportunityId,
+        blackbaudOpportunityId:
+          blackbaudOpportunity?.id ? String(blackbaudOpportunity.id) : null,
         title: opportunityTitle,
         currentStage: opportunityStage,
         askAmount: askAmount ?? null,
@@ -155,7 +234,13 @@ export async function POST(request) {
       console.error("Email notification failed:", err),
     );
 
-    return Response.json(savedSubmission, { status: 201 });
+    return Response.json(
+      {
+        ...savedSubmission,
+        blackbaudSync: blackbaudSync || { status: "local-only" },
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("Error creating opportunity update:", error);
     return Response.json(
