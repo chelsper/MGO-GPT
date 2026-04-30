@@ -997,24 +997,29 @@ export default function ActionOpportunityUpdatePage() {
 
       if (payload.includeAction) {
         let resolvedLinkedProspectId = payload.actionBody?.linkedProspectId || null;
-        const selectedBlackbaudConstituentId = String(
-          payload.actionBody?.blackbaudConstituentId || "",
-        ).trim();
+        const selectedBlackbaudIds = [
+          payload.actionBody?.blackbaudConstituentId,
+          payload.actionBody?.blackbaudLookupId,
+          payload.actionBody?.lookupId,
+          payload.actionBody?.blackbaudRecordId,
+        ]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean);
 
-        if (!resolvedLinkedProspectId && selectedBlackbaudConstituentId) {
+        if (!resolvedLinkedProspectId && selectedBlackbaudIds.length > 0) {
           const prospectsResponse = await fetch("/api/prospects");
           if (prospectsResponse.ok) {
             const prospects = await prospectsResponse.json().catch(() => []);
             const matchedProspect = Array.isArray(prospects)
               ? prospects.find((prospect) => {
-                  const linkedBlackbaudConstituentId = String(
-                    prospect?.linked_blackbaud_constituent_id ||
-                      prospect?.blackbaud_constituent_id ||
-                      "",
-                  ).trim();
-                  return (
-                    linkedBlackbaudConstituentId &&
-                    linkedBlackbaudConstituentId === selectedBlackbaudConstituentId
+                  const candidateProspectIds = [
+                    prospect?.linked_blackbaud_constituent_id,
+                    prospect?.blackbaud_constituent_id,
+                  ]
+                    .map((value) => String(value || "").trim())
+                    .filter(Boolean);
+                  return candidateProspectIds.some((candidateId) =>
+                    selectedBlackbaudIds.includes(candidateId),
                   );
                 })
               : null;
@@ -1375,6 +1380,12 @@ export default function ActionOpportunityUpdatePage() {
             donorName,
             constituentId,
             blackbaudConstituentId,
+            blackbaudLookupId:
+              selectedBlackbaudMatch?.blackbaudLookupId ||
+              selectedBlackbaudMatch?.lookupId ||
+              null,
+            lookupId: selectedBlackbaudMatch?.lookupId || null,
+            blackbaudRecordId: selectedBlackbaudMatch?.blackbaudRecordId || null,
             createNewConstituent,
             interactionType,
             actionCategory,
