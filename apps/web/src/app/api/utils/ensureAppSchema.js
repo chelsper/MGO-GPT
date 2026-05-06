@@ -922,13 +922,109 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
         article_id TEXT PRIMARY KEY,
+        category_id TEXT,
+        article_type TEXT,
+        status TEXT,
         title TEXT,
         summary TEXT,
         tags JSONB,
+        related_article_ids JSONB,
+        related_system_ids JSONB,
+        related_process_ids JSONB,
+        related_request_links JSONB,
+        owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        reviewer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        last_reviewed_at DATE,
+        published_at TIMESTAMPTZ,
+        template_key TEXT,
+        featured BOOLEAN NOT NULL DEFAULT FALSE,
+        sort_order INTEGER,
         sections JSONB,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS category_id TEXT
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS article_type TEXT
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS status TEXT
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS related_article_ids JSONB
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS related_system_ids JSONB
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS related_process_ids JSONB
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS related_request_links JSONB
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS reviewer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS last_reviewed_at DATE
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS template_key TEXT
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS sort_order INTEGER
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE knowledge_base_article_overrides
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS knowledge_base_article_revisions (
+        id BIGSERIAL PRIMARY KEY,
+        article_id TEXT NOT NULL,
+        snapshot JSONB NOT NULL,
+        action TEXT NOT NULL DEFAULT 'save',
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_kb_revisions_article
+      ON knowledge_base_article_revisions (article_id, created_at DESC)
     `;
   })();
 
