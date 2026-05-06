@@ -29,6 +29,7 @@ export async function POST(request) {
     const {
       donorName,
       opportunityTitle,
+      purpose,
       opportunityStage,
       askAmount,
       askDate,
@@ -83,6 +84,7 @@ export async function POST(request) {
       const blackbaudPayload = buildBlackbaudOpportunityPayload({
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         title: opportunityTitle,
+        purpose,
         currentStage: opportunityStage,
         estimatedAmount: askAmount ?? null,
         askDate: askDate || null,
@@ -185,6 +187,7 @@ export async function POST(request) {
         blackbaudOpportunityId:
           blackbaudOpportunity?.id ? String(blackbaudOpportunity.id) : null,
         title: opportunityTitle,
+        purpose,
         currentStage: opportunityStage,
         askAmount: askAmount ?? null,
         askDate: askDate || null,
@@ -217,6 +220,7 @@ export async function POST(request) {
         donorName,
         blackbaudConstituentId,
         title: opportunityTitle,
+        purpose,
         currentStage: opportunityStage,
         askAmount: askAmount ?? null,
         askDate: askDate || null,

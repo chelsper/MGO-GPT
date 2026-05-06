@@ -1024,6 +1024,7 @@ function toBlackbaudDateTime(value) {
 export function buildBlackbaudOpportunityPayload({
   blackbaudConstituentId,
   title,
+  purpose,
   currentStage,
   estimatedAmount,
   askDate,
@@ -1041,6 +1042,11 @@ export function buildBlackbaudOpportunityPayload({
   const normalizedTitle = String(title || "").trim();
   if (normalizedTitle) {
     payload.name = normalizedTitle;
+  }
+
+  const normalizedPurpose = String(purpose || "").trim();
+  if (normalizedPurpose) {
+    payload.purpose = normalizedPurpose;
   }
 
   const normalizedStage = String(currentStage || "").trim();

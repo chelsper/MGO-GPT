@@ -28,6 +28,7 @@ export default function UpdateOpportunityPage() {
   const [donorName, setDonorName] = useState("");
   const [opportunityStage, setOpportunityStage] = useState("Identification");
   const [estimatedAmount, setEstimatedAmount] = useState("");
+  const [purpose, setPurpose] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -148,6 +149,26 @@ export default function UpdateOpportunityPage() {
     };
   }, [exactMatch, donorName, matchDecision]);
 
+  useEffect(() => {
+    if (
+      linkedProspectContext?.opportunities?.length &&
+      opportunityLinkMode === "update" &&
+      selectedOpportunityId
+    ) {
+      const selectedOpportunity = linkedProspectContext.opportunities.find(
+        (opportunity) => String(opportunity.id) === String(selectedOpportunityId),
+      );
+      if (selectedOpportunity) {
+        setPurpose(selectedOpportunity.purpose || "");
+      }
+      return;
+    }
+
+    if (opportunityLinkMode === "create") {
+      setPurpose("");
+    }
+  }, [linkedProspectContext, opportunityLinkMode, selectedOpportunityId]);
+
   const submitMutation = useMutation({
     mutationFn: async (data) => {
       const res = await fetch("/api/submissions/opportunity-update", {
@@ -173,6 +194,7 @@ export default function UpdateOpportunityPage() {
       setDonorName("");
       setOpportunityStage("Identification");
       setEstimatedAmount("");
+      setPurpose("");
       setNotes("");
       setConstituentMatches([]);
       setMatchDecision("");
@@ -262,10 +284,16 @@ export default function UpdateOpportunityPage() {
       return;
     }
 
+    if (!purpose.trim()) {
+      setError("Please enter the opportunity purpose required for NXT.");
+      return;
+    }
+
     submitMutation.mutate({
       donorName,
       constituentId: matchDecision === "link" ? exactMatch?.id || null : null,
       createNewConstituent: matchDecision === "new",
+      purpose: purpose.trim(),
       opportunityStage,
       estimatedAmount: estimatedAmount ? parseFloat(estimatedAmount) : null,
       notes,
@@ -844,6 +872,42 @@ export default function UpdateOpportunityPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              border: "1px solid #E5E7EB",
+              padding: "24px",
+              marginBottom: "20px",
+            }}
+          >
+            <label
+              style={{
+                display: "block",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: "8px",
+              }}
+            >
+              Purpose
+            </label>
+            <input
+              type="text"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              placeholder="Future. Made. Campaign"
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                border: "1px solid #D1D5DB",
+                borderRadius: "8px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+              }}
+            />
           </div>
 
           <div

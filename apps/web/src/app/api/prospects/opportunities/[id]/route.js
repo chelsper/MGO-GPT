@@ -31,6 +31,7 @@ export async function PUT(request, { params }) {
     const body = await request.json();
     const {
       title,
+      purpose,
       currentStage,
       estimatedAmount,
       askDate,
@@ -62,6 +63,7 @@ export async function PUT(request, { params }) {
     const nextLatestNotes =
       latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes;
     const nextTitle = title?.trim() || existing.title;
+    const nextPurpose = purpose?.trim() || existing.purpose;
     const nextStage = currentStage || existing.current_stage;
     const nextClosedAmount =
       nextOpportunityStatus === "Closed – Gift Secured"
@@ -91,6 +93,7 @@ export async function PUT(request, { params }) {
     if (existing.blackbaud_opportunity_id) {
       const blackbaudPayload = buildBlackbaudOpportunityPayload({
         title: nextTitle,
+        purpose: nextPurpose,
         currentStage: nextStage,
         estimatedAmount: nextEstimatedAmount,
         askDate: askDate || existing.ask_date || null,
@@ -127,6 +130,7 @@ export async function PUT(request, { params }) {
       UPDATE prospect_opportunities
       SET
         title = ${nextTitle},
+        purpose = ${nextPurpose},
         current_stage = ${nextStage},
         opportunity_status = ${nextOpportunityStatus},
         estimated_amount = ${nextEstimatedAmount},

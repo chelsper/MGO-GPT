@@ -560,6 +560,10 @@ export default async function ensureAppSchema() {
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS shared_opportunity_key TEXT
     `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS purpose TEXT
+    `;
 
     await sql`
       UPDATE prospect_opportunities

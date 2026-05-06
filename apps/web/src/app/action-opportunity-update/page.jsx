@@ -131,6 +131,7 @@ export default function ActionOpportunityUpdatePage() {
   const [askAmount, setAskAmount] = useState("");
   const [askDate, setAskDate] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
+  const [opportunityPurpose, setOpportunityPurpose] = useState("");
   const [opportunityNotes, setOpportunityNotes] = useState("");
   const [opportunityTitle, setOpportunityTitle] = useState("");
   const [constituentMatches, setConstituentMatches] = useState([]);
@@ -777,6 +778,7 @@ export default function ActionOpportunityUpdatePage() {
 
       if (selectedOpportunity) {
         setOpportunityTitle(selectedOpportunity.title || `${donorName.trim()} opportunity`);
+        setOpportunityPurpose(selectedOpportunity.purpose || "");
         setOpportunityStage(selectedOpportunity.current_stage || "Identification");
         setAskAmount(
           selectedOpportunity.estimated_amount != null
@@ -1159,6 +1161,7 @@ export default function ActionOpportunityUpdatePage() {
       setAskAmount("");
       setAskDate("");
       setExpectedDate("");
+      setOpportunityPurpose("");
       setOpportunityNotes("");
       setOpportunityTitle("");
       setConstituentMatches([]);
@@ -1337,6 +1340,11 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
+    if (includeOpportunity && !opportunityPurpose.trim()) {
+      setError("Please enter the opportunity purpose required for NXT.");
+      return;
+    }
+
     if (includeOpportunity && !askAmount) {
       setError("Please enter the ask amount for the opportunity update.");
       return;
@@ -1418,6 +1426,7 @@ export default function ActionOpportunityUpdatePage() {
             blackbaudConstituentId,
             createNewConstituent,
             opportunityTitle: opportunityTitle.trim(),
+            purpose: opportunityPurpose.trim(),
             opportunityStage,
             askAmount: askAmount ? parseFloat(askAmount) : null,
             askDate: askDate || null,
@@ -2616,6 +2625,33 @@ export default function ActionOpportunityUpdatePage() {
                     value={opportunityTitle}
                     onChange={(event) => setOpportunityTitle(event.target.value)}
                     placeholder={`${donorName.trim() || "Donor"} opportunity`}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  />
+
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Purpose
+                  </label>
+                  <input
+                    type="text"
+                    value={opportunityPurpose}
+                    onChange={(event) => setOpportunityPurpose(event.target.value)}
+                    placeholder="Future. Made. Campaign"
                     style={{
                       width: "100%",
                       padding: "10px 14px",

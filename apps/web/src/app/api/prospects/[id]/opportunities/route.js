@@ -26,6 +26,7 @@ export async function POST(request, { params }) {
     const body = await request.json();
     const {
       title,
+      purpose,
       currentStage,
       estimatedAmount,
       askDate,
@@ -63,6 +64,7 @@ export async function POST(request, { params }) {
         payload: buildBlackbaudOpportunityPayload({
           blackbaudConstituentId: linkedBlackbaudConstituentId,
           title,
+          purpose,
           currentStage: currentStage || "Identification",
           estimatedAmount: estimatedAmount ?? null,
           askDate: askDate || null,
@@ -80,6 +82,7 @@ export async function POST(request, { params }) {
         ? String(blackbaudOpportunity.id)
         : null,
       title,
+      purpose,
       currentStage: currentStage || "Identification",
       askAmount: estimatedAmount ?? null,
       askDate: askDate || null,
