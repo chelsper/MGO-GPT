@@ -430,15 +430,15 @@ function HomeView({
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
             <Badge tone="accent">Knowledge Base Home</Badge>
             <span style={{ fontSize: "13px", color: "#6B7280" }}>
-              Structure-first, content-safe browsing for supplied procedures and standards.
+              A centralized operational framework for systems, processes, data governance, and institutional knowledge.
             </span>
           </div>
           <h2 style={{ fontSize: "28px", lineHeight: 1.1, margin: 0, color: "#111827" }}>
-            Browse interconnected procedures, systems, processes, and reference guidance.
+            Advancement Knowledge Base
           </h2>
           <p style={{ margin: 0, fontSize: "14px", color: "#6B7280", lineHeight: 1.7 }}>
-            The Knowledge Base now separates article content from navigation structure, so supplied content can be linked,
-            reviewed, and maintained without editing raw HTML.
+            Connect procedures, systems, reporting standards, and operational workflows across University Advancement
+            and related departments through a structured, searchable knowledge network.
           </p>
         </div>
       </Card>
