@@ -268,6 +268,25 @@ async function loadOverrides() {
   `;
 }
 
+async function loadRevisions() {
+  await ensureAppSchema();
+  return sql`
+    SELECT
+      r.id,
+      r.article_id,
+      r.snapshot,
+      r.action,
+      r.created_at,
+      r.created_by,
+      u.name AS created_by_name,
+      u.email AS created_by_email
+    FROM knowledge_base_article_revisions r
+    LEFT JOIN users u
+      ON u.id = r.created_by
+    ORDER BY r.created_at DESC
+  `;
+}
+
 async function resolveReviewer() {
   const session = await auth();
   if (!session?.user?.email) return null;
@@ -390,6 +409,27 @@ export async function GET(request) {
     isReviewerRole(reviewer.role);
 
   const payload = buildPayload({ overrides, users, includeDrafts });
+  const revisions = includeDrafts ? await loadRevisions() : [];
+  const revisionsByArticle = revisions.reduce((accumulator, revision) => {
+    const articleId = String(revision.article_id || "");
+    if (!articleId) return accumulator;
+    if (!accumulator[articleId]) accumulator[articleId] = [];
+    if (accumulator[articleId].length >= 15) return accumulator;
+    accumulator[articleId].push({
+      id: revision.id,
+      action: revision.action,
+      createdAt: normalizeDateString(revision.created_at) || revision.created_at,
+      createdBy: revision.created_by
+        ? {
+            id: Number(revision.created_by),
+            name: revision.created_by_name || revision.created_by_email || `User ${revision.created_by}`,
+            email: revision.created_by_email || "",
+          }
+        : null,
+      snapshot: revision.snapshot && typeof revision.snapshot === "object" ? revision.snapshot : null,
+    });
+    return accumulator;
+  }, {});
 
   return Response.json({
     ...payload,
@@ -409,7 +449,7 @@ export async function GET(request) {
           isAdmin: false,
         },
     ...(includeDrafts
-      ? {
+        ? {
           editorOptions: {
             users: users.map((user) => ({
               id: user.id,
@@ -417,6 +457,7 @@ export async function GET(request) {
               email: user.email,
               role: user.role,
             })),
+            revisionsByArticle,
           },
         }
       : {}),

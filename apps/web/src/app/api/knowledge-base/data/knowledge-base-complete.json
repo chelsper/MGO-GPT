@@ -2077,7 +2077,8 @@
     },
     {
       "id": "advancement-services-responsibilities",
-      "categoryId": "advancement-ops",
+      "categoryId": "advancement-services-processes",
+      "articleType": "reference",
       "title": "Advancement Services Responsibilities",
       "summary": "Advancement Services supports fundraising by processing donations, maintaining donor records, providing prospect research, managing Raiser’s Edge, and handling all reporting.",
       "tags": [
@@ -2089,6 +2090,22 @@
       ],
       "lastUpdated": "2026-03-06",
       "sections": {
+        "fields": {
+          "purpose": "Advancement Services supports the fundraising and relationship-building efforts of the university by processing donations, maintaining confidential donor and alumni records, providing prospect research, creating lists for events and mailings, managing fundraising support software and the Raiser’s Edge database, and handling reporting functions.",
+          "relatedSystems": [
+            "Raiser's Edge NXT (Blackbaud)",
+            "GiveCampus",
+            "NXT Online Giving / Blackbaud Merchant Services"
+          ],
+          "responsibleRoles": [
+            "Advancement Services"
+          ],
+          "relatedProcedures": [
+            "Event Management",
+            "Requesting Information & Confidentiality",
+            "Acknowledgement Processes"
+          ]
+        },
         "rulesStandards": [
           "GIFT PROCESSING:",
           "Approval of gift account expenditures exceeding $5K.",
@@ -2134,9 +2151,11 @@
           "Not following up on gift acknowledgment status"
         ],
         "relatedArticles": [
+          "raisers-edge-nxt-blackbaud",
           "event-management",
           "requesting-information",
-          "dev-data"
+          "dev-data",
+          "acknowledgement-processes"
         ]
       }
     },
@@ -2188,7 +2207,8 @@
     },
     {
       "id": "event-management",
-      "categoryId": "advancement-ops",
+      "categoryId": "advancement-services-processes",
+      "articleType": "process",
       "title": "Event Management",
       "summary": "Any campus event with online registration through NXT or a charitable component must involve Advancement Services for proper processing and compliance.",
       "tags": [
@@ -2201,6 +2221,46 @@
       ],
       "lastUpdated": "2026-03-06",
       "sections": {
+        "fields": {
+          "purpose": "To define when Advancement Services must be contacted for campus events involving online registration or a charitable component.",
+          "trigger": "A campus event is being planned and it will use online registration or include a charitable component.",
+          "inputs": [
+            "Event details",
+            "Registration method",
+            "Ticket pricing and fair market value information",
+            "Auction details if applicable",
+            "Sponsor benefit details if applicable"
+          ],
+          "steps": [
+            "Determine whether the event will utilize online registration through OLX.",
+            "Determine whether the event has a charitable component.",
+            "If ticket sales exceed fair market value, document the fair market value and charitable portion.",
+            "If there will be free admission with an optional donation, include Advancement Services in setup and processing.",
+            "If there will be a silent auction, include Advancement Services for donor and gift handling.",
+            "If there will be sponsors, confirm whether they are receiving a substantial return benefit.",
+            "Contact Advancement Services before moving forward with registration and gift-processing setup."
+          ],
+          "systemsUsed": [
+            "OLX"
+          ],
+          "responsibleRoles": [
+            "Advancement Services"
+          ],
+          "outputs": [
+            "Compliant event registration setup",
+            "Proper charitable gift handling",
+            "Event record-keeping"
+          ],
+          "relatedProcedures": [
+            "Auctions",
+            "Sponsorships"
+          ],
+          "risksCommonFailurePoints": [
+            "Not involving Advancement Services before launching a charitable event",
+            "Failing to identify the tax-deductible portion of ticket sales",
+            "Handling sponsor arrangements without reviewing IRS return-benefit rules"
+          ]
+        },
         "rulesStandards": [
           "Advancement Services must be contacted for any on-campus event where:",
           "1. The event will utilize online registration through NXT.",
@@ -2232,13 +2292,15 @@
           "ticket-sales-events",
           "auctions",
           "sponsorships",
-          "advancement-services-responsibilities"
+          "advancement-services-responsibilities",
+          "nxt-online-giving-blackbaud-merchant-services"
         ]
       }
     },
     {
       "id": "requesting-information",
-      "categoryId": "advancement-ops",
+      "categoryId": "advancement-services-processes",
+      "articleType": "process",
       "title": "Requesting Information & Confidentiality",
       "summary": "All requests for mailing lists, donor data, and other information must go through Advancement Services. Strict confidentiality rules govern how data is shared and used.",
       "tags": [
@@ -2250,6 +2312,44 @@
       ],
       "lastUpdated": "2026-03-06",
       "sections": {
+        "fields": {
+          "purpose": "To route mailing-list, donor-data, gift-list, and other information requests through the Advancement Services Portal while protecting confidential donor and student information.",
+          "trigger": "A member of University Advancement staff, other university staff, or an approved volunteer needs donor, mailing, gift, or related advancement information.",
+          "inputs": [
+            "Completed request form in the Advancement Services Portal",
+            "Business purpose for the request",
+            "Approval for volunteer requests when applicable"
+          ],
+          "steps": [
+            "Submit the appropriate request form through the online Advancement Services Portal in the MyJU Portal.",
+            "Complete the form in its entirety and provide at least 7 business days for completion.",
+            "Use the University Advancement liaison for the relevant area if help is needed selecting or completing the request.",
+            "Obtain approval from the Senior Director of Advancement Services for any volunteer-provided request.",
+            "Apply confidentiality and information-release rules before sharing any database information.",
+            "Route media requests to Jacksonville University Marketing and Communications.",
+            "Route requests for current-student information to the Registrar’s Office."
+          ],
+          "systemsUsed": [
+            "Advancement Services Portal",
+            "Raiser's Edge NXT (Blackbaud)"
+          ],
+          "responsibleRoles": [
+            "Advancement Services",
+            "Senior Director of Advancement Services",
+            "Senior Vice President"
+          ],
+          "outputs": [
+            "Approved mailing lists",
+            "Approved donor or gift data extracts",
+            "Rejected or redirected requests when release rules do not allow disclosure"
+          ],
+          "risksCommonFailurePoints": [
+            "Sharing donor data without required approval",
+            "Using advancement data for personal or non-fundraising purposes",
+            "Releasing current-student information instead of routing to the Registrar’s Office",
+            "Responding to media requests instead of referring them to Marketing and Communications"
+          ]
+        },
         "rulesStandards": [
           "All mailing lists, donor lists, gift lists, and other data requests must go through Advancement Services.",
           "Requests from volunteers must be approved by the Senior Director of Advancement Services.",
@@ -2295,7 +2395,71 @@
         "relatedArticles": [
           "advancement-services-responsibilities",
           "donor-bill-of-rights",
-          "ethics-statement"
+          "ethics-statement",
+          "raisers-edge-nxt-blackbaud"
+        ]
+      }
+    },
+    {
+      "id": "acknowledgement-processes",
+      "categoryId": "donor-acknowledgement",
+      "articleType": "process",
+      "title": "Acknowledgement Processes",
+      "summary": "Acknowledgement handling for gifts received by Advancement Services, including electronic and mailed tax receipts by gift type.",
+      "tags": [
+        "acknowledgement",
+        "tax receipt",
+        "gift processing",
+        "receipting"
+      ],
+      "lastUpdated": "2026-05-06",
+      "sections": {
+        "fields": {
+          "purpose": "To define how thank-you letters and tax receipts are delivered based on how a donation is received by the University Advancement Services Team.",
+          "trigger": "A donation is received by the University Advancement Services Team.",
+          "inputs": [
+            "Gift received by Advancement Services",
+            "Gift method",
+            "Address on record or donor email address"
+          ],
+          "steps": [
+            "Enter the gift into Raiser’s Edge based on the method by which it is received.",
+            "For gifts received through GiveCampus or OLX, generate and send an electronic acknowledgement containing tax language to the email address provided with the donation.",
+            "For gifts received via check, ACH, stock, or gift-in-kind, send a hard copy receipt to the address on record via U.S. mail.",
+            "If requested and an email address is provided, send an electronic receipt in addition to the mailed receipt."
+          ],
+          "systemsUsed": [
+            "Raiser's Edge NXT (Blackbaud)",
+            "GiveCampus",
+            "OLX"
+          ],
+          "responsibleRoles": [
+            "University Advancement Services Team"
+          ],
+          "outputs": [
+            "Electronic acknowledgement with tax language",
+            "Hard copy tax receipt",
+            "Optional electronic receipt for mailed-gift scenarios"
+          ]
+        },
+        "rulesStandards": [
+          "When a donation is received by the University Advancement Services Team, the gift is entered into Raiser’s Edge based on the method it is received.",
+          "For gifts received through GiveCampus or OLX, an electronic acknowledgement containing tax language is automatically generated and sent to the email address provided with the donation.",
+          "For gifts received via check, ACH, stock, or gift-in-kind, a hard copy receipt is sent to the address on record via U.S. mail.",
+          "An electronic receipt can additionally be sent by request if an email address is provided."
+        ],
+        "relatedArticles": [
+          "advancement-services-responsibilities",
+          "givecampus",
+          "raisers-edge-nxt-blackbaud"
+        ],
+        "contentBlocks": [
+          {
+            "id": "ack-overview",
+            "type": "text",
+            "title": "Overview",
+            "text": "Acknowledgement handling depends on the method by which a gift is received. Electronic gift channels receive electronic tax-language acknowledgements, while check, ACH, stock, and gift-in-kind receipts are mailed unless an additional electronic receipt is requested."
+          }
         ]
       }
     },
@@ -2609,6 +2773,407 @@
           "planned-gifts-counting",
           "heritage-society",
           "advancement-services-responsibilities"
+        ]
+      }
+    },
+    {
+      "id": "raisers-edge-nxt-blackbaud",
+      "categoryId": "systems-documentation",
+      "articleType": "system",
+      "title": "Raiser's Edge NXT (Blackbaud)",
+      "summary": "Primary constituent relationship management (CRM) system used for fundraising, donor engagement, gift processing, stewardship, prospect management, and campaign tracking.",
+      "tags": [
+        "blackbaud",
+        "crm",
+        "constituents",
+        "prospect management",
+        "campaign reporting",
+        "solicitor credit"
+      ],
+      "lastUpdated": "2026-05-06",
+      "sections": {
+        "fields": {
+          "purpose": "Primary constituent relationship management (CRM) system used for fundraising, donor engagement, gift processing, stewardship, prospect management, and campaign tracking.",
+          "whoUsesIt": [
+            "Advancement Services",
+            "Major Gift Officers",
+            "Annual Giving",
+            "Stewardship",
+            "Advancement Leadership"
+          ],
+          "dataLivesThere": [
+            "Constituent demographics",
+            "Giving records",
+            "Relationships",
+            "Proposal pipeline",
+            "Solicitor credit",
+            "Event participation",
+            "Householding",
+            "Campaign and appeal structure"
+          ],
+          "sourceOfTruthNotes": [
+            "Source of truth for donor and constituent records",
+            "Source of truth for philanthropic giving history",
+            "Source of truth for prospect management",
+            "Source of truth for solicitor assignments",
+            "Source of truth for campaign participation",
+            "Source of truth for fundraising opportunities and proposals",
+            "Source of truth for soft credit and recognition tracking",
+            "Source of truth for donor and constituent data",
+            "Campaign reporting follows University Advancement business rules",
+            "Solicitor credit and campaign credit may differ from accounting classifications",
+            "Lifetime giving calculations include soft-credit recognition per Advancement Services standards",
+            "Householding and recognition logic follow Advancement Services governance rules"
+          ],
+          "relatedProcesses": [
+            "Gift Processing",
+            "Campaign Reporting",
+            "Prospect Assignment",
+            "Solicitor Credit Management",
+            "Stewardship Reporting"
+          ],
+          "commonIssues": [
+            "Campaign reporting follows University Advancement business rules",
+            "Solicitor credit and campaign credit may differ from accounting classifications",
+            "Householding and recognition logic follow Advancement Services governance rules"
+          ],
+          "ownerNotes": "Department Owner(s): University Advancement; Advancement Services"
+        },
+        "relatedArticles": [
+          "nxt-online-giving-blackbaud-merchant-services",
+          "givecampus",
+          "scholarshipuniverse"
+        ],
+        "contentBlocks": [
+          {
+            "id": "re-nxt-overview",
+            "type": "text",
+            "title": "Overview",
+            "text": "Raiser's Edge NXT (Blackbaud) is the primary CRM system used for fundraising, donor engagement, gift processing, stewardship, prospect management, and campaign tracking."
+          },
+          {
+            "id": "re-nxt-owners",
+            "type": "list",
+            "title": "Department Owner(s)",
+            "items": [
+              "University Advancement",
+              "Advancement Services"
+            ]
+          },
+          {
+            "id": "re-nxt-source-of-truth",
+            "type": "list",
+            "title": "Source of Truth Areas",
+            "items": [
+              "Donor and constituent records",
+              "Philanthropic giving history",
+              "Prospect management",
+              "Solicitor assignments",
+              "Campaign participation",
+              "Fundraising opportunities and proposals",
+              "Soft credit and recognition tracking"
+            ]
+          },
+          {
+            "id": "re-nxt-integrations",
+            "type": "list",
+            "title": "Integrations / Connected Systems",
+            "items": [
+              "Blackbaud Merchant Services",
+              "NXT Online Giving",
+              "GiveCampus",
+              "Almabase",
+              "ScholarshipUniverse",
+              "ReportingXpress",
+              "Custom MGO Workspace App",
+              "Power BI / reporting tools (if applicable)"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ellucian-colleague",
+      "categoryId": "systems-documentation",
+      "articleType": "system",
+      "title": "Ellucian Colleague",
+      "summary": "Primary student information system (SIS) supporting admissions, enrollment, registration, financial aid, student accounts, and academic records.",
+      "tags": [
+        "sis",
+        "student records",
+        "enrollment",
+        "financial aid",
+        "registration"
+      ],
+      "lastUpdated": "2026-05-06",
+      "sections": {
+        "fields": {
+          "purpose": "Primary student information system (SIS) supporting admissions, enrollment, registration, financial aid, student accounts, and academic records.",
+          "whoUsesIt": [
+            "Registrar",
+            "Financial Aid",
+            "Admissions",
+            "Student Accounts",
+            "Academic Departments"
+          ],
+          "dataLivesThere": [
+            "Student demographics",
+            "Academic programs",
+            "Enrollment records",
+            "FAFSA-related information",
+            "Student account balances",
+            "Registration data"
+          ],
+          "sourceOfTruthNotes": [
+            "Source of truth for student records",
+            "Source of truth for enrollment status",
+            "Source of truth for academic history",
+            "Source of truth for registration",
+            "Source of truth for financial aid packaging",
+            "Source of truth for student billing/account status",
+            "Delays or changes in student authentication/access may affect downstream systems such as ScholarshipUniverse",
+            "Student status and registration drive many scholarship eligibility workflows"
+          ],
+          "relatedProcesses": [
+            "Student Onboarding",
+            "Scholarship Matching",
+            "Financial Aid Packaging",
+            "Registration"
+          ],
+          "ownerNotes": "Department Owner(s): Information Technology; Enrollment Management; Student Financial Services; Registrar"
+        },
+        "relatedArticles": [
+          "scholarshipuniverse"
+        ],
+        "contentBlocks": [
+          {
+            "id": "colleague-overview",
+            "type": "text",
+            "title": "Overview",
+            "text": "Ellucian Colleague is the primary student information system supporting admissions, enrollment, registration, financial aid, student accounts, and academic records."
+          },
+          {
+            "id": "colleague-owners",
+            "type": "list",
+            "title": "Department Owner(s)",
+            "items": [
+              "Information Technology",
+              "Enrollment Management",
+              "Student Financial Services",
+              "Registrar"
+            ]
+          },
+          {
+            "id": "colleague-integrations",
+            "type": "list",
+            "title": "Integrations / Connected Systems",
+            "items": [
+              "ScholarshipUniverse",
+              "myJU authentication/access",
+              "Reporting systems",
+              "Learning management systems (if applicable)"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "scholarshipuniverse",
+      "categoryId": "systems-documentation",
+      "articleType": "system",
+      "title": "ScholarshipUniverse",
+      "summary": "Scholarship matching and scholarship application platform used to connect students with institutional and external scholarship opportunities.",
+      "tags": [
+        "scholarships",
+        "student matching",
+        "applications",
+        "financial aid"
+      ],
+      "lastUpdated": "2026-05-06",
+      "sections": {
+        "fields": {
+          "purpose": "Scholarship matching and scholarship application platform used to connect students with institutional and external scholarship opportunities.",
+          "whoUsesIt": [
+            "Students",
+            "Financial Aid",
+            "University Advancement"
+          ],
+          "dataLivesThere": [
+            "Scholarship criteria",
+            "Student matching responses",
+            "Scholarship applications",
+            "External scholarship listings"
+          ],
+          "sourceOfTruthNotes": [
+            "Source of truth for scholarship matching logic",
+            "Source of truth for scholarship application workflows",
+            "Source of truth for external scholarship opportunities",
+            "Donor-funded scholarship criteria are maintained collaboratively between University Advancement and ScholarshipUniverse",
+            "Student eligibility and registration data are dependent on Colleague integration",
+            "Authentication timing impacts student access and adoption"
+          ],
+          "relatedProcesses": [
+            "Scholarship Matching",
+            "Donor Scholarship Administration",
+            "External Scholarship Search"
+          ],
+          "ownerNotes": "Department Owner(s): University Advancement (donor-funded criteria); Financial Aid; Enrollment Management"
+        },
+        "relatedArticles": [
+          "ellucian-colleague",
+          "raisers-edge-nxt-blackbaud"
+        ],
+        "contentBlocks": [
+          {
+            "id": "scholarshipuniverse-overview",
+            "type": "text",
+            "title": "Overview",
+            "text": "ScholarshipUniverse is the scholarship matching and scholarship application platform used to connect students with institutional and external scholarship opportunities."
+          },
+          {
+            "id": "scholarshipuniverse-integrations",
+            "type": "list",
+            "title": "Integrations / Connected Systems",
+            "items": [
+              "Ellucian Colleague",
+              "Raiser's Edge NXT (scholarship-related coordination)"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "nxt-online-giving-blackbaud-merchant-services",
+      "categoryId": "systems-documentation",
+      "articleType": "system",
+      "title": "NXT Online Giving / Blackbaud Merchant Services",
+      "summary": "Primary online giving infrastructure for general institutional giving forms and payment processing.",
+      "tags": [
+        "online giving",
+        "merchant services",
+        "payment processing",
+        "recurring giving"
+      ],
+      "lastUpdated": "2026-05-06",
+      "sections": {
+        "fields": {
+          "purpose": "Primary online giving infrastructure for general institutional giving forms and payment processing.",
+          "whoUsesIt": [
+            "Donors",
+            "Advancement Services",
+            "Annual Giving"
+          ],
+          "dataLivesThere": [
+            "Online gift transactions",
+            "Payment processing records",
+            "Gift form configurations"
+          ],
+          "sourceOfTruthNotes": [
+            "Source of truth for online donor transaction processing",
+            "Source of truth for online giving form configuration",
+            "Source of truth for online gift payment processing",
+            "Standard institutional giving forms are maintained within NXT Online Giving",
+            "Payment processing occurs through Blackbaud Merchant Services",
+            "Blackbaud Merchant Services proactively blocks many high-risk IPs and jurisdictions",
+            "\"Cover the fee\" functionality follows Blackbaud-supported configurations"
+          ],
+          "relatedProcesses": [
+            "Online Gift Processing",
+            "Recurring Giving",
+            "Gift Reconciliation"
+          ],
+          "commonIssues": [
+            "Blackbaud Merchant Services proactively blocks many high-risk IPs and jurisdictions",
+            "\"Cover the fee\" functionality follows Blackbaud-supported configurations"
+          ],
+          "ownerNotes": "Department Owner(s): University Advancement; Advancement Services"
+        },
+        "relatedArticles": [
+          "raisers-edge-nxt-blackbaud",
+          "givecampus"
+        ],
+        "contentBlocks": [
+          {
+            "id": "nxt-online-giving-overview",
+            "type": "text",
+            "title": "Overview",
+            "text": "NXT Online Giving and Blackbaud Merchant Services are the primary online giving infrastructure for general institutional giving forms and payment processing."
+          },
+          {
+            "id": "nxt-online-giving-integrations",
+            "type": "list",
+            "title": "Integrations / Connected Systems",
+            "items": [
+              "Raiser's Edge NXT",
+              "Blackbaud Merchant Services",
+              "Reporting systems"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "givecampus",
+      "categoryId": "systems-documentation",
+      "articleType": "system",
+      "title": "GiveCampus",
+      "summary": "Crowdfunding and event-focused giving platform used primarily for engagement-driven campaigns and events.",
+      "tags": [
+        "crowdfunding",
+        "events",
+        "giving day",
+        "annual giving"
+      ],
+      "lastUpdated": "2026-05-06",
+      "sections": {
+        "fields": {
+          "purpose": "Crowdfunding and event-focused giving platform used primarily for engagement-driven campaigns and events.",
+          "whoUsesIt": [
+            "Annual Giving",
+            "Alumni Engagement",
+            "Donors",
+            "Event participants"
+          ],
+          "dataLivesThere": [
+            "Event giving campaigns",
+            "Ambassador activity",
+            "Giving day participation",
+            "Campaign engagement metrics"
+          ],
+          "sourceOfTruthNotes": [
+            "Source of truth for event campaign participation",
+            "Source of truth for giving day engagement activity",
+            "Primarily used for high-engagement campaigns such as Dolphin Dash",
+            "Chosen in part for campaign continuity, engagement features, and participation-focused functionality",
+            "Some event and giving-day workflows differ from standard NXT Online Giving"
+          ],
+          "relatedProcesses": [
+            "Dolphin Dash",
+            "Giving Day Campaigns",
+            "Event Fundraising"
+          ],
+          "ownerNotes": "Department Owner(s): Annual Giving; University Advancement"
+        },
+        "relatedArticles": [
+          "raisers-edge-nxt-blackbaud",
+          "nxt-online-giving-blackbaud-merchant-services"
+        ],
+        "contentBlocks": [
+          {
+            "id": "givecampus-overview",
+            "type": "text",
+            "title": "Overview",
+            "text": "GiveCampus is the crowdfunding and event-focused giving platform used primarily for engagement-driven campaigns and events."
+          },
+          {
+            "id": "givecampus-integrations",
+            "type": "list",
+            "title": "Integrations / Connected Systems",
+            "items": [
+              "Raiser's Edge NXT",
+              "Blackbaud Merchant Services (where applicable)"
+            ]
+          }
         ]
       }
     }

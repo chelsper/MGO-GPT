@@ -214,6 +214,28 @@ function PreviewListField({ label, value }) {
   );
 }
 
+function RevisionSnapshotSummary({ revision }) {
+  const snapshot = revision?.snapshot || {};
+  const after = snapshot.after || snapshot;
+  const before = snapshot.before || null;
+  const title = after.title || before?.title || "Untitled article";
+  const status = after.status || before?.status || null;
+  const summary = after.summary || before?.summary || "";
+  return (
+    <div style={{ display: "grid", gap: "8px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+        <div style={{ fontSize: "14px", fontWeight: 800, color: "#111827" }}>{title}</div>
+        {status ? <Badge>{status}</Badge> : null}
+      </div>
+      {summary ? <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>{summary}</div> : null}
+      <div style={{ fontSize: "12px", color: "#6B7280" }}>
+        {revision.action} {revision.createdAt ? `• ${revision.createdAt}` : ""}
+        {revision.createdBy?.name ? ` • ${revision.createdBy.name}` : ""}
+      </div>
+    </div>
+  );
+}
+
 const inputStyle = {
   width: "100%",
   padding: "11px 12px",
@@ -490,6 +512,8 @@ export default function KnowledgeBaseManagePage() {
   const categories = data?.categories || [];
   const articleTypes = data?.articleTypes || [];
   const users = data?.editorOptions?.users || [];
+  const revisionsByArticle = data?.editorOptions?.revisionsByArticle || {};
+  const selectedRevisions = revisionsByArticle[selectedId] || [];
 
   const relatedArticleOptions = useMemo(
     () => articles.map((article) => ({ id: article.id, title: article.title, summary: article.summary })),
@@ -749,6 +773,36 @@ export default function KnowledgeBaseManagePage() {
                   <div style={{ fontSize: "12px", color: "#6B7280", lineHeight: 1.5, marginTop: "4px" }}>{article.summary}</div>
                 </button>
               ))}
+            </div>
+
+            <div style={{ borderTop: "1px solid #E5E7EB", paddingTop: "14px", display: "grid", gap: "10px" }}>
+              <div>
+                <div style={{ fontSize: "12px", fontWeight: 800, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Revision History
+                </div>
+                <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6, marginTop: "6px" }}>
+                  Recent saved snapshots for the selected article.
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: "8px", maxHeight: "240px", overflow: "auto" }}>
+                {selectedRevisions.length ? (
+                  selectedRevisions.map((revision) => (
+                    <div
+                      key={revision.id}
+                      style={{
+                        border: "1px solid #E5E7EB",
+                        borderRadius: "14px",
+                        padding: "12px",
+                        backgroundColor: "#FAFAFB",
+                      }}
+                    >
+                      <RevisionSnapshotSummary revision={revision} />
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ fontSize: "13px", color: "#9CA3AF" }}>No revisions recorded yet for this article.</div>
+                )}
+              </div>
             </div>
           </aside>
 
