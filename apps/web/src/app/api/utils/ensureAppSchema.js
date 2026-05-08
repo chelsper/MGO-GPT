@@ -546,15 +546,17 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       UPDATE prospect_pool pp
-      SET current_assignment_audit_id = audit.id
-      FROM LATERAL (
-        SELECT id
+      SET current_assignment_audit_id = latest_audit.id
+      FROM (
+        SELECT DISTINCT ON (prospect_pool_id)
+          prospect_pool_id,
+          id
         FROM prospect_pool_assignment_audits
-        WHERE prospect_pool_id = pp.id
-        ORDER BY assigned_at DESC, id DESC
-        LIMIT 1
-      ) audit
-      WHERE pp.current_assignment_audit_id IS NULL
+        ORDER BY prospect_pool_id, assigned_at DESC, id DESC
+      ) latest_audit
+      WHERE
+        pp.current_assignment_audit_id IS NULL
+        AND latest_audit.prospect_pool_id = pp.id
     `;
 
     await sql`
