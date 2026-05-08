@@ -703,22 +703,37 @@ export async function createBlackbaudConstituentCustomField({
   userId,
   authUserId,
   origin,
-  constituentId,
   payload,
 }) {
-  if (!constituentId) {
-    throw new Error("A Blackbaud constituent ID is required to create a custom field");
+  return blackbaudApiFetch(`${BLACKBAUD_CONSTITUENT_BASE_URL}/customfields`, {
+    userId,
+    authUserId,
+    origin,
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateBlackbaudConstituentCustomField({
+  userId,
+  authUserId,
+  origin,
+  customFieldId,
+  payload,
+}) {
+  if (!customFieldId) {
+    throw new Error("A Blackbaud custom field ID is required to update a custom field");
   }
 
   return blackbaudApiFetch(
-    `${BLACKBAUD_CONSTITUENT_BASE_URL}/${encodeURIComponent(
-      String(constituentId),
-    )}/customfields`,
+    `${BLACKBAUD_CONSTITUENT_BASE_URL}/customfields/${encodeURIComponent(
+      String(customFieldId),
+    )}`,
     {
       userId,
       authUserId,
       origin,
-      method: "POST",
+      method: "PATCH",
       body: payload,
     },
   );

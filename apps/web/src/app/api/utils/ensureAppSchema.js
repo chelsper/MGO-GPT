@@ -393,6 +393,10 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS nxt_status_sync_debug JSONB
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
       ADD COLUMN IF NOT EXISTS nxt_status_sync_attempted_at TIMESTAMPTZ
     `;
     await sql`
@@ -464,6 +468,7 @@ export default async function ensureAppSchema() {
         desired_nxt_comment TEXT,
         nxt_sync_status TEXT NOT NULL,
         nxt_sync_error TEXT,
+        nxt_sync_debug JSONB,
         nxt_sync_attempted_at TIMESTAMPTZ,
         nxt_synced_at TIMESTAMPTZ,
         retry_count INTEGER NOT NULL DEFAULT 0,
@@ -480,6 +485,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_pool_assignment_audits
       ADD COLUMN IF NOT EXISTS desired_nxt_custom_field_value TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool_assignment_audits
+      ADD COLUMN IF NOT EXISTS nxt_sync_debug JSONB
     `;
     await sql`
       UPDATE prospect_pool_assignment_audits
@@ -528,6 +537,7 @@ export default async function ensureAppSchema() {
         desired_nxt_comment,
         nxt_sync_status,
         nxt_sync_error,
+        nxt_sync_debug,
         nxt_sync_attempted_at,
         nxt_synced_at,
         retry_count,
@@ -554,6 +564,7 @@ export default async function ensureAppSchema() {
         'Assigned by Advancement Services',
         COALESCE(NULLIF(TRIM(COALESCE(pp.nxt_status_sync_state, '')), ''), 'manual_required'),
         pp.nxt_status_sync_error,
+        pp.nxt_status_sync_debug,
         pp.nxt_status_sync_attempted_at,
         pp.nxt_status_synced_at,
         COALESCE(pp.nxt_status_retry_count, 0),

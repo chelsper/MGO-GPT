@@ -1657,6 +1657,7 @@ export default function ProspectPoolPage() {
             const canRetryNxtSync =
               entry.nxt_status_sync_state === "failed" ||
               entry.nxt_status_sync_state === "pending";
+            const syncDebug = entry.nxt_status_sync_debug || null;
 
             return (
               <article
@@ -2296,6 +2297,22 @@ export default function ProspectPoolPage() {
                             {entry.nxt_status_sync_state === "manual_required"
                               ? "Use the MGOGPT update queue export for manual processing."
                               : entry.nxt_status_sync_error}
+                          </div>
+                        ) : null}
+                        {syncDebug ? (
+                          <div
+                            style={{
+                              marginTop: "8px",
+                              paddingTop: "8px",
+                              borderTop: "1px solid #E5E7EB",
+                              fontSize: "11px",
+                              color: "#6B7280",
+                              lineHeight: 1.6,
+                              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                            }}
+                          >
+                            <div>op: {syncDebug.operation || "unknown"}</div>
+                            <div>path: {syncDebug.endpointPath || "fallback"}</div>
                           </div>
                         ) : null}
                       </div>

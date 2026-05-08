@@ -71,9 +71,19 @@ export function getCustomFieldDisplayValue(field) {
 export function buildConstituentCustomFieldPayload(syncPlan) {
   return {
     category: syncPlan.desiredNxtCustomFieldCategory,
-    value: syncPlan.desiredNxtCustomFieldValue,
+    codetableentry_value: syncPlan.desiredNxtCustomFieldValue,
     comment: syncPlan.desiredNxtComment,
     date: syncPlan.desiredNxtStartDate,
+  };
+}
+
+export function buildProspectPoolSyncDebug({ operation, endpointPath, detail, customFieldId }) {
+  return {
+    operation: operation || null,
+    endpointPath: endpointPath || null,
+    detail: detail || null,
+    customFieldId: customFieldId ? String(customFieldId) : null,
+    recordedAt: new Date().toISOString(),
   };
 }
 
@@ -265,6 +275,7 @@ export async function createAssignmentAudit({
       desired_nxt_comment,
       nxt_sync_status,
       nxt_sync_error,
+      nxt_sync_debug,
       nxt_sync_attempted_at,
       nxt_synced_at,
       retry_count,
@@ -291,6 +302,7 @@ export async function createAssignmentAudit({
       ${syncPlan.desiredNxtComment},
       ${syncPlan.syncStatus},
       ${syncPlan.errorMessage},
+      ${syncPlan.debug ? JSON.stringify(syncPlan.debug) : null}::jsonb,
       NOW(),
       ${syncPlan.syncedAt || null},
       ${retryCount},
@@ -340,6 +352,7 @@ export async function applyAssignmentStateToProspectPool({
       assignment_status = ${assignmentStatus},
       nxt_status_sync_state = ${syncPlan.syncStatus},
       nxt_status_sync_error = ${syncPlan.errorMessage},
+      nxt_status_sync_debug = ${syncPlan.debug ? JSON.stringify(syncPlan.debug) : null}::jsonb,
       nxt_status_sync_attempted_at = NOW(),
       nxt_status_synced_at = ${syncPlan.syncedAt || null},
       nxt_status_retry_count = ${retryCount},

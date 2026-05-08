@@ -6,10 +6,12 @@ import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   createBlackbaudConstituentCustomField,
   listBlackbaudConstituentCustomFields,
+  updateBlackbaudConstituentCustomField,
 } from "@/app/api/utils/blackbaud";
 import {
   applyAssignmentStateToProspectPool,
   ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+  buildProspectPoolSyncDebug,
   buildConstituentCustomFieldPayload,
   createAssignmentAudit,
   findMatchingCustomField,
@@ -26,7 +28,13 @@ async function attemptProspectPoolNxtSync({
   syncPlan,
 }) {
   if (syncPlan.syncStatus !== "pending") {
-    return syncPlan;
+    return {
+      ...syncPlan,
+      debug: buildProspectPoolSyncDebug({
+        operation: "fallback",
+        detail: syncPlan.errorMessage || "Sync not attempted",
+      }),
+    };
   }
 
   const origin = new URL(request.url).origin;
@@ -44,6 +52,8 @@ async function attemptProspectPoolNxtSync({
     );
 
     if (existingField) {
+      const customFieldId =
+        existingField?.id || existingField?.custom_field_id || existingField?.customFieldId;
       const existingValue = getCustomFieldDisplayValue(existingField);
       if (
         normalizeCustomFieldText(existingValue) ===
@@ -55,15 +65,40 @@ async function attemptProspectPoolNxtSync({
           manualUpdateRequired: false,
           errorMessage: null,
           syncedAt: new Date().toISOString(),
+          debug: buildProspectPoolSyncDebug({
+            operation: "list",
+            endpointPath: `/constituent/v1/constituents/${blackbaudConstituentId}/customfields`,
+            detail: "MGOGPT already set to the requested value.",
+            customFieldId,
+          }),
         };
       }
 
+      await updateBlackbaudConstituentCustomField({
+        userId: currentUser.id,
+        authUserId: currentUser.id,
+        origin,
+        customFieldId,
+        payload: {
+          category: syncPlan.desiredNxtCustomFieldCategory,
+          codetableentry_value: syncPlan.desiredNxtCustomFieldValue,
+          comment: syncPlan.desiredNxtComment,
+          date: syncPlan.desiredNxtStartDate,
+        },
+      });
+
       return {
         ...syncPlan,
-        syncStatus: "manual_required",
-        manualUpdateRequired: true,
-        errorMessage: `Manual NXT update required: MGOGPT already exists on the constituent with value "${existingValue || "Unknown"}", and automated updates for existing custom field values are not enabled in this workflow.`,
-        syncedAt: null,
+        syncStatus: "success",
+        manualUpdateRequired: false,
+        errorMessage: null,
+        syncedAt: new Date().toISOString(),
+        debug: buildProspectPoolSyncDebug({
+          operation: "update",
+          endpointPath: `/constituent/v1/constituents/customfields/${customFieldId}`,
+          detail: `Updated MGOGPT from "${existingValue || "Unknown"}" to "${syncPlan.desiredNxtCustomFieldValue}".`,
+          customFieldId,
+        }),
       };
     }
 
@@ -71,8 +106,10 @@ async function attemptProspectPoolNxtSync({
       userId: currentUser.id,
       authUserId: currentUser.id,
       origin,
-      constituentId: blackbaudConstituentId,
-      payload: buildConstituentCustomFieldPayload(syncPlan),
+      payload: {
+        parent_id: String(blackbaudConstituentId),
+        ...buildConstituentCustomFieldPayload(syncPlan),
+      },
     });
 
     return {
@@ -81,14 +118,39 @@ async function attemptProspectPoolNxtSync({
       manualUpdateRequired: false,
       errorMessage: null,
       syncedAt: new Date().toISOString(),
+      debug: buildProspectPoolSyncDebug({
+        operation: "create",
+        endpointPath: "/constituent/v1/constituents/customfields",
+        detail: "Created MGOGPT constituent custom field value.",
+      }),
     };
   } catch (error) {
+    const message = error?.message || "Failed to update NXT custom field";
+    if (/404|resource not found/i.test(message)) {
+      return {
+        ...syncPlan,
+        syncStatus: "manual_required",
+        manualUpdateRequired: true,
+        errorMessage:
+          "Manual MGOGPT update required: the constituent custom field endpoint could not be confirmed for this record from the current integration layer.",
+        syncedAt: null,
+        debug: buildProspectPoolSyncDebug({
+          operation: "fallback",
+          detail: message,
+        }),
+      };
+    }
+
     return {
       ...syncPlan,
       syncStatus: "failed",
       manualUpdateRequired: false,
-      errorMessage: error?.message || "Failed to update NXT custom field",
+      errorMessage: message,
       syncedAt: null,
+      debug: buildProspectPoolSyncDebug({
+        operation: "fallback",
+        detail: message,
+      }),
     };
   }
 }
