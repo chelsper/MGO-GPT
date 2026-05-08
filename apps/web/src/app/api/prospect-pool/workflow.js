@@ -71,6 +71,7 @@ export function getCustomFieldDisplayValue(field) {
 export function buildConstituentCustomFieldPayload(syncPlan) {
   return {
     category: syncPlan.desiredNxtCustomFieldCategory,
+    value: syncPlan.desiredNxtCustomFieldValue,
     codetableentry_value: syncPlan.desiredNxtCustomFieldValue,
     comment: syncPlan.desiredNxtComment,
     date: syncPlan.desiredNxtStartDate,

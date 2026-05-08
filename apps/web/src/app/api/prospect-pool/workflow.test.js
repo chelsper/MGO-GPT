@@ -1,4 +1,5 @@
 import {
+  buildConstituentCustomFieldPayload,
   buildProspectPoolExportRows,
   buildDesiredProspectStatusUpdate,
   DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
@@ -115,6 +116,20 @@ describe("prospect pool workflow helpers", () => {
       desiredNxtCustomFieldValue: DESIRED_NXT_CUSTOM_FIELD_VALUE,
       desiredNxtStartDate: "2026-05-08",
       desiredNxtComment: DESIRED_NXT_COMMENT,
+    });
+  });
+
+  it("sends the MGOGPT table-backed value in both generic and code-table fields", () => {
+    const payload = buildConstituentCustomFieldPayload(
+      buildDesiredProspectStatusUpdate(new Date("2026-05-08T14:00:00.000Z")),
+    );
+
+    expect(payload).toEqual({
+      category: DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+      value: DESIRED_NXT_CUSTOM_FIELD_VALUE,
+      codetableentry_value: DESIRED_NXT_CUSTOM_FIELD_VALUE,
+      comment: DESIRED_NXT_COMMENT,
+      date: "2026-05-08",
     });
   });
 });
