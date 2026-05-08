@@ -760,7 +760,11 @@ export async function PATCH(request, { params }) {
       RETURNING *
     `;
 
-    return Response.json(updated[0]);
+    return Response.json({
+      ...updated[0],
+      solicitor_assignment_sync_debug:
+        solicitorAssignmentSyncDebug || updated[0]?.solicitor_assignment_sync_debug || null,
+    });
   } catch (error) {
     console.error("Error updating prospect pool entry:", error);
     return Response.json(

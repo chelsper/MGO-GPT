@@ -129,6 +129,24 @@ function getSolicitorAssignmentPresentation(syncState) {
   return map[normalized] || null;
 }
 
+function formatSolicitorAssignmentDebug(debug) {
+  if (!debug || typeof debug !== "object") return "";
+  const parts = [];
+  if (debug.fundraiserId) {
+    parts.push(`fundraiser_id=${debug.fundraiserId}`);
+  }
+  if (debug.resolutionPath) {
+    parts.push(`resolution=${debug.resolutionPath}`);
+  }
+  if (debug.endpointPath) {
+    parts.push(`path=${debug.endpointPath}`);
+  }
+  if (debug.detail) {
+    parts.push(`detail=${debug.detail}`);
+  }
+  return parts.length ? ` [${parts.join(" | ")}]` : "";
+}
+
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -770,8 +788,11 @@ export default function ProspectPoolPage() {
       const solicitorMessage = solicitorRequested
         ? getSolicitorAssignmentPresentation(updated.solicitor_assignment_sync_state)
         : null;
+      const solicitorDebug = solicitorRequested
+        ? formatSolicitorAssignmentDebug(updated.solicitor_assignment_sync_debug)
+        : "";
       const message = solicitorMessage
-        ? `Saved updates for ${updated.prospect_name}. ${solicitorMessage.label}`
+        ? `Saved updates for ${updated.prospect_name}. ${solicitorMessage.label}${solicitorDebug}`
         : `Saved updates for ${updated.prospect_name}.`;
       setActionMessage(message);
       setToast({ tone: solicitorMessage?.tone || "success", message });
