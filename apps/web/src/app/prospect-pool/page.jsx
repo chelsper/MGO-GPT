@@ -80,28 +80,30 @@ function getNxtSyncPresentation(syncState) {
   const normalized = String(syncState || "manual_required").toLowerCase();
   const map = {
     success: {
-      label: "Assigned in app, NXT updated successfully",
-      shortLabel: "NXT updated",
+      label: "Assigned in app, MGOGPT custom field updated successfully",
+      shortLabel: "MGOGPT updated",
       bg: "#DCFCE7",
       fg: "#166534",
     },
     failed: {
-      label: "Assigned in app, NXT update failed",
-      shortLabel: "NXT failed",
+      label: "Assigned in app, MGOGPT custom field update failed",
+      shortLabel: "MGOGPT failed",
       bg: "#FEE2E2",
       fg: "#991B1B",
     },
     pending: {
-      label: "Assigned in app, NXT update pending",
-      shortLabel: "NXT pending",
+      label: "Assigned in app, MGOGPT custom field update pending",
+      shortLabel: "MGOGPT pending",
       bg: "#DBEAFE",
       fg: "#1D4ED8",
     },
     manual_required: {
-      label: "Manual NXT update required",
-      shortLabel: "Manual NXT update",
+      label: "Manual MGOGPT update required",
+      shortLabel: "Manual MGOGPT update",
       bg: "#FEF3C7",
       fg: "#92400E",
+      detail:
+        "This assignment was saved in the app. The MGOGPT constituent custom field must be updated manually in Raiser's Edge NXT or through export/import.",
     },
   };
   return map[normalized] || map.manual_required;
@@ -766,7 +768,7 @@ export default function ProspectPoolPage() {
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || "Failed to retry NXT status update");
+        throw new Error(payload?.error || "Failed to retry MGOGPT custom field update");
       }
 
       const updated = await response.json();
@@ -774,12 +776,15 @@ export default function ProspectPoolPage() {
       setEntries((current) =>
         current.map((entry) => (entry.id === entryId ? { ...entry, ...updated } : entry)),
       );
-      const message = `Updated NXT status for ${updated.prospect_name}. ${syncPresentation.label}.`;
+      const message =
+        updated.nxt_status_sync_state === "manual_required"
+          ? `Recorded another MGOGPT update attempt for ${updated.prospect_name}. ${syncPresentation.label}.`
+          : `Retried MGOGPT update for ${updated.prospect_name}. ${syncPresentation.label}.`;
       setActionMessage(message);
       setToast({ tone: "success", message });
     } catch (err) {
       console.error(err);
-      const message = err.message || "Could not retry the NXT update.";
+      const message = err.message || "Could not retry the MGOGPT update.";
       setError(message);
       setToast({ tone: "error", message });
     } finally {
@@ -795,7 +800,7 @@ export default function ProspectPoolPage() {
       const response = await fetch("/api/prospect-pool/nxt-status-export");
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || "Failed to export the NXT update queue");
+        throw new Error(payload?.error || "Failed to export the MGOGPT update queue");
       }
 
       const blob = await response.blob();
@@ -809,10 +814,10 @@ export default function ProspectPoolPage() {
       anchor.click();
       anchor.remove();
       window.URL.revokeObjectURL(url);
-      setToast({ tone: "success", message: "Downloaded the NXT update queue." });
+      setToast({ tone: "success", message: "Downloaded the MGOGPT update queue." });
     } catch (err) {
       console.error(err);
-      const message = err.message || "Could not export the NXT update queue.";
+      const message = err.message || "Could not export the MGOGPT update queue.";
       setError(message);
       setToast({ tone: "error", message });
     } finally {
@@ -1141,7 +1146,7 @@ export default function ProspectPoolPage() {
                     cursor: exportingQueue ? "wait" : "pointer",
                   }}
                 >
-                  {exportingQueue ? "Preparing export..." : "Download NXT update queue"}
+                  {exportingQueue ? "Preparing export..." : "Download MGOGPT update queue"}
                 </button>
                 <button
                   type="button"
@@ -1649,6 +1654,9 @@ export default function ProspectPoolPage() {
               blackbaudSummaryState?.payload?.mapped?.jacksonvilleUniversityEducation || [];
             const lastActionType = getActionTypeFromNotes(entry.last_action_notes);
             const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
+            const canRetryNxtSync =
+              entry.nxt_status_sync_state === "failed" ||
+              entry.nxt_status_sync_state === "pending";
 
             return (
               <article
@@ -2255,7 +2263,7 @@ export default function ProspectPoolPage() {
                             marginBottom: "6px",
                           }}
                         >
-                          Assignment + NXT status
+                          Assignment + MGOGPT status
                         </div>
                         <div style={{ fontSize: "13px", color: "#111827", fontWeight: 700 }}>
                           {syncPresentation.label}
@@ -2264,6 +2272,18 @@ export default function ProspectPoolPage() {
                           Source: {entry.assignment_source || "Advancement Services"}
                           {" · "}Retry count: {entry.nxt_status_retry_count || 0}
                         </div>
+                        {syncPresentation.detail ? (
+                          <div
+                            style={{
+                              marginTop: "8px",
+                              fontSize: "12px",
+                              color: "#6B7280",
+                              lineHeight: 1.6,
+                            }}
+                          >
+                            {syncPresentation.detail}
+                          </div>
+                        ) : null}
                         {entry.nxt_status_sync_error ? (
                           <div
                             style={{
@@ -2273,7 +2293,9 @@ export default function ProspectPoolPage() {
                               lineHeight: 1.6,
                             }}
                           >
-                            {entry.nxt_status_sync_error}
+                            {entry.nxt_status_sync_state === "manual_required"
+                              ? "Use the MGOGPT update queue export for manual processing."
+                              : entry.nxt_status_sync_error}
                           </div>
                         ) : null}
                       </div>
@@ -2296,24 +2318,26 @@ export default function ProspectPoolPage() {
                         >
                           {savingId === entry.id ? "Saving..." : "Save changes"}
                         </button>
-                        <button
-                          type="button"
-                          disabled={retryingSyncId === entry.id}
-                          onClick={() => retryNxtSync(entry.id)}
-                          style={{
-                            flex: "1 1 150px",
-                            padding: "12px 16px",
-                            borderRadius: "12px",
-                            border: "1px solid #D1D5DB",
-                            backgroundColor: "white",
-                            color: "#374151",
-                            fontSize: "14px",
-                            fontWeight: 700,
-                            cursor: retryingSyncId === entry.id ? "wait" : "pointer",
-                          }}
-                        >
-                          {retryingSyncId === entry.id ? "Retrying..." : "Retry NXT status"}
-                        </button>
+                        {canRetryNxtSync ? (
+                          <button
+                            type="button"
+                            disabled={retryingSyncId === entry.id}
+                            onClick={() => retryNxtSync(entry.id)}
+                            style={{
+                              flex: "1 1 150px",
+                              padding: "12px 16px",
+                              borderRadius: "12px",
+                              border: "1px solid #D1D5DB",
+                              backgroundColor: "white",
+                              color: "#374151",
+                              fontSize: "14px",
+                              fontWeight: 700,
+                              cursor: retryingSyncId === entry.id ? "wait" : "pointer",
+                            }}
+                          >
+                            {retryingSyncId === entry.id ? "Retrying..." : "Retry MGOGPT sync"}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           disabled={savingId === entry.id}

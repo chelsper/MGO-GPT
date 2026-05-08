@@ -3,18 +3,100 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
+import {
+  createBlackbaudConstituentCustomField,
+  listBlackbaudConstituentCustomFields,
+} from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   applyAssignmentStateToProspectPool,
   ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+  buildConstituentCustomFieldPayload,
   createAssignmentAudit,
+  findMatchingCustomField,
   findDuplicateActiveAssignment,
+  getCustomFieldDisplayValue,
   getProspectPoolAssignmentStatus,
+  normalizeCustomFieldText,
   planProspectStatusSync,
 } from "../workflow";
 
 function isTruthy(value) {
   return value === true || value === "true" || value === 1 || value === "1";
+}
+
+async function attemptProspectPoolNxtSync({
+  currentUser,
+  request,
+  blackbaudConstituentId,
+  syncPlan,
+}) {
+  if (syncPlan.syncStatus !== "pending") {
+    return syncPlan;
+  }
+
+  const origin = new URL(request.url).origin;
+
+  try {
+    const customFields = await listBlackbaudConstituentCustomFields({
+      userId: currentUser.id,
+      authUserId: currentUser.id,
+      origin,
+      constituentId: blackbaudConstituentId,
+    });
+    const existingField = findMatchingCustomField(
+      customFields,
+      syncPlan.desiredNxtCustomFieldCategory,
+    );
+
+    if (existingField) {
+      const existingValue = getCustomFieldDisplayValue(existingField);
+      if (
+        normalizeCustomFieldText(existingValue) ===
+        normalizeCustomFieldText(syncPlan.desiredNxtCustomFieldValue)
+      ) {
+        return {
+          ...syncPlan,
+          syncStatus: "success",
+          manualUpdateRequired: false,
+          errorMessage: null,
+          syncedAt: new Date().toISOString(),
+        };
+      }
+
+      return {
+        ...syncPlan,
+        syncStatus: "manual_required",
+        manualUpdateRequired: true,
+        errorMessage: `Manual NXT update required: MGOGPT already exists on the constituent with value "${existingValue || "Unknown"}", and automated updates for existing custom field values are not enabled in this workflow.`,
+        syncedAt: null,
+      };
+    }
+
+    await createBlackbaudConstituentCustomField({
+      userId: currentUser.id,
+      authUserId: currentUser.id,
+      origin,
+      constituentId: blackbaudConstituentId,
+      payload: buildConstituentCustomFieldPayload(syncPlan),
+    });
+
+    return {
+      ...syncPlan,
+      syncStatus: "success",
+      manualUpdateRequired: false,
+      errorMessage: null,
+      syncedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      ...syncPlan,
+      syncStatus: "failed",
+      manualUpdateRequired: false,
+      errorMessage: error?.message || "Failed to update NXT custom field",
+      syncedAt: null,
+    };
+  }
 }
 
 export async function PATCH(request, { params }) {
@@ -110,10 +192,17 @@ export async function PATCH(request, { params }) {
         });
         const assignedAt = new Date();
         const assignmentStatus = getProspectPoolAssignmentStatus(nextAssignedUserId);
-        const syncPlan = planProspectStatusSync({
+        const plannedSync = planProspectStatusSync({
           blackbaudConstituentId:
             entry.blackbaud_constituent_id || constituent?.blackbaud_constituent_id || null,
           now: assignedAt,
+        });
+        const syncPlan = await attemptProspectPoolNxtSync({
+          currentUser,
+          request,
+          blackbaudConstituentId:
+            entry.blackbaud_constituent_id || constituent?.blackbaud_constituent_id || null,
+          syncPlan: plannedSync,
         });
         const assignedUserRecord = assigned?.[0] || null;
         const audit = await createAssignmentAudit({

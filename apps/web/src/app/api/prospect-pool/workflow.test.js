@@ -1,8 +1,9 @@
 import {
   buildProspectPoolExportRows,
   buildDesiredProspectStatusUpdate,
+  DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+  DESIRED_NXT_CUSTOM_FIELD_VALUE,
   DESIRED_NXT_COMMENT,
-  DESIRED_NXT_PROSPECT_STATUS,
   getProspectPoolAssignmentStatus,
   getProspectPoolSyncLabel,
   getProspectPoolTodayDate,
@@ -25,7 +26,7 @@ describe("prospect pool workflow helpers", () => {
     });
 
     expect(plan).toMatchObject({
-      desiredNxtProspectStatus: DESIRED_NXT_PROSPECT_STATUS,
+      desiredNxtProspectStatus: DESIRED_NXT_CUSTOM_FIELD_VALUE,
       desiredNxtComment: DESIRED_NXT_COMMENT,
       syncStatus: PROSPECT_POOL_NXT_SYNC_STATUS.MANUAL_REQUIRED,
       manualUpdateRequired: true,
@@ -33,15 +34,15 @@ describe("prospect pool workflow helpers", () => {
     expect(plan.errorMessage).toMatch(/no linked constituent\/system record id/i);
   });
 
-  it("keeps unsupported direct prospect status updates in manual-required state", () => {
+  it("keeps missing constituent/system record links in manual-required state", () => {
     const plan = planProspectStatusSync({
-      blackbaudConstituentId: "234684",
+      blackbaudConstituentId: null,
       now: new Date("2026-05-08T14:00:00.000Z"),
     });
 
     expect(plan.syncStatus).toBe(PROSPECT_POOL_NXT_SYNC_STATUS.MANUAL_REQUIRED);
     expect(plan.manualUpdateRequired).toBe(true);
-    expect(plan.errorMessage).toMatch(/not supported/i);
+    expect(plan.errorMessage).toMatch(/no linked constituent\/system record id/i);
   });
 
   it("can express a pending sync when a supported capability is injected", () => {
@@ -60,7 +61,8 @@ describe("prospect pool workflow helpers", () => {
     const rows = buildProspectPoolExportRows([
       {
         blackbaud_constituent_id: "234684",
-        desired_nxt_prospect_status: DESIRED_NXT_PROSPECT_STATUS,
+        desired_nxt_custom_field_category: DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+        desired_nxt_custom_field_value: DESIRED_NXT_CUSTOM_FIELD_VALUE,
         desired_nxt_start_date: "2026-05-08",
         desired_nxt_comment: DESIRED_NXT_COMMENT,
         assigned_to_name: "Gretchen Picotte",
@@ -74,7 +76,8 @@ describe("prospect pool workflow helpers", () => {
     expect(rows).toEqual([
       {
         blackbaudConstituentId: "234684",
-        desiredNxtProspectStatus: DESIRED_NXT_PROSPECT_STATUS,
+        desiredNxtCustomFieldCategory: DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+        desiredNxtCustomFieldValue: DESIRED_NXT_CUSTOM_FIELD_VALUE,
         desiredNxtStartDate: "2026-05-08",
         desiredNxtComment: DESIRED_NXT_COMMENT,
         assignedToName: "Gretchen Picotte",
@@ -99,7 +102,7 @@ describe("prospect pool workflow helpers", () => {
       PROSPECT_POOL_ASSIGNMENT_STATUS.PENDING,
     );
     expect(getProspectPoolSyncLabel(PROSPECT_POOL_NXT_SYNC_STATUS.MANUAL_REQUIRED)).toBe(
-      "Manual NXT update required",
+      "Manual NXT custom field update required",
     );
   });
 
@@ -107,7 +110,9 @@ describe("prospect pool workflow helpers", () => {
     expect(
       buildDesiredProspectStatusUpdate(new Date("2026-05-08T14:00:00.000Z")),
     ).toEqual({
-      desiredNxtProspectStatus: DESIRED_NXT_PROSPECT_STATUS,
+      desiredNxtProspectStatus: DESIRED_NXT_CUSTOM_FIELD_VALUE,
+      desiredNxtCustomFieldCategory: DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+      desiredNxtCustomFieldValue: DESIRED_NXT_CUSTOM_FIELD_VALUE,
       desiredNxtStartDate: "2026-05-08",
       desiredNxtComment: DESIRED_NXT_COMMENT,
     });

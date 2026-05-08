@@ -458,6 +458,8 @@ export default async function ensureAppSchema() {
         assignment_source TEXT NOT NULL DEFAULT 'Advancement Services',
         assignment_status TEXT NOT NULL,
         desired_nxt_prospect_status TEXT NOT NULL,
+        desired_nxt_custom_field_category TEXT,
+        desired_nxt_custom_field_value TEXT,
         desired_nxt_start_date DATE,
         desired_nxt_comment TEXT,
         nxt_sync_status TEXT NOT NULL,
@@ -470,6 +472,25 @@ export default async function ensureAppSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+    await sql`
+      ALTER TABLE prospect_pool_assignment_audits
+      ADD COLUMN IF NOT EXISTS desired_nxt_custom_field_category TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool_assignment_audits
+      ADD COLUMN IF NOT EXISTS desired_nxt_custom_field_value TEXT
+    `;
+    await sql`
+      UPDATE prospect_pool_assignment_audits
+      SET
+        desired_nxt_custom_field_category = COALESCE(NULLIF(TRIM(COALESCE(desired_nxt_custom_field_category, '')), ''), 'MGOGPT'),
+        desired_nxt_custom_field_value = COALESCE(NULLIF(TRIM(COALESCE(desired_nxt_custom_field_value, '')), ''), NULLIF(TRIM(COALESCE(desired_nxt_prospect_status, '')), ''), 'Identification/Re-Qualification')
+      WHERE
+        desired_nxt_custom_field_category IS NULL
+        OR desired_nxt_custom_field_category = ''
+        OR desired_nxt_custom_field_value IS NULL
+        OR desired_nxt_custom_field_value = ''
     `;
     await sql`
       ALTER TABLE prospect_pool
@@ -501,6 +522,8 @@ export default async function ensureAppSchema() {
         assignment_source,
         assignment_status,
         desired_nxt_prospect_status,
+        desired_nxt_custom_field_category,
+        desired_nxt_custom_field_value,
         desired_nxt_start_date,
         desired_nxt_comment,
         nxt_sync_status,
@@ -524,7 +547,9 @@ export default async function ensureAppSchema() {
         COALESCE(pp.assigned_at, pp.created_at, NOW()),
         COALESCE(NULLIF(TRIM(COALESCE(pp.assignment_source, '')), ''), 'Advancement Services'),
         COALESCE(NULLIF(TRIM(COALESCE(pp.assignment_status, '')), ''), 'active'),
-        'Identification/Re-Engagement',
+        'Identification/Re-Qualification',
+        'MGOGPT',
+        'Identification/Re-Qualification',
         COALESCE(COALESCE(pp.assigned_at, pp.created_at, NOW())::date, CURRENT_DATE),
         'Assigned by Advancement Services',
         COALESCE(NULLIF(TRIM(COALESCE(pp.nxt_status_sync_state, '')), ''), 'manual_required'),

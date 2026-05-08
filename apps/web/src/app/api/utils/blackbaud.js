@@ -17,6 +17,8 @@ const BLACKBAUD_ACTIONS_URL =
   "https://api.sky.blackbaud.com/constituent/v1/actions";
 const BLACKBAUD_OPPORTUNITIES_URL =
   "https://api.sky.blackbaud.com/opportunity/v1/opportunities";
+const BLACKBAUD_CONSTITUENT_BASE_URL =
+  "https://api.sky.blackbaud.com/constituent/v1/constituents";
 const BLACKBAUD_GIFTS_URL = "https://api.sky.blackbaud.com/gift/v1/gifts";
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
@@ -671,6 +673,55 @@ export async function getBlackbaudConstituentById({
     email: payload?.address?.email?.address || payload?.email?.address || null,
     raw: payload,
   };
+}
+
+export async function listBlackbaudConstituentCustomFields({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+}) {
+  if (!constituentId) {
+    throw new Error("A Blackbaud constituent ID is required to list custom fields");
+  }
+
+  const payload = await blackbaudApiFetch(
+    `${BLACKBAUD_CONSTITUENT_BASE_URL}/${encodeURIComponent(
+      String(constituentId),
+    )}/customfields`,
+    {
+      userId,
+      authUserId,
+      origin,
+    },
+  );
+
+  return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+}
+
+export async function createBlackbaudConstituentCustomField({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+  payload,
+}) {
+  if (!constituentId) {
+    throw new Error("A Blackbaud constituent ID is required to create a custom field");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_CONSTITUENT_BASE_URL}/${encodeURIComponent(
+      String(constituentId),
+    )}/customfields`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export async function getBlackbaudFundraiserById({

@@ -1,5 +1,6 @@
 export const ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES = "Advancement Services";
-export const DESIRED_NXT_PROSPECT_STATUS = "Identification/Re-Engagement";
+export const DESIRED_NXT_CUSTOM_FIELD_CATEGORY = "MGOGPT";
+export const DESIRED_NXT_CUSTOM_FIELD_VALUE = "Identification/Re-Qualification";
 export const DESIRED_NXT_COMMENT = "Assigned by Advancement Services";
 
 export const PROSPECT_POOL_ASSIGNMENT_STATUS = {
@@ -27,17 +28,52 @@ export function getProspectPoolTodayDate(now = new Date()) {
 
 export function getProspectStatusUpdateCapability() {
   return {
-    supported: false,
+    supported: true,
+    mode: "create_or_validate_constituent_custom_field",
     reason:
-      "Manual NXT update required: direct Raiser's Edge NXT prospect status updates are not supported by the current Blackbaud integration layer.",
+      "This workflow targets the MGOGPT constituent custom field instead of Prospect Management status.",
+    canUpdateExistingValues: false,
   };
 }
 
 export function buildDesiredProspectStatusUpdate(now = new Date()) {
   return {
-    desiredNxtProspectStatus: DESIRED_NXT_PROSPECT_STATUS,
+    desiredNxtProspectStatus: DESIRED_NXT_CUSTOM_FIELD_VALUE,
+    desiredNxtCustomFieldCategory: DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+    desiredNxtCustomFieldValue: DESIRED_NXT_CUSTOM_FIELD_VALUE,
     desiredNxtStartDate: getProspectPoolTodayDate(now),
     desiredNxtComment: DESIRED_NXT_COMMENT,
+  };
+}
+
+export function normalizeCustomFieldText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+export function findMatchingCustomField(customFields, categoryName) {
+  const normalizedCategory = normalizeCustomFieldText(categoryName);
+  return (Array.isArray(customFields) ? customFields : []).find(
+    (field) => normalizeCustomFieldText(field?.category) === normalizedCategory,
+  );
+}
+
+export function getCustomFieldDisplayValue(field) {
+  return (
+    field?.value ??
+    field?.code_table_entry ??
+    field?.code_table_entry_name ??
+    field?.code_table_entry_description ??
+    field?.codetableentry_value ??
+    null
+  );
+}
+
+export function buildConstituentCustomFieldPayload(syncPlan) {
+  return {
+    category: syncPlan.desiredNxtCustomFieldCategory,
+    value: syncPlan.desiredNxtCustomFieldValue,
+    comment: syncPlan.desiredNxtComment,
+    date: syncPlan.desiredNxtStartDate,
   };
 }
 
@@ -72,7 +108,7 @@ export function planProspectStatusSync({
       manualUpdateRequired: true,
       errorMessage:
         capability?.reason ||
-        "Manual NXT update required: direct prospect status sync is unavailable.",
+        "Manual NXT update required: automated MGOGPT custom field sync is unavailable.",
       syncedAt: null,
     };
   }
@@ -89,21 +125,22 @@ export function planProspectStatusSync({
 export function getProspectPoolSyncLabel(syncStatus) {
   switch (syncStatus) {
     case PROSPECT_POOL_NXT_SYNC_STATUS.SUCCESS:
-      return "Assigned in app, NXT updated successfully";
+      return "Assigned in app, MGOGPT custom field updated successfully";
     case PROSPECT_POOL_NXT_SYNC_STATUS.FAILED:
-      return "Assigned in app, NXT update failed";
+      return "Assigned in app, MGOGPT custom field update failed";
     case PROSPECT_POOL_NXT_SYNC_STATUS.PENDING:
-      return "Assigned in app, NXT update pending";
+      return "Assigned in app, MGOGPT custom field update pending";
     case PROSPECT_POOL_NXT_SYNC_STATUS.MANUAL_REQUIRED:
     default:
-      return "Manual NXT update required";
+      return "Manual NXT custom field update required";
   }
 }
 
 export function serializeProspectPoolExportRows(rows) {
   const headers = [
     "Constituent ID / system record ID",
-    "Prospect status",
+    "Custom field category",
+    "Custom field value",
     "Start date",
     "Comment",
     "Assigned MGO",
@@ -117,7 +154,8 @@ export function serializeProspectPoolExportRows(rows) {
   for (const row of rows) {
     csvRows.push([
       row.blackbaudConstituentId || "",
-      row.desiredNxtProspectStatus || DESIRED_NXT_PROSPECT_STATUS,
+      row.desiredNxtCustomFieldCategory || DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+      row.desiredNxtCustomFieldValue || DESIRED_NXT_CUSTOM_FIELD_VALUE,
       row.desiredNxtStartDate || "",
       row.desiredNxtComment || DESIRED_NXT_COMMENT,
       row.assignedToName || "",
@@ -140,8 +178,12 @@ export function serializeProspectPoolExportRows(rows) {
 export function buildProspectPoolExportRows(audits) {
   return audits.map((audit) => ({
     blackbaudConstituentId: audit.blackbaud_constituent_id || "",
-    desiredNxtProspectStatus:
-      audit.desired_nxt_prospect_status || DESIRED_NXT_PROSPECT_STATUS,
+    desiredNxtCustomFieldCategory:
+      audit.desired_nxt_custom_field_category || DESIRED_NXT_CUSTOM_FIELD_CATEGORY,
+    desiredNxtCustomFieldValue:
+      audit.desired_nxt_custom_field_value ||
+      audit.desired_nxt_prospect_status ||
+      DESIRED_NXT_CUSTOM_FIELD_VALUE,
     desiredNxtStartDate: audit.desired_nxt_start_date || "",
     desiredNxtComment: audit.desired_nxt_comment || DESIRED_NXT_COMMENT,
     assignedToName: audit.assigned_to_name || "",
@@ -217,6 +259,8 @@ export async function createAssignmentAudit({
       assignment_source,
       assignment_status,
       desired_nxt_prospect_status,
+      desired_nxt_custom_field_category,
+      desired_nxt_custom_field_value,
       desired_nxt_start_date,
       desired_nxt_comment,
       nxt_sync_status,
@@ -241,6 +285,8 @@ export async function createAssignmentAudit({
       ${assignmentSource},
       ${assignmentStatus},
       ${syncPlan.desiredNxtProspectStatus},
+      ${syncPlan.desiredNxtCustomFieldCategory || DESIRED_NXT_CUSTOM_FIELD_CATEGORY},
+      ${syncPlan.desiredNxtCustomFieldValue || DESIRED_NXT_CUSTOM_FIELD_VALUE},
       ${syncPlan.desiredNxtStartDate},
       ${syncPlan.desiredNxtComment},
       ${syncPlan.syncStatus},

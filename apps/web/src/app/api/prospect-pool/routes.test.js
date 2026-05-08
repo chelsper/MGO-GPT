@@ -5,6 +5,8 @@ const ensureAppSchemaMock = vi.fn();
 const getOrCreateUserMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const resolveConstituentMock = vi.fn();
+const listBlackbaudConstituentCustomFieldsMock = vi.fn();
+const createBlackbaudConstituentCustomFieldMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -36,6 +38,11 @@ vi.mock("@/app/api/utils/constituents", () => ({
   resolveConstituent: resolveConstituentMock,
 }));
 
+vi.mock("@/app/api/utils/blackbaud", () => ({
+  listBlackbaudConstituentCustomFields: listBlackbaudConstituentCustomFieldsMock,
+  createBlackbaudConstituentCustomField: createBlackbaudConstituentCustomFieldMock,
+}));
+
 vi.mock("@/app/api/utils/sql", () => ({
   default: sqlTag,
 }));
@@ -49,6 +56,8 @@ describe("prospect pool routes", () => {
     getOrCreateUserMock.mockReset();
     getWorkspaceUserMock.mockReset();
     resolveConstituentMock.mockReset();
+    listBlackbaudConstituentCustomFieldsMock.mockReset();
+    createBlackbaudConstituentCustomFieldMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -60,13 +69,15 @@ describe("prospect pool routes", () => {
     });
   });
 
-  it("creates an app assignment and records manual-required NXT status when direct sync is unavailable", async () => {
+  it("creates an app assignment and writes the MGOGPT constituent custom field when missing", async () => {
     const { POST } = await import("./route.js");
 
     resolveConstituentMock.mockResolvedValue({
       id: 88,
       blackbaud_constituent_id: "234684",
     });
+    listBlackbaudConstituentCustomFieldsMock.mockResolvedValue([]);
+    createBlackbaudConstituentCustomFieldMock.mockResolvedValue({ id: "cf-1" });
 
     queueSqlResult([{ id: 44, name: "Gretchen Picotte", email: "gretchen@example.com" }]);
     queueSqlResult([]);
@@ -75,6 +86,10 @@ describe("prospect pool routes", () => {
         id: 901,
         assigned_user_id: 44,
         prospect_name: "Pat Prospect",
+        assignment_status: "active",
+        nxt_status_sync_state: "success",
+        manual_nxt_update_required: false,
+        nxt_status_retry_count: 0,
       },
     ]);
     queueSqlResult([{ id: 7001 }]);
@@ -84,8 +99,8 @@ describe("prospect pool routes", () => {
         assigned_user_id: 44,
         prospect_name: "Pat Prospect",
         assignment_status: "active",
-        nxt_status_sync_state: "manual_required",
-        manual_nxt_update_required: true,
+        nxt_status_sync_state: "success",
+        manual_nxt_update_required: false,
         nxt_status_retry_count: 0,
       },
     ]);
@@ -106,8 +121,9 @@ describe("prospect pool routes", () => {
 
     expect(response.status).toBe(201);
     expect(payload.assignment_status).toBe("active");
-    expect(payload.nxt_status_sync_state).toBe("manual_required");
-    expect(payload.manual_nxt_update_required).toBe(true);
+    expect(payload.nxt_status_sync_state).toBe("success");
+    expect(payload.manual_nxt_update_required).toBe(false);
+    expect(createBlackbaudConstituentCustomFieldMock).toHaveBeenCalled();
   });
 
   it("rejects assignment creation when the MGO selection is missing", async () => {
@@ -156,8 +172,11 @@ describe("prospect pool routes", () => {
     expect(payload.error).toMatch(/already assigned/i);
   });
 
-  it("records retry attempts without pretending the unsupported NXT update succeeded", async () => {
+  it("records retry attempts and succeeds when the MGOGPT value already exists", async () => {
     const { POST } = await import("./[id]/nxt-status-sync/route.js");
+    listBlackbaudConstituentCustomFieldsMock.mockResolvedValue([
+      { category: "MGOGPT", value: "Identification/Re-Qualification" },
+    ]);
 
     queueSqlResult([
       {
@@ -182,7 +201,7 @@ describe("prospect pool routes", () => {
       {
         id: 901,
         prospect_name: "Pat Prospect",
-        nxt_status_sync_state: "manual_required",
+        nxt_status_sync_state: "success",
         nxt_status_retry_count: 1,
       },
     ]);
@@ -195,17 +214,18 @@ describe("prospect pool routes", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.nxt_status_sync_state).toBe("manual_required");
+    expect(payload.nxt_status_sync_state).toBe("success");
     expect(payload.nxt_status_retry_count).toBe(1);
   });
 
-  it("exports unresolved NXT assignment updates as CSV", async () => {
+  it("exports unresolved MGOGPT assignment updates as CSV", async () => {
     const { GET } = await import("./nxt-status-export/route.js");
 
     queueSqlResult([
       {
         blackbaud_constituent_id: "234684",
-        desired_nxt_prospect_status: "Identification/Re-Engagement",
+        desired_nxt_custom_field_category: "MGOGPT",
+        desired_nxt_custom_field_value: "Identification/Re-Qualification",
         desired_nxt_start_date: "2026-05-08",
         desired_nxt_comment: "Assigned by Advancement Services",
         assigned_to_name: "Gretchen Picotte",
@@ -221,7 +241,9 @@ describe("prospect pool routes", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/csv");
-    expect(payload).toContain("Constituent ID / system record ID");
+    expect(payload).toContain("Custom field category");
+    expect(payload).toContain("MGOGPT");
+    expect(payload).toContain("Identification/Re-Qualification");
     expect(payload).toContain("234684");
     expect(payload).toContain("Gretchen Picotte");
   });
