@@ -7,8 +7,12 @@ import { resolveConstituent } from "@/app/api/utils/constituents";
 import {
   createBlackbaudConstituentCustomField,
   createBlackbaudFundraiserAssignment,
+  findBlackbaudConstituentByEmail,
+  findBlackbaudConstituentByLookupId,
+  getBlackbaudFundraiserById,
   listBlackbaudConstituentCustomFields,
   listBlackbaudFundraiserAssignments,
+  searchBlackbaudConstituents,
   updateBlackbaudConstituentCustomField,
 } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -94,6 +98,8 @@ function buildSolicitorAssignmentDebug({
   detail,
   assignmentId,
   fundraiserId,
+  resolutionPath,
+  resolutionCandidates,
 }) {
   return {
     operation: operation || null,
@@ -101,7 +107,131 @@ function buildSolicitorAssignmentDebug({
     detail: detail || null,
     assignmentId: assignmentId ? String(assignmentId) : null,
     fundraiserId: fundraiserId ? String(fundraiserId) : null,
+    resolutionPath: resolutionPath || null,
+    resolutionCandidates: Array.isArray(resolutionCandidates)
+      ? resolutionCandidates.map((candidate) => ({
+          fundraiserId: candidate?.fundraiserId ? String(candidate.fundraiserId) : null,
+          resolutionPath: candidate?.resolutionPath || null,
+        }))
+      : null,
     recordedAt: new Date().toISOString(),
+  };
+}
+
+function addFundraiserCandidate(candidates, fundraiserId, resolutionPath) {
+  const normalizedId = String(fundraiserId || "").trim();
+  if (!normalizedId) return;
+  if (candidates.some((candidate) => candidate.fundraiserId === normalizedId)) return;
+  candidates.push({
+    fundraiserId: normalizedId,
+    resolutionPath,
+  });
+}
+
+async function resolveWorkspaceFundraiserCandidates({
+  workspaceUser,
+  authUserId,
+  origin,
+}) {
+  const candidates = [];
+
+  addFundraiserCandidate(
+    candidates,
+    workspaceUser?.blackbaud_constituent_id,
+    "workspace-blackbaud-constituent-id",
+  );
+
+  const exactLookupMatch = await findBlackbaudConstituentByLookupId({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    lookupId: workspaceUser.blackbaud_lookup_id,
+  }).catch(() => null);
+
+  addFundraiserCandidate(
+    candidates,
+    exactLookupMatch?.blackbaudConstituentId,
+    "workspace-blackbaud-lookup-id",
+  );
+
+  const exactEmailMatch = await findBlackbaudConstituentByEmail({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    email: workspaceUser.email,
+  }).catch(() => null);
+
+  addFundraiserCandidate(
+    candidates,
+    exactEmailMatch?.blackbaudConstituentId,
+    "email-match",
+  );
+
+  const normalizedName = String(workspaceUser?.name || "").trim().toLowerCase();
+  const normalizedEmail = String(workspaceUser?.email || "").trim().toLowerCase();
+  const matches = await searchBlackbaudConstituents({
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+    query: workspaceUser.name || workspaceUser.email,
+  }).catch(() => []);
+  const exactSearchMatch =
+    matches.find(
+      (candidate) =>
+        String(candidate?.name || "").trim().toLowerCase() === normalizedName &&
+        String(candidate?.email || "").trim().toLowerCase() === normalizedEmail,
+    ) ||
+    matches.find(
+      (candidate) =>
+        String(candidate?.name || "").trim().toLowerCase() === normalizedName,
+    ) ||
+    null;
+
+  addFundraiserCandidate(
+    candidates,
+    exactSearchMatch?.blackbaudConstituentId,
+    "name-search-match",
+  );
+
+  return candidates;
+}
+
+async function resolveWorkspaceFundraiserRecord({
+  currentUser,
+  workspaceUser,
+  origin,
+}) {
+  const resolutionCandidates = await resolveWorkspaceFundraiserCandidates({
+    workspaceUser,
+    authUserId: currentUser.id,
+    origin,
+  });
+
+  for (const candidate of resolutionCandidates) {
+    try {
+      const fundraiserRecord = await getBlackbaudFundraiserById({
+        userId: workspaceUser.id,
+        authUserId: currentUser.id,
+        origin,
+        fundraiserId: candidate.fundraiserId,
+      });
+
+      if (fundraiserRecord?.fundraiserId) {
+        return {
+          fundraiserId: fundraiserRecord.fundraiserId,
+          resolutionPath: candidate.resolutionPath,
+          resolutionCandidates,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return {
+    fundraiserId: null,
+    resolutionPath: "not-resolved",
+    resolutionCandidates,
   };
 }
 
@@ -111,7 +241,17 @@ async function attemptSolicitorAssignmentSync({
   request,
   blackbaudConstituentId,
 }) {
-  const workspaceFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
+  const origin = new URL(request.url).origin;
+  const {
+    fundraiserId: resolvedFundraiserId,
+    resolutionPath,
+    resolutionCandidates,
+  } = await resolveWorkspaceFundraiserRecord({
+    currentUser,
+    workspaceUser,
+    origin,
+  });
+  const workspaceFundraiserId = String(resolvedFundraiserId || "").trim();
   if (!blackbaudConstituentId) {
     return {
       syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED,
@@ -122,6 +262,8 @@ async function attemptSolicitorAssignmentSync({
         operation: "fallback",
         detail: "Missing linked constituent/system record ID.",
         fundraiserId: workspaceFundraiserId || null,
+        resolutionPath,
+        resolutionCandidates,
       }),
     };
   }
@@ -135,11 +277,12 @@ async function attemptSolicitorAssignmentSync({
       debug: buildSolicitorAssignmentDebug({
         operation: "fallback",
         detail: "Missing workspace fundraiser system record ID.",
+        resolutionPath,
+        resolutionCandidates,
       }),
     };
   }
 
-  const origin = new URL(request.url).origin;
   const todayDate = getProspectPoolTodayDate(new Date());
 
   try {
@@ -169,6 +312,8 @@ async function attemptSolicitorAssignmentSync({
           detail: "Lead Solicitor assignment already exists for this constituent.",
           assignmentId: getFundraiserAssignmentId(matchingAssignment),
           fundraiserId: workspaceFundraiserId,
+          resolutionPath,
+          resolutionCandidates,
         }),
       };
     }
@@ -196,6 +341,8 @@ async function attemptSolicitorAssignmentSync({
         endpointPath: "/fundraising/v1/fundraisers/assignments",
         detail: "Created Lead Solicitor assignment in Raiser's Edge NXT.",
         fundraiserId: workspaceFundraiserId,
+        resolutionPath,
+        resolutionCandidates,
       }),
     };
   } catch (error) {
@@ -216,6 +363,8 @@ async function attemptSolicitorAssignmentSync({
         operation: "fallback",
         detail: normalizedMessage || message,
         fundraiserId: workspaceFundraiserId,
+        resolutionPath,
+        resolutionCandidates,
       }),
     };
   }

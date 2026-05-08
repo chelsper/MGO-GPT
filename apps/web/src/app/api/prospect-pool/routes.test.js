@@ -10,6 +10,10 @@ const createBlackbaudConstituentCustomFieldMock = vi.fn();
 const updateBlackbaudConstituentCustomFieldMock = vi.fn();
 const listBlackbaudFundraiserAssignmentsMock = vi.fn();
 const createBlackbaudFundraiserAssignmentMock = vi.fn();
+const findBlackbaudConstituentByEmailMock = vi.fn();
+const findBlackbaudConstituentByLookupIdMock = vi.fn();
+const getBlackbaudFundraiserByIdMock = vi.fn();
+const searchBlackbaudConstituentsMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -47,6 +51,10 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   updateBlackbaudConstituentCustomField: updateBlackbaudConstituentCustomFieldMock,
   listBlackbaudFundraiserAssignments: listBlackbaudFundraiserAssignmentsMock,
   createBlackbaudFundraiserAssignment: createBlackbaudFundraiserAssignmentMock,
+  findBlackbaudConstituentByEmail: findBlackbaudConstituentByEmailMock,
+  findBlackbaudConstituentByLookupId: findBlackbaudConstituentByLookupIdMock,
+  getBlackbaudFundraiserById: getBlackbaudFundraiserByIdMock,
+  searchBlackbaudConstituents: searchBlackbaudConstituentsMock,
 }));
 
 vi.mock("@/app/api/utils/sql", () => ({
@@ -67,6 +75,10 @@ describe("prospect pool routes", () => {
     updateBlackbaudConstituentCustomFieldMock.mockReset();
     listBlackbaudFundraiserAssignmentsMock.mockReset();
     createBlackbaudFundraiserAssignmentMock.mockReset();
+    findBlackbaudConstituentByEmailMock.mockReset();
+    findBlackbaudConstituentByLookupIdMock.mockReset();
+    getBlackbaudFundraiserByIdMock.mockReset();
+    searchBlackbaudConstituentsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -84,6 +96,14 @@ describe("prospect pool routes", () => {
         role: "mgo",
         blackbaud_constituent_id: "234684",
       },
+    });
+    findBlackbaudConstituentByEmailMock.mockResolvedValue(null);
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue(null);
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    getBlackbaudFundraiserByIdMock.mockResolvedValue({
+      fundraiserId: "234684",
+      constituentId: "234684",
+      name: "Gretchen Picotte",
     });
   });
 
@@ -292,6 +312,86 @@ describe("prospect pool routes", () => {
           constituent_id: "555123",
           type: "Lead Solicitor",
           value: 0,
+        }),
+      }),
+    );
+  });
+
+  it("resolves fundraiser identity from alternate Blackbaud matches before creating the assignment", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 44,
+      name: "Leslie M. Redd",
+      email: "leslie@example.com",
+      role: "mgo",
+      blackbaud_constituent_id: "186057",
+    });
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 44,
+        name: "Leslie M. Redd",
+        email: "leslie@example.com",
+        role: "mgo",
+        blackbaud_constituent_id: "186057",
+        blackbaud_lookup_id: "436887",
+      },
+    });
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "172263",
+    });
+    getBlackbaudFundraiserByIdMock
+      .mockRejectedValueOnce(new Error("Blackbaud 404 Resource Not Found"))
+      .mockResolvedValueOnce({
+        fundraiserId: "172263",
+        constituentId: "186057",
+        name: "Leslie M. Redd",
+      });
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([]);
+    createBlackbaudFundraiserAssignmentMock.mockResolvedValue({ id: "assign-2" });
+
+    queueSqlResult([
+      {
+        id: 902,
+        assigned_user_id: 44,
+        constituent_id: 89,
+        blackbaud_constituent_id: "555999",
+        prospect_name: "Robin Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_sync_state: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 902,
+        assigned_user_id: 44,
+        prospect_name: "Robin Prospect",
+        solicitor_requested: true,
+        solicitor_assignment_sync_state: "success",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/902", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "902" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.solicitor_assignment_sync_state).toBe("success");
+    expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          fundraiser_id: "172263",
+          constituent_id: "555999",
+          type: "Lead Solicitor",
         }),
       }),
     );
