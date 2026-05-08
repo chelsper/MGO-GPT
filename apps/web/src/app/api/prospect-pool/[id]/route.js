@@ -2,7 +2,16 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { resolveConstituent } from "@/app/api/utils/constituents";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import {
+  applyAssignmentStateToProspectPool,
+  ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+  createAssignmentAudit,
+  findDuplicateActiveAssignment,
+  getProspectPoolAssignmentStatus,
+  planProspectStatusSync,
+} from "../workflow";
 
 function isTruthy(value) {
   return value === true || value === "true" || value === 1 || value === "1";
@@ -52,9 +61,12 @@ export async function PATCH(request, { params }) {
         return Response.json({ error: "Invalid assigned MGO" }, { status: 400 });
       }
 
+      let assigned = null;
       if (assignedUserId !== null) {
-        const assigned = await sql`
+        assigned = await sql`
           SELECT id
+            , name
+            , email
           FROM users
           WHERE id = ${assignedUserId}
             AND (role = 'mgo' OR id = ${currentUser.id})
@@ -65,20 +77,101 @@ export async function PATCH(request, { params }) {
         }
       }
 
+      const nextAssignedUserId =
+        assignedUserId !== null ? assignedUserId : entry.assigned_user_id;
+      const nextNote = noteProvided ? body.note.trim() || null : entry.note;
+      const nextEmail = emailProvided ? body.email.trim().toLowerCase() || null : entry.email;
+      const nextPhone = phoneProvided ? body.phone.trim() || null : entry.phone;
+      const isAssignmentChange =
+        assignedUserId !== null && assignedUserId !== Number(entry.assigned_user_id || 0);
+
+      if (isAssignmentChange) {
+        const duplicate = await findDuplicateActiveAssignment({
+          sql,
+          assignedUserId: nextAssignedUserId,
+          blackbaudConstituentId: entry.blackbaud_constituent_id,
+          normalizedName: entry.normalized_name,
+          excludeEntryId: entryId,
+        });
+
+        if (duplicate) {
+          return Response.json(
+            {
+              error: `${duplicate.prospect_name || entry.prospect_name} is already assigned to this MGO in the prospect pool.`,
+            },
+            { status: 409 },
+          );
+        }
+
+        const constituent = await resolveConstituent({
+          userId: nextAssignedUserId,
+          name: entry.prospect_name,
+          blackbaudConstituentId: entry.blackbaud_constituent_id,
+        });
+        const assignedAt = new Date();
+        const assignmentStatus = getProspectPoolAssignmentStatus(nextAssignedUserId);
+        const syncPlan = planProspectStatusSync({
+          blackbaudConstituentId:
+            entry.blackbaud_constituent_id || constituent?.blackbaud_constituent_id || null,
+          now: assignedAt,
+        });
+        const assignedUserRecord = assigned?.[0] || null;
+        const audit = await createAssignmentAudit({
+          sql,
+          prospectPoolId: entryId,
+          constituentId: constituent?.id || null,
+          blackbaudConstituentId:
+            entry.blackbaud_constituent_id || constituent?.blackbaud_constituent_id || null,
+          constituentName: entry.prospect_name,
+          assignedToUserId: nextAssignedUserId,
+          assignedToName:
+            assignedUserRecord?.name || assignedUserRecord?.email || "Unknown MGO",
+          assignedByUserId: currentUser.id,
+          assignedByName: currentUser.name || currentUser.email,
+          assignedAt: assignedAt.toISOString(),
+          assignmentSource: ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+          assignmentStatus,
+          syncPlan,
+          retryCount: 0,
+        });
+
+        const updatedAssignment = await applyAssignmentStateToProspectPool({
+          sql,
+          prospectPoolId: entryId,
+          assignedUserId: nextAssignedUserId,
+          assignmentUpdatedBy: currentUser.id,
+          constituentId: constituent?.id || null,
+          blackbaudConstituentId:
+            entry.blackbaud_constituent_id || constituent?.blackbaud_constituent_id || null,
+          prospectName: entry.prospect_name,
+          normalizedName: entry.normalized_name,
+          note: nextNote,
+          email: nextEmail,
+          phone: nextPhone,
+          assignedAt: assignedAt.toISOString(),
+          assignmentSource: ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+          assignmentStatus,
+          syncPlan,
+          currentAssignmentAuditId: audit?.id || null,
+          retryCount: 0,
+        });
+
+        return Response.json(updatedAssignment);
+      }
+
       const updated = await sql`
         UPDATE prospect_pool
         SET
-          assigned_user_id = COALESCE(${assignedUserId}, assigned_user_id),
           note = CASE
-            WHEN ${noteProvided} THEN ${body.note.trim() || null}
+            WHEN ${noteProvided} THEN ${nextNote}
             ELSE note
           END,
           email = CASE
-            WHEN ${emailProvided} THEN ${body.email.trim().toLowerCase() || null}
+            WHEN ${emailProvided} THEN ${nextEmail}
             ELSE email
           END,
           phone = CASE
-            WHEN ${phoneProvided} THEN ${body.phone.trim() || null}
+            WHEN ${phoneProvided} THEN ${nextPhone}
             ELSE phone
           END,
           updated_at = NOW()

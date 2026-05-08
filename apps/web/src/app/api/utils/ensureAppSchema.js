@@ -368,9 +368,193 @@ export default async function ensureAppSchema() {
       ADD COLUMN IF NOT EXISTS solicitor_requested_at TIMESTAMPTZ
     `;
     await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS assignment_source TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS assignment_status TEXT NOT NULL DEFAULT 'active'
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS assignment_updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS nxt_status_sync_state TEXT NOT NULL DEFAULT 'manual_required'
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS nxt_status_sync_error TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS nxt_status_sync_attempted_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS nxt_status_synced_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS nxt_status_retry_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS manual_nxt_update_required BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
       UPDATE prospect_pool
       SET normalized_name = LOWER(TRIM(COALESCE(prospect_name, '')))
       WHERE normalized_name IS NULL OR normalized_name = ''
+    `;
+    await sql`
+      UPDATE prospect_pool
+      SET
+        assigned_at = COALESCE(assigned_at, created_at),
+        assignment_source = COALESCE(NULLIF(TRIM(COALESCE(assignment_source, '')), ''), 'Advancement Services'),
+        assignment_status = COALESCE(NULLIF(TRIM(COALESCE(assignment_status, '')), ''), CASE
+          WHEN assigned_user_id IS NULL THEN 'pending'
+          ELSE 'active'
+        END),
+        assignment_updated_by = COALESCE(assignment_updated_by, created_by),
+        nxt_status_sync_state = COALESCE(NULLIF(TRIM(COALESCE(nxt_status_sync_state, '')), ''), 'manual_required'),
+        manual_nxt_update_required = CASE
+          WHEN nxt_status_sync_state = 'success' THEN FALSE
+          ELSE TRUE
+        END,
+        nxt_status_sync_error = CASE
+          WHEN nxt_status_sync_error IS NULL AND nxt_status_sync_state <> 'success'
+            THEN 'Legacy assignment requires manual NXT prospect status update review.'
+          ELSE nxt_status_sync_error
+        END
+      WHERE
+        assigned_at IS NULL
+        OR assignment_source IS NULL
+        OR assignment_source = ''
+        OR assignment_status IS NULL
+        OR assignment_status = ''
+        OR assignment_updated_by IS NULL
+        OR nxt_status_sync_state IS NULL
+        OR nxt_status_sync_state = ''
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS prospect_pool_assignment_audits (
+        id BIGSERIAL PRIMARY KEY,
+        prospect_pool_id BIGINT REFERENCES prospect_pool(id) ON DELETE CASCADE,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        blackbaud_constituent_id TEXT,
+        constituent_name TEXT NOT NULL,
+        assigned_to_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        assigned_to_name TEXT NOT NULL,
+        assigned_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        assigned_by_name TEXT NOT NULL,
+        assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        assignment_source TEXT NOT NULL DEFAULT 'Advancement Services',
+        assignment_status TEXT NOT NULL,
+        desired_nxt_prospect_status TEXT NOT NULL,
+        desired_nxt_start_date DATE,
+        desired_nxt_comment TEXT,
+        nxt_sync_status TEXT NOT NULL,
+        nxt_sync_error TEXT,
+        nxt_sync_attempted_at TIMESTAMPTZ,
+        nxt_synced_at TIMESTAMPTZ,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        manual_update_required BOOLEAN NOT NULL DEFAULT FALSE,
+        exported_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS current_assignment_audit_id BIGINT REFERENCES prospect_pool_assignment_audits(id) ON DELETE SET NULL
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_pool_assignment_audits_pool_id
+      ON prospect_pool_assignment_audits (prospect_pool_id, assigned_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_pool_assignment_audits_sync_status
+      ON prospect_pool_assignment_audits (nxt_sync_status, manual_update_required, assigned_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_pool_assigned_user
+      ON prospect_pool (assigned_user_id, assignment_status, updated_at DESC)
+    `;
+    await sql`
+      INSERT INTO prospect_pool_assignment_audits (
+        prospect_pool_id,
+        constituent_id,
+        blackbaud_constituent_id,
+        constituent_name,
+        assigned_to_user_id,
+        assigned_to_name,
+        assigned_by_user_id,
+        assigned_by_name,
+        assigned_at,
+        assignment_source,
+        assignment_status,
+        desired_nxt_prospect_status,
+        desired_nxt_start_date,
+        desired_nxt_comment,
+        nxt_sync_status,
+        nxt_sync_error,
+        nxt_sync_attempted_at,
+        nxt_synced_at,
+        retry_count,
+        manual_update_required,
+        created_at,
+        updated_at
+      )
+      SELECT
+        pp.id,
+        pp.constituent_id,
+        pp.blackbaud_constituent_id,
+        COALESCE(NULLIF(TRIM(COALESCE(pp.prospect_name, '')), ''), 'Unknown prospect'),
+        pp.assigned_user_id,
+        COALESCE(NULLIF(TRIM(COALESCE(assigned_user.name, '')), ''), COALESCE(assigned_user.email, 'Unknown MGO')),
+        pp.assignment_updated_by,
+        COALESCE(NULLIF(TRIM(COALESCE(assignment_user.name, '')), ''), COALESCE(assignment_user.email, 'Unknown reviewer')),
+        COALESCE(pp.assigned_at, pp.created_at, NOW()),
+        COALESCE(NULLIF(TRIM(COALESCE(pp.assignment_source, '')), ''), 'Advancement Services'),
+        COALESCE(NULLIF(TRIM(COALESCE(pp.assignment_status, '')), ''), 'active'),
+        'Identification/Re-Engagement',
+        COALESCE(COALESCE(pp.assigned_at, pp.created_at, NOW())::date, CURRENT_DATE),
+        'Assigned by Advancement Services',
+        COALESCE(NULLIF(TRIM(COALESCE(pp.nxt_status_sync_state, '')), ''), 'manual_required'),
+        pp.nxt_status_sync_error,
+        pp.nxt_status_sync_attempted_at,
+        pp.nxt_status_synced_at,
+        COALESCE(pp.nxt_status_retry_count, 0),
+        COALESCE(pp.manual_nxt_update_required, TRUE),
+        COALESCE(pp.created_at, NOW()),
+        COALESCE(pp.updated_at, NOW())
+      FROM prospect_pool pp
+      LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
+      LEFT JOIN users assignment_user ON assignment_user.id = COALESCE(pp.assignment_updated_by, pp.created_by)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM prospect_pool_assignment_audits audit
+        WHERE audit.prospect_pool_id = pp.id
+      )
+    `;
+    await sql`
+      UPDATE prospect_pool pp
+      SET current_assignment_audit_id = audit.id
+      FROM LATERAL (
+        SELECT id
+        FROM prospect_pool_assignment_audits
+        WHERE prospect_pool_id = pp.id
+        ORDER BY assigned_at DESC, id DESC
+        LIMIT 1
+      ) audit
+      WHERE pp.current_assignment_audit_id IS NULL
     `;
 
     await sql`

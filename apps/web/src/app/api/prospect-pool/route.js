@@ -5,6 +5,14 @@ import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import {
+  applyAssignmentStateToProspectPool,
+  ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+  createAssignmentAudit,
+  findDuplicateActiveAssignment,
+  getProspectPoolAssignmentStatus,
+  planProspectStatusSync,
+} from "./workflow";
 
 function normalizeName(value) {
   return (value || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -36,6 +44,8 @@ export async function GET(request) {
               assigned_user.email AS assigned_user_email,
               creator.name AS created_by_name,
               creator.email AS created_by_email,
+              assignment_updater.name AS assignment_updated_by_name,
+              assignment_updater.email AS assignment_updated_by_email,
               matched_prospect.id AS matched_prospect_id,
               matched_prospect.prospect_name AS matched_prospect_name,
               matched_prospect_owner.name AS last_action_solicitor_name,
@@ -45,6 +55,7 @@ export async function GET(request) {
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
+            LEFT JOIN users assignment_updater ON assignment_updater.id = pp.assignment_updated_by
             LEFT JOIN LATERAL (
               SELECT
                 p.id,
@@ -89,6 +100,8 @@ export async function GET(request) {
               assigned_user.email AS assigned_user_email,
               creator.name AS created_by_name,
               creator.email AS created_by_email,
+              assignment_updater.name AS assignment_updated_by_name,
+              assignment_updater.email AS assignment_updated_by_email,
               matched_prospect.id AS matched_prospect_id,
               matched_prospect.prospect_name AS matched_prospect_name,
               matched_prospect_owner.name AS last_action_solicitor_name,
@@ -98,6 +111,7 @@ export async function GET(request) {
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
             LEFT JOIN users creator ON creator.id = pp.created_by
+            LEFT JOIN users assignment_updater ON assignment_updater.id = pp.assignment_updated_by
             LEFT JOIN LATERAL (
               SELECT
                 p.id,
@@ -203,15 +217,39 @@ export async function POST(request) {
     const constituent = await resolveConstituent({
       userId: assignedUserId,
       name: prospectName,
-      email,
-      phone,
       blackbaudConstituentId,
+    });
+
+    const linkedBlackbaudConstituentId =
+      blackbaudConstituentId || constituent?.blackbaud_constituent_id || null;
+    const duplicate = await findDuplicateActiveAssignment({
+      sql,
+      assignedUserId,
+      blackbaudConstituentId: linkedBlackbaudConstituentId,
+      normalizedName: normalizeName(prospectName),
+    });
+
+    if (duplicate) {
+      return Response.json(
+        {
+          error: `${duplicate.prospect_name || prospectName} is already assigned to this MGO in the prospect pool.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    const assignedAt = new Date();
+    const assignmentStatus = getProspectPoolAssignmentStatus(assignedUserId);
+    const syncPlan = planProspectStatusSync({
+      blackbaudConstituentId: linkedBlackbaudConstituentId,
+      now: assignedAt,
     });
 
     const result = await sql`
       INSERT INTO prospect_pool (
         assigned_user_id,
         created_by,
+        assignment_updated_by,
         constituent_id,
         blackbaud_constituent_id,
         prospect_name,
@@ -219,26 +257,81 @@ export async function POST(request) {
         note,
         email,
         phone,
+        assigned_at,
+        assignment_source,
+        assignment_status,
+        nxt_status_sync_state,
+        nxt_status_sync_error,
+        nxt_status_sync_attempted_at,
+        nxt_status_retry_count,
+        manual_nxt_update_required,
         created_at,
         updated_at
       )
       VALUES (
         ${assignedUserId},
         ${reviewer.id},
+        ${reviewer.id},
         ${constituent?.id || null},
-        ${blackbaudConstituentId},
+        ${linkedBlackbaudConstituentId},
         ${prospectName},
         ${normalizeName(prospectName)},
         ${note},
         ${email},
         ${phone},
+        ${assignedAt.toISOString()},
+        ${ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES},
+        ${assignmentStatus},
+        ${syncPlan.syncStatus},
+        ${syncPlan.errorMessage},
+        NOW(),
+        0,
+        ${syncPlan.manualUpdateRequired},
         NOW(),
         NOW()
       )
       RETURNING *
     `;
 
-    return Response.json(result[0], { status: 201 });
+    const created = result[0];
+    const audit = await createAssignmentAudit({
+      sql,
+      prospectPoolId: created.id,
+      constituentId: constituent?.id || null,
+      blackbaudConstituentId: linkedBlackbaudConstituentId,
+      constituentName: prospectName,
+      assignedToUserId: assignedUserId,
+      assignedToName: assignedUser[0].name || assignedUser[0].email,
+      assignedByUserId: reviewer.id,
+      assignedByName: reviewer.name || reviewer.email,
+      assignedAt: assignedAt.toISOString(),
+      assignmentSource: ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+      assignmentStatus,
+      syncPlan,
+      retryCount: 0,
+    });
+
+    const updated = await applyAssignmentStateToProspectPool({
+      sql,
+      prospectPoolId: created.id,
+      assignedUserId,
+      assignmentUpdatedBy: reviewer.id,
+      constituentId: constituent?.id || null,
+      blackbaudConstituentId: linkedBlackbaudConstituentId,
+      prospectName,
+      normalizedName: normalizeName(prospectName),
+      note,
+      email,
+      phone,
+      assignedAt: assignedAt.toISOString(),
+      assignmentSource: ASSIGNMENT_SOURCE_ADVANCEMENT_SERVICES,
+      assignmentStatus,
+      syncPlan,
+      currentAssignmentAuditId: audit?.id || null,
+      retryCount: 0,
+    });
+
+    return Response.json(updated || created, { status: 201 });
   } catch (error) {
     console.error("Error creating prospect pool entry:", error);
     return Response.json(

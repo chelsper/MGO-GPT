@@ -76,6 +76,37 @@ function getActionTypeFromNotes(value) {
   return normalized || null;
 }
 
+function getNxtSyncPresentation(syncState) {
+  const normalized = String(syncState || "manual_required").toLowerCase();
+  const map = {
+    success: {
+      label: "Assigned in app, NXT updated successfully",
+      shortLabel: "NXT updated",
+      bg: "#DCFCE7",
+      fg: "#166534",
+    },
+    failed: {
+      label: "Assigned in app, NXT update failed",
+      shortLabel: "NXT failed",
+      bg: "#FEE2E2",
+      fg: "#991B1B",
+    },
+    pending: {
+      label: "Assigned in app, NXT update pending",
+      shortLabel: "NXT pending",
+      bg: "#DBEAFE",
+      fg: "#1D4ED8",
+    },
+    manual_required: {
+      label: "Manual NXT update required",
+      shortLabel: "Manual NXT update",
+      bg: "#FEF3C7",
+      fg: "#92400E",
+    },
+  };
+  return map[normalized] || map.manual_required;
+}
+
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -86,6 +117,8 @@ export default function ProspectPoolPage() {
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
+  const [retryingSyncId, setRetryingSyncId] = useState(null);
+  const [exportingQueue, setExportingQueue] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -525,6 +558,10 @@ export default function ProspectPoolPage() {
 
     try {
       const draft = drafts[id] || {};
+      const existingEntry = entries.find((entry) => entry.id === id);
+      const wasReassigned =
+        draft.assignedUserId &&
+        String(draft.assignedUserId) !== String(existingEntry?.assigned_user_id || "");
       const response = await fetch(`/api/prospect-pool/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -562,8 +599,12 @@ export default function ProspectPoolPage() {
         delete next[id];
         return next;
       });
-      setActionMessage(`Updated ${updated.prospect_name}.`);
-      setToast({ tone: "success", message: `Updated ${updated.prospect_name}.` });
+      const syncPresentation = getNxtSyncPresentation(updated.nxt_status_sync_state);
+      const message = wasReassigned
+        ? `Reassigned ${updated.prospect_name}. ${syncPresentation.label}.`
+        : `Updated ${updated.prospect_name}.`;
+      setActionMessage(message);
+      setToast({ tone: "success", message });
     } catch (err) {
       console.error(err);
       const message = err.message || "Could not update this pool entry.";
@@ -656,8 +697,10 @@ export default function ProspectPoolPage() {
       }));
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
-      setActionMessage(`${created.prospect_name} added to ${assignedName}'s prospect pool.`);
-      setToast({ tone: "success", message: "Prospect added to the pool." });
+      const syncPresentation = getNxtSyncPresentation(created.nxt_status_sync_state);
+      const message = `${created.prospect_name} assigned to ${assignedName}. ${syncPresentation.label}.`;
+      setActionMessage(message);
+      setToast({ tone: "success", message });
     } catch (err) {
       console.error(err);
       const message = err.message || "Could not create prospect pool entry.";
@@ -708,6 +751,72 @@ export default function ProspectPoolPage() {
       setToast({ tone: "error", message });
     } finally {
       setSavingId(null);
+    }
+  }
+
+  async function retryNxtSync(entryId) {
+    setRetryingSyncId(entryId);
+    setError("");
+    setActionMessage("");
+
+    try {
+      const response = await fetch(`/api/prospect-pool/${entryId}/nxt-status-sync`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to retry NXT status update");
+      }
+
+      const updated = await response.json();
+      const syncPresentation = getNxtSyncPresentation(updated.nxt_status_sync_state);
+      setEntries((current) =>
+        current.map((entry) => (entry.id === entryId ? { ...entry, ...updated } : entry)),
+      );
+      const message = `Updated NXT status for ${updated.prospect_name}. ${syncPresentation.label}.`;
+      setActionMessage(message);
+      setToast({ tone: "success", message });
+    } catch (err) {
+      console.error(err);
+      const message = err.message || "Could not retry the NXT update.";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setRetryingSyncId(null);
+    }
+  }
+
+  async function downloadManualQueue() {
+    setExportingQueue(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/prospect-pool/nxt-status-export");
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to export the NXT update queue");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename=\"?([^"]+)\"?/i);
+      anchor.href = url;
+      anchor.download = match?.[1] || "prospect-pool-nxt-status.csv";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      setToast({ tone: "success", message: "Downloaded the NXT update queue." });
+    } catch (err) {
+      console.error(err);
+      const message = err.message || "Could not export the NXT update queue.";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setExportingQueue(false);
     }
   }
 
@@ -1016,22 +1125,41 @@ export default function ProspectPoolPage() {
                   Keep the queue primary. Open this only when you are routing a new name.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setCreatePanelOpen((open) => !open)}
-                style={{
-                  borderRadius: "999px",
-                  border: "1px solid #D1D5DB",
-                  backgroundColor: createPanelOpen ? "#EDE9FE" : "white",
-                  color: createPanelOpen ? "#5B21B6" : "#374151",
-                  padding: "10px 14px",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {createPanelOpen ? "Hide composer" : "Open composer"}
-              </button>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={downloadManualQueue}
+                  disabled={exportingQueue}
+                  style={{
+                    borderRadius: "999px",
+                    border: "1px solid #FCD34D",
+                    backgroundColor: "#FFFBEB",
+                    color: "#92400E",
+                    padding: "10px 14px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: exportingQueue ? "wait" : "pointer",
+                  }}
+                >
+                  {exportingQueue ? "Preparing export..." : "Download NXT update queue"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreatePanelOpen((open) => !open)}
+                  style={{
+                    borderRadius: "999px",
+                    border: "1px solid #D1D5DB",
+                    backgroundColor: createPanelOpen ? "#EDE9FE" : "white",
+                    color: createPanelOpen ? "#5B21B6" : "#374151",
+                    padding: "10px 14px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {createPanelOpen ? "Hide composer" : "Open composer"}
+                </button>
+              </div>
             </div>
 
             {createPanelOpen ? (
@@ -1520,6 +1648,7 @@ export default function ProspectPoolPage() {
             const juEducation =
               blackbaudSummaryState?.payload?.mapped?.jacksonvilleUniversityEducation || [];
             const lastActionType = getActionTypeFromNotes(entry.last_action_notes);
+            const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
 
             return (
               <article
@@ -1543,27 +1672,58 @@ export default function ProspectPoolPage() {
                   <div style={{ minWidth: "260px", flex: "1 1 340px" }}>
                     <div
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "6px 10px",
-                        borderRadius: "999px",
-                        backgroundColor: stateColors.bg,
-                        color: stateColors.fg,
-                        fontSize: "12px",
-                        fontWeight: 700,
+                        display: "flex",
+                        gap: "8px",
+                        flexWrap: "wrap",
                         marginBottom: "12px",
                       }}
                     >
-                      {stateLabel}
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "6px 10px",
+                          borderRadius: "999px",
+                          backgroundColor: stateColors.bg,
+                          color: stateColors.fg,
+                          fontSize: "12px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {stateLabel}
+                      </div>
+                      {isReviewer ? (
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "6px 10px",
+                            borderRadius: "999px",
+                            backgroundColor: syncPresentation.bg,
+                            color: syncPresentation.fg,
+                            fontSize: "12px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {syncPresentation.shortLabel}
+                        </div>
+                      ) : null}
                     </div>
                     <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
                       {entry.prospect_name}
                     </h2>
                     <div style={{ marginTop: "8px", fontSize: "14px", color: "#6B7280" }}>
                       {entry.assigned_user_name || entry.assigned_user_email || "Unassigned"}
-                      {" · "}Added {formatDate(entry.created_at)}
-                      {entry.created_by_name ? ` by ${entry.created_by_name}` : ""}
+                      {" · "}Assigned {formatDate(entry.assigned_at || entry.created_at)}
+                      {(entry.assignment_updated_by_name || entry.created_by_name)
+                        ? ` by ${entry.assignment_updated_by_name || entry.created_by_name}`
+                        : ""}
                     </div>
+                    {!isReviewer ? (
+                      <div style={{ marginTop: "8px", fontSize: "13px", color: "#6B7280" }}>
+                        Assigned by Advancement Services
+                      </div>
+                    ) : null}
                     {entry.note ? (
                       <p
                         style={{
@@ -2076,6 +2236,47 @@ export default function ProspectPoolPage() {
                         {" · "}
                         solicitor {entry.solicitor_requested ? "requested" : "not requested"}
                       </div>
+                      <div
+                        style={{
+                          marginBottom: "14px",
+                          padding: "12px",
+                          borderRadius: "12px",
+                          backgroundColor: "#FFFFFF",
+                          border: "1px solid #E5E7EB",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#6B7280",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          Assignment + NXT status
+                        </div>
+                        <div style={{ fontSize: "13px", color: "#111827", fontWeight: 700 }}>
+                          {syncPresentation.label}
+                        </div>
+                        <div style={{ marginTop: "6px", fontSize: "12px", color: "#6B7280", lineHeight: 1.6 }}>
+                          Source: {entry.assignment_source || "Advancement Services"}
+                          {" · "}Retry count: {entry.nxt_status_retry_count || 0}
+                        </div>
+                        {entry.nxt_status_sync_error ? (
+                          <div
+                            style={{
+                              marginTop: "8px",
+                              fontSize: "12px",
+                              color: syncPresentation.fg,
+                              lineHeight: 1.6,
+                            }}
+                          >
+                            {entry.nxt_status_sync_error}
+                          </div>
+                        ) : null}
+                      </div>
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                         <button
                           type="button"
@@ -2094,6 +2295,24 @@ export default function ProspectPoolPage() {
                           }}
                         >
                           {savingId === entry.id ? "Saving..." : "Save changes"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={retryingSyncId === entry.id}
+                          onClick={() => retryNxtSync(entry.id)}
+                          style={{
+                            flex: "1 1 150px",
+                            padding: "12px 16px",
+                            borderRadius: "12px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            color: "#374151",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: retryingSyncId === entry.id ? "wait" : "pointer",
+                          }}
+                        >
+                          {retryingSyncId === entry.id ? "Retrying..." : "Retry NXT status"}
                         </button>
                         <button
                           type="button"
