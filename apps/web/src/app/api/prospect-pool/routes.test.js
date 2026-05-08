@@ -7,6 +7,9 @@ const getWorkspaceUserMock = vi.fn();
 const resolveConstituentMock = vi.fn();
 const listBlackbaudConstituentCustomFieldsMock = vi.fn();
 const createBlackbaudConstituentCustomFieldMock = vi.fn();
+const updateBlackbaudConstituentCustomFieldMock = vi.fn();
+const listBlackbaudFundraiserAssignmentsMock = vi.fn();
+const createBlackbaudFundraiserAssignmentMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -41,6 +44,9 @@ vi.mock("@/app/api/utils/constituents", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   listBlackbaudConstituentCustomFields: listBlackbaudConstituentCustomFieldsMock,
   createBlackbaudConstituentCustomField: createBlackbaudConstituentCustomFieldMock,
+  updateBlackbaudConstituentCustomField: updateBlackbaudConstituentCustomFieldMock,
+  listBlackbaudFundraiserAssignments: listBlackbaudFundraiserAssignmentsMock,
+  createBlackbaudFundraiserAssignment: createBlackbaudFundraiserAssignmentMock,
 }));
 
 vi.mock("@/app/api/utils/sql", () => ({
@@ -58,6 +64,9 @@ describe("prospect pool routes", () => {
     resolveConstituentMock.mockReset();
     listBlackbaudConstituentCustomFieldsMock.mockReset();
     createBlackbaudConstituentCustomFieldMock.mockReset();
+    updateBlackbaudConstituentCustomFieldMock.mockReset();
+    listBlackbaudFundraiserAssignmentsMock.mockReset();
+    createBlackbaudFundraiserAssignmentMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -66,6 +75,15 @@ describe("prospect pool routes", () => {
       name: "Reviewer Person",
       email: "reviewer@example.com",
       role: "reviewer",
+    });
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 44,
+        name: "Gretchen Picotte",
+        email: "gretchen@example.com",
+        role: "mgo",
+        blackbaud_constituent_id: "234684",
+      },
     });
   });
 
@@ -216,6 +234,67 @@ describe("prospect pool routes", () => {
     expect(response.status).toBe(200);
     expect(payload.nxt_status_sync_state).toBe("success");
     expect(payload.nxt_status_retry_count).toBe(1);
+  });
+
+  it("lets the assigned workspace MGO add themselves as Lead Solicitor in NXT", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 44,
+      name: "Gretchen Picotte",
+      email: "gretchen@example.com",
+      role: "mgo",
+      blackbaud_constituent_id: "234684",
+    });
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([]);
+    createBlackbaudFundraiserAssignmentMock.mockResolvedValue({ id: "assign-1" });
+
+    queueSqlResult([
+      {
+        id: 901,
+        assigned_user_id: 44,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555123",
+        prospect_name: "Pat Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_sync_state: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 901,
+        assigned_user_id: 44,
+        prospect_name: "Pat Prospect",
+        solicitor_requested: true,
+        solicitor_assignment_sync_state: "success",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/901", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "901" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.solicitor_assignment_sync_state).toBe("success");
+    expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          fundraiser_id: "234684",
+          constituent_id: "555123",
+          type: "Lead Solicitor",
+          amount: { value: 0 },
+        }),
+      }),
+    );
   });
 
   it("exports unresolved MGOGPT assignment updates as CSV", async () => {

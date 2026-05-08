@@ -2,10 +2,13 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import {
   createBlackbaudConstituentCustomField,
+  createBlackbaudFundraiserAssignment,
   listBlackbaudConstituentCustomFields,
+  listBlackbaudFundraiserAssignments,
   updateBlackbaudConstituentCustomField,
 } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -19,12 +22,205 @@ import {
   findDuplicateActiveAssignment,
   getCustomFieldDisplayValue,
   getProspectPoolAssignmentStatus,
+  getProspectPoolTodayDate,
   normalizeCustomFieldText,
   planProspectStatusSync,
 } from "../workflow";
 
+const LEAD_SOLICITOR_FUNDRAISER_TYPE = "Lead Solicitor";
+const SOLICITOR_ASSIGNMENT_SYNC_STATUS = {
+  SUCCESS: "success",
+  FAILED: "failed",
+  MANUAL_REQUIRED: "manual_required",
+};
+
 function isTruthy(value) {
   return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getFundraiserAssignmentConstituentId(assignment) {
+  return (
+    assignment?.constituent_id?.toString() ||
+    assignment?.constituentId?.toString() ||
+    assignment?.prospect_id?.toString() ||
+    assignment?.prospectId?.toString() ||
+    null
+  );
+}
+
+function getFundraiserAssignmentType(assignment) {
+  return (
+    assignment?.type ||
+    assignment?.fundraiser_type ||
+    assignment?.fundraiserType ||
+    assignment?.category ||
+    null
+  );
+}
+
+function getFundraiserAssignmentId(assignment) {
+  return (
+    assignment?.id?.toString() ||
+    assignment?.assignment_id?.toString() ||
+    assignment?.assignmentId?.toString() ||
+    null
+  );
+}
+
+function getFundraiserAssignmentEndDate(assignment) {
+  const value =
+    assignment?.end ||
+    assignment?.end_date ||
+    assignment?.endDate ||
+    assignment?.date_to ||
+    assignment?.dateTo ||
+    null;
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
+
+function isFundraiserAssignmentActive(assignment, todayDate) {
+  const endDate = getFundraiserAssignmentEndDate(assignment);
+  return !endDate || endDate >= todayDate;
+}
+
+function buildSolicitorAssignmentDebug({
+  operation,
+  endpointPath,
+  detail,
+  assignmentId,
+  fundraiserId,
+}) {
+  return {
+    operation: operation || null,
+    endpointPath: endpointPath || null,
+    detail: detail || null,
+    assignmentId: assignmentId ? String(assignmentId) : null,
+    fundraiserId: fundraiserId ? String(fundraiserId) : null,
+    recordedAt: new Date().toISOString(),
+  };
+}
+
+async function attemptSolicitorAssignmentSync({
+  currentUser,
+  workspaceUser,
+  request,
+  blackbaudConstituentId,
+}) {
+  const workspaceFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
+  if (!blackbaudConstituentId) {
+    return {
+      syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED,
+      errorMessage:
+        "Saved in the app, but Raiser's Edge NXT solicitor assignment requires a linked constituent/system record ID.",
+      syncedAt: null,
+      debug: buildSolicitorAssignmentDebug({
+        operation: "fallback",
+        detail: "Missing linked constituent/system record ID.",
+        fundraiserId: workspaceFundraiserId || null,
+      }),
+    };
+  }
+
+  if (!workspaceFundraiserId) {
+    return {
+      syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED,
+      errorMessage:
+        "Saved in the app, but Raiser's Edge NXT solicitor assignment requires a fundraiser system record ID for the active workspace MGO.",
+      syncedAt: null,
+      debug: buildSolicitorAssignmentDebug({
+        operation: "fallback",
+        detail: "Missing workspace fundraiser system record ID.",
+      }),
+    };
+  }
+
+  const origin = new URL(request.url).origin;
+  const todayDate = getProspectPoolTodayDate(new Date());
+
+  try {
+    const existingAssignments = await listBlackbaudFundraiserAssignments({
+      userId: workspaceUser.id,
+      authUserId: currentUser.id,
+      origin,
+      fundraiserId: workspaceFundraiserId,
+    });
+
+    const matchingAssignment = (Array.isArray(existingAssignments) ? existingAssignments : []).find(
+      (assignment) =>
+        getFundraiserAssignmentConstituentId(assignment) === String(blackbaudConstituentId) &&
+        normalizeText(getFundraiserAssignmentType(assignment)) ===
+          normalizeText(LEAD_SOLICITOR_FUNDRAISER_TYPE) &&
+        isFundraiserAssignmentActive(assignment, todayDate),
+    );
+
+    if (matchingAssignment) {
+      return {
+        syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS,
+        errorMessage: null,
+        syncedAt: new Date().toISOString(),
+        debug: buildSolicitorAssignmentDebug({
+          operation: "list",
+          endpointPath: `/fundraising/v1/fundraisers/${workspaceFundraiserId}/assignments`,
+          detail: "Lead Solicitor assignment already exists for this constituent.",
+          assignmentId: getFundraiserAssignmentId(matchingAssignment),
+          fundraiserId: workspaceFundraiserId,
+        }),
+      };
+    }
+
+    const startTimestamp = new Date().toISOString();
+    await createBlackbaudFundraiserAssignment({
+      userId: workspaceUser.id,
+      authUserId: currentUser.id,
+      origin,
+      payload: {
+        fundraiser_id: workspaceFundraiserId,
+        constituent_id: String(blackbaudConstituentId),
+        type: LEAD_SOLICITOR_FUNDRAISER_TYPE,
+        start: startTimestamp,
+        amount: {
+          value: 0,
+        },
+      },
+    });
+
+    return {
+      syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS,
+      errorMessage: null,
+      syncedAt: new Date().toISOString(),
+      debug: buildSolicitorAssignmentDebug({
+        operation: "create",
+        endpointPath: "/fundraising/v1/fundraisers/assignments",
+        detail: "Created Lead Solicitor assignment in Raiser's Edge NXT.",
+        fundraiserId: workspaceFundraiserId,
+      }),
+    };
+  } catch (error) {
+    const message = error?.message || "Failed to create Raiser's Edge NXT solicitor assignment";
+    const normalizedMessage = normalizeText(message);
+    const manualRequired =
+      /404|resource not found|unsupported|not implemented/i.test(message);
+
+    return {
+      syncState: manualRequired
+        ? SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED
+        : SOLICITOR_ASSIGNMENT_SYNC_STATUS.FAILED,
+      errorMessage: manualRequired
+        ? "Saved in the app, but the Raiser's Edge NXT fundraiser assignment endpoint is unavailable for this record."
+        : message,
+      syncedAt: null,
+      debug: buildSolicitorAssignmentDebug({
+        operation: "fallback",
+        detail: normalizedMessage || message,
+        fundraiserId: workspaceFundraiserId,
+      }),
+    };
+  }
 }
 
 async function attemptProspectPoolNxtSync({
@@ -171,6 +367,7 @@ export async function PATCH(request, { params }) {
     }
 
     const currentUser = await getOrCreateUser(session);
+    const { workspaceUser } = await getWorkspaceUser(session, request);
     const entryId = Number(params?.id);
 
     if (!Number.isInteger(entryId) || entryId <= 0) {
@@ -333,7 +530,7 @@ export async function PATCH(request, { params }) {
       return Response.json(updated[0]);
     }
 
-    if (entry.assigned_user_id !== currentUser.id) {
+    if (entry.assigned_user_id !== workspaceUser.id) {
       return Response.json(
         { error: "Forbidden — this prospect is assigned to another MGO" },
         { status: 403 },
@@ -345,14 +542,53 @@ export async function PATCH(request, { params }) {
       body?.needsContactInfo !== undefined
         ? isTruthy(body.needsContactInfo)
         : entry.needs_contact_info;
-    const solicitorRequested =
+    const solicitorRequestedRequested =
       body?.solicitorRequested !== undefined
         ? isTruthy(body.solicitorRequested)
         : entry.solicitor_requested;
+    const solicitorRequested =
+      entry.solicitor_assignment_sync_state === SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS
+        ? true
+        : solicitorRequestedRequested;
     const noteProvided = typeof body?.contactInfoRequestNote === "string";
     const contactInfoRequestNote = noteProvided
       ? body.contactInfoRequestNote.trim() || null
       : entry.contact_info_request_note;
+    let linkedBlackbaudConstituentId = entry.blackbaud_constituent_id || null;
+
+    if (!linkedBlackbaudConstituentId && entry.constituent_id) {
+      const constituentRows = await sql`
+        SELECT blackbaud_constituent_id
+        FROM constituents
+        WHERE id = ${entry.constituent_id}
+        LIMIT 1
+      `;
+      linkedBlackbaudConstituentId =
+        constituentRows[0]?.blackbaud_constituent_id?.toString() || null;
+    }
+
+    let solicitorAssignmentSyncState = entry.solicitor_assignment_sync_state || null;
+    let solicitorAssignmentSyncError = entry.solicitor_assignment_sync_error || null;
+    let solicitorAssignmentSyncedAt = entry.solicitor_assignment_synced_at || null;
+    let solicitorAssignmentSyncDebug = entry.solicitor_assignment_sync_debug || null;
+
+    if (solicitorRequested) {
+      const syncResult = await attemptSolicitorAssignmentSync({
+        currentUser,
+        workspaceUser,
+        request,
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+      });
+      solicitorAssignmentSyncState = syncResult.syncState;
+      solicitorAssignmentSyncError = syncResult.errorMessage;
+      solicitorAssignmentSyncedAt = syncResult.syncedAt;
+      solicitorAssignmentSyncDebug = syncResult.debug;
+    } else {
+      solicitorAssignmentSyncState = null;
+      solicitorAssignmentSyncError = null;
+      solicitorAssignmentSyncedAt = null;
+      solicitorAssignmentSyncDebug = null;
+    }
 
     const updated = await sql`
       UPDATE prospect_pool
@@ -364,6 +600,14 @@ export async function PATCH(request, { params }) {
           WHEN ${solicitorRequested} THEN COALESCE(solicitor_requested_at, NOW())
           ELSE NULL
         END,
+        solicitor_assignment_sync_state = ${solicitorAssignmentSyncState},
+        solicitor_assignment_sync_error = ${solicitorAssignmentSyncError},
+        solicitor_assignment_sync_attempted_at = CASE
+          WHEN ${solicitorRequested} THEN NOW()
+          ELSE NULL
+        END,
+        solicitor_assignment_synced_at = ${solicitorAssignmentSyncedAt},
+        solicitor_assignment_sync_debug = ${solicitorAssignmentSyncDebug ? JSON.stringify(solicitorAssignmentSyncDebug) : null}::jsonb,
         updated_at = NOW()
       WHERE id = ${entryId}
       RETURNING *

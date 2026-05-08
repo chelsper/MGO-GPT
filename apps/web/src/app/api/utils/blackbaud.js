@@ -901,6 +901,21 @@ export async function listBlackbaudFundraiserAssignments({
   return results;
 }
 
+export async function createBlackbaudFundraiserAssignment({
+  userId,
+  authUserId,
+  origin,
+  payload,
+}) {
+  return blackbaudApiFetch(`${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/assignments`, {
+    userId,
+    authUserId,
+    origin,
+    method: "POST",
+    body: payload,
+  });
+}
+
 export async function listBlackbaudConstituents({
   userId,
   authUserId,

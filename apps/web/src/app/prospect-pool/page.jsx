@@ -109,6 +109,26 @@ function getNxtSyncPresentation(syncState) {
   return map[normalized] || map.manual_required;
 }
 
+function getSolicitorAssignmentPresentation(syncState) {
+  const normalized = String(syncState || "").trim().toLowerCase();
+  const map = {
+    success: {
+      tone: "success",
+      label: "Added you as Lead Solicitor in Raiser's Edge NXT.",
+    },
+    failed: {
+      tone: "error",
+      label: "Saved in the app, but could not add you as Lead Solicitor in Raiser's Edge NXT.",
+    },
+    manual_required: {
+      tone: "error",
+      label:
+        "Saved in the app, but Raiser's Edge NXT solicitor assignment still requires manual follow-up.",
+    },
+  };
+  return map[normalized] || null;
+}
+
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -720,6 +740,9 @@ export default function ProspectPoolPage() {
 
     try {
       const draft = drafts[id] || {};
+      const existingEntry = entries.find((entry) => entry.id === id);
+      const solicitorRequested =
+        draft.solicitorRequested ?? existingEntry?.solicitor_requested ?? false;
       const response = await fetch(`/api/prospect-pool/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -744,8 +767,14 @@ export default function ProspectPoolPage() {
         delete next[id];
         return next;
       });
-      setActionMessage(`Saved updates for ${updated.prospect_name}.`);
-      setToast({ tone: "success", message: `Saved updates for ${updated.prospect_name}.` });
+      const solicitorMessage = solicitorRequested
+        ? getSolicitorAssignmentPresentation(updated.solicitor_assignment_sync_state)
+        : null;
+      const message = solicitorMessage
+        ? `Saved updates for ${updated.prospect_name}. ${solicitorMessage.label}`
+        : `Saved updates for ${updated.prospect_name}.`;
+      setActionMessage(message);
+      setToast({ tone: solicitorMessage?.tone || "success", message });
     } catch (err) {
       console.error(err);
       const message = err.message || "Could not save your request.";
@@ -1653,11 +1682,9 @@ export default function ProspectPoolPage() {
             const juEducation =
               blackbaudSummaryState?.payload?.mapped?.jacksonvilleUniversityEducation || [];
             const lastActionType = getActionTypeFromNotes(entry.last_action_notes);
-            const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
             const canRetryNxtSync =
               entry.nxt_status_sync_state === "failed" ||
               entry.nxt_status_sync_state === "pending";
-            const syncDebug = entry.nxt_status_sync_debug || null;
 
             return (
               <article
@@ -2245,77 +2272,6 @@ export default function ProspectPoolPage() {
                         {" · "}
                         solicitor {entry.solicitor_requested ? "requested" : "not requested"}
                       </div>
-                      <div
-                        style={{
-                          marginBottom: "14px",
-                          padding: "12px",
-                          borderRadius: "12px",
-                          backgroundColor: "#FFFFFF",
-                          border: "1px solid #E5E7EB",
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#6B7280",
-                            fontWeight: 700,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.04em",
-                            marginBottom: "6px",
-                          }}
-                        >
-                          Assignment + MGOGPT status
-                        </div>
-                        <div style={{ fontSize: "13px", color: "#111827", fontWeight: 700 }}>
-                          {syncPresentation.label}
-                        </div>
-                        <div style={{ marginTop: "6px", fontSize: "12px", color: "#6B7280", lineHeight: 1.6 }}>
-                          Source: {entry.assignment_source || "Advancement Services"}
-                          {" · "}Retry count: {entry.nxt_status_retry_count || 0}
-                        </div>
-                        {syncPresentation.detail ? (
-                          <div
-                            style={{
-                              marginTop: "8px",
-                              fontSize: "12px",
-                              color: "#6B7280",
-                              lineHeight: 1.6,
-                            }}
-                          >
-                            {syncPresentation.detail}
-                          </div>
-                        ) : null}
-                        {entry.nxt_status_sync_error ? (
-                          <div
-                            style={{
-                              marginTop: "8px",
-                              fontSize: "12px",
-                              color: syncPresentation.fg,
-                              lineHeight: 1.6,
-                            }}
-                          >
-                            {entry.nxt_status_sync_state === "manual_required"
-                              ? "Use the MGOGPT update queue export for manual processing."
-                              : entry.nxt_status_sync_error}
-                          </div>
-                        ) : null}
-                        {syncDebug ? (
-                          <div
-                            style={{
-                              marginTop: "8px",
-                              paddingTop: "8px",
-                              borderTop: "1px solid #E5E7EB",
-                              fontSize: "11px",
-                              color: "#6B7280",
-                              lineHeight: 1.6,
-                              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                            }}
-                          >
-                            <div>op: {syncDebug.operation || "unknown"}</div>
-                            <div>path: {syncDebug.endpointPath || "fallback"}</div>
-                          </div>
-                        ) : null}
-                      </div>
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                         <button
                           type="button"
@@ -2475,7 +2431,7 @@ export default function ProspectPoolPage() {
                             setDraft(entry.id, { solicitorRequested: event.target.checked })
                           }
                         />
-                        Request solicitor assignment
+                        Assign me as solicitor
                       </label>
 
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
