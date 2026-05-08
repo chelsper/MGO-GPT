@@ -291,7 +291,7 @@ describe("prospect pool routes", () => {
           fundraiser_id: "234684",
           constituent_id: "555123",
           type: "Lead Solicitor",
-          amount: { value: 0 },
+          value: 0,
         }),
       }),
     );

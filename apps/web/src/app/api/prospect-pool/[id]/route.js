@@ -183,9 +183,7 @@ async function attemptSolicitorAssignmentSync({
         constituent_id: String(blackbaudConstituentId),
         type: LEAD_SOLICITOR_FUNDRAISER_TYPE,
         start: startTimestamp,
-        amount: {
-          value: 0,
-        },
+        value: 0,
       },
     });
 
