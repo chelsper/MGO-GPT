@@ -32,6 +32,13 @@ import {
 } from "../workflow";
 
 const LEAD_SOLICITOR_FUNDRAISER_TYPE = "Lead Solicitor";
+const MGOGPT_FOLLOW_UP_VALUES = new Set([
+  "Not interested at this time",
+  "Not interested/Does not want to be solicited",
+  "Qualified - Annual Fund",
+  "Qualified - Major Gifts",
+  "Unable to Connect",
+]);
 const SOLICITOR_ASSIGNMENT_SYNC_STATUS = {
   SUCCESS: "success",
   FAILED: "failed",
@@ -114,6 +121,16 @@ function buildSolicitorAssignmentDebug({
           resolutionPath: candidate?.resolutionPath || null,
         }))
       : null,
+    recordedAt: new Date().toISOString(),
+  };
+}
+
+function buildMgogptDispositionDebug({ operation, endpointPath, detail, customFieldId }) {
+  return {
+    operation: operation || null,
+    endpointPath: endpointPath || null,
+    detail: detail || null,
+    customFieldId: customFieldId ? String(customFieldId) : null,
     recordedAt: new Date().toISOString(),
   };
 }
@@ -365,6 +382,94 @@ async function attemptSolicitorAssignmentSync({
         fundraiserId: workspaceFundraiserId,
         resolutionPath,
         resolutionCandidates,
+      }),
+    };
+  }
+}
+
+async function attemptMgogptDispositionSync({
+  currentUser,
+  request,
+  blackbaudConstituentId,
+  dispositionValue,
+  dispositionComment,
+}) {
+  if (!dispositionValue) {
+    return {
+      syncState: null,
+      errorMessage: null,
+      syncedAt: null,
+      debug: null,
+    };
+  }
+
+  if (!blackbaudConstituentId) {
+    return {
+      syncState: "manual_required",
+      errorMessage:
+        "Saved in the app, but the MGOGPT outcome could not be written because no linked constituent/system record ID is available.",
+      syncedAt: null,
+      debug: buildMgogptDispositionDebug({
+        operation: "fallback",
+        detail: "Missing linked constituent/system record ID.",
+      }),
+    };
+  }
+
+  const origin = new URL(request.url).origin;
+  const todayDate = getProspectPoolTodayDate(new Date());
+
+  try {
+    const payload = {
+      parent_id: String(blackbaudConstituentId),
+      category: "MGOGPT",
+      value: dispositionValue,
+      codetableentry_value: dispositionValue,
+      comment: dispositionComment || undefined,
+      date: todayDate,
+    };
+
+    const created = await createBlackbaudConstituentCustomField({
+      userId: currentUser.id,
+      authUserId: currentUser.id,
+      origin,
+      payload,
+    });
+
+    return {
+      syncState: "success",
+      errorMessage: null,
+      syncedAt: new Date().toISOString(),
+      debug: buildMgogptDispositionDebug({
+        operation: "create",
+        endpointPath: "/constituent/v1/constituents/customfields",
+        detail: `Created MGOGPT outcome "${dispositionValue}".`,
+        customFieldId:
+          created?.id || created?.custom_field_id || created?.customFieldId || null,
+      }),
+    };
+  } catch (error) {
+    const message = error?.message || "Failed to create MGOGPT custom field outcome";
+    if (/404|resource not found|unsupported|not implemented/i.test(message)) {
+      return {
+        syncState: "manual_required",
+        errorMessage:
+          "Saved in the app, but the MGOGPT outcome endpoint is unavailable for this constituent record.",
+        syncedAt: null,
+        debug: buildMgogptDispositionDebug({
+          operation: "fallback",
+          detail: message,
+        }),
+      };
+    }
+
+    return {
+      syncState: "failed",
+      errorMessage: message,
+      syncedAt: null,
+      debug: buildMgogptDispositionDebug({
+        operation: "fallback",
+        detail: message,
       }),
     };
   }
@@ -701,6 +806,22 @@ export async function PATCH(request, { params }) {
     const contactInfoRequestNote = noteProvided
       ? body.contactInfoRequestNote.trim() || null
       : entry.contact_info_request_note;
+    const mgogptDispositionValueProvided = typeof body?.mgogptDispositionValue === "string";
+    const mgogptDispositionCommentProvided = typeof body?.mgogptDispositionComment === "string";
+    const mgogptDispositionValue = mgogptDispositionValueProvided
+      ? body.mgogptDispositionValue.trim() || null
+      : entry.mgogpt_disposition_value || null;
+    const mgogptDispositionComment = mgogptDispositionCommentProvided
+      ? body.mgogptDispositionComment.trim() || null
+      : entry.mgogpt_disposition_comment || null;
+
+    if (
+      mgogptDispositionValue &&
+      !MGOGPT_FOLLOW_UP_VALUES.has(mgogptDispositionValue)
+    ) {
+      return Response.json({ error: "Invalid MGOGPT outcome selected" }, { status: 400 });
+    }
+
     let linkedBlackbaudConstituentId = entry.blackbaud_constituent_id || null;
 
     if (!linkedBlackbaudConstituentId && entry.constituent_id) {
@@ -718,6 +839,14 @@ export async function PATCH(request, { params }) {
     let solicitorAssignmentSyncError = entry.solicitor_assignment_sync_error || null;
     let solicitorAssignmentSyncedAt = entry.solicitor_assignment_synced_at || null;
     let solicitorAssignmentSyncDebug = entry.solicitor_assignment_sync_debug || null;
+    let mgogptDispositionSyncState = entry.mgogpt_disposition_sync_state || null;
+    let mgogptDispositionSyncError = entry.mgogpt_disposition_sync_error || null;
+    let mgogptDispositionSyncedAt = entry.mgogpt_disposition_synced_at || null;
+    let mgogptDispositionSyncDebug = entry.mgogpt_disposition_sync_debug || null;
+
+    const mgogptDispositionChanged =
+      mgogptDispositionValue !== (entry.mgogpt_disposition_value || null) ||
+      mgogptDispositionComment !== (entry.mgogpt_disposition_comment || null);
 
     if (solicitorRequested) {
       const syncResult = await attemptSolicitorAssignmentSync({
@@ -737,12 +866,46 @@ export async function PATCH(request, { params }) {
       solicitorAssignmentSyncDebug = null;
     }
 
+    if (mgogptDispositionValue && mgogptDispositionChanged) {
+      const dispositionSyncResult = await attemptMgogptDispositionSync({
+        currentUser,
+        request,
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+        dispositionValue: mgogptDispositionValue,
+        dispositionComment: mgogptDispositionComment,
+      });
+      mgogptDispositionSyncState = dispositionSyncResult.syncState;
+      mgogptDispositionSyncError = dispositionSyncResult.errorMessage;
+      mgogptDispositionSyncedAt = dispositionSyncResult.syncedAt;
+      mgogptDispositionSyncDebug = dispositionSyncResult.debug;
+    } else if (!mgogptDispositionValue) {
+      mgogptDispositionSyncState = null;
+      mgogptDispositionSyncError = null;
+      mgogptDispositionSyncedAt = null;
+      mgogptDispositionSyncDebug = null;
+    }
+
     const updated = await sql`
       UPDATE prospect_pool
       SET
         needs_contact_info = ${needsContactInfo},
         contact_info_request_note = ${contactInfoRequestNote},
         solicitor_requested = ${solicitorRequested},
+        mgogpt_disposition_value = ${mgogptDispositionValue},
+        mgogpt_disposition_comment = ${mgogptDispositionComment},
+        mgogpt_disposition_updated_at = CASE
+          WHEN ${mgogptDispositionValueProvided || mgogptDispositionCommentProvided} THEN NOW()
+          ELSE mgogpt_disposition_updated_at
+        END,
+        mgogpt_disposition_sync_state = ${mgogptDispositionSyncState},
+        mgogpt_disposition_sync_error = ${mgogptDispositionSyncError},
+        mgogpt_disposition_sync_attempted_at = CASE
+          WHEN ${mgogptDispositionValue && mgogptDispositionChanged} THEN NOW()
+          WHEN ${!mgogptDispositionValue} THEN NULL
+          ELSE mgogpt_disposition_sync_attempted_at
+        END,
+        mgogpt_disposition_synced_at = ${mgogptDispositionSyncedAt},
+        mgogpt_disposition_sync_debug = ${mgogptDispositionSyncDebug ? JSON.stringify(mgogptDispositionSyncDebug) : null}::jsonb,
         solicitor_requested_at = CASE
           WHEN ${solicitorRequested} THEN COALESCE(solicitor_requested_at, NOW())
           ELSE NULL

@@ -317,6 +317,73 @@ describe("prospect pool routes", () => {
     );
   });
 
+  it("creates a second MGOGPT custom field entry when the MGO selects an outcome and comment", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 44,
+      name: "Gretchen Picotte",
+      email: "gretchen@example.com",
+      role: "mgo",
+      blackbaud_constituent_id: "234684",
+    });
+    createBlackbaudConstituentCustomFieldMock.mockResolvedValue({ id: "cf-22" });
+
+    queueSqlResult([
+      {
+        id: 903,
+        assigned_user_id: 44,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555321",
+        prospect_name: "Jordan Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_sync_state: null,
+        mgogpt_disposition_value: null,
+        mgogpt_disposition_comment: null,
+        mgogpt_disposition_sync_state: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 903,
+        assigned_user_id: 44,
+        prospect_name: "Jordan Prospect",
+        solicitor_requested: false,
+        mgogpt_disposition_value: "Qualified - Major Gifts",
+        mgogpt_disposition_comment: "Ready for qualification outreach.",
+        mgogpt_disposition_sync_state: "success",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/903", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mgogptDispositionValue: "Qualified - Major Gifts",
+        mgogptDispositionComment: "Ready for qualification outreach.",
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "903" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.mgogpt_disposition_sync_state).toBe("success");
+    expect(createBlackbaudConstituentCustomFieldMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          parent_id: "555321",
+          category: "MGOGPT",
+          value: "Qualified - Major Gifts",
+          codetableentry_value: "Qualified - Major Gifts",
+          comment: "Ready for qualification outreach.",
+        }),
+      }),
+    );
+  });
+
   it("resolves fundraiser identity from alternate Blackbaud matches before creating the assignment", async () => {
     const { PATCH } = await import("./[id]/route.js");
 

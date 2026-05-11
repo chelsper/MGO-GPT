@@ -8,6 +8,13 @@ import useWorkspaceView from "@/utils/useWorkspaceView";
 
 const DISPLAY_LOCALE = "en-US";
 const DISPLAY_TIME_ZONE = "America/New_York";
+const MGOGPT_OUTCOME_OPTIONS = [
+  "Not interested at this time",
+  "Not interested/Does not want to be solicited",
+  "Qualified - Annual Fund",
+  "Qualified - Major Gifts",
+  "Unable to Connect",
+];
 
 function formatDate(value) {
   if (!value) return "Unknown";
@@ -174,6 +181,25 @@ function formatSolicitorAssignmentDebug(debug) {
     parts.push(`detail=${debug.detail}`);
   }
   return parts.length ? ` [${parts.join(" | ")}]` : "";
+}
+
+function getMgogptDispositionPresentation(syncState) {
+  const normalized = String(syncState || "").trim().toLowerCase();
+  const map = {
+    success: {
+      tone: "success",
+      label: "Added the selected MGOGPT outcome in Raiser's Edge NXT.",
+    },
+    failed: {
+      tone: "error",
+      label: "Saved in the app, but could not add the selected MGOGPT outcome in Raiser's Edge NXT.",
+    },
+    manual_required: {
+      tone: "error",
+      label: "Saved in the app, but the selected MGOGPT outcome still requires manual NXT follow-up.",
+    },
+  };
+  return map[normalized] || null;
 }
 
 export default function ProspectPoolPage() {
@@ -620,6 +646,14 @@ export default function ProspectPoolPage() {
           current[id]?.solicitorRequested ??
           entries.find((entry) => entry.id === id)?.solicitor_requested ??
           false,
+        mgogptDispositionValue:
+          current[id]?.mgogptDispositionValue ??
+          entries.find((entry) => entry.id === id)?.mgogpt_disposition_value ??
+          "",
+        mgogptDispositionComment:
+          current[id]?.mgogptDispositionComment ??
+          entries.find((entry) => entry.id === id)?.mgogpt_disposition_comment ??
+          "",
         ...updates,
       },
     }));
@@ -795,6 +829,8 @@ export default function ProspectPoolPage() {
       const existingEntry = entries.find((entry) => entry.id === id);
       const solicitorRequested =
         draft.solicitorRequested ?? existingEntry?.solicitor_requested ?? false;
+      const mgogptDispositionValue =
+        draft.mgogptDispositionValue ?? existingEntry?.mgogpt_disposition_value ?? "";
       const response = await fetch(`/api/prospect-pool/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -802,6 +838,8 @@ export default function ProspectPoolPage() {
           needsContactInfo: draft.needsContactInfo,
           contactInfoRequestNote: draft.contactInfoRequestNote,
           solicitorRequested: draft.solicitorRequested,
+          mgogptDispositionValue: draft.mgogptDispositionValue,
+          mgogptDispositionComment: draft.mgogptDispositionComment,
         }),
       });
 
@@ -825,11 +863,22 @@ export default function ProspectPoolPage() {
       const solicitorDebug = solicitorRequested
         ? formatSolicitorAssignmentDebug(updated.solicitor_assignment_sync_debug)
         : "";
-      const message = solicitorMessage
-        ? `Saved updates for ${updated.prospect_name}. ${solicitorMessage.label}${solicitorDebug}`
-        : `Saved updates for ${updated.prospect_name}.`;
+      const mgogptDispositionMessage = mgogptDispositionValue
+        ? getMgogptDispositionPresentation(updated.mgogpt_disposition_sync_state)
+        : null;
+      const messageParts = [`Saved updates for ${updated.prospect_name}.`];
+      if (solicitorMessage) {
+        messageParts.push(`${solicitorMessage.label}${solicitorDebug}`);
+      }
+      if (mgogptDispositionMessage) {
+        messageParts.push(mgogptDispositionMessage.label);
+      }
+      const message = messageParts.join(" ");
       setActionMessage(message);
-      setToast({ tone: solicitorMessage?.tone || "success", message });
+      setToast({
+        tone: solicitorMessage?.tone || mgogptDispositionMessage?.tone || "success",
+        message,
+      });
     } catch (err) {
       console.error(err);
       const message = err.message || "Could not save your request.";
@@ -1722,6 +1771,10 @@ export default function ProspectPoolPage() {
             const solicitorRequested = draft?.solicitorRequested ?? entry.solicitor_requested;
             const contactInfoRequestNote =
               draft?.contactInfoRequestNote ?? entry.contact_info_request_note ?? "";
+            const mgogptDispositionValue =
+              draft?.mgogptDispositionValue ?? entry.mgogpt_disposition_value ?? "";
+            const mgogptDispositionComment =
+              draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
             const blackbaudSummaryState = entry.linked_blackbaud_constituent_id
               ? blackbaudSummaries[entry.linked_blackbaud_constituent_id]
               : null;
@@ -2488,6 +2541,69 @@ export default function ProspectPoolPage() {
                           }
                         />
                         Assign me as solicitor
+                      </label>
+
+                      <label
+                        style={{
+                          display: "grid",
+                          gap: "8px",
+                          fontSize: "14px",
+                          color: "#111827",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        MGOGPT outcome
+                        <select
+                          value={mgogptDispositionValue}
+                          onChange={(event) =>
+                            setDraft(entry.id, {
+                              mgogptDispositionValue: event.target.value,
+                            })
+                          }
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "12px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            fontSize: "14px",
+                          }}
+                        >
+                          <option value="">Select outcome</option>
+                          {MGOGPT_OUTCOME_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label
+                        style={{
+                          display: "grid",
+                          gap: "8px",
+                          fontSize: "14px",
+                          color: "#111827",
+                          marginBottom: "14px",
+                        }}
+                      >
+                        MGOGPT comment
+                        <textarea
+                          value={mgogptDispositionComment}
+                          onChange={(event) =>
+                            setDraft(entry.id, {
+                              mgogptDispositionComment: event.target.value,
+                            })
+                          }
+                          rows={3}
+                          placeholder="Add context for this MGOGPT outcome."
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "12px",
+                            border: "1px solid #D1D5DB",
+                            fontSize: "14px",
+                            resize: "vertical",
+                          }}
+                        />
                       </label>
 
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>

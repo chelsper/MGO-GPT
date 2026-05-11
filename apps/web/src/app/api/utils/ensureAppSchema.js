@@ -315,6 +315,14 @@ export default async function ensureAppSchema() {
         solicitor_assignment_sync_attempted_at TIMESTAMPTZ,
         solicitor_assignment_synced_at TIMESTAMPTZ,
         solicitor_assignment_sync_debug JSONB,
+        mgogpt_disposition_value TEXT,
+        mgogpt_disposition_comment TEXT,
+        mgogpt_disposition_updated_at TIMESTAMPTZ,
+        mgogpt_disposition_sync_state TEXT,
+        mgogpt_disposition_sync_error TEXT,
+        mgogpt_disposition_sync_attempted_at TIMESTAMPTZ,
+        mgogpt_disposition_synced_at TIMESTAMPTZ,
+        mgogpt_disposition_sync_debug JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -391,6 +399,38 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_pool
       ADD COLUMN IF NOT EXISTS solicitor_assignment_sync_debug JSONB
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_value TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_comment TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_updated_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_sync_state TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_sync_error TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_sync_attempted_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_synced_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS mgogpt_disposition_sync_debug JSONB
     `;
     await sql`
       ALTER TABLE prospect_pool
