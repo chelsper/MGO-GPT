@@ -6,16 +6,26 @@ import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 
+const DISPLAY_LOCALE = "en-US";
+const DISPLAY_TIME_ZONE = "America/New_York";
+
 function formatDate(value) {
   if (!value) return "Unknown";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleString(DISPLAY_LOCALE, {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function formatBlackbaudCurrency(amount) {
   if (amount == null) return "Unavailable";
-  return "$" + Number(amount).toLocaleString(undefined, {
+  return "$" + Number(amount).toLocaleString(DISPLAY_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -57,7 +67,8 @@ function formatShortDate(value) {
   if (!value) return "No action logged";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(DISPLAY_LOCALE, {
+    timeZone: DISPLAY_TIME_ZONE,
     month: "short",
     day: "numeric",
     year: "numeric",
