@@ -178,6 +178,7 @@ function formatSolicitorAssignmentDebug(debug) {
 
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
+  const [hasMounted, setHasMounted] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileStatus, setProfileStatus] = useState(null);
   const [entries, setEntries] = useState([]);
@@ -209,6 +210,10 @@ export default function ProspectPoolPage() {
     sortBy: "requests-first-newest",
   });
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -904,7 +909,7 @@ export default function ProspectPoolPage() {
     }
   }
 
-  if (loading || loadingData || !profile) {
+  if (!hasMounted || loading || loadingData || !profile) {
     return (
       <div
         style={{
