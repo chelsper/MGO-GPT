@@ -76,6 +76,24 @@ function getActionTypeFromNotes(value) {
   return normalized || null;
 }
 
+function getDisplayText(value, fallback = "Unavailable") {
+  if (value == null) return fallback;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || fallback;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => getDisplayText(item, ""))
+      .filter(Boolean);
+    return parts.length ? parts.join(", ") : fallback;
+  }
+  return fallback;
+}
+
 function getNxtSyncPresentation(syncState) {
   const normalized = String(syncState || "manual_required").toLowerCase();
   const map = {
@@ -1946,7 +1964,7 @@ export default function ProspectPoolPage() {
                                         color: "#1F2937",
                                       }}
                                     >
-                                      {blackbaudNarrativeSummary}
+                                      {getDisplayText(blackbaudNarrativeSummary, "No concise NXT summary is available for this constituent yet.")}
                                     </div>
                                   ) : (
                                     <div
@@ -1978,7 +1996,7 @@ export default function ProspectPoolPage() {
                                   Constituent
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {blackbaudConstituent?.name || "Unavailable"}
+                                  {getDisplayText(blackbaudConstituent?.name)}
                                 </div>
                               </div>
                               <div>
@@ -1986,7 +2004,7 @@ export default function ProspectPoolPage() {
                                   Email
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {blackbaudConstituent?.email || "Unavailable"}
+                                  {getDisplayText(blackbaudConstituent?.email)}
                                 </div>
                               </div>
                               <div>
@@ -1994,7 +2012,7 @@ export default function ProspectPoolPage() {
                                   Phone
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827" }}>
-                                  {blackbaudConstituent?.phone || "Unavailable"}
+                                  {getDisplayText(blackbaudConstituent?.phone)}
                                 </div>
                               </div>
                               <div>
@@ -2027,10 +2045,10 @@ export default function ProspectPoolPage() {
                                   Primary business
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827", fontWeight: 600 }}>
-                                  {primaryBusinessRelationship.organizationName || "Unavailable"}
+                                  {getDisplayText(primaryBusinessRelationship.organizationName)}
                                 </div>
                                 <div style={{ marginTop: "4px", fontSize: "13px", color: "#4B5563" }}>
-                                  Role: {primaryBusinessRelationship.position || primaryBusinessRelationship.type || "Unavailable"}
+                                  Role: {getDisplayText(primaryBusinessRelationship.position || primaryBusinessRelationship.type)}
                                 </div>
                               </div>
                             ) : null}
@@ -2157,11 +2175,11 @@ export default function ProspectPoolPage() {
                             {blackbaudAssignments.length > 0 ? (
                               <div style={{ marginTop: "12px", fontSize: "13px", color: "#374151" }}>
                                 Current assignment:{" "}
-                                <strong>{blackbaudAssignments[0]?.type || "Unavailable"}</strong>
+                                <strong>{getDisplayText(blackbaudAssignments[0]?.type)}</strong>
                                 {" · "}
                                 Fundraiser ID{" "}
                                 <strong>
-                                  {blackbaudAssignments[0]?.fundraiserId || "Unavailable"}
+                                  {getDisplayText(blackbaudAssignments[0]?.fundraiserId)}
                                 </strong>
                               </div>
                             ) : null}
