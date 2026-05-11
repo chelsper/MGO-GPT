@@ -1682,6 +1682,7 @@ export default function ProspectPoolPage() {
           {visibleEntries.map((entry) => {
             const stateLabel = getRequestState(entry);
             const stateColors = getStateColors(stateLabel);
+            const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
             const draft = drafts[entry.id];
             const needsContactInfo = draft?.needsContactInfo ?? entry.needs_contact_info;
             const solicitorRequested = draft?.solicitorRequested ?? entry.solicitor_requested;
