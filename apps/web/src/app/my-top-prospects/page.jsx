@@ -1344,7 +1344,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
+function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -1395,6 +1395,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
     useState(true);
 
   useEffect(() => {
+    if (readOnly) return;
     if (!prospectId) return;
     if (initialPanel === "action") {
       setShowActionForm(true);
@@ -1424,7 +1425,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
       setShowDiscussionForm(false);
       return;
     }
-  }, [initialPanel, prospectId]);
+  }, [initialPanel, prospectId, readOnly]);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["prospect", prospectId],
@@ -2438,6 +2439,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                 </div>
               </div>
 
+              {!readOnly ? (
               <div
                 style={{
                   ...workspaceCardStyle,
@@ -2671,6 +2673,28 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
                   ) : null}
                 </div>
               </div>
+              ) : (
+                <div
+                  style={{
+                    ...workspaceCardStyle,
+                    marginBottom: "20px",
+                    backgroundColor: "#F9FAFB",
+                    borderColor: "#E5E7EB",
+                  }}
+                >
+                  <p style={sectionEyebrowStyle}>Executive view</p>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "14px",
+                      color: "#6B7280",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    This prospect is open in read-only mode while you are viewing another MGO's dashboard.
+                  </p>
+                </div>
+              )}
             </>
           ) : null}
 
@@ -5512,6 +5536,7 @@ export default function MyTopProspectsPage() {
     enabled: Boolean(isAdmin),
   });
   const actingWorkspaceUser = actingWorkspaceStatus?.actingUser || null;
+  const isExecutiveReadOnly = Boolean(isAdmin && profileStatus?.actingAsUser);
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
 
@@ -6008,7 +6033,7 @@ export default function MyTopProspectsPage() {
                 ) : null}
               </div>
             </div>
-            {activeWorkspaceTab === "top-prospects" ? (
+            {activeWorkspaceTab === "top-prospects" && !isExecutiveReadOnly ? (
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                 <a
                   href="/action-opportunity-update"
@@ -6067,7 +6092,7 @@ export default function MyTopProspectsPage() {
               }}
             >
               <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
-                You are editing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace and portfolio.
+                You are viewing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace and portfolio in read-only mode.
               </div>
               <button
                 type="button"
@@ -6083,7 +6108,7 @@ export default function MyTopProspectsPage() {
                   cursor: stopViewingMutation.isPending ? "not-allowed" : "pointer",
                 }}
               >
-                {stopViewingMutation.isPending ? "Returning..." : "Return to my MGO view"}
+                {stopViewingMutation.isPending ? "Returning..." : "Return to my dashboard"}
               </button>
             </div>
           ) : null}
@@ -6921,7 +6946,7 @@ export default function MyTopProspectsPage() {
                             direction: "up",
                           })
                         }
-                        disabled={idx === 0}
+                        disabled={idx === 0 || isExecutiveReadOnly}
                         title="Promote prospect"
                         style={{
                           width: "30px",
@@ -6932,8 +6957,8 @@ export default function MyTopProspectsPage() {
                           border: "1px solid #E5E7EB",
                           borderRadius: "6px",
                           backgroundColor: idx === 0 ? "#F9FAFB" : "white",
-                          cursor: idx === 0 ? "default" : "pointer",
-                          opacity: idx === 0 ? 0.3 : 1,
+                          cursor: idx === 0 || isExecutiveReadOnly ? "default" : "pointer",
+                          opacity: idx === 0 || isExecutiveReadOnly ? 0.3 : 1,
                         }}
                       >
                         <ChevronUp size={14} color="#374151" />
@@ -6945,7 +6970,7 @@ export default function MyTopProspectsPage() {
                             direction: "down",
                           })
                         }
-                        disabled={idx === filteredActiveProspects.length - 1}
+                        disabled={idx === filteredActiveProspects.length - 1 || isExecutiveReadOnly}
                         title="Demote prospect"
                         style={{
                           width: "30px",
@@ -6958,8 +6983,8 @@ export default function MyTopProspectsPage() {
                           backgroundColor:
                             idx === filteredActiveProspects.length - 1 ? "#F9FAFB" : "white",
                           cursor:
-                            idx === filteredActiveProspects.length - 1 ? "default" : "pointer",
-                          opacity: idx === filteredActiveProspects.length - 1 ? 0.3 : 1,
+                            idx === filteredActiveProspects.length - 1 || isExecutiveReadOnly ? "default" : "pointer",
+                          opacity: idx === filteredActiveProspects.length - 1 || isExecutiveReadOnly ? 0.3 : 1,
                         }}
                       >
                         <ChevronDown size={14} color="#374151" />
@@ -7246,6 +7271,7 @@ export default function MyTopProspectsPage() {
           prospectId={selectedProspectId}
           initialPanel={selectedProspectPanel}
           onClose={closeProspectWorkspace}
+          readOnly={isExecutiveReadOnly}
         />
       )}
     </div>
