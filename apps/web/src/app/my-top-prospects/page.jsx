@@ -5461,6 +5461,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose }) {
 export default function MyTopProspectsPage() {
   const { data: user, loading } = useUser();
   const queryClient = useQueryClient();
+  const [workspaceSwitchMessage, setWorkspaceSwitchMessage] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProspectId, setSelectedProspectId] = useState(null);
   const [selectedProspectPanel, setSelectedProspectPanel] = useState("");
@@ -5485,6 +5486,32 @@ export default function MyTopProspectsPage() {
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
+  const isAdmin = profileStatus?.user?.role === "admin";
+  const { data: actingWorkspaceStatus } = useQuery({
+    queryKey: ["acting-workspace-status", profileStatus?.user?.id || null],
+    queryFn: async () => {
+      const response = await fetch("/api/admin/workspace-user");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load acting workspace");
+      }
+      return payload;
+    },
+    enabled: Boolean(isAdmin),
+  });
+  const { data: mgoUsers = [] } = useQuery({
+    queryKey: ["workspace-mgo-users", profileStatus?.user?.id || null],
+    queryFn: async () => {
+      const response = await fetch("/api/users/mgos");
+      const payload = await response.json().catch(() => []);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load MGO users");
+      }
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled: Boolean(isAdmin),
+  });
+  const actingWorkspaceUser = actingWorkspaceStatus?.actingUser || null;
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
 
@@ -5728,6 +5755,61 @@ export default function MyTopProspectsPage() {
     },
   });
 
+  async function handleActingWorkspaceChange(nextUserId) {
+    if (!isAdmin) return;
+
+    try {
+      setWorkspaceSwitchMessage("");
+
+      if (!nextUserId || String(nextUserId) === String(profileStatus?.user?.id || "")) {
+        const response = await fetch("/api/admin/workspace-user", { method: "DELETE" });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to return to your workspace");
+        }
+        queryClient.setQueryData(["acting-workspace-status", profileStatus?.user?.id || null], {
+          adminUser: profileStatus?.user || null,
+          actingUser: null,
+        });
+        setWorkspaceSwitchMessage("Viewing your dashboard");
+      } else {
+        const response = await fetch("/api/admin/workspace-user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: Number(nextUserId) }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to switch dashboard");
+        }
+        queryClient.setQueryData(["acting-workspace-status", profileStatus?.user?.id || null], {
+          adminUser: profileStatus?.user || null,
+          actingUser: payload?.actingUser || null,
+        });
+        setWorkspaceSwitchMessage(
+          payload?.actingUser?.name
+            ? `Viewing ${payload.actingUser.name}'s dashboard`
+            : "Dashboard updated",
+        );
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
+
+      if (typeof window !== "undefined") {
+        window.location.href = "/my-top-prospects";
+      }
+    } catch (error) {
+      console.error("Failed to switch acting workspace:", error);
+      setWorkspaceSwitchMessage(
+        error instanceof Error ? error.message : "Failed to switch dashboard",
+      );
+    }
+  }
+
   const openPortfolioAddModal = (person) => {
     setAddProspectInitialData({
       prospectName: person.name || "",
@@ -5886,6 +5968,44 @@ export default function MyTopProspectsPage() {
                     Viewing as {profileStatus.actingAsUser.name}
                   </div>
                 ) : null}
+                {isAdmin ? (
+                  <div style={{ marginTop: "8px", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        fontSize: "12px",
+                        color: "#4B5563",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Executive view
+                      <select
+                        value={actingWorkspaceUser?.id || profileStatus?.user?.id || ""}
+                        onChange={(event) => handleActingWorkspaceChange(event.target.value)}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid #D1D5DB",
+                          backgroundColor: "white",
+                          color: "#111827",
+                          fontSize: "13px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <option value={profileStatus?.user?.id || ""}>My dashboard</option>
+                        {mgoUsers
+                          .filter((mgo) => String(mgo.id) !== String(profileStatus?.user?.id || ""))
+                          .map((mgo) => (
+                            <option key={mgo.id} value={mgo.id}>
+                              {mgo.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
               </div>
             </div>
             {activeWorkspaceTab === "top-prospects" ? (
@@ -5965,6 +6085,16 @@ export default function MyTopProspectsPage() {
               >
                 {stopViewingMutation.isPending ? "Returning..." : "Return to my MGO view"}
               </button>
+            </div>
+          ) : null}
+          {workspaceSwitchMessage ? (
+            <div
+              style={{
+                fontSize: "13px",
+                color: workspaceSwitchMessage.toLowerCase().includes("failed") ? "#B91C1C" : "#4B5563",
+              }}
+            >
+              {workspaceSwitchMessage}
             </div>
           ) : null}
         </div>
