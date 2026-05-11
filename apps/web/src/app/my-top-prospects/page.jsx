@@ -15,6 +15,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
+import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -5510,7 +5511,9 @@ export default function MyTopProspectsPage() {
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
-  const isAdmin = profileStatus?.user?.role === "admin";
+  const currentRole = profileStatus?.user?.role || null;
+  const isAdmin = currentRole === "admin";
+  const canUseExecutiveView = canUseExecutiveViewRole(currentRole);
   const { data: actingWorkspaceStatus } = useQuery({
     queryKey: ["acting-workspace-status", profileStatus?.user?.id || null],
     queryFn: async () => {
@@ -5521,7 +5524,7 @@ export default function MyTopProspectsPage() {
       }
       return payload;
     },
-    enabled: Boolean(isAdmin),
+    enabled: Boolean(canUseExecutiveView),
   });
   const { data: mgoUsers = [] } = useQuery({
     queryKey: ["workspace-mgo-users", profileStatus?.user?.id || null],
@@ -5533,10 +5536,10 @@ export default function MyTopProspectsPage() {
       }
       return Array.isArray(payload) ? payload : [];
     },
-    enabled: Boolean(isAdmin),
+    enabled: Boolean(canUseExecutiveView),
   });
   const actingWorkspaceUser = actingWorkspaceStatus?.actingUser || null;
-  const isExecutiveReadOnly = Boolean(isAdmin && profileStatus?.actingAsUser);
+  const isExecutiveReadOnly = Boolean(canUseExecutiveView && profileStatus?.actingAsUser);
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
 
@@ -5781,7 +5784,7 @@ export default function MyTopProspectsPage() {
   });
 
   async function handleActingWorkspaceChange(nextUserId) {
-    if (!isAdmin) return;
+    if (!canUseExecutiveView) return;
 
     try {
       setWorkspaceSwitchMessage("");
@@ -5993,7 +5996,7 @@ export default function MyTopProspectsPage() {
                     Viewing as {profileStatus.actingAsUser.name}
                   </div>
                 ) : null}
-                {isAdmin ? (
+                {canUseExecutiveView ? (
                   <div style={{ marginTop: "8px", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                     <label
                       style={{

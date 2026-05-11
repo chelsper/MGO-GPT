@@ -7,11 +7,11 @@ import {
   clearActingUserCookie,
   getActingUserIdFromRequest,
 } from "@/app/api/utils/getWorkspaceUser";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 
-async function requireAdminSession() {
+async function requireExecutiveViewSession() {
   await ensureAppSchema();
 
   const session = await auth();
@@ -20,9 +20,12 @@ async function requireAdminSession() {
   }
 
   const user = await getOrCreateUser(session, "admin");
-  if (!isAdminRole(user.role)) {
+  if (!canUseExecutiveViewRole(user.role)) {
     return {
-      error: Response.json({ error: "Forbidden — admins only" }, { status: 403 }),
+      error: Response.json(
+        { error: "Forbidden — executive view access required" },
+        { status: 403 },
+      ),
     };
   }
 
@@ -68,7 +71,7 @@ async function shouldBootstrapWorkspace(userId) {
 }
 
 export async function GET(request) {
-  const { error, user } = await requireAdminSession();
+  const { error, user } = await requireExecutiveViewSession();
   if (error) return error;
 
   const actingUserId = getActingUserIdFromRequest(request);
@@ -96,7 +99,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const { error, user } = await requireAdminSession();
+  const { error, user } = await requireExecutiveViewSession();
   if (error) return error;
 
   const body = await request.json();
@@ -142,7 +145,7 @@ export async function POST(request) {
 }
 
 export async function DELETE() {
-  const { error } = await requireAdminSession();
+  const { error } = await requireExecutiveViewSession();
   if (error) return error;
 
   const response = Response.json({ ok: true, actingUser: null });

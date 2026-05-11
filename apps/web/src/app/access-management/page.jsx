@@ -657,7 +657,7 @@ export default function AccessManagementPage() {
             Access Management
           </h1>
           <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.6 }}>
-            Invite JU users into the app as MGOs or Advancement Services reviewers. The bootstrap admin account is
+            Invite JU users into the app as MGOs, Executive Admins, or Advancement Services reviewers. The bootstrap admin account is
             controlled by the environment and can always regain access.
           </p>
           {bootstrapAdminEmail ? (
@@ -765,6 +765,7 @@ export default function AccessManagementPage() {
               </label>
               <select value={role} onChange={(event) => setRole(event.target.value)} style={inputStyle}>
                 <option value="mgo">MGO</option>
+                <option value="executive_admin">Executive Admin</option>
                 <option value="reviewer">Advancement Services</option>
               </select>
             </div>
@@ -964,6 +965,7 @@ export default function AccessManagementPage() {
                           style={{ ...inputStyle, minWidth: "180px" }}
                         >
                           <option value="mgo">MGO</option>
+                          <option value="executive_admin">Executive Admin</option>
                           <option value="reviewer">Advancement Services</option>
                         </select>
                       )}
