@@ -327,6 +327,15 @@ describe("prospect pool routes", () => {
       role: "mgo",
       blackbaud_constituent_id: "234684",
     });
+    listBlackbaudConstituentCustomFieldsMock.mockResolvedValue([
+      {
+        id: "cf-existing",
+        category: "MGOGPT",
+        value: "Identification/Re-Qualification",
+        comment: "Assigned by Advancement Services",
+        date: "2026-05-11",
+      },
+    ]);
     createBlackbaudConstituentCustomFieldMock.mockResolvedValue({ id: "cf-22" });
 
     queueSqlResult([
@@ -371,8 +380,17 @@ describe("prospect pool routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.mgogpt_disposition_sync_state).toBe("success");
+    expect(listBlackbaudConstituentCustomFieldsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 44,
+        authUserId: 44,
+        constituentId: "555321",
+      }),
+    );
     expect(createBlackbaudConstituentCustomFieldMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        userId: 44,
+        authUserId: 44,
         payload: expect.objectContaining({
           parent_id: "555321",
           category: "MGOGPT",

@@ -389,6 +389,7 @@ async function attemptSolicitorAssignmentSync({
 
 async function attemptMgogptDispositionSync({
   currentUser,
+  workspaceUser,
   request,
   blackbaudConstituentId,
   dispositionValue,
@@ -420,20 +421,65 @@ async function attemptMgogptDispositionSync({
   const todayDate = getProspectPoolTodayDate(new Date());
 
   try {
-    const payload = {
-      parent_id: String(blackbaudConstituentId),
-      category: "MGOGPT",
-      value: dispositionValue,
-      codetableentry_value: dispositionValue,
-      comment: dispositionComment || undefined,
-      date: todayDate,
-    };
-
-    const created = await createBlackbaudConstituentCustomField({
-      userId: currentUser.id,
+    const customFields = await listBlackbaudConstituentCustomFields({
+      userId: workspaceUser.id,
       authUserId: currentUser.id,
       origin,
-      payload,
+      constituentId: blackbaudConstituentId,
+    });
+
+    const matchingField = (Array.isArray(customFields) ? customFields : []).find((field) => {
+      if (normalizeCustomFieldText(field?.category) !== normalizeCustomFieldText("MGOGPT")) {
+        return false;
+      }
+      if (
+        normalizeCustomFieldText(getCustomFieldDisplayValue(field)) !==
+        normalizeCustomFieldText(dispositionValue)
+      ) {
+        return false;
+      }
+      if (
+        normalizeCustomFieldText(field?.comment || "") !==
+        normalizeCustomFieldText(dispositionComment || "")
+      ) {
+        return false;
+      }
+      const fieldDate = String(field?.date || field?.start_date || field?.startDate || "")
+        .trim()
+        .slice(0, 10);
+      return fieldDate === todayDate;
+    });
+
+    if (matchingField) {
+      return {
+        syncState: "success",
+        errorMessage: null,
+        syncedAt: new Date().toISOString(),
+        debug: buildMgogptDispositionDebug({
+          operation: "list",
+          endpointPath: `/constituent/v1/constituents/${blackbaudConstituentId}/customfields`,
+          detail: `Matching MGOGPT outcome "${dispositionValue}" already exists.`,
+          customFieldId:
+            matchingField?.id ||
+            matchingField?.custom_field_id ||
+            matchingField?.customFieldId ||
+            null,
+        }),
+      };
+    }
+
+    const created = await createBlackbaudConstituentCustomField({
+      userId: workspaceUser.id,
+      authUserId: currentUser.id,
+      origin,
+      payload: {
+        parent_id: String(blackbaudConstituentId),
+        category: "MGOGPT",
+        value: dispositionValue,
+        codetableentry_value: dispositionValue,
+        comment: dispositionComment || undefined,
+        date: todayDate,
+      },
     });
 
     return {
@@ -869,6 +915,7 @@ export async function PATCH(request, { params }) {
     if (mgogptDispositionValue && mgogptDispositionChanged) {
       const dispositionSyncResult = await attemptMgogptDispositionSync({
         currentUser,
+        workspaceUser,
         request,
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         dispositionValue: mgogptDispositionValue,
