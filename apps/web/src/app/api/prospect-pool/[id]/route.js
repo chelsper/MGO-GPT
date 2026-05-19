@@ -257,6 +257,7 @@ async function attemptSolicitorAssignmentSync({
   workspaceUser,
   request,
   blackbaudConstituentId,
+  assignmentValue,
 }) {
   const origin = new URL(request.url).origin;
   const {
@@ -294,6 +295,23 @@ async function attemptSolicitorAssignmentSync({
       debug: buildSolicitorAssignmentDebug({
         operation: "fallback",
         detail: "Missing workspace fundraiser system record ID.",
+        resolutionPath,
+        resolutionCandidates,
+      }),
+    };
+  }
+
+  const normalizedAssignmentValue = Number(assignmentValue);
+  if (!Number.isFinite(normalizedAssignmentValue) || normalizedAssignmentValue <= 0) {
+    return {
+      syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED,
+      errorMessage:
+        "Saved in the app, but Raiser's Edge NXT solicitor assignment requires a real assignment amount before Lead Solicitor can be created.",
+      syncedAt: null,
+      debug: buildSolicitorAssignmentDebug({
+        operation: "fallback",
+        detail: "Missing or invalid solicitor assignment amount.",
+        fundraiserId: workspaceFundraiserId,
         resolutionPath,
         resolutionCandidates,
       }),
@@ -344,8 +362,8 @@ async function attemptSolicitorAssignmentSync({
         fundraiser_id: workspaceFundraiserId,
         constituent_id: String(blackbaudConstituentId),
         type: LEAD_SOLICITOR_FUNDRAISER_TYPE,
-        start: startTimestamp,
-        value: 0,
+        start: todayDate,
+        value: normalizedAssignmentValue,
       },
     });
 
@@ -844,6 +862,14 @@ export async function PATCH(request, { params }) {
       body?.solicitorRequested !== undefined
         ? isTruthy(body.solicitorRequested)
         : entry.solicitor_requested;
+    const solicitorAssignmentValue =
+      body?.solicitorAssignmentValue !== undefined &&
+      body?.solicitorAssignmentValue !== null &&
+      String(body.solicitorAssignmentValue).trim() !== ""
+        ? Number(body.solicitorAssignmentValue)
+        : entry.solicitor_assignment_value != null
+          ? Number(entry.solicitor_assignment_value)
+          : null;
     const solicitorRequested =
       entry.solicitor_assignment_sync_state === SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS
         ? true
@@ -866,6 +892,19 @@ export async function PATCH(request, { params }) {
       !MGOGPT_FOLLOW_UP_VALUES.has(mgogptDispositionValue)
     ) {
       return Response.json({ error: "Invalid MGOGPT outcome selected" }, { status: 400 });
+    }
+
+    if (
+      solicitorRequested &&
+      (!Number.isFinite(solicitorAssignmentValue) || Number(solicitorAssignmentValue) <= 0)
+    ) {
+      return Response.json(
+        {
+          error:
+            "A solicitor assignment amount is required before the app can create a Lead Solicitor assignment in Raiser's Edge NXT.",
+        },
+        { status: 400 },
+      );
     }
 
     let linkedBlackbaudConstituentId = entry.blackbaud_constituent_id || null;
@@ -900,6 +939,7 @@ export async function PATCH(request, { params }) {
         workspaceUser,
         request,
         blackbaudConstituentId: linkedBlackbaudConstituentId,
+        assignmentValue: solicitorAssignmentValue,
       });
       solicitorAssignmentSyncState = syncResult.syncState;
       solicitorAssignmentSyncError = syncResult.errorMessage;
@@ -938,6 +978,10 @@ export async function PATCH(request, { params }) {
         needs_contact_info = ${needsContactInfo},
         contact_info_request_note = ${contactInfoRequestNote},
         solicitor_requested = ${solicitorRequested},
+        solicitor_assignment_value = CASE
+          WHEN ${solicitorRequested} THEN ${solicitorAssignmentValue}
+          ELSE NULL
+        END,
         mgogpt_disposition_value = ${mgogptDispositionValue},
         mgogpt_disposition_comment = ${mgogptDispositionComment},
         mgogpt_disposition_updated_at = CASE

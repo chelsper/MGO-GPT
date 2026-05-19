@@ -279,6 +279,7 @@ describe("prospect pool routes", () => {
         needs_contact_info: false,
         contact_info_request_note: null,
         solicitor_requested: false,
+        solicitor_assignment_value: null,
         solicitor_assignment_sync_state: null,
       },
     ]);
@@ -297,6 +298,7 @@ describe("prospect pool routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         solicitorRequested: true,
+        solicitorAssignmentValue: "25000",
       }),
     });
 
@@ -311,10 +313,53 @@ describe("prospect pool routes", () => {
           fundraiser_id: "234684",
           constituent_id: "555123",
           type: "Lead Solicitor",
-          value: 0,
+          start: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          value: 25000,
         }),
       }),
     );
+  });
+
+  it("rejects Lead Solicitor sync when no assignment amount is supplied", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 44,
+      name: "Gretchen Picotte",
+      email: "gretchen@example.com",
+      role: "mgo",
+      blackbaud_constituent_id: "234684",
+    });
+
+    queueSqlResult([
+      {
+        id: 904,
+        assigned_user_id: 44,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555123",
+        prospect_name: "Pat Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_value: null,
+        solicitor_assignment_sync_state: null,
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/904", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "904" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatch(/assignment amount is required/i);
+    expect(createBlackbaudFundraiserAssignmentMock).not.toHaveBeenCalled();
   });
 
   it("creates a second MGOGPT custom field entry when the MGO selects an outcome and comment", async () => {
@@ -445,6 +490,7 @@ describe("prospect pool routes", () => {
         needs_contact_info: false,
         contact_info_request_note: null,
         solicitor_requested: false,
+        solicitor_assignment_value: null,
         solicitor_assignment_sync_state: null,
       },
     ]);
@@ -463,6 +509,7 @@ describe("prospect pool routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         solicitorRequested: true,
+        solicitorAssignmentValue: "15000",
       }),
     });
 
@@ -477,6 +524,7 @@ describe("prospect pool routes", () => {
           fundraiser_id: "172263",
           constituent_id: "555999",
           type: "Lead Solicitor",
+          value: 15000,
         }),
       }),
     );

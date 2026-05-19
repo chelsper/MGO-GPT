@@ -838,6 +838,7 @@ export default function ProspectPoolPage() {
           needsContactInfo: draft.needsContactInfo,
           contactInfoRequestNote: draft.contactInfoRequestNote,
           solicitorRequested: draft.solicitorRequested,
+          solicitorAssignmentValue: draft.solicitorAssignmentValue,
           mgogptDispositionValue: draft.mgogptDispositionValue,
           mgogptDispositionComment: draft.mgogptDispositionComment,
         }),
@@ -1769,6 +1770,11 @@ export default function ProspectPoolPage() {
             const draft = drafts[entry.id];
             const needsContactInfo = draft?.needsContactInfo ?? entry.needs_contact_info;
             const solicitorRequested = draft?.solicitorRequested ?? entry.solicitor_requested;
+            const solicitorAssignmentValue =
+              draft?.solicitorAssignmentValue ??
+              (entry.solicitor_assignment_value != null
+                ? String(entry.solicitor_assignment_value)
+                : "");
             const contactInfoRequestNote =
               draft?.contactInfoRequestNote ?? entry.contact_info_request_note ?? "";
             const mgogptDispositionValue =
@@ -2537,11 +2543,49 @@ export default function ProspectPoolPage() {
                           type="checkbox"
                           checked={Boolean(solicitorRequested)}
                           onChange={(event) =>
-                            setDraft(entry.id, { solicitorRequested: event.target.checked })
+                            setDraft(entry.id, {
+                              solicitorRequested: event.target.checked,
+                              solicitorAssignmentValue: event.target.checked
+                                ? solicitorAssignmentValue
+                                : "",
+                            })
                           }
                         />
                         Assign me as solicitor
                       </label>
+
+                      {solicitorRequested ? (
+                        <label
+                          style={{
+                            display: "grid",
+                            gap: "8px",
+                            fontSize: "14px",
+                            color: "#111827",
+                            marginBottom: "14px",
+                          }}
+                        >
+                          Solicitor assignment amount
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={solicitorAssignmentValue}
+                            onChange={(event) =>
+                              setDraft(entry.id, {
+                                solicitorAssignmentValue: event.target.value,
+                              })
+                            }
+                            placeholder="Enter the assignment amount required by NXT"
+                            style={{
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              border: "1px solid #D1D5DB",
+                              fontSize: "14px",
+                              backgroundColor: "white",
+                            }}
+                          />
+                        </label>
+                      ) : null}
 
                       <label
                         style={{

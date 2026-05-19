@@ -868,37 +868,62 @@ export async function listBlackbaudFundraiserAssignments({
     throw new Error("A Blackbaud fundraiser ID is required");
   }
 
-  const results = [];
-  let nextPath = `${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/${encodeURIComponent(
-    String(fundraiserId),
-  )}/assignments`;
-  let nextSearchParams = {
+  const primarySearchParams = {
+    fundraiser_id: String(fundraiserId),
     limit: pageLimit,
     ...searchParams,
   };
-  let pageCount = 0;
 
-  while (nextPath && pageCount < maxPages) {
-    const payload = await blackbaudApiFetch(nextPath, {
-      userId,
-      authUserId,
-      origin,
-      searchParams: nextSearchParams,
-    });
+  async function fetchAssignmentPages(initialPath, initialSearchParams) {
+    const results = [];
+    let nextPath = initialPath;
+    let nextSearchParams = initialSearchParams;
+    let pageCount = 0;
 
-    const rows = Array.isArray(payload?.value)
-      ? payload.value
-      : Array.isArray(payload)
-        ? payload
-        : [];
-    results.push(...rows);
+    while (nextPath && pageCount < maxPages) {
+      const payload = await blackbaudApiFetch(nextPath, {
+        userId,
+        authUserId,
+        origin,
+        searchParams: nextSearchParams,
+      });
 
-    nextPath = payload?.next_link || null;
-    nextSearchParams = undefined;
-    pageCount += 1;
+      const rows = Array.isArray(payload?.value)
+        ? payload.value
+        : Array.isArray(payload)
+          ? payload
+          : [];
+      results.push(...rows);
+
+      nextPath = payload?.next_link || null;
+      nextSearchParams = undefined;
+      pageCount += 1;
+    }
+
+    return results;
   }
 
-  return results;
+  try {
+    return await fetchAssignmentPages(
+      `${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/assignments`,
+      primarySearchParams,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (!/404|resource not found|invalid/i.test(message)) {
+      throw error;
+    }
+
+    return fetchAssignmentPages(
+      `${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/${encodeURIComponent(
+        String(fundraiserId),
+      )}/assignments`,
+      {
+        limit: pageLimit,
+        ...searchParams,
+      },
+    );
+  }
 }
 
 export async function createBlackbaudFundraiserAssignment({

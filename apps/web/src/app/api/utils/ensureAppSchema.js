@@ -310,6 +310,7 @@ export default async function ensureAppSchema() {
         contact_info_request_note TEXT,
         solicitor_requested BOOLEAN NOT NULL DEFAULT FALSE,
         solicitor_requested_at TIMESTAMPTZ,
+        solicitor_assignment_value NUMERIC(14, 2),
         solicitor_assignment_sync_state TEXT,
         solicitor_assignment_sync_error TEXT,
         solicitor_assignment_sync_attempted_at TIMESTAMPTZ,
@@ -379,6 +380,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_pool
       ADD COLUMN IF NOT EXISTS solicitor_requested_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_pool
+      ADD COLUMN IF NOT EXISTS solicitor_assignment_value NUMERIC(14, 2)
     `;
     await sql`
       ALTER TABLE prospect_pool
