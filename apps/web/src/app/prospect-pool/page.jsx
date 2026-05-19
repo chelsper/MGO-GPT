@@ -211,6 +211,7 @@ function getMgogptDispositionPresentation(syncState) {
 export default function ProspectPoolPage() {
   const { data: sessionUser, loading } = useUser();
   const [hasMounted, setHasMounted] = useState(false);
+  const [mountedNow, setMountedNow] = useState(null);
   const [profile, setProfile] = useState(null);
   const [profileStatus, setProfileStatus] = useState(null);
   const [entries, setEntries] = useState([]);
@@ -245,6 +246,7 @@ export default function ProspectPoolPage() {
 
   useEffect(() => {
     setHasMounted(true);
+    setMountedNow(Date.now());
   }, []);
 
   useEffect(() => {
@@ -382,6 +384,14 @@ export default function ProspectPoolPage() {
   }, [isReviewer, profile]);
 
   const summary = useMemo(() => {
+    if (!hasMounted) {
+      return {
+        total: 0,
+        needsContactInfo: 0,
+        solicitorRequested: 0,
+        ready: 0,
+      };
+    }
     return entries.reduce(
       (acc, entry) => {
         acc.total += 1;
@@ -400,6 +410,9 @@ export default function ProspectPoolPage() {
   }, [entries]);
 
   const taskSummary = useMemo(() => {
+    if (!hasMounted) {
+      return [];
+    }
     if (isReviewer) {
       return [
         {
@@ -446,6 +459,9 @@ export default function ProspectPoolPage() {
   }, [entries, isReviewer]);
 
   const visibleEntries = useMemo(() => {
+    if (!hasMounted) {
+      return [];
+    }
     if (!isReviewer) {
       return entries;
     }
@@ -475,7 +491,7 @@ export default function ProspectPoolPage() {
 
       if (reviewerFilters.assignedDateRange !== "all") {
         const assignedAt = new Date(entry.created_at || 0).getTime();
-        const now = Date.now();
+        const now = mountedNow || Date.now();
         const day = 24 * 60 * 60 * 1000;
 
         if (reviewerFilters.assignedDateRange === "today" && assignedAt < now - day) {
@@ -520,7 +536,7 @@ export default function ProspectPoolPage() {
     });
 
     return sorted;
-  }, [entries, isReviewer, reviewerFilters]);
+  }, [entries, hasMounted, isReviewer, mountedNow, reviewerFilters]);
 
   useEffect(() => {
     const query = createForm.prospectName.trim();
@@ -984,6 +1000,7 @@ export default function ProspectPoolPage() {
 
   return (
     <div
+      suppressHydrationWarning
       style={{
         minHeight: "100vh",
         backgroundColor: "#F9FAFB",
