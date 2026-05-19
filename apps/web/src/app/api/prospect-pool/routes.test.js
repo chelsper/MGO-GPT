@@ -313,7 +313,7 @@ describe("prospect pool routes", () => {
           fundraiser_id: "234684",
           constituent_id: "555123",
           type: "Lead Solicitor",
-          start: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          start: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
           value: 25000,
         }),
       }),

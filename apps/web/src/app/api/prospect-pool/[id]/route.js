@@ -105,6 +105,7 @@ function buildSolicitorAssignmentDebug({
   detail,
   assignmentId,
   fundraiserId,
+  assignmentValue,
   resolutionPath,
   resolutionCandidates,
 }) {
@@ -114,6 +115,10 @@ function buildSolicitorAssignmentDebug({
     detail: detail || null,
     assignmentId: assignmentId ? String(assignmentId) : null,
     fundraiserId: fundraiserId ? String(fundraiserId) : null,
+    assignmentValue:
+      assignmentValue !== undefined && assignmentValue !== null
+        ? Number(assignmentValue)
+        : null,
     resolutionPath: resolutionPath || null,
     resolutionCandidates: Array.isArray(resolutionCandidates)
       ? resolutionCandidates.map((candidate) => ({
@@ -319,14 +324,37 @@ async function attemptSolicitorAssignmentSync({
   }
 
   const todayDate = getProspectPoolTodayDate(new Date());
+  const startTimestamp = new Date().toISOString();
 
   try {
-    const existingAssignments = await listBlackbaudFundraiserAssignments({
-      userId: workspaceUser.id,
-      authUserId: currentUser.id,
-      origin,
-      fundraiserId: workspaceFundraiserId,
-    });
+    let existingAssignments;
+    try {
+      existingAssignments = await listBlackbaudFundraiserAssignments({
+        userId: workspaceUser.id,
+        authUserId: currentUser.id,
+        origin,
+        fundraiserId: workspaceFundraiserId,
+      });
+    } catch (error) {
+      const message =
+        error?.message || "Failed to list existing Raiser's Edge NXT fundraiser assignments";
+      return {
+        syncState: /404|resource not found|unsupported|not implemented/i.test(message)
+          ? SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED
+          : SOLICITOR_ASSIGNMENT_SYNC_STATUS.FAILED,
+        errorMessage: message,
+        syncedAt: null,
+        debug: buildSolicitorAssignmentDebug({
+          operation: "list",
+          endpointPath: "/fundraising/v1/fundraisers/assignments?fundraiser_id=...",
+          detail: message,
+          fundraiserId: workspaceFundraiserId,
+          assignmentValue: normalizedAssignmentValue,
+          resolutionPath,
+          resolutionCandidates,
+        }),
+      };
+    }
 
     const matchingAssignment = (Array.isArray(existingAssignments) ? existingAssignments : []).find(
       (assignment) =>
@@ -347,25 +375,46 @@ async function attemptSolicitorAssignmentSync({
           detail: "Lead Solicitor assignment already exists for this constituent.",
           assignmentId: getFundraiserAssignmentId(matchingAssignment),
           fundraiserId: workspaceFundraiserId,
+          assignmentValue: normalizedAssignmentValue,
           resolutionPath,
           resolutionCandidates,
         }),
       };
     }
 
-    const startTimestamp = new Date().toISOString();
-    await createBlackbaudFundraiserAssignment({
-      userId: workspaceUser.id,
-      authUserId: currentUser.id,
-      origin,
-      payload: {
-        fundraiser_id: workspaceFundraiserId,
-        constituent_id: String(blackbaudConstituentId),
-        type: LEAD_SOLICITOR_FUNDRAISER_TYPE,
-        start: todayDate,
-        value: normalizedAssignmentValue,
-      },
-    });
+    try {
+      await createBlackbaudFundraiserAssignment({
+        userId: workspaceUser.id,
+        authUserId: currentUser.id,
+        origin,
+        payload: {
+          fundraiser_id: workspaceFundraiserId,
+          constituent_id: String(blackbaudConstituentId),
+          type: LEAD_SOLICITOR_FUNDRAISER_TYPE,
+          start: startTimestamp,
+          value: normalizedAssignmentValue,
+        },
+      });
+    } catch (error) {
+      const message =
+        error?.message || "Failed to create Raiser's Edge NXT solicitor assignment";
+      return {
+        syncState: /404|resource not found|unsupported|not implemented/i.test(message)
+          ? SOLICITOR_ASSIGNMENT_SYNC_STATUS.MANUAL_REQUIRED
+          : SOLICITOR_ASSIGNMENT_SYNC_STATUS.FAILED,
+        errorMessage: message,
+        syncedAt: null,
+        debug: buildSolicitorAssignmentDebug({
+          operation: "create",
+          endpointPath: "/fundraising/v1/fundraisers/assignments",
+          detail: message,
+          fundraiserId: workspaceFundraiserId,
+          assignmentValue: normalizedAssignmentValue,
+          resolutionPath,
+          resolutionCandidates,
+        }),
+      };
+    }
 
     return {
       syncState: SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS,
@@ -376,6 +425,7 @@ async function attemptSolicitorAssignmentSync({
         endpointPath: "/fundraising/v1/fundraisers/assignments",
         detail: "Created Lead Solicitor assignment in Raiser's Edge NXT.",
         fundraiserId: workspaceFundraiserId,
+        assignmentValue: normalizedAssignmentValue,
         resolutionPath,
         resolutionCandidates,
       }),
@@ -398,6 +448,7 @@ async function attemptSolicitorAssignmentSync({
         operation: "fallback",
         detail: normalizedMessage || message,
         fundraiserId: workspaceFundraiserId,
+        assignmentValue: normalizedAssignmentValue,
         resolutionPath,
         resolutionCandidates,
       }),

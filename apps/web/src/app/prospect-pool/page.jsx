@@ -168,8 +168,14 @@ function getSolicitorAssignmentPresentation(syncState) {
 function formatSolicitorAssignmentDebug(debug) {
   if (!debug || typeof debug !== "object") return "";
   const parts = [];
+  if (debug.operation) {
+    parts.push(`op=${debug.operation}`);
+  }
   if (debug.fundraiserId) {
     parts.push(`fundraiser_id=${debug.fundraiserId}`);
+  }
+  if (debug.assignmentValue) {
+    parts.push(`value=${debug.assignmentValue}`);
   }
   if (debug.resolutionPath) {
     parts.push(`resolution=${debug.resolutionPath}`);
