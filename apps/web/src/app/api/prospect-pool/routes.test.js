@@ -320,6 +320,80 @@ describe("prospect pool routes", () => {
     );
   });
 
+  it("uses the MGO solicitor sync path when an admin is acting as an MGO workspace", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 7,
+      name: "Reviewer Person",
+      email: "reviewer@example.com",
+      role: "admin",
+      blackbaud_constituent_id: "999999",
+    });
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 44,
+        name: "Gretchen Picotte",
+        email: "gretchen@example.com",
+        role: "mgo",
+        blackbaud_constituent_id: "234684",
+      },
+    });
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([]);
+    createBlackbaudFundraiserAssignmentMock.mockResolvedValue({ id: "assign-acting-1" });
+
+    queueSqlResult([
+      {
+        id: 905,
+        assigned_user_id: 44,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555123",
+        prospect_name: "Pat Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_value: null,
+        solicitor_assignment_sync_state: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 905,
+        assigned_user_id: 44,
+        prospect_name: "Pat Prospect",
+        solicitor_requested: true,
+        solicitor_assignment_sync_state: "success",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/905", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+        solicitorAssignmentValue: "10000",
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "905" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.solicitor_assignment_sync_state).toBe("success");
+    expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 44,
+        authUserId: 7,
+        payload: expect.objectContaining({
+          fundraiser_id: "234684",
+          constituent_id: "555123",
+          type: "Lead Solicitor",
+          value: 10000,
+        }),
+      }),
+    );
+  });
+
   it("rejects Lead Solicitor sync when no assignment amount is supplied", async () => {
     const { PATCH } = await import("./[id]/route.js");
 

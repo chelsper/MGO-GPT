@@ -735,6 +735,7 @@ export async function PATCH(request, { params }) {
 
     const currentUser = await getOrCreateUser(session);
     const { workspaceUser } = await getWorkspaceUser(session, request);
+    const isReviewerWorkspace = isReviewerRole(workspaceUser.role);
     const entryId = Number(params?.id);
 
     if (!Number.isInteger(entryId) || entryId <= 0) {
@@ -754,7 +755,7 @@ export async function PATCH(request, { params }) {
 
     const entry = existing[0];
 
-    if (isReviewerRole(currentUser.role)) {
+    if (isReviewerWorkspace) {
       const body = await request.json();
       const assignedUserId =
         body?.assignedUserId !== undefined ? Number(body.assignedUserId) : null;
