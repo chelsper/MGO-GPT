@@ -54,6 +54,14 @@ export default function RootLayout({ children }) {
           name="twitter:image"
           content="https://raw.createusercontent.com/c630c19e-0da7-44f4-90e6-c12c9d895a6d/"
         />
+        <meta
+          name="mgo-gpt-build-sha"
+          content={process.env.VERCEL_GIT_COMMIT_SHA || "local-dev"}
+        />
+        <meta
+          name="mgo-gpt-deployment-id"
+          content={process.env.VERCEL_DEPLOYMENT_ID || "local-dev"}
+        />
 
         <link
           rel="icon"
