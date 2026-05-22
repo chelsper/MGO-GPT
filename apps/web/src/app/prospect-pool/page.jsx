@@ -1335,6 +1335,8 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Prospect name
                 <input
+                  id="prospect-pool-create-prospect-name"
+                  name="prospectName"
                   type="text"
                   value={createForm.prospectName}
                   onChange={(event) => {
@@ -1357,6 +1359,8 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Assign to MGO
                 <select
+                  id="prospect-pool-create-assigned-user"
+                  name="assignedUserId"
                   value={createForm.assignedUserId}
                   onChange={(event) =>
                     setCreateForm((current) => ({
@@ -1518,7 +1522,10 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Email
                 <input
+                  id="prospect-pool-create-email"
+                  name="email"
                   type="email"
+                  autoComplete="email"
                   value={createForm.email}
                   onChange={(event) =>
                     setCreateForm((current) => ({ ...current, email: event.target.value }))
@@ -1536,7 +1543,10 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Phone
                 <input
+                  id="prospect-pool-create-phone"
+                  name="phone"
                   type="text"
+                  autoComplete="tel"
                   value={createForm.phone}
                   onChange={(event) =>
                     setCreateForm((current) => ({ ...current, phone: event.target.value }))
@@ -1562,6 +1572,8 @@ export default function ProspectPoolPage() {
               >
                 Note
                 <textarea
+                  id="prospect-pool-create-note"
+                  name="note"
                   value={createForm.note}
                   onChange={(event) =>
                     setCreateForm((current) => ({ ...current, note: event.target.value }))
@@ -1664,6 +1676,8 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Filter by MGO
                 <select
+                  id="prospect-pool-filter-assigned-user"
+                  name="reviewerAssignedUserId"
                   value={reviewerFilters.assignedUserId}
                   onChange={(event) =>
                     setReviewerFilters((current) => ({
@@ -1691,6 +1705,8 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Filter by request
                 <select
+                  id="prospect-pool-filter-request-state"
+                  name="reviewerRequestState"
                   value={reviewerFilters.requestState}
                   onChange={(event) =>
                     setReviewerFilters((current) => ({
@@ -1716,6 +1732,8 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Filter by date assigned
                 <select
+                  id="prospect-pool-filter-assigned-date"
+                  name="reviewerAssignedDateRange"
                   value={reviewerFilters.assignedDateRange}
                   onChange={(event) =>
                     setReviewerFilters((current) => ({
@@ -1741,6 +1759,8 @@ export default function ProspectPoolPage() {
               <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                 Sort queue
                 <select
+                  id="prospect-pool-filter-sort-by"
+                  name="reviewerSortBy"
                   value={reviewerFilters.sortBy}
                   onChange={(event) =>
                     setReviewerFilters((current) => ({
@@ -2322,6 +2342,8 @@ export default function ProspectPoolPage() {
                       >
                         Assigned MGO
                         <select
+                          id={`prospect-pool-entry-assigned-user-${entry.id}`}
+                          name={`assignedUserId-${entry.id}`}
                           value={draft?.assignedUserId ?? String(entry.assigned_user_id || "")}
                           onChange={(event) =>
                             setDraft(entry.id, { assignedUserId: event.target.value })
@@ -2353,6 +2375,8 @@ export default function ProspectPoolPage() {
                       >
                         Internal note
                         <textarea
+                          id={`prospect-pool-entry-note-${entry.id}`}
+                          name={`note-${entry.id}`}
                           rows={3}
                           value={draft?.note ?? entry.note ?? ""}
                           onChange={(event) => setDraft(entry.id, { note: event.target.value })}
@@ -2377,7 +2401,10 @@ export default function ProspectPoolPage() {
                         <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                           Email
                           <input
+                            id={`prospect-pool-entry-email-${entry.id}`}
+                            name={`email-${entry.id}`}
                             type="email"
+                            autoComplete="email"
                             value={draft?.email ?? entry.email ?? ""}
                             onChange={(event) => setDraft(entry.id, { email: event.target.value })}
                             style={{
@@ -2392,7 +2419,10 @@ export default function ProspectPoolPage() {
                         <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
                           Phone
                           <input
+                            id={`prospect-pool-entry-phone-${entry.id}`}
+                            name={`phone-${entry.id}`}
                             type="text"
+                            autoComplete="tel"
                             value={draft?.phone ?? entry.phone ?? ""}
                             onChange={(event) => setDraft(entry.id, { phone: event.target.value })}
                             style={{
@@ -2514,6 +2544,8 @@ export default function ProspectPoolPage() {
                         }}
                       >
                         <input
+                          id={`prospect-pool-entry-needs-contact-info-${entry.id}`}
+                          name={`needsContactInfo-${entry.id}`}
                           type="checkbox"
                           checked={Boolean(needsContactInfo)}
                           onChange={(event) =>
@@ -2534,6 +2566,8 @@ export default function ProspectPoolPage() {
                       >
                         Note for Advancement Services
                         <textarea
+                          id={`prospect-pool-entry-contact-note-${entry.id}`}
+                          name={`contactInfoRequestNote-${entry.id}`}
                           value={contactInfoRequestNote}
                           onChange={(event) =>
                             setDraft(entry.id, {
@@ -2563,6 +2597,8 @@ export default function ProspectPoolPage() {
                         }}
                       >
                         <input
+                          id={`prospect-pool-entry-solicitor-requested-${entry.id}`}
+                          name={`solicitorRequested-${entry.id}`}
                           type="checkbox"
                           checked={Boolean(solicitorRequested)}
                           onChange={(event) =>
@@ -2589,6 +2625,8 @@ export default function ProspectPoolPage() {
                         >
                           Solicitor assignment amount
                           <input
+                            id={`prospect-pool-entry-solicitor-value-${entry.id}`}
+                            name={`solicitorAssignmentValue-${entry.id}`}
                             type="number"
                             min="0.01"
                             step="0.01"
@@ -2621,6 +2659,8 @@ export default function ProspectPoolPage() {
                       >
                         MGOGPT outcome
                         <select
+                          id={`prospect-pool-entry-mgogpt-outcome-${entry.id}`}
+                          name={`mgogptDispositionValue-${entry.id}`}
                           value={mgogptDispositionValue}
                           onChange={(event) =>
                             setDraft(entry.id, {
@@ -2655,6 +2695,8 @@ export default function ProspectPoolPage() {
                       >
                         MGOGPT comment
                         <textarea
+                          id={`prospect-pool-entry-mgogpt-comment-${entry.id}`}
+                          name={`mgogptDispositionComment-${entry.id}`}
                           value={mgogptDispositionComment}
                           onChange={(event) =>
                             setDraft(entry.id, {
