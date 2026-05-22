@@ -249,6 +249,7 @@ export default function SignInPage() {
             <>
               <div style={{ marginBottom: "16px" }}>
                 <label
+                  htmlFor="signin-email"
                   style={{
                     display: "block",
                     fontSize: "14px",
@@ -260,7 +261,10 @@ export default function SignInPage() {
                   Email
                 </label>
                 <input
+                  id="signin-email"
+                  name="email"
                   type="email"
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -278,6 +282,7 @@ export default function SignInPage() {
 
               <div style={{ marginBottom: "8px" }}>
                 <label
+                  htmlFor="signin-password"
                   style={{
                     display: "block",
                     fontSize: "14px",
@@ -289,7 +294,10 @@ export default function SignInPage() {
                   Password
                 </label>
                 <input
+                  id="signin-password"
+                  name="password"
                   type="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required

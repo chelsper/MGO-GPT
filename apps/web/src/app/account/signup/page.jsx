@@ -166,6 +166,7 @@ export default function SignUpPage() {
           <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: "16px" }}>
             <label
+              htmlFor="signup-name"
               style={{
                 display: "block",
                 fontSize: "14px",
@@ -177,7 +178,10 @@ export default function SignUpPage() {
               Full Name
             </label>
             <input
+              id="signup-name"
+              name="name"
               type="text"
+              autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -194,6 +198,7 @@ export default function SignUpPage() {
 
           <div style={{ marginBottom: "16px" }}>
             <label
+              htmlFor="signup-email"
               style={{
                 display: "block",
                 fontSize: "14px",
@@ -205,7 +210,10 @@ export default function SignUpPage() {
               Email
             </label>
             <input
+              id="signup-email"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -222,6 +230,7 @@ export default function SignUpPage() {
 
           <div style={{ marginBottom: "16px" }}>
             <label
+              htmlFor="signup-password"
               style={{
                 display: "block",
                 fontSize: "14px",
@@ -233,7 +242,10 @@ export default function SignUpPage() {
               Password
             </label>
             <input
+              id="signup-password"
+              name="password"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

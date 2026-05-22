@@ -290,6 +290,7 @@ export default function ResetPasswordPage() {
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: "16px" }}>
             <label
+              htmlFor="reset-password-new"
               style={{
                 display: "block",
                 fontSize: "14px",
@@ -301,7 +302,10 @@ export default function ResetPasswordPage() {
               New Password
             </label>
             <input
+              id="reset-password-new"
+              name="newPassword"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -328,6 +332,7 @@ export default function ResetPasswordPage() {
 
           <div style={{ marginBottom: "24px" }}>
             <label
+              htmlFor="reset-password-confirm"
               style={{
                 display: "block",
                 fontSize: "14px",
@@ -339,7 +344,10 @@ export default function ResetPasswordPage() {
               Confirm Password
             </label>
             <input
+              id="reset-password-confirm"
+              name="confirmPassword"
               type="password"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required

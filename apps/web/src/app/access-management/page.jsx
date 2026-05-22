@@ -735,11 +735,14 @@ export default function AccessManagementPage() {
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 1fr", gap: "12px", alignItems: "end" }}>
             <div>
-              <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+              <label htmlFor="access-management-name" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Name
               </label>
               <input
+                id="access-management-name"
+                name="name"
                 type="text"
+                autoComplete="name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Jane Dolphin"
@@ -747,11 +750,14 @@ export default function AccessManagementPage() {
               />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+              <label htmlFor="access-management-email" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Email
               </label>
               <input
+                id="access-management-email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@ju.edu"
@@ -760,10 +766,10 @@ export default function AccessManagementPage() {
               />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+              <label htmlFor="access-management-role" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Role
               </label>
-              <select value={role} onChange={(event) => setRole(event.target.value)} style={inputStyle}>
+              <select id="access-management-role" name="role" value={role} onChange={(event) => setRole(event.target.value)} style={inputStyle}>
                 <option value="mgo">MGO</option>
                 <option value="executive_admin">Executive Admin</option>
                 <option value="reviewer">Advancement Services</option>
@@ -772,10 +778,12 @@ export default function AccessManagementPage() {
           </div>
           {role === "mgo" ? (
             <div style={{ marginTop: "16px" }}>
-              <label style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+              <label htmlFor="access-management-blackbaud-query" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Connect to Blackbaud user
               </label>
               <input
+                id="access-management-blackbaud-query"
+                name="blackbaudQuery"
                 type="text"
                 value={blackbaudQuery}
                 onChange={(event) => {
@@ -959,6 +967,8 @@ export default function AccessManagementPage() {
                         <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
                       ) : (
                         <select
+                          id={`access-management-user-role-${user.id}`}
+                          name={`userRole-${user.id}`}
                           value={user.role}
                           onChange={(event) => handleRoleChange(user.id, event.target.value)}
                           disabled={updatingUserId === user.id}
@@ -1075,10 +1085,12 @@ export default function AccessManagementPage() {
                           </button>
                         </div>
                       ) : null}
-                      <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
+                      <label htmlFor={`access-management-user-blackbaud-query-${user.id}`} style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                         Connect to Blackbaud user
                       </label>
                       <input
+                        id={`access-management-user-blackbaud-query-${user.id}`}
+                        name={`userBlackbaudQuery-${user.id}`}
                         type="text"
                         value={userBlackbaudQuery}
                         onChange={(event) => {

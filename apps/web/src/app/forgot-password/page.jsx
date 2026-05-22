@@ -205,6 +205,7 @@ export default function ForgotPasswordPage() {
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: "20px" }}>
             <label
+              htmlFor="forgot-password-email"
               style={{
                 display: "block",
                 fontSize: "14px",
@@ -216,7 +217,10 @@ export default function ForgotPasswordPage() {
               Email
             </label>
             <input
+              id="forgot-password-email"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required

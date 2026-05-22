@@ -211,20 +211,20 @@ export default function SettingsPage() {
             </div>
           ) : null}
 
-          <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+          <label htmlFor="settings-profile-name" style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
             Name
           </label>
-          <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...inputStyle, marginBottom: "16px" }} />
+          <input id="settings-profile-name" name="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} style={{ ...inputStyle, marginBottom: "16px" }} />
 
-          <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+          <label htmlFor="settings-profile-email" style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
             Email
           </label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" style={{ ...inputStyle, marginBottom: "16px" }} />
+          <input id="settings-profile-email" name="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" style={{ ...inputStyle, marginBottom: "16px" }} />
 
-          <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+          <label htmlFor="settings-profile-role" style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
             Role
           </label>
-          <input value={profile?.role || "mgo"} readOnly style={{ ...inputStyle, backgroundColor: "#F9FAFB", color: "#6B7280" }} />
+          <input id="settings-profile-role" name="role" value={profile?.role || "mgo"} readOnly style={{ ...inputStyle, backgroundColor: "#F9FAFB", color: "#6B7280" }} />
 
           <button
             type="submit"
@@ -262,20 +262,20 @@ export default function SettingsPage() {
             </div>
           ) : null}
 
-          <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+          <label htmlFor="settings-current-password" style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
             Current password
           </label>
-          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={{ ...inputStyle, marginBottom: "16px" }} />
+          <input id="settings-current-password" name="currentPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={{ ...inputStyle, marginBottom: "16px" }} />
 
-          <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+          <label htmlFor="settings-new-password" style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
             New password
           </label>
-          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={{ ...inputStyle, marginBottom: "16px" }} />
+          <input id="settings-new-password" name="newPassword" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={{ ...inputStyle, marginBottom: "16px" }} />
 
-          <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+          <label htmlFor="settings-confirm-password" style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
             Confirm new password
           </label>
-          <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} />
+          <input id="settings-confirm-password" name="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} />
 
           <button
             type="submit"
