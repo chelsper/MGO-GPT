@@ -394,6 +394,72 @@ describe("prospect pool routes", () => {
     );
   });
 
+  it("uses the MGO solicitor sync path for a reviewer assigned to their own entry even without view=mgo in the URL", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 7,
+      name: "Reviewer Person",
+      email: "reviewer@example.com",
+      role: "reviewer",
+      blackbaud_constituent_id: "234684",
+    });
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 7,
+        name: "Reviewer Person",
+        email: "reviewer@example.com",
+        role: "reviewer",
+        blackbaud_constituent_id: "234684",
+      },
+    });
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([]);
+    createBlackbaudFundraiserAssignmentMock.mockResolvedValue({ id: "assign-self-1" });
+
+    queueSqlResult([
+      {
+        id: 906,
+        assigned_user_id: 7,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555123",
+        prospect_name: "Pat Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_value: null,
+        solicitor_assignment_sync_state: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 906,
+        assigned_user_id: 7,
+        prospect_name: "Pat Prospect",
+        solicitor_requested: true,
+        solicitor_assignment_value: 900,
+        solicitor_assignment_sync_state: "success",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/906", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+        solicitorAssignmentValue: "900",
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "906" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.solicitor_requested).toBe(true);
+    expect(payload.solicitor_assignment_value).toBe(900);
+    expect(payload.solicitor_assignment_sync_state).toBe("success");
+    expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalled();
+  });
+
   it("rejects Lead Solicitor sync when no assignment amount is supplied", async () => {
     const { PATCH } = await import("./[id]/route.js");
 

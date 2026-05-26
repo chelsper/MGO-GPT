@@ -737,9 +737,6 @@ export async function PATCH(request, { params }) {
     const { workspaceUser } = await getWorkspaceUser(session, request);
     const { searchParams } = new URL(request.url);
     const requestedView = searchParams.get("view");
-    const isReviewerWorkspace =
-      isReviewerRole(workspaceUser.role) &&
-      !(isReviewerRole(currentUser.role) && requestedView === "mgo");
     const entryId = Number(params?.id);
 
     if (!Number.isInteger(entryId) || entryId <= 0) {
@@ -758,9 +755,24 @@ export async function PATCH(request, { params }) {
     }
 
     const entry = existing[0];
+    const body = await request.json();
+    const requestsMgoMutation =
+      body?.needsContactInfo !== undefined ||
+      body?.contactInfoRequestNote !== undefined ||
+      body?.solicitorRequested !== undefined ||
+      body?.solicitorAssignmentValue !== undefined ||
+      body?.mgogptDispositionValue !== undefined ||
+      body?.mgogptDispositionComment !== undefined;
+    const reviewerForcedIntoMgoMode =
+      requestsMgoMutation &&
+      Number(entry.assigned_user_id || 0) === Number(workspaceUser.id || currentUser.id) &&
+      (requestedView === "mgo" || isReviewerRole(currentUser.role));
+    const isReviewerWorkspace =
+      isReviewerRole(workspaceUser.role) &&
+      !(isReviewerRole(currentUser.role) && requestedView === "mgo") &&
+      !reviewerForcedIntoMgoMode;
 
     if (isReviewerWorkspace) {
-      const body = await request.json();
       const assignedUserId =
         body?.assignedUserId !== undefined ? Number(body.assignedUserId) : null;
       const noteProvided = typeof body?.note === "string";
@@ -909,7 +921,6 @@ export async function PATCH(request, { params }) {
       );
     }
 
-    const body = await request.json();
     const needsContactInfo =
       body?.needsContactInfo !== undefined
         ? isTruthy(body.needsContactInfo)
@@ -1035,8 +1046,8 @@ export async function PATCH(request, { params }) {
         contact_info_request_note = ${contactInfoRequestNote},
         solicitor_requested = ${solicitorRequested},
         solicitor_assignment_value = CASE
-          WHEN ${solicitorRequested} THEN ${solicitorAssignmentValue}
-          ELSE NULL
+          WHEN ${solicitorRequested} THEN CAST(${solicitorAssignmentValue} AS numeric)
+          ELSE NULL::numeric
         END,
         mgogpt_disposition_value = ${mgogptDispositionValue},
         mgogpt_disposition_comment = ${mgogptDispositionComment},
