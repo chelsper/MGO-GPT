@@ -735,7 +735,11 @@ export async function PATCH(request, { params }) {
 
     const currentUser = await getOrCreateUser(session);
     const { workspaceUser } = await getWorkspaceUser(session, request);
-    const isReviewerWorkspace = isReviewerRole(workspaceUser.role);
+    const { searchParams } = new URL(request.url);
+    const requestedView = searchParams.get("view");
+    const isReviewerWorkspace =
+      isReviewerRole(workspaceUser.role) &&
+      !(isReviewerRole(currentUser.role) && requestedView === "mgo");
     const entryId = Number(params?.id);
 
     if (!Number.isInteger(entryId) || entryId <= 0) {

@@ -692,7 +692,7 @@ export default function ProspectPoolPage() {
       const wasReassigned =
         draft.assignedUserId &&
         String(draft.assignedUserId) !== String(existingEntry?.assigned_user_id || "");
-      const response = await fetch(`/api/prospect-pool/${id}`, {
+      const response = await fetch(`/api/prospect-pool/${id}?view=mgo`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
