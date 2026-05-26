@@ -150,6 +150,19 @@ function addFundraiserCandidate(candidates, fundraiserId, resolutionPath) {
   });
 }
 
+async function getUserFundraiserIdentity(userId) {
+  if (!userId) return null;
+
+  const rows = await sql`
+    SELECT id, name, email, role, blackbaud_constituent_id, blackbaud_lookup_id
+    FROM users
+    WHERE id = ${userId}
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
 async function resolveWorkspaceFundraiserCandidates({
   workspaceUser,
   authUserId,
@@ -221,6 +234,7 @@ async function resolveWorkspaceFundraiserCandidates({
 async function resolveWorkspaceFundraiserRecord({
   currentUser,
   workspaceUser,
+  assignedUserId,
   origin,
 }) {
   const resolutionCandidates = await resolveWorkspaceFundraiserCandidates({
@@ -228,6 +242,31 @@ async function resolveWorkspaceFundraiserRecord({
     authUserId: currentUser.id,
     origin,
   });
+  const workspaceMissingDirectLinkage =
+    !String(workspaceUser?.blackbaud_constituent_id || "").trim() &&
+    !String(workspaceUser?.blackbaud_lookup_id || "").trim();
+  const assignedUserIdentity =
+    assignedUserId &&
+    (Number(assignedUserId) !== Number(workspaceUser?.id || 0) ||
+      workspaceMissingDirectLinkage)
+      ? await getUserFundraiserIdentity(assignedUserId)
+      : null;
+
+  if (assignedUserIdentity) {
+    const assignedCandidates = await resolveWorkspaceFundraiserCandidates({
+      workspaceUser: assignedUserIdentity,
+      authUserId: currentUser.id,
+      origin,
+    });
+
+    for (const candidate of assignedCandidates) {
+      addFundraiserCandidate(
+        resolutionCandidates,
+        candidate.fundraiserId,
+        `assigned-user:${candidate.resolutionPath}`,
+      );
+    }
+  }
 
   for (const candidate of resolutionCandidates) {
     try {
@@ -263,6 +302,7 @@ async function attemptSolicitorAssignmentSync({
   request,
   blackbaudConstituentId,
   assignmentValue,
+  assignedUserId,
 }) {
   const origin = new URL(request.url).origin;
   const {
@@ -272,6 +312,7 @@ async function attemptSolicitorAssignmentSync({
   } = await resolveWorkspaceFundraiserRecord({
     currentUser,
     workspaceUser,
+    assignedUserId,
     origin,
   });
   const workspaceFundraiserId = String(resolvedFundraiserId || "").trim();
@@ -1007,6 +1048,7 @@ export async function PATCH(request, { params }) {
         request,
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         assignmentValue: solicitorAssignmentValue,
+        assignedUserId: entry.assigned_user_id,
       });
       solicitorAssignmentSyncState = syncResult.syncState;
       solicitorAssignmentSyncError = syncResult.errorMessage;

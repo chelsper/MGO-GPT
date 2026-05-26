@@ -460,6 +460,92 @@ describe("prospect pool routes", () => {
     expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalled();
   });
 
+  it("resolves fundraiser identity from the assigned user record when the active workspace user lacks Blackbaud linkage", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 2,
+      name: "Chelsea Santoro",
+      email: "csantor@ju.edu",
+      role: "reviewer",
+      blackbaud_constituent_id: null,
+      blackbaud_lookup_id: null,
+    });
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 2,
+        name: "Chelsea Santoro",
+        email: "csantor@ju.edu",
+        role: "reviewer",
+        blackbaud_constituent_id: null,
+        blackbaud_lookup_id: null,
+      },
+    });
+    searchBlackbaudConstituentsMock.mockResolvedValueOnce([]);
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([]);
+    createBlackbaudFundraiserAssignmentMock.mockResolvedValue({ id: "assign-fallback-1" });
+
+    queueSqlResult([
+      {
+        id: 907,
+        assigned_user_id: 2,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555123",
+        prospect_name: "Pat Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_value: null,
+        solicitor_assignment_sync_state: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 2,
+        name: "Chelsea Santoro",
+        email: "csantor@ju.edu",
+        role: "reviewer",
+        blackbaud_constituent_id: "234684",
+        blackbaud_lookup_id: "CS-100",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 907,
+        assigned_user_id: 2,
+        prospect_name: "Pat Prospect",
+        solicitor_requested: true,
+        solicitor_assignment_value: 900,
+        solicitor_assignment_sync_state: "success",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/907", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+        solicitorAssignmentValue: "900",
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "907" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.solicitor_requested).toBe(true);
+    expect(payload.solicitor_assignment_sync_state).toBe("success");
+    expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          fundraiser_id: "234684",
+          constituent_id: "555123",
+          value: 900,
+        }),
+      }),
+    );
+  });
+
   it("rejects Lead Solicitor sync when no assignment amount is supplied", async () => {
     const { PATCH } = await import("./[id]/route.js");
 
