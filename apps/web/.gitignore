@@ -3,6 +3,7 @@
 # Dependencies and build output
 node_modules/
 build/
+.vitest/
 
 # Editor and OS artifacts
 *.swp
