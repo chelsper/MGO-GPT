@@ -289,6 +289,14 @@ async function resolveWorkspaceFundraiserRecord({
     }
   }
 
+  if (resolutionCandidates.length > 0) {
+    return {
+      fundraiserId: resolutionCandidates[0].fundraiserId,
+      resolutionPath: `${resolutionCandidates[0].resolutionPath}:unvalidated-fallback`,
+      resolutionCandidates,
+    };
+  }
+
   return {
     fundraiserId: null,
     resolutionPath: "not-resolved",
