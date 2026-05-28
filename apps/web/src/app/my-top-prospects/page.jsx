@@ -5765,21 +5765,8 @@ export default function MyTopProspectsPage() {
 
   const stopViewingMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/workspace-user", {
-        method: "DELETE",
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to return to admin view");
-      }
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
-      queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
-      window.location.href = "/my-top-prospects";
+      await handleActingWorkspaceChange(profileStatus?.user?.id || "");
+      return { ok: true };
     },
   });
 
@@ -5799,6 +5786,15 @@ export default function MyTopProspectsPage() {
           adminUser: profileStatus?.user || null,
           actingUser: null,
         });
+        queryClient.setQueryData(["profile-sync-status"], (current) =>
+          current
+            ? {
+                ...current,
+                workspaceUser: current.user || profileStatus?.user || null,
+                actingAsUser: null,
+              }
+            : current,
+        );
         setWorkspaceSwitchMessage("Viewing your dashboard");
       } else {
         const response = await fetch("/api/admin/workspace-user", {
@@ -5814,6 +5810,22 @@ export default function MyTopProspectsPage() {
           adminUser: profileStatus?.user || null,
           actingUser: payload?.actingUser || null,
         });
+        queryClient.setQueryData(["profile-sync-status"], (current) =>
+          current
+            ? {
+                ...current,
+                workspaceUser: payload?.actingUser || current.workspaceUser,
+                actingAsUser: payload?.actingUser
+                  ? {
+                      id: payload.actingUser.id,
+                      name: payload.actingUser.name,
+                      email: payload.actingUser.email,
+                      role: payload.actingUser.role,
+                    }
+                  : null,
+              }
+            : current,
+        );
         setWorkspaceSwitchMessage(
           payload?.actingUser?.name
             ? `Viewing ${payload.actingUser.name}'s dashboard`
