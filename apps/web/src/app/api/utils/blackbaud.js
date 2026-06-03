@@ -1061,6 +1061,45 @@ export async function getBlackbaudAction({
   );
 }
 
+export async function listBlackbaudActions({
+  userId,
+  authUserId,
+  origin,
+  searchParams,
+  pageLimit = 500,
+  maxPages = 20,
+} = {}) {
+  const results = [];
+  let nextPath = BLACKBAUD_ACTIONS_URL;
+  let nextSearchParams = {
+    limit: pageLimit,
+    ...searchParams,
+  };
+  let pageCount = 0;
+
+  while (nextPath && pageCount < maxPages) {
+    const payload = await blackbaudApiFetch(nextPath, {
+      userId,
+      authUserId,
+      origin,
+      searchParams: nextPath === BLACKBAUD_ACTIONS_URL ? nextSearchParams : undefined,
+    });
+
+    const rows = Array.isArray(payload?.value)
+      ? payload.value
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    results.push(...rows);
+
+    nextPath = payload?.next_link || null;
+    nextSearchParams = undefined;
+    pageCount += 1;
+  }
+
+  return results;
+}
+
 export function buildBlackbaudActionMetadataPayload({
   actionDate,
   interactionType,
@@ -1232,6 +1271,27 @@ export async function updateBlackbaudOpportunity({
       origin,
       method: "PATCH",
       body: payload,
+    },
+  );
+}
+
+export async function getBlackbaudOpportunity({
+  userId,
+  authUserId,
+  origin,
+  opportunityId,
+}) {
+  if (!opportunityId) {
+    throw new Error("A Blackbaud opportunity ID is required to fetch an opportunity");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_OPPORTUNITIES_URL}/${encodeURIComponent(String(opportunityId))}`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "GET",
     },
   );
 }

@@ -4,6 +4,163 @@ import { resolveConstituent } from "@/app/api/utils/constituents";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
+import {
+  getBlackbaudAction,
+  getBlackbaudConfigIssues,
+  getBlackbaudOpportunity,
+} from "@/app/api/utils/blackbaud";
+
+function getIsoTimestamp(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function maxIsoTimestamp(...values) {
+  return values.reduce((latest, value) => {
+    const normalized = getIsoTimestamp(value);
+    if (!normalized) return latest;
+    if (!latest) return normalized;
+    return new Date(normalized).getTime() > new Date(latest).getTime() ? normalized : latest;
+  }, null);
+}
+
+function getBlackbaudActionActivityAt(action) {
+  return (
+    action?.completed_date ||
+    action?.completedDate ||
+    action?.date ||
+    action?.action_date ||
+    action?.actionDate ||
+    action?.updated_at ||
+    action?.updatedAt ||
+    action?.modified_date ||
+    action?.modifiedDate ||
+    action?.created_at ||
+    action?.createdAt ||
+    null
+  );
+}
+
+function getBlackbaudOpportunityActivityAt(opportunity) {
+  return (
+    opportunity?.updated_at ||
+    opportunity?.updatedAt ||
+    opportunity?.modified_date ||
+    opportunity?.modifiedDate ||
+    opportunity?.last_modified_date ||
+    opportunity?.lastModifiedDate ||
+    opportunity?.date_added ||
+    opportunity?.dateAdded ||
+    opportunity?.created_at ||
+    opportunity?.createdAt ||
+    opportunity?.funded_date ||
+    opportunity?.fundedDate ||
+    null
+  );
+}
+
+async function loadBlackbaudActivityByProspect({
+  prospects,
+  userId,
+  authUserId,
+  origin,
+}) {
+  if (!Array.isArray(prospects) || prospects.length === 0) {
+    return new Map();
+  }
+
+  if (getBlackbaudConfigIssues(origin).length > 0) {
+    return new Map();
+  }
+
+  const prospectIds = prospects
+    .map((prospect) => Number(prospect.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (prospectIds.length === 0) {
+    return new Map();
+  }
+
+  const linkedActions = await sql`
+    SELECT prospect_id, blackbaud_action_id
+    FROM prospect_updates
+    WHERE prospect_id = ANY(${prospectIds})
+      AND blackbaud_action_id IS NOT NULL
+  `;
+
+  const linkedOpportunities = await sql`
+    SELECT prospect_id, blackbaud_opportunity_id
+    FROM prospect_opportunities
+    WHERE prospect_id = ANY(${prospectIds})
+      AND blackbaud_opportunity_id IS NOT NULL
+  `;
+
+  const actionActivityById = new Map();
+  const opportunityActivityById = new Map();
+
+  await Promise.all(
+    [...new Set(linkedActions.map((row) => String(row.blackbaud_action_id || "").trim()).filter(Boolean))]
+      .map(async (actionId) => {
+        try {
+          const action = await getBlackbaudAction({
+            userId,
+            authUserId,
+            origin,
+            actionId,
+          });
+          actionActivityById.set(actionId, getBlackbaudActionActivityAt(action));
+        } catch {
+          actionActivityById.set(actionId, null);
+        }
+      }),
+  );
+
+  await Promise.all(
+    [...new Set(linkedOpportunities.map((row) => String(row.blackbaud_opportunity_id || "").trim()).filter(Boolean))]
+      .map(async (opportunityId) => {
+        try {
+          const opportunity = await getBlackbaudOpportunity({
+            userId,
+            authUserId,
+            origin,
+            opportunityId,
+          });
+          opportunityActivityById.set(
+            opportunityId,
+            getBlackbaudOpportunityActivityAt(opportunity),
+          );
+        } catch {
+          opportunityActivityById.set(opportunityId, null);
+        }
+      }),
+  );
+
+  const latestByProspect = new Map();
+
+  for (const row of linkedActions) {
+    const prospectId = Number(row.prospect_id);
+    const activityAt = actionActivityById.get(String(row.blackbaud_action_id || "").trim());
+    latestByProspect.set(
+      prospectId,
+      maxIsoTimestamp(latestByProspect.get(prospectId), activityAt),
+    );
+  }
+
+  for (const row of linkedOpportunities) {
+    const prospectId = Number(row.prospect_id);
+    const activityAt = opportunityActivityById.get(
+      String(row.blackbaud_opportunity_id || "").trim(),
+    );
+    latestByProspect.set(
+      prospectId,
+      maxIsoTimestamp(latestByProspect.get(prospectId), activityAt),
+    );
+  }
+
+  return latestByProspect;
+}
 
 // GET all prospects for current user
 export async function GET(request) {
@@ -15,7 +172,9 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(session, request);
+    const authUserId = isActing ? sessionUser.id : user.id;
+    const origin = request?.url ? new URL(request.url).origin : null;
 
     const prospects = await sql`
       WITH user_prospects AS (
@@ -134,8 +293,24 @@ export async function GET(request) {
         up.priority_order ASC,
         up.created_at DESC
     `;
+    const blackbaudActivityByProspect = await loadBlackbaudActivityByProspect({
+      prospects,
+      userId: user.id,
+      authUserId,
+      origin,
+    });
 
-    return Response.json(prospects);
+    const mergedProspects = prospects.map((prospect) => {
+      const remoteActivityAt = blackbaudActivityByProspect.get(Number(prospect.id)) || null;
+      const latestActivityAt = maxIsoTimestamp(prospect.latest_activity_at, remoteActivityAt);
+      return {
+        ...prospect,
+        latest_activity_at: latestActivityAt,
+        latest_blackbaud_activity_at: remoteActivityAt,
+      };
+    });
+
+    return Response.json(mergedProspects);
   } catch (error) {
     console.error("Error fetching prospects:", error);
     return Response.json(
