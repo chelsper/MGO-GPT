@@ -150,8 +150,7 @@ async function refreshImportedBlackbaudOpportunities({
             expected_date = COALESCE(${getOpportunityExpectedDate(opportunity)}, expected_date),
             opportunity_status = ${nextStatus},
             closed_amount = ${nextClosedAmount},
-            close_date = ${nextCloseDate},
-            updated_at = NOW()
+            close_date = ${nextCloseDate}
           WHERE id = ${row.id}
         `;
       } catch (error) {
