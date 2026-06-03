@@ -245,12 +245,25 @@ export async function GET(request) {
          )
         GROUP BY up.id
       ),
+      pending_action_summary AS (
+        SELECT
+          up.id AS prospect_id,
+          MAX(pa.updated_at) AS latest_pending_action_activity_at
+        FROM user_prospects up
+        LEFT JOIN pending_actions pa
+          ON pa.owner_user_id = ${user.id}
+         AND (
+           pa.prospect_id = up.id
+           OR (up.constituent_id IS NOT NULL AND pa.constituent_id = up.constituent_id)
+         )
+        GROUP BY up.id
+      ),
       latest_activity AS (
         SELECT
           timeline.prospect_id,
           MAX(timeline.activity_at) AS latest_activity_at
         FROM (
-          SELECT up.id AS prospect_id, up.updated_at AS activity_at
+          SELECT up.id AS prospect_id, up.created_at AS activity_at
           FROM user_prospects up
           UNION ALL
           SELECT pu.prospect_id, pu.created_at AS activity_at
@@ -263,6 +276,14 @@ export async function GET(request) {
           UNION ALL
           SELECT prospect_id, activity_at
           FROM submission_matches
+          UNION ALL
+          SELECT prospect_id, latest_discussion_activity_at AS activity_at
+          FROM discussion_summary
+          WHERE latest_discussion_activity_at IS NOT NULL
+          UNION ALL
+          SELECT prospect_id, latest_pending_action_activity_at AS activity_at
+          FROM pending_action_summary
+          WHERE latest_pending_action_activity_at IS NOT NULL
         ) timeline
         GROUP BY timeline.prospect_id
       )
