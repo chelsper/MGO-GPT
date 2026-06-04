@@ -161,17 +161,6 @@ function getSubmissionTimelineDescription(submission) {
   }
 }
 
-function formatRelativeDays(value) {
-  if (!value) return "No recent activity";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "No recent activity";
-  const diffMs = Date.now() - date.getTime();
-  const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-  if (diffDays === 0) return "Active today";
-  if (diffDays === 1) return "Active yesterday";
-  return `Active ${diffDays} days ago`;
-}
-
 function formatShortDate(value) {
   if (!value) return "";
   return new Date(value).toLocaleDateString("en-US", {
@@ -541,7 +530,10 @@ function getProspectNextAction(prospect) {
     const staleDays = (Date.now() - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24);
     return {
       label: "Needs follow-up",
-      meta: `Last activity ${Math.floor(staleDays)} days ago`,
+      meta:
+        staleDays >= 1
+          ? "Recent activity is stale"
+          : "Follow-up recommended",
       tone: { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA", soft: "#FEF2F2" },
     };
   }
@@ -6837,14 +6829,6 @@ export default function MyTopProspectsPage() {
                               }}
                             >
                               {p.ask_type}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: "12px",
-                                color: "#6B7280",
-                              }}
-                            >
-                              {formatRelativeDays(p.latest_activity_at)}
                             </span>
                           </div>
                         </div>
