@@ -66,13 +66,14 @@ async function loadBlackbaudActivityByProspect({
   userId,
   authUserId,
   origin,
+  includeDebug = false,
 }) {
   if (!Array.isArray(prospects) || prospects.length === 0) {
-    return new Map();
+    return includeDebug ? { latestByProspect: new Map(), debugByProspect: new Map() } : new Map();
   }
 
   if (getBlackbaudConfigIssues(origin).length > 0) {
-    return new Map();
+    return includeDebug ? { latestByProspect: new Map(), debugByProspect: new Map() } : new Map();
   }
 
   const prospectIds = prospects
@@ -80,7 +81,7 @@ async function loadBlackbaudActivityByProspect({
     .filter((id) => Number.isInteger(id) && id > 0);
 
   if (prospectIds.length === 0) {
-    return new Map();
+    return includeDebug ? { latestByProspect: new Map(), debugByProspect: new Map() } : new Map();
   }
 
   const linkedActions = await sql`
@@ -138,10 +139,24 @@ async function loadBlackbaudActivityByProspect({
   );
 
   const latestByProspect = new Map();
+  const debugByProspect = new Map();
+
+  function appendDebug(prospectId, source, value) {
+    if (!includeDebug) return;
+    const normalizedValue = getIsoTimestamp(value);
+    if (!debugByProspect.has(prospectId)) {
+      debugByProspect.set(prospectId, []);
+    }
+    debugByProspect.get(prospectId).push({
+      source,
+      value: normalizedValue,
+    });
+  }
 
   for (const row of linkedActions) {
     const prospectId = Number(row.prospect_id);
     const activityAt = actionActivityById.get(String(row.blackbaud_action_id || "").trim());
+    appendDebug(prospectId, "linked_blackbaud_action", activityAt);
     latestByProspect.set(
       prospectId,
       maxIsoTimestamp(latestByProspect.get(prospectId), activityAt),
@@ -153,10 +168,15 @@ async function loadBlackbaudActivityByProspect({
     const activityAt = opportunityActivityById.get(
       String(row.blackbaud_opportunity_id || "").trim(),
     );
+    appendDebug(prospectId, "linked_blackbaud_opportunity", activityAt);
     latestByProspect.set(
       prospectId,
       maxIsoTimestamp(latestByProspect.get(prospectId), activityAt),
     );
+  }
+
+  if (includeDebug) {
+    return { latestByProspect, debugByProspect };
   }
 
   return latestByProspect;
@@ -174,7 +194,9 @@ export async function GET(request) {
 
     const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(session, request);
     const authUserId = isActing ? sessionUser.id : user.id;
-    const origin = request?.url ? new URL(request.url).origin : null;
+    const requestUrl = request?.url ? new URL(request.url) : null;
+    const origin = requestUrl?.origin || null;
+    const includeDebug = requestUrl?.searchParams.get("debugActivity") === "1";
 
     const prospects = await sql`
       WITH user_prospects AS (
@@ -270,7 +292,7 @@ export async function GET(request) {
           FROM prospect_updates pu
           INNER JOIN user_prospects up ON up.id = pu.prospect_id
           UNION ALL
-          SELECT po.prospect_id, po.updated_at AS activity_at
+          SELECT po.prospect_id, po.created_at AS activity_at
           FROM prospect_opportunities po
           INNER JOIN user_prospects up ON up.id = po.prospect_id
           UNION ALL
@@ -295,10 +317,12 @@ export async function GET(request) {
         COALESCE(os.secured_opportunity_count, 0) AS secured_opportunity_count,
         COALESCE(os.declined_opportunity_count, 0) AS declined_opportunity_count,
         COALESCE(os.active_pipeline_amount, 0) AS active_pipeline_amount,
+        up.created_at AS prospect_created_activity_at,
         la.latest_activity_at,
         COALESCE(ds.open_discussion_count, 0) AS open_discussion_count,
         COALESCE(ds.overdue_discussion_count, 0) AS overdue_discussion_count,
         ds.latest_discussion_activity_at,
+        pas.latest_pending_action_activity_at,
         ls.latest_submission_status,
         ls.latest_submission_type,
         ls.latest_submission_reviewer_notes,
@@ -308,27 +332,71 @@ export async function GET(request) {
       LEFT JOIN opportunity_summary os ON os.prospect_id = up.id
       LEFT JOIN latest_activity la ON la.prospect_id = up.id
       LEFT JOIN discussion_summary ds ON ds.prospect_id = up.id
+      LEFT JOIN pending_action_summary pas ON pas.prospect_id = up.id
       LEFT JOIN latest_submission ls ON ls.prospect_id = up.id
       ORDER BY
         CASE WHEN up.status = 'Active' THEN 0 ELSE 1 END,
         up.priority_order ASC,
         up.created_at DESC
     `;
-    const blackbaudActivityByProspect = await loadBlackbaudActivityByProspect({
+    const blackbaudActivityResult = await loadBlackbaudActivityByProspect({
       prospects,
       userId: user.id,
       authUserId,
       origin,
+      includeDebug,
     });
+
+    const blackbaudActivityByProspect = includeDebug
+      ? blackbaudActivityResult.latestByProspect
+      : blackbaudActivityResult;
+    const blackbaudDebugByProspect = includeDebug
+      ? blackbaudActivityResult.debugByProspect
+      : new Map();
 
     const mergedProspects = prospects.map((prospect) => {
       const remoteActivityAt = blackbaudActivityByProspect.get(Number(prospect.id)) || null;
       const latestActivityAt = maxIsoTimestamp(prospect.latest_activity_at, remoteActivityAt);
-      return {
+      const merged = {
         ...prospect,
         latest_activity_at: latestActivityAt,
         latest_blackbaud_activity_at: remoteActivityAt,
       };
+
+      if (includeDebug) {
+        merged.latest_activity_sources = [
+          {
+            source: "prospect_created",
+            value: getIsoTimestamp(prospect.prospect_created_activity_at),
+          },
+          {
+            source: "latest_local_aggregate",
+            value: getIsoTimestamp(prospect.latest_activity_at),
+          },
+          {
+            source: "latest_submission",
+            value: getIsoTimestamp(prospect.latest_submission_updated_at),
+          },
+          {
+            source: "latest_discussion",
+            value: getIsoTimestamp(prospect.latest_discussion_activity_at),
+          },
+          {
+            source: "latest_pending_action",
+            value: getIsoTimestamp(prospect.latest_pending_action_activity_at),
+          },
+          ...((blackbaudDebugByProspect.get(Number(prospect.id)) || []).map((entry) => ({
+            source: entry.source,
+            value: getIsoTimestamp(entry.value),
+          }))),
+          {
+            source: "final_latest_activity_at",
+            value: getIsoTimestamp(latestActivityAt),
+          },
+        ].filter((entry) => entry.value);
+      }
+
+      return merged;
     });
 
     return Response.json(mergedProspects);
