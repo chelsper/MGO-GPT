@@ -16,10 +16,11 @@ Known unrelated files that should stay out unless you are explicitly working on 
 From `apps/web`:
 
 ```bash
+npm run check:release
 npm run build
 ```
 
-If the local build fails, do not deploy.
+If either command fails, do not deploy.
 
 ## 3. Capture the commit you expect in production
 
