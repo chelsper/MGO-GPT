@@ -1,0 +1,171 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const authMock = vi.fn();
+const ensureAppSchemaMock = vi.fn();
+const getWorkspaceUserMock = vi.fn();
+const syncPrimaryPendingActionMock = vi.fn();
+const createBlackbaudActionMock = vi.fn();
+const getBlackbaudActionMock = vi.fn();
+const updateBlackbaudActionMock = vi.fn();
+const buildBlackbaudActionPayloadMock = vi.fn();
+const buildBlackbaudActionMetadataPayloadMock = vi.fn();
+
+const sqlQueue = [];
+function queueSqlResult(value) {
+  sqlQueue.push(value);
+}
+const sqlMockImpl = vi.fn(async () => sqlQueue.shift() ?? []);
+function sqlTag(strings, ...values) {
+  return sqlMockImpl(strings, ...values);
+}
+sqlTag.transaction = vi.fn();
+
+vi.mock("@/auth", () => ({
+  auth: authMock,
+}));
+
+vi.mock("@/app/api/utils/ensureAppSchema", () => ({
+  default: ensureAppSchemaMock,
+}));
+
+vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
+  default: getWorkspaceUserMock,
+}));
+
+vi.mock("@/app/api/utils/pendingActions", () => ({
+  syncPrimaryPendingAction: syncPrimaryPendingActionMock,
+}));
+
+vi.mock("@/app/api/utils/blackbaud", () => ({
+  buildBlackbaudActionPayload: buildBlackbaudActionPayloadMock,
+  buildBlackbaudActionMetadataPayload: buildBlackbaudActionMetadataPayloadMock,
+  createBlackbaudAction: createBlackbaudActionMock,
+  getBlackbaudAction: getBlackbaudActionMock,
+  updateBlackbaudAction: updateBlackbaudActionMock,
+}));
+
+vi.mock("@/app/api/utils/sql", () => ({
+  default: sqlTag,
+}));
+
+describe("prospect action route", () => {
+  beforeEach(() => {
+    sqlQueue.length = 0;
+    sqlMockImpl.mockClear();
+    authMock.mockReset();
+    ensureAppSchemaMock.mockReset();
+    getWorkspaceUserMock.mockReset();
+    syncPrimaryPendingActionMock.mockReset();
+    createBlackbaudActionMock.mockReset();
+    getBlackbaudActionMock.mockReset();
+    updateBlackbaudActionMock.mockReset();
+    buildBlackbaudActionPayloadMock.mockReset();
+    buildBlackbaudActionMetadataPayloadMock.mockReset();
+
+    authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
+    ensureAppSchemaMock.mockResolvedValue();
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 44,
+        name: "Leslie M. Redd",
+        email: "lredd@example.com",
+        role: "mgo",
+      },
+      sessionUser: {
+        id: 44,
+        name: "Leslie M. Redd",
+        email: "lredd@example.com",
+        role: "mgo",
+      },
+    });
+    syncPrimaryPendingActionMock.mockResolvedValue(null);
+    buildBlackbaudActionPayloadMock.mockReturnValue({ payload: "action" });
+    buildBlackbaudActionMetadataPayloadMock.mockReturnValue({ payload: "metadata" });
+  });
+
+  it("logs a local action and syncs the primary next step", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        prospect_name: "Pat Prospect",
+        constituent_id: 88,
+        linked_blackbaud_constituent_id: null,
+        blackbaud_constituent_id: null,
+        next_action_completed_at: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 901,
+        prospect_id: 7,
+        update_title: "Sent email",
+      },
+    ]);
+    queueSqlResult([]);
+
+    const request = new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionDate: "2026-06-09",
+        actionCategory: "Email",
+        interactionType: "Cultivation",
+        summary: "Sent email",
+        notes: "Shared an update.",
+        nextStep: "Call next week",
+        nextActionDueDate: "2026-06-16",
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "7" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.update.id).toBe(901);
+    expect(payload.blackbaudAction).toBeNull();
+    expect(syncPrimaryPendingActionMock).toHaveBeenCalledWith({
+      ownerUserId: 44,
+      prospectId: 7,
+      constituentId: 88,
+      prospectOpportunityId: null,
+      title: "Call next week",
+      dueDate: "2026-06-16",
+      completedAt: null,
+    });
+  });
+
+  it("returns 502 when NXT action creation fails", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        prospect_name: "Pat Prospect",
+        constituent_id: 88,
+        linked_blackbaud_constituent_id: "234684",
+        blackbaud_constituent_id: "234684",
+        next_action_completed_at: null,
+      },
+    ]);
+
+    createBlackbaudActionMock.mockRejectedValue(new Error("Blackbaud unavailable"));
+
+    const request = new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionDate: "2026-06-09",
+        summary: "Left voicemail",
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "7" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload.error).toMatch(/could not create nxt action/i);
+    expect(syncPrimaryPendingActionMock).not.toHaveBeenCalled();
+  });
+});
