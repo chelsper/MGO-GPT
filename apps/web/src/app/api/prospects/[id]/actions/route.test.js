@@ -136,7 +136,7 @@ describe("prospect action route", () => {
     });
   });
 
-  it("returns 502 when NXT action creation fails", async () => {
+  it("saves locally and returns the NXT sync error when action creation fails", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([
@@ -149,6 +149,14 @@ describe("prospect action route", () => {
         next_action_completed_at: null,
       },
     ]);
+    queueSqlResult([
+      {
+        id: 902,
+        prospect_id: 7,
+        update_title: "Left voicemail",
+      },
+    ]);
+    queueSqlResult([]);
 
     createBlackbaudActionMock.mockRejectedValue(new Error("Blackbaud unavailable"));
 
@@ -164,8 +172,82 @@ describe("prospect action route", () => {
     const response = await POST(request, { params: { id: "7" } });
     const payload = await response.json();
 
-    expect(response.status).toBe(502);
-    expect(payload.error).toMatch(/could not create nxt action/i);
-    expect(syncPrimaryPendingActionMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(payload.update.id).toBe(902);
+    expect(payload.blackbaudAction.error).toMatch(/Blackbaud unavailable/i);
+    expect(syncPrimaryPendingActionMock).toHaveBeenCalled();
+  });
+
+  it("retries with a minimal payload on Blackbaud RequestNotFulfilled 404 errors", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        prospect_name: "Pat Prospect",
+        constituent_id: 88,
+        linked_blackbaud_constituent_id: "234684",
+        blackbaud_constituent_id: "234684",
+        next_action_completed_at: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 903,
+        prospect_id: 7,
+        update_title: "Visit note",
+      },
+    ]);
+    queueSqlResult([]);
+
+    buildBlackbaudActionPayloadMock.mockReturnValue({
+      constituent_id: "234684",
+      date: "2026-06-11T00:00:00.000Z",
+      category: "Meeting",
+      direction: "Outbound",
+      summary: "Visit note",
+      description: "Notes: Good meeting",
+      author: "Leslie M. Redd",
+      opportunity_id: "bb-opp-1",
+    });
+    createBlackbaudActionMock
+      .mockRejectedValueOnce(
+        new Error(
+          'Blackbaud 404 Not Found: [{"message":"The requested operation could not be fulfilled","error_name":"RequestNotFulfilled","error_code":404}]',
+        ),
+      )
+      .mockResolvedValueOnce({
+        id: "bb-action-1",
+      });
+    getBlackbaudActionMock.mockResolvedValue({
+      id: "bb-action-1",
+      constituent_id: "234684",
+    });
+
+    const request = new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionDate: "2026-06-11",
+        actionCategory: "Meeting",
+        summary: "Visit note",
+        notes: "Good meeting",
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "7" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.update.id).toBe(903);
+    expect(payload.blackbaudAction.syncVariant).toBe("fallback-minimal-action-payload");
+    expect(createBlackbaudActionMock).toHaveBeenCalledTimes(2);
+    expect(createBlackbaudActionMock.mock.calls[1][0].payload).toEqual({
+      constituent_id: "234684",
+      date: "2026-06-11T00:00:00.000Z",
+      category: "Meeting",
+      summary: "Visit note",
+      description: "Notes: Good meeting",
+    });
   });
 });

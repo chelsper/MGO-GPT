@@ -52,6 +52,25 @@ function getBlackbaudActionConstituentId(payload) {
   );
 }
 
+function isBlackbaudRequestNotFulfilledError(message) {
+  const text = String(message || "");
+  return /404/i.test(text) && /RequestNotFulfilled|requested operation could not be fulfilled/i.test(text);
+}
+
+function buildMinimalBlackbaudActionPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return payload;
+  }
+
+  return {
+    constituent_id: payload.constituent_id,
+    date: payload.date,
+    category: payload.category,
+    summary: payload.summary,
+    description: payload.description,
+  };
+}
+
 export async function POST(request, { params }) {
   try {
     await ensureAppSchema();
@@ -125,23 +144,46 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
+      const fullPayload = buildBlackbaudActionPayload({
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+        actionDate,
+        actionCategory,
+        summary: summary || `${prospect.prospect_name} action`,
+        actionNotes: notes,
+        nextStep,
+        authorName: user.name,
+        opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
+      });
+
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
         authUserId: sessionUser?.id || user.id,
         origin,
-        payload: buildBlackbaudActionPayload({
-          blackbaudConstituentId: linkedBlackbaudConstituentId,
-          actionDate,
-          actionCategory,
-          summary: summary || `${prospect.prospect_name} action`,
-          actionNotes: notes,
-          nextStep,
-          authorName: user.name,
-          opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
-        }),
+        payload: fullPayload,
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
       }));
+
+      if (blackbaudAction?.error && isBlackbaudRequestNotFulfilledError(blackbaudAction.error)) {
+        const fallbackPayload = buildMinimalBlackbaudActionPayload(fullPayload);
+        blackbaudAction = await createBlackbaudAction({
+          userId: user.id,
+          authUserId: sessionUser?.id || user.id,
+          origin,
+          payload: fallbackPayload,
+        })
+          .then((payload) => ({
+            ...payload,
+            syncVariant: "fallback-minimal-action-payload",
+          }))
+          .catch((error) => ({
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to sync action to Blackbaud",
+            syncVariant: "fallback-minimal-action-payload",
+          }));
+      }
 
       const createdActionId = getBlackbaudActionId(blackbaudAction);
 
@@ -209,15 +251,6 @@ export async function POST(request, { params }) {
                 : "NXT action create could not be verified",
           };
         }
-      }
-
-      if (blackbaudAction?.error) {
-        return Response.json(
-          {
-            error: `Could not create NXT action: ${blackbaudAction.error}`,
-          },
-          { status: 502 },
-        );
       }
 
     }
