@@ -2161,6 +2161,11 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
           : "No due date set"
       : "No pending action set.";
 
+  const nextStepDisplayText =
+    primaryPendingAction?.title ||
+    prospect.next_action_text ||
+    "Nothing queued yet";
+
   const startEditingTimelineUpdate = (event) => {
     const raw = event.raw || {};
     setEditingUpdateId(raw.id);
@@ -2357,7 +2362,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                         marginBottom: "4px",
                       }}
                     >
-                      {prospect.next_action_text || "Nothing queued yet"}
+                      {nextStepDisplayText}
                     </div>
                     <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                       {nextStepSummary}
