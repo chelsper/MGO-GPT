@@ -81,6 +81,19 @@ export async function POST(request) {
       discussionNote: body.discussionNote || null,
     });
 
+    if (result?.prospect_id && result.is_primary) {
+      await sql`
+        UPDATE prospects
+        SET
+          next_action_text = ${result.status === "Open" ? result.title : null},
+          next_action_due_date = ${result.status === "Open" ? result.due_date : null},
+          next_action_completed_at = ${result.status === "Done" ? result.completed_at || new Date().toISOString() : null},
+          updated_at = NOW()
+        WHERE id = ${result.prospect_id}
+          AND user_id = ${user.id}
+      `;
+    }
+
     const discussionItemId = await syncPendingActionDiscussion({
       ownerUserId: user.id,
       createdByUserId: sessionUser?.id || user.id,
