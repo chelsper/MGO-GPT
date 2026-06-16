@@ -367,4 +367,85 @@ describe("prospect action route", () => {
       }),
     );
   });
+
+  it("repairs a stale linked Blackbaud constituent id before creating the action", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        prospect_name: "Hilary Brooks Campbell",
+        constituent_id: 88,
+        email: "hcampbell@example.com",
+        linked_blackbaud_constituent_id: "436887",
+        blackbaud_constituent_id: "436887",
+        next_action_completed_at: null,
+      },
+    ]);
+    queueSqlResult([]);
+    queueSqlResult([]);
+    queueSqlResult([
+      {
+        id: 905,
+        prospect_id: 7,
+        update_title: "Quick check-in",
+      },
+    ]);
+    queueSqlResult([]);
+
+    getBlackbaudConstituentByIdMock.mockRejectedValue(
+      new Error(
+        'Blackbaud 404 Not Found: [{"message":"The requested operation could not be fulfilled","error_name":"RequestNotFulfilled","error_code":404}]',
+      ),
+    );
+    findBlackbaudConstituentByEmailMock.mockImplementation(async ({ email }) => {
+      if (email === "hcampbell@example.com") {
+        return {
+          blackbaudConstituentId: "227949",
+          name: "Hilary Brooks Campbell",
+          lookupId: "HCAMPBELL",
+        };
+      }
+
+      return {
+        blackbaudConstituentId: "234684",
+      };
+    });
+    buildBlackbaudActionPayloadMock.mockImplementation(({ blackbaudConstituentId }) => ({
+      constituent_id: blackbaudConstituentId,
+      date: "2026-06-16T00:00:00.000Z",
+      category: "Meeting",
+      summary: "Quick check-in",
+    }));
+    createBlackbaudActionMock.mockResolvedValue({ id: "bb-action-3" });
+    getBlackbaudActionMock.mockResolvedValue({
+      id: "bb-action-3",
+      constituent_id: "227949",
+    });
+    updateBlackbaudActionMock.mockResolvedValue({ ok: true });
+
+    const request = new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionDate: "2026-06-16",
+        actionCategory: "Meeting",
+        interactionType: "Cultivation",
+        summary: "Quick check-in",
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "7" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.update.id).toBe(905);
+    expect(createBlackbaudActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          constituent_id: "227949",
+        }),
+      }),
+    );
+  });
 });

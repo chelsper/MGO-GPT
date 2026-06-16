@@ -33,6 +33,10 @@ function normalizeActionLabel(value) {
   return text || null;
 }
 
+function normalizeComparisonText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function getBlackbaudActionId(payload) {
   return (
     payload?.id ||
@@ -188,6 +192,92 @@ async function getUserFundraiserIdentity(userId) {
   `;
 
   return rows[0] || null;
+}
+
+async function repairProspectBlackbaudConstituentLink({
+  userId,
+  prospectId,
+  constituentId,
+  prospectName,
+  prospectEmail,
+  authUserId,
+  origin,
+}) {
+  const exactEmailMatch = prospectEmail
+    ? await findBlackbaudConstituentByEmail({
+        userId,
+        authUserId,
+        origin,
+        email: prospectEmail,
+      }).catch(() => null)
+    : null;
+
+  if (exactEmailMatch?.blackbaudConstituentId) {
+    const repairedId = String(exactEmailMatch.blackbaudConstituentId);
+    await sql`
+      UPDATE prospects
+      SET blackbaud_constituent_id = ${repairedId}, updated_at = NOW()
+      WHERE id = ${prospectId} AND user_id = ${userId}
+    `;
+    if (constituentId) {
+      await sql`
+        UPDATE constituents
+        SET blackbaud_constituent_id = ${repairedId}, updated_at = NOW()
+        WHERE id = ${constituentId} AND user_id = ${userId}
+      `;
+    }
+    return {
+      blackbaudConstituentId: repairedId,
+      source: "exact-email",
+      name: exactEmailMatch?.name || null,
+      lookupId: exactEmailMatch?.lookupId || null,
+    };
+  }
+
+  const normalizedProspectName = normalizeComparisonText(prospectName);
+  if (!normalizedProspectName) {
+    return null;
+  }
+
+  const matches = await searchBlackbaudConstituents({
+    userId,
+    authUserId,
+    origin,
+    query: prospectName,
+  }).catch(() => []);
+
+  const exactNameMatches = matches.filter(
+    (candidate) => normalizeComparisonText(candidate?.name) === normalizedProspectName,
+  );
+
+  if (exactNameMatches.length !== 1) {
+    return null;
+  }
+
+  const repairedId = String(exactNameMatches[0]?.blackbaudConstituentId || "").trim();
+  if (!repairedId) {
+    return null;
+  }
+
+  await sql`
+    UPDATE prospects
+    SET blackbaud_constituent_id = ${repairedId}, updated_at = NOW()
+    WHERE id = ${prospectId} AND user_id = ${userId}
+  `;
+  if (constituentId) {
+    await sql`
+      UPDATE constituents
+      SET blackbaud_constituent_id = ${repairedId}, updated_at = NOW()
+      WHERE id = ${constituentId} AND user_id = ${userId}
+    `;
+  }
+
+  return {
+    blackbaudConstituentId: repairedId,
+    source: "single-exact-name",
+    name: exactNameMatches[0]?.name || null,
+    lookupId: exactNameMatches[0]?.lookupId || null,
+  };
 }
 
 async function resolveFundraiserCandidates({
@@ -388,7 +478,7 @@ export async function POST(request, { params }) {
     }
 
     let blackbaudAction = null;
-    const linkedBlackbaudConstituentId =
+    let linkedBlackbaudConstituentId =
       prospect.linked_blackbaud_constituent_id ||
       prospect.blackbaud_constituent_id ||
       null;
@@ -442,6 +532,44 @@ export async function POST(request, { params }) {
           preflightLookupId: preflightConstituent?.lookupId || null,
         };
       } catch (preflightError) {
+        const repairedConstituent = await repairProspectBlackbaudConstituentLink({
+          userId: user.id,
+          prospectId,
+          constituentId: prospect.constituent_id || null,
+          prospectName: prospect.prospect_name || null,
+          prospectEmail: prospect.email || null,
+          authUserId: sessionUser?.id || user.id,
+          origin,
+        }).catch(() => null);
+
+        if (repairedConstituent?.blackbaudConstituentId) {
+          linkedBlackbaudConstituentId = repairedConstituent.blackbaudConstituentId;
+          const repairedPayload = buildBlackbaudActionPayload({
+            blackbaudConstituentId: linkedBlackbaudConstituentId,
+            actionDate,
+            actionCategory,
+            summary: summary || `${prospect.prospect_name} action`,
+            actionNotes: notes,
+            nextStep,
+            authorName: user.name,
+            opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
+          });
+          attemptedCreateVariants[0] = {
+            syncVariant: "initial-full-action-payload",
+            payload: summarizeActionCreatePayload(repairedPayload),
+          };
+          fullPayload.constituent_id = repairedPayload.constituent_id;
+          createPreflightContext = {
+            ...createPreflightContext,
+            constituentId: repairedPayload.constituent_id,
+            category: repairedPayload?.category || createPreflightContext.category,
+            date: repairedPayload?.date || createPreflightContext.date,
+            summaryLength: String(repairedPayload?.summary || "").length,
+            preflightStatus: `repaired:${repairedConstituent.source}`,
+            preflightName: repairedConstituent.name || null,
+            preflightLookupId: repairedConstituent.lookupId || null,
+          };
+        } else {
         createPreflightContext = {
           ...createPreflightContext,
           preflightStatus:
@@ -449,6 +577,7 @@ export async function POST(request, { params }) {
               ? `read-failed:${preflightError.message}`
               : "read-failed",
         };
+        }
       }
 
       blackbaudAction = await createBlackbaudAction({
