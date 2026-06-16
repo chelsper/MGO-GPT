@@ -1,7 +1,10 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { deleteBlackbaudAction } from "@/app/api/utils/blackbaud";
+import {
+  deleteBlackbaudAction,
+  getBlackbaudAction,
+} from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 function isBlackbaudNotFoundError(message) {
@@ -102,14 +105,51 @@ export async function DELETE(request, { params }) {
     let blackbaudSync = null;
     const blackbaudActionId = String(existingUpdate.blackbaud_action_id || "").trim();
     if (blackbaudActionId) {
+      const authUserId = sessionUser?.id || user.id;
+      const origin = new URL(request.url).origin;
       try {
         await deleteBlackbaudAction({
           userId: user.id,
-          authUserId: sessionUser?.id || user.id,
-          origin: new URL(request.url).origin,
+          authUserId,
+          origin,
           actionId: blackbaudActionId,
         });
-        blackbaudSync = { status: "deleted", actionId: blackbaudActionId };
+
+        try {
+          await getBlackbaudAction({
+            userId: user.id,
+            authUserId,
+            origin,
+            actionId: blackbaudActionId,
+          });
+
+          return Response.json(
+            {
+              error:
+                "The linked NXT activity still appears to exist after delete was requested. Local cleanup was stopped to avoid mismatch.",
+            },
+            { status: 502 },
+          );
+        } catch (verificationError) {
+          const verificationMessage =
+            verificationError instanceof Error
+              ? verificationError.message
+              : "Failed to verify NXT action deletion";
+
+          if (!isBlackbaudNotFoundError(verificationMessage)) {
+            return Response.json(
+              {
+                error: `Could not verify the synced NXT activity was deleted: ${verificationMessage}`,
+              },
+              { status: 502 },
+            );
+          }
+        }
+
+        blackbaudSync = {
+          status: "deleted",
+          actionId: blackbaudActionId,
+        };
       } catch (error) {
         const message =
           error instanceof Error

@@ -4,6 +4,7 @@ const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const deleteBlackbaudActionMock = vi.fn();
+const getBlackbaudActionMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -28,6 +29,7 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
   deleteBlackbaudAction: deleteBlackbaudActionMock,
+  getBlackbaudAction: getBlackbaudActionMock,
 }));
 
 vi.mock("@/app/api/utils/sql", () => ({
@@ -42,6 +44,7 @@ describe("prospect update route", () => {
     ensureAppSchemaMock.mockReset();
     getWorkspaceUserMock.mockReset();
     deleteBlackbaudActionMock.mockReset();
+    getBlackbaudActionMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -101,6 +104,7 @@ describe("prospect update route", () => {
     ]);
     queueSqlResult([]);
     deleteBlackbaudActionMock.mockResolvedValue({ ok: true });
+    getBlackbaudActionMock.mockRejectedValue(new Error("Blackbaud 404 Not Found"));
 
     const response = await DELETE(
       new Request("https://example.com/api/prospects/7/updates/13", {
@@ -119,5 +123,30 @@ describe("prospect update route", () => {
         authUserId: 44,
       }),
     );
+  });
+
+  it("stops local cleanup if the linked NXT action still exists after delete", async () => {
+    const { DELETE } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 14,
+        prospect_id: 7,
+        blackbaud_action_id: "bb-action-10",
+      },
+    ]);
+    deleteBlackbaudActionMock.mockResolvedValue({ ok: true });
+    getBlackbaudActionMock.mockResolvedValue({ id: "bb-action-10" });
+
+    const response = await DELETE(
+      new Request("https://example.com/api/prospects/7/updates/14", {
+        method: "DELETE",
+      }),
+      { params: { prospectId: "7", updateId: "14" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload.error).toMatch(/still appears to exist/i);
   });
 });
