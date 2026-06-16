@@ -986,16 +986,27 @@ function appendActionSection(label, value) {
   return `${label}: ${text}`;
 }
 
+function formatBlackbaudActionDate(value) {
+  const text = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("A valid action date is required");
+  }
+
+  return parsed.toISOString().split("T")[0];
+}
+
 export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
   actionCategory,
-  interactionType,
   summary,
   actionNotes,
   nextStep,
-  fundraiserIds,
-  opportunityId,
 }) {
   if (!blackbaudConstituentId) {
     throw new Error("A linked Blackbaud constituent ID is required");
@@ -1021,19 +1032,11 @@ export function buildBlackbaudActionPayload({
 
   return {
     constituent_id: String(blackbaudConstituentId),
-    date: new Date(actionDate).toISOString(),
+    date: formatBlackbaudActionDate(actionDate),
     category: categoryMap[normalizedCategory] || "Task/Other",
-    completed: true,
-    completed_date: new Date(actionDate).toISOString(),
     direction: "Outbound",
-    fundraisers: Array.isArray(fundraiserIds)
-      ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)
-      : undefined,
-    status: "Completed",
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
-    type: String(interactionType || "").trim() || undefined,
-    opportunity_id: opportunityId ? String(opportunityId) : undefined,
   };
 }
 
@@ -1110,13 +1113,17 @@ export async function listBlackbaudActions({
 export function buildBlackbaudActionMetadataPayload({
   actionDate,
   interactionType,
+  fundraiserIds,
 }) {
   const normalizedActionType = String(interactionType || "").trim() || undefined;
 
   return {
     type: normalizedActionType,
     completed: true,
-    completed_date: new Date(actionDate).toISOString(),
+    completed_date: formatBlackbaudActionDate(actionDate),
+    fundraisers: Array.isArray(fundraiserIds)
+      ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : undefined,
   };
 }
 

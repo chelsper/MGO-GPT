@@ -226,17 +226,11 @@ describe("prospect action route", () => {
 
     buildBlackbaudActionPayloadMock.mockReturnValue({
       constituent_id: "234684",
-      date: "2026-06-11T00:00:00.000Z",
+      date: "2026-06-11",
       category: "Meeting",
-      completed: true,
-      completed_date: "2026-06-11T00:00:00.000Z",
       direction: "Outbound",
-      fundraisers: ["234684"],
-      status: "Completed",
       summary: "Visit note",
       description: "Notes: Good meeting",
-      type: "Cultivation",
-      opportunity_id: "bb-opp-1",
     });
     createBlackbaudActionMock
       .mockRejectedValueOnce(
@@ -273,15 +267,11 @@ describe("prospect action route", () => {
     expect(createBlackbaudActionMock).toHaveBeenCalledTimes(2);
     expect(createBlackbaudActionMock.mock.calls[1][0].payload).toEqual({
       constituent_id: "234684",
-      date: "2026-06-11T00:00:00.000Z",
+      date: "2026-06-11",
       category: "Meeting",
-      completed: true,
-      completed_date: "2026-06-11T00:00:00.000Z",
-      fundraisers: ["234684"],
-      status: "Completed",
+      direction: "Outbound",
       summary: "Visit note",
       description: "Notes: Good meeting",
-      type: "Cultivation",
     });
   });
 
@@ -345,6 +335,11 @@ describe("prospect action route", () => {
     expect(response.status).toBe(201);
     expect(payload.update.id).toBe(904);
     expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: "Joint visit",
+      }),
+    );
+    expect(buildBlackbaudActionMetadataPayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
         fundraiserIds: ["234684", "172263"],
       }),

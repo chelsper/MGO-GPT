@@ -70,13 +70,9 @@ function buildMinimalBlackbaudActionPayload(payload) {
     constituent_id: payload.constituent_id,
     date: payload.date,
     category: payload.category,
-    completed: payload.completed,
-    completed_date: payload.completed_date,
-    fundraisers: payload.fundraisers,
-    status: payload.status,
+    direction: payload.direction,
     summary: payload.summary,
     description: payload.description,
-    type: payload.type,
   };
 }
 
@@ -315,12 +311,9 @@ export async function POST(request, { params }) {
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         actionDate,
         actionCategory,
-        interactionType,
         summary: summary || `${prospect.prospect_name} action`,
         actionNotes: notes,
         nextStep,
-        fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
-        opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
       });
 
       blackbaudAction = await createBlackbaudAction({
@@ -398,6 +391,7 @@ export async function POST(request, { params }) {
                 payload: buildBlackbaudActionMetadataPayload({
                   actionDate,
                   interactionType,
+                  fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
                 }),
               });
             } catch (metadataError) {
