@@ -12,6 +12,50 @@ function isBlackbaudNotFoundError(message) {
   return /404/i.test(text);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function verifyBlackbaudActionDeleted({
+  userId,
+  authUserId,
+  origin,
+  actionId,
+}) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      await sleep(500 * attempt);
+    }
+
+    try {
+      await getBlackbaudAction({
+        userId,
+        authUserId,
+        origin,
+        actionId,
+      });
+      lastError = null;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to verify NXT action deletion";
+      if (isBlackbaudNotFoundError(message)) {
+        return true;
+      }
+      lastError = message;
+    }
+  }
+
+  if (lastError) {
+    throw new Error(lastError);
+  }
+
+  return false;
+}
+
 export async function PUT(request, { params }) {
   try {
     await ensureAppSchema();
@@ -116,20 +160,22 @@ export async function DELETE(request, { params }) {
         });
 
         try {
-          await getBlackbaudAction({
+          const wasDeleted = await verifyBlackbaudActionDeleted({
             userId: user.id,
             authUserId,
             origin,
             actionId: blackbaudActionId,
           });
 
-          return Response.json(
-            {
-              error:
-                "The linked NXT activity still appears to exist after delete was requested. Local cleanup was stopped to avoid mismatch.",
-            },
-            { status: 502 },
-          );
+          if (!wasDeleted) {
+            return Response.json(
+              {
+                error:
+                  "The linked NXT activity still appears to exist after delete was requested. Local cleanup was stopped to avoid mismatch.",
+              },
+              { status: 502 },
+            );
+          }
         } catch (verificationError) {
           const verificationMessage =
             verificationError instanceof Error

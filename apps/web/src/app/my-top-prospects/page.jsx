@@ -1343,6 +1343,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const [editingUpdateId, setEditingUpdateId] = useState(null);
   const [editingUpdateNotes, setEditingUpdateNotes] = useState("");
   const [editingUpdateDate, setEditingUpdateDate] = useState("");
+  const [pendingDeleteEvent, setPendingDeleteEvent] = useState(null);
   const [showActionForm, setShowActionForm] = useState(false);
   const [showNextStepForm, setShowNextStepForm] = useState(false);
   const [actionDate, setActionDate] = useState(
@@ -1763,6 +1764,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setEditingUpdateNotes("");
       setEditingUpdateDate("");
       setExpandedTimelineId(null);
+      setPendingDeleteEvent(null);
       setActionError("");
     },
     onError: (mutationError) => {
@@ -2233,15 +2235,14 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     const raw = event?.raw || {};
     if (!raw?.id) return;
 
-    const hasBlackbaudAction = Boolean(String(raw.blackbaud_action_id || "").trim());
-    const confirmed = window.confirm(
-      hasBlackbaudAction
-        ? "Caution: this will delete this activity from Raiser's Edge NXT and may break any associated opportunity links. Do you want to continue?"
-        : "Delete this activity from the app?",
-    );
-    if (!confirmed) {
-      return;
-    }
+    setActionError("");
+    setPendingDeleteEvent(event);
+    setExpandedTimelineId(event.id);
+  };
+
+  const confirmDeleteTimelineUpdate = () => {
+    const raw = pendingDeleteEvent?.raw || {};
+    if (!raw?.id) return;
 
     setActionError("");
     deleteTimelineEntryMutation.mutate({ updateId: raw.id });
@@ -5389,6 +5390,77 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                         </button>
                       </div>
                     </div>
+                    {pendingDeleteEvent?.id === event.id ? (
+                      <div
+                        style={{
+                          margin: "10px 0",
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          border: "1px solid #FCA5A5",
+                          backgroundColor: "#FEF2F2",
+                          color: "#7F1D1D",
+                          fontSize: "12px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <p style={{ margin: "0 0 10px 0", fontWeight: "700" }}>
+                          {event.raw?.blackbaud_action_id
+                            ? "Caution: this will delete this activity from Raiser's Edge NXT and may break any associated opportunity links."
+                            : "Delete this activity from the app?"}
+                        </p>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={confirmDeleteTimelineUpdate}
+                            disabled={deleteTimelineEntryMutation.isPending}
+                            style={{
+                              padding: "7px 11px",
+                              borderRadius: "8px",
+                              border: "1px solid #B91C1C",
+                              backgroundColor: "#B91C1C",
+                              color: "white",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: deleteTimelineEntryMutation.isPending
+                                ? "not-allowed"
+                                : "pointer",
+                              opacity: deleteTimelineEntryMutation.isPending ? 0.7 : 1,
+                            }}
+                          >
+                            {deleteTimelineEntryMutation.isPending
+                              ? "Deleting..."
+                              : event.raw?.blackbaud_action_id
+                                ? "Delete from NXT and app"
+                                : "Delete activity"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteEvent(null)}
+                            disabled={deleteTimelineEntryMutation.isPending}
+                            style={{
+                              padding: "7px 11px",
+                              borderRadius: "8px",
+                              border: "1px solid #FCA5A5",
+                              backgroundColor: "white",
+                              color: "#991B1B",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: deleteTimelineEntryMutation.isPending
+                                ? "not-allowed"
+                                : "pointer",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     <p
                       style={{
                         fontSize: "14px",
