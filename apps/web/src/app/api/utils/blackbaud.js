@@ -1007,6 +1007,8 @@ export function buildBlackbaudActionPayload({
   summary,
   actionNotes,
   nextStep,
+  authorName,
+  opportunityId,
 }) {
   if (!blackbaudConstituentId) {
     throw new Error("A linked Blackbaud constituent ID is required");
@@ -1037,6 +1039,8 @@ export function buildBlackbaudActionPayload({
     direction: "Outbound",
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
+    author: String(authorName || "").trim() || undefined,
+    opportunity_id: opportunityId ? String(opportunityId) : undefined,
   };
 }
 

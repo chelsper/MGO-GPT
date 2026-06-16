@@ -108,6 +108,21 @@ function buildActionCreateFallbackVariants(payload) {
   ];
 }
 
+function summarizeActionCreatePayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  return {
+    keys: Object.keys(payload).sort(),
+    category: payload.category || null,
+    date: payload.date || null,
+    hasDescription: Boolean(payload.description),
+    hasDirection: Boolean(payload.direction),
+    hasSummary: Boolean(payload.summary),
+  };
+}
+
 function addFundraiserCandidate(candidates, fundraiserId) {
   const normalizedId = String(fundraiserId || "").trim();
   if (!normalizedId) return;
@@ -333,6 +348,7 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
+      const attemptedCreateVariants = [];
       const fundraiserIds = await resolveActionFundraiserIds({
         currentUser: sessionUser || user,
         workspaceUser: user,
@@ -346,6 +362,12 @@ export async function POST(request, { params }) {
         summary: summary || `${prospect.prospect_name} action`,
         actionNotes: notes,
         nextStep,
+        authorName: user.name,
+        opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
+      });
+      attemptedCreateVariants.push({
+        syncVariant: "initial-full-action-payload",
+        payload: summarizeActionCreatePayload(fullPayload),
       });
 
       blackbaudAction = await createBlackbaudAction({
@@ -355,11 +377,16 @@ export async function POST(request, { params }) {
         payload: fullPayload,
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
+        syncVariant: "initial-full-action-payload",
       }));
 
       if (blackbaudAction?.error && isBlackbaudRequestNotFulfilledError(blackbaudAction.error)) {
         const fallbackVariants = buildActionCreateFallbackVariants(fullPayload);
         for (const variant of fallbackVariants) {
+          attemptedCreateVariants.push({
+            syncVariant: variant.syncVariant,
+            payload: summarizeActionCreatePayload(variant.payload),
+          });
           blackbaudAction = await createBlackbaudAction({
             userId: user.id,
             authUserId: sessionUser?.id || user.id,
@@ -451,6 +478,13 @@ export async function POST(request, { params }) {
                 : "NXT action create could not be verified",
           };
         }
+      }
+
+      if (blackbaudAction) {
+        blackbaudAction = {
+          ...blackbaudAction,
+          attemptedCreateVariants,
+        };
       }
 
     }
