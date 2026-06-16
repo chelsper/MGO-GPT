@@ -1355,6 +1355,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const [actionNextStep, setActionNextStep] = useState("");
   const [actionNextStepDueDate, setActionNextStepDueDate] = useState("");
   const [actionLinkedOpportunityId, setActionLinkedOpportunityId] = useState("");
+  const [actionAdditionalFundraiserUserId, setActionAdditionalFundraiserUserId] =
+    useState("");
   const [showOpportunityForm, setShowOpportunityForm] = useState(false);
   const [showDiscussionForm, setShowDiscussionForm] = useState(false);
   const [discussionSubject, setDiscussionSubject] = useState("");
@@ -1495,6 +1497,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setActionNextStep("");
       setActionNextStepDueDate("");
       setActionLinkedOpportunityId("");
+      setActionAdditionalFundraiserUserId("");
       setShowActionForm(false);
       setActionError(
         result?.blackbaudAction?.error
@@ -1785,6 +1788,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     blackbaudSummary?.mapped?.prospectSummaryNarrative || "";
   const blackbaudProposalSummary =
     blackbaudSummary?.mapped?.proposalSummary || [];
+  const actionPrimaryFundraiserName =
+    mgoUsers.find((option) => String(option.id) === String(prospect?.user_id || ""))?.name ||
+    blackbaudAssignments[0]?.fundraiserName ||
+    "Current dashboard owner";
 
   const primaryPendingAction =
     pendingActions.find((item) => item.status === "Open" && item.is_primary) ||
@@ -1990,6 +1997,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       nextStep: actionNextStep,
       nextActionDueDate: actionNextStepDueDate || null,
       linkedOpportunityId: actionLinkedOpportunityId || null,
+      additionalFundraiserUserId: actionAdditionalFundraiserUserId || null,
     });
   };
 
@@ -3377,9 +3385,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                     color: "#6B7280",
                     marginBottom: "4px",
                   }}
-                >
-                  Action type
-                </label>
+                  >
+                    Action type
+                  </label>
                 <div style={{ marginBottom: "12px" }}>
                   <label
                     style={{
@@ -3433,31 +3441,67 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   ))}
                 </select>
               </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    color: "#6B7280",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Date
-                </label>
-                <input
-                  type="date"
-                  value={actionDate}
-                  onChange={(e) => setActionDate(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    boxSizing: "border-box",
-                  }}
-                />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Status in NXT
+                  </label>
+                  <div
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "#F9FAFB",
+                      color: "#111827",
+                    }}
+                  >
+                    Completed
+                  </div>
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Completed date
+                  </label>
+                  <input
+                    type="date"
+                    value={actionDate}
+                    onChange={(e) => setActionDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label
@@ -3612,6 +3656,77 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
               </div>
               <div
                 style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Primary fundraiser
+                  </label>
+                  <div
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "#F9FAFB",
+                      color: "#111827",
+                    }}
+                  >
+                    {actionPrimaryFundraiserName}
+                  </div>
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#6B7280",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Additional fundraiser
+                  </label>
+                  <select
+                    value={actionAdditionalFundraiserUserId}
+                    onChange={(e) => setActionAdditionalFundraiserUserId(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    <option value="">No additional fundraiser</option>
+                    {mgoUsers
+                      .filter((option) => String(option.id) !== String(prospect.user_id))
+                      .map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div
+                style={{
                   marginBottom: "12px",
                   padding: "10px 12px",
                   borderRadius: "10px",
@@ -3625,7 +3740,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                 }}
               >
                 {linkedBlackbaudConstituentId
-                  ? "This action will be logged in the app, sent to NXT, marked completed, and assigned to the current MGO."
+                  ? "This action will be logged in the app, sent to NXT, marked completed, and assigned to the current dashboard owner. You can add one additional fundraiser if another MGO was involved."
                   : "This action will be saved in the app only because this prospect is not linked to Blackbaud."}
               </div>
               <div style={{ display: "flex", gap: "8px" }}>

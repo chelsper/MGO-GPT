@@ -284,4 +284,70 @@ describe("prospect action route", () => {
       type: "Cultivation",
     });
   });
+
+  it("includes an additional fundraiser when another MGO is selected on the action form", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        prospect_name: "Pat Prospect",
+        constituent_id: 88,
+        linked_blackbaud_constituent_id: "234684",
+        blackbaud_constituent_id: "234684",
+        next_action_completed_at: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 55,
+        name: "Christopher P. Corbo",
+        email: "ccorbo@example.com",
+        blackbaud_constituent_id: "172263",
+        blackbaud_lookup_id: "CCORBO",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 904,
+        prospect_id: 7,
+        update_title: "Joint visit",
+      },
+    ]);
+    queueSqlResult([]);
+
+    getBlackbaudFundraiserByIdMock.mockImplementation(async ({ fundraiserId }) => ({
+      fundraiserId: String(fundraiserId),
+    }));
+    createBlackbaudActionMock.mockResolvedValue({ id: "bb-action-2" });
+    getBlackbaudActionMock.mockResolvedValue({
+      id: "bb-action-2",
+      constituent_id: "234684",
+    });
+    updateBlackbaudActionMock.mockResolvedValue({ ok: true });
+
+    const request = new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionDate: "2026-06-12",
+        actionCategory: "Meeting",
+        interactionType: "Cultivation",
+        summary: "Joint visit",
+        notes: "Met together with the donor.",
+        additionalFundraiserUserId: "55",
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "7" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.update.id).toBe(904);
+    expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fundraiserIds: ["234684", "172263"],
+      }),
+    );
+  });
 });

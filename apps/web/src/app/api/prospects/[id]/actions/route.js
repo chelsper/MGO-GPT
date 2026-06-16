@@ -193,6 +193,44 @@ async function resolveActionFundraiserId({
   return candidates[0] || null;
 }
 
+async function resolveActionFundraiserIds({
+  currentUser,
+  workspaceUser,
+  additionalFundraiserUserId,
+  origin,
+}) {
+  const fundraiserIds = [];
+
+  const primaryFundraiserId = await resolveActionFundraiserId({
+    currentUser,
+    workspaceUser,
+    origin,
+  });
+  if (primaryFundraiserId) {
+    addFundraiserCandidate(fundraiserIds, primaryFundraiserId);
+  }
+
+  const normalizedAdditionalUserId = String(additionalFundraiserUserId || "").trim();
+  if (
+    normalizedAdditionalUserId &&
+    normalizedAdditionalUserId !== String(workspaceUser?.id || "")
+  ) {
+    const additionalUser = await getUserFundraiserIdentity(normalizedAdditionalUserId);
+    if (additionalUser) {
+      const additionalFundraiserId = await resolveActionFundraiserId({
+        currentUser,
+        workspaceUser: additionalUser,
+        origin,
+      });
+      if (additionalFundraiserId) {
+        addFundraiserCandidate(fundraiserIds, additionalFundraiserId);
+      }
+    }
+  }
+
+  return fundraiserIds;
+}
+
 export async function POST(request, { params }) {
   try {
     await ensureAppSchema();
@@ -218,6 +256,7 @@ export async function POST(request, { params }) {
       nextStep,
       nextActionDueDate,
       linkedOpportunityId,
+      additionalFundraiserUserId,
     } = body || {};
 
     if (!actionDate) {
@@ -266,9 +305,10 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
-      const fundraiserId = await resolveActionFundraiserId({
+      const fundraiserIds = await resolveActionFundraiserIds({
         currentUser: sessionUser || user,
         workspaceUser: user,
+        additionalFundraiserUserId,
         origin,
       });
       const fullPayload = buildBlackbaudActionPayload({
@@ -279,7 +319,7 @@ export async function POST(request, { params }) {
         summary: summary || `${prospect.prospect_name} action`,
         actionNotes: notes,
         nextStep,
-        fundraiserIds: fundraiserId ? [fundraiserId] : undefined,
+        fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
         opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
       });
 
