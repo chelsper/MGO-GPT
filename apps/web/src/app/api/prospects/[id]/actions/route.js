@@ -76,6 +76,38 @@ function buildMinimalBlackbaudActionPayload(payload) {
   };
 }
 
+function buildActionCreateFallbackVariants(payload) {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  return [
+    {
+      syncVariant: "fallback-core-action-payload",
+      payload: buildMinimalBlackbaudActionPayload(payload),
+    },
+    {
+      syncVariant: "fallback-core-action-payload-no-direction",
+      payload: {
+        constituent_id: payload.constituent_id,
+        date: payload.date,
+        category: payload.category,
+        summary: payload.summary,
+        description: payload.description,
+      },
+    },
+    {
+      syncVariant: "fallback-bare-action-payload",
+      payload: {
+        constituent_id: payload.constituent_id,
+        date: payload.date,
+        category: payload.category,
+        summary: payload.summary,
+      },
+    },
+  ];
+}
+
 function addFundraiserCandidate(candidates, fundraiserId) {
   const normalizedId = String(fundraiserId || "").trim();
   if (!normalizedId) return;
@@ -326,24 +358,30 @@ export async function POST(request, { params }) {
       }));
 
       if (blackbaudAction?.error && isBlackbaudRequestNotFulfilledError(blackbaudAction.error)) {
-        const fallbackPayload = buildMinimalBlackbaudActionPayload(fullPayload);
-        blackbaudAction = await createBlackbaudAction({
-          userId: user.id,
-          authUserId: sessionUser?.id || user.id,
-          origin,
-          payload: fallbackPayload,
-        })
-          .then((payload) => ({
-            ...payload,
-            syncVariant: "fallback-minimal-action-payload",
-          }))
-          .catch((error) => ({
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to sync action to Blackbaud",
-            syncVariant: "fallback-minimal-action-payload",
-          }));
+        const fallbackVariants = buildActionCreateFallbackVariants(fullPayload);
+        for (const variant of fallbackVariants) {
+          blackbaudAction = await createBlackbaudAction({
+            userId: user.id,
+            authUserId: sessionUser?.id || user.id,
+            origin,
+            payload: variant.payload,
+          })
+            .then((payload) => ({
+              ...payload,
+              syncVariant: variant.syncVariant,
+            }))
+            .catch((error) => ({
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to sync action to Blackbaud",
+              syncVariant: variant.syncVariant,
+            }));
+
+          if (!blackbaudAction?.error) {
+            break;
+          }
+        }
       }
 
       const createdActionId = getBlackbaudActionId(blackbaudAction);

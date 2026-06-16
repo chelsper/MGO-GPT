@@ -202,7 +202,7 @@ describe("prospect action route", () => {
     expect(syncPrimaryPendingActionMock).toHaveBeenCalled();
   });
 
-  it("retries with a minimal payload on Blackbaud RequestNotFulfilled 404 errors", async () => {
+  it("retries through narrower create payload variants on Blackbaud RequestNotFulfilled 404 errors", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([
@@ -238,6 +238,11 @@ describe("prospect action route", () => {
           'Blackbaud 404 Not Found: [{"message":"The requested operation could not be fulfilled","error_name":"RequestNotFulfilled","error_code":404}]',
         ),
       )
+      .mockRejectedValueOnce(
+        new Error(
+          'Blackbaud 404 Not Found: [{"message":"The requested operation could not be fulfilled","error_name":"RequestNotFulfilled","error_code":404}]',
+        ),
+      )
       .mockResolvedValueOnce({
         id: "bb-action-1",
       });
@@ -263,13 +268,22 @@ describe("prospect action route", () => {
 
     expect(response.status).toBe(201);
     expect(payload.update.id).toBe(903);
-    expect(payload.blackbaudAction.syncVariant).toBe("fallback-minimal-action-payload");
-    expect(createBlackbaudActionMock).toHaveBeenCalledTimes(2);
+    expect(payload.blackbaudAction.syncVariant).toBe(
+      "fallback-core-action-payload-no-direction",
+    );
+    expect(createBlackbaudActionMock).toHaveBeenCalledTimes(3);
     expect(createBlackbaudActionMock.mock.calls[1][0].payload).toEqual({
       constituent_id: "234684",
       date: "2026-06-11",
       category: "Meeting",
       direction: "Outbound",
+      summary: "Visit note",
+      description: "Notes: Good meeting",
+    });
+    expect(createBlackbaudActionMock.mock.calls[2][0].payload).toEqual({
+      constituent_id: "234684",
+      date: "2026-06-11",
+      category: "Meeting",
       summary: "Visit note",
       description: "Notes: Good meeting",
     });
