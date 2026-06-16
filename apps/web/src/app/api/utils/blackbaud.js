@@ -1000,6 +1000,24 @@ function formatBlackbaudActionDate(value) {
   return parsed.toISOString().split("T")[0];
 }
 
+function formatBlackbaudActionCreateDateTime(value) {
+  if (!value) {
+    throw new Error("A valid action date is required");
+  }
+
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return new Date(`${text}T00:00:00.000Z`).toISOString();
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("A valid action date is required");
+  }
+
+  return parsed.toISOString();
+}
+
 export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
@@ -1034,7 +1052,7 @@ export function buildBlackbaudActionPayload({
 
   return {
     constituent_id: String(blackbaudConstituentId),
-    date: formatBlackbaudActionDate(actionDate),
+    date: formatBlackbaudActionCreateDateTime(actionDate),
     category: categoryMap[normalizedCategory] || "Task/Other",
     direction: "Outbound",
     summary: summaryText || "Action update from JUMGOGPT",

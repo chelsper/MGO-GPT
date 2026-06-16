@@ -123,6 +123,22 @@ function summarizeActionCreatePayload(payload) {
   };
 }
 
+function formatActionCreateVariantDebug(attemptedCreateVariants) {
+  const attempts = Array.isArray(attemptedCreateVariants)
+    ? attemptedCreateVariants.filter(Boolean)
+    : [];
+  if (attempts.length === 0) {
+    return "";
+  }
+
+  const lastAttempt = attempts[attempts.length - 1];
+  const keys = Array.isArray(lastAttempt?.payload?.keys)
+    ? lastAttempt.payload.keys.join(",")
+    : "";
+
+  return ` [variant=${lastAttempt?.syncVariant || "unknown"}${keys ? ` | keys=${keys}` : ""}]`;
+}
+
 function addFundraiserCandidate(candidates, fundraiserId) {
   const normalizedId = String(fundraiserId || "").trim();
   if (!normalizedId) return;
@@ -485,6 +501,15 @@ export async function POST(request, { params }) {
           ...blackbaudAction,
           attemptedCreateVariants,
         };
+
+        if (blackbaudAction.error) {
+          blackbaudAction = {
+            ...blackbaudAction,
+            error: `${blackbaudAction.error}${formatActionCreateVariantDebug(
+              attemptedCreateVariants,
+            )}`,
+          };
+        }
       }
 
     }
