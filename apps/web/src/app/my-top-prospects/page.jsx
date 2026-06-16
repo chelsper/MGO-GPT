@@ -1745,11 +1745,15 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   });
 
   const deleteTimelineEntryMutation = useMutation({
-    mutationFn: async ({ updateId, localOnly = false }) => {
+    mutationFn: async ({ entryId, entryKind, localOnly = false }) => {
       const query = localOnly ? "?localOnly=1" : "";
-      const res = await fetch(`/api/prospects/${prospectId}/updates/${updateId}${query}`, {
-        method: "DELETE",
-      });
+      const segment = entryKind === "submission" ? "submissions" : "updates";
+      const res = await fetch(
+        `/api/prospects/${prospectId}/${segment}/${entryId}${query}`,
+        {
+          method: "DELETE",
+        },
+      );
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(payload?.error || "Failed to delete activity");
@@ -2246,7 +2250,11 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     if (!raw?.id) return;
 
     setActionError("");
-    deleteTimelineEntryMutation.mutate({ updateId: raw.id, localOnly });
+    deleteTimelineEntryMutation.mutate({
+      entryId: raw.id,
+      entryKind: pendingDeleteEvent.kind,
+      localOnly,
+    });
   };
 
   const saveNextStep = () => {
@@ -5317,9 +5325,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                           flexWrap: "wrap",
                         }}
                       >
-                        {event.kind === "progress" ? (
+                        {event.kind === "progress" || event.kind === "submission" ? (
                           <>
-                            {!readOnly ? (
+                            {!readOnly && event.kind === "progress" ? (
                               <button
                                 type="button"
                                 onClick={() => startEditingTimelineUpdate(event)}
