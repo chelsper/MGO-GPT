@@ -131,6 +131,8 @@ export async function DELETE(request, { params }) {
     }
 
     const { prospectId, updateId } = params;
+    const requestUrl = new URL(request.url);
+    const localOnly = requestUrl.searchParams.get("localOnly") === "1";
     const rows = await sql`
       SELECT pu.*
       FROM prospect_updates pu
@@ -148,9 +150,15 @@ export async function DELETE(request, { params }) {
 
     let blackbaudSync = null;
     const blackbaudActionId = String(existingUpdate.blackbaud_action_id || "").trim();
-    if (blackbaudActionId) {
+    if (blackbaudActionId && localOnly) {
+      blackbaudSync = {
+        status: "local-only",
+        actionId: blackbaudActionId,
+        warning: "Removed from the app only. The linked NXT activity was not deleted.",
+      };
+    } else if (blackbaudActionId) {
       const authUserId = sessionUser?.id || user.id;
-      const origin = new URL(request.url).origin;
+      const origin = requestUrl.origin;
       try {
         await deleteBlackbaudAction({
           userId: user.id,

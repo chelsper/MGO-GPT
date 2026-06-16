@@ -1745,8 +1745,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   });
 
   const deleteTimelineEntryMutation = useMutation({
-    mutationFn: async ({ updateId }) => {
-      const res = await fetch(`/api/prospects/${prospectId}/updates/${updateId}`, {
+    mutationFn: async ({ updateId, localOnly = false }) => {
+      const query = localOnly ? "?localOnly=1" : "";
+      const res = await fetch(`/api/prospects/${prospectId}/updates/${updateId}${query}`, {
         method: "DELETE",
       });
       const payload = await res.json().catch(() => null);
@@ -2240,12 +2241,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     setExpandedTimelineId(event.id);
   };
 
-  const confirmDeleteTimelineUpdate = () => {
+  const confirmDeleteTimelineUpdate = ({ localOnly = false } = {}) => {
     const raw = pendingDeleteEvent?.raw || {};
     if (!raw?.id) return;
 
     setActionError("");
-    deleteTimelineEntryMutation.mutate({ updateId: raw.id });
+    deleteTimelineEntryMutation.mutate({ updateId: raw.id, localOnly });
   };
 
   const saveNextStep = () => {
@@ -5439,6 +5440,29 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                                 ? "Delete from NXT and app"
                                 : "Delete activity"}
                           </button>
+                          {event.raw?.blackbaud_action_id ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                confirmDeleteTimelineUpdate({ localOnly: true })
+                              }
+                              disabled={deleteTimelineEntryMutation.isPending}
+                              style={{
+                                padding: "7px 11px",
+                                borderRadius: "8px",
+                                border: "1px solid #FCA5A5",
+                                backgroundColor: "white",
+                                color: "#991B1B",
+                                fontSize: "12px",
+                                fontWeight: "700",
+                                cursor: deleteTimelineEntryMutation.isPending
+                                  ? "not-allowed"
+                                  : "pointer",
+                              }}
+                            >
+                              Remove from app only
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => setPendingDeleteEvent(null)}

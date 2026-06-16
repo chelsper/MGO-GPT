@@ -149,4 +149,38 @@ describe("prospect update route", () => {
     expect(response.status).toBe(502);
     expect(payload.error).toMatch(/still appears to exist/i);
   });
+
+  it("removes a synced activity from the app only when requested", async () => {
+    const { DELETE } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 15,
+        prospect_id: 7,
+        blackbaud_action_id: "bb-action-11",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 15,
+        prospect_id: 7,
+        blackbaud_action_id: "bb-action-11",
+      },
+    ]);
+    queueSqlResult([]);
+
+    const response = await DELETE(
+      new Request("https://example.com/api/prospects/7/updates/15?localOnly=1", {
+        method: "DELETE",
+      }),
+      { params: { prospectId: "7", updateId: "15" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.deleted).toBe(true);
+    expect(payload.blackbaudSync.status).toBe("local-only");
+    expect(deleteBlackbaudActionMock).not.toHaveBeenCalled();
+    expect(getBlackbaudActionMock).not.toHaveBeenCalled();
+  });
 });
