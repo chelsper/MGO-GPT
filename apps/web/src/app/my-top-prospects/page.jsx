@@ -1743,6 +1743,37 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     },
   });
 
+  const deleteTimelineEntryMutation = useMutation({
+    mutationFn: async ({ updateId }) => {
+      const res = await fetch(`/api/prospects/${prospectId}/updates/${updateId}`, {
+        method: "DELETE",
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to delete activity");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      setEditingUpdateId(null);
+      setEditingUpdateNotes("");
+      setEditingUpdateDate("");
+      setExpandedTimelineId(null);
+      setActionError("");
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Failed to delete activity",
+      );
+    },
+  });
+
   const savePendingActionMutation = useMutation({
     mutationFn: async ({ id, body }) => {
       const response = await fetch(id ? `/api/pending-actions/${id}` : "/api/pending-actions", {
@@ -2196,6 +2227,24 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
         updateNotes: editingUpdateNotes,
       },
     });
+  };
+
+  const deleteTimelineUpdate = (event) => {
+    const raw = event?.raw || {};
+    if (!raw?.id) return;
+
+    const hasBlackbaudAction = Boolean(String(raw.blackbaud_action_id || "").trim());
+    const confirmed = window.confirm(
+      hasBlackbaudAction
+        ? "Caution: this will delete this activity from Raiser's Edge NXT and may break any associated opportunity links. Do you want to continue?"
+        : "Delete this activity from the app?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError("");
+    deleteTimelineEntryMutation.mutate({ updateId: raw.id });
   };
 
   const saveNextStep = () => {
@@ -5267,22 +5316,48 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                         }}
                       >
                         {event.kind === "progress" ? (
-                          <button
-                            type="button"
-                            onClick={() => startEditingTimelineUpdate(event)}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: "999px",
-                              border: "1px solid #C4B5FD",
-                              backgroundColor: "white",
-                              color: "#5B21B6",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Edit
-                          </button>
+                          <>
+                            {!readOnly ? (
+                              <button
+                                type="button"
+                                onClick={() => startEditingTimelineUpdate(event)}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: "999px",
+                                  border: "1px solid #C4B5FD",
+                                  backgroundColor: "white",
+                                  color: "#5B21B6",
+                                  fontSize: "12px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Edit
+                              </button>
+                            ) : null}
+                            {!readOnly ? (
+                              <button
+                                type="button"
+                                onClick={() => deleteTimelineUpdate(event)}
+                                disabled={deleteTimelineEntryMutation.isPending}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: "999px",
+                                  border: "1px solid #FECACA",
+                                  backgroundColor: "white",
+                                  color: "#B91C1C",
+                                  fontSize: "12px",
+                                  fontWeight: "700",
+                                  cursor: deleteTimelineEntryMutation.isPending
+                                    ? "not-allowed"
+                                    : "pointer",
+                                  opacity: deleteTimelineEntryMutation.isPending ? 0.7 : 1,
+                                }}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </>
                         ) : null}
                         <button
                           type="button"

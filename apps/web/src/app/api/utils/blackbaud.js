@@ -1172,7 +1172,12 @@ export async function updateBlackbaudAction({
   );
 }
 
-export async function deleteBlackbaudAction({ userId, origin, actionId }) {
+export async function deleteBlackbaudAction({
+  userId,
+  authUserId,
+  origin,
+  actionId,
+}) {
   if (!actionId) {
     throw new Error("A Blackbaud action ID is required to delete an action");
   }
@@ -1181,6 +1186,7 @@ export async function deleteBlackbaudAction({ userId, origin, actionId }) {
     `${BLACKBAUD_ACTIONS_URL}/${encodeURIComponent(String(actionId))}`,
     {
       userId,
+      authUserId,
       origin,
       method: "DELETE",
     },
