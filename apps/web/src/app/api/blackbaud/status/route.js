@@ -24,9 +24,19 @@ export async function GET(request) {
       configured: configIssues.length === 0,
       configIssues,
       redirectUri: config.redirectUri,
+      requestedScopes: config.scopes,
+      requestedScope: config.scopes.join(" "),
+      hasDeleteScopeConfigured: config.scopes.includes("rnxt.d"),
       subscriptionKeyConfigured: Boolean(config.subscriptionKey),
       connected: Boolean(connection),
       scope: connection?.scope || null,
+      connectedScopes: connection?.scope
+        ? connection.scope.split(/\s+/).filter(Boolean)
+        : [],
+      hasDeleteScope: Boolean(
+        connection?.scope &&
+          connection.scope.split(/\s+/).filter((value) => Boolean(value)).includes("rnxt.d"),
+      ),
       hasDataScopes: Boolean(
         connection?.scope &&
           connection.scope

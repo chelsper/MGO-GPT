@@ -183,4 +183,33 @@ describe("prospect update route", () => {
     expect(deleteBlackbaudActionMock).not.toHaveBeenCalled();
     expect(getBlackbaudActionMock).not.toHaveBeenCalled();
   });
+
+  it("returns a clear error when the connection lacks the Blackbaud delete scope", async () => {
+    const { DELETE } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 16,
+        prospect_id: 7,
+        blackbaud_action_id: "bb-action-12",
+      },
+    ]);
+    deleteBlackbaudActionMock.mockRejectedValue(
+      new Error(
+        "Blackbaud 403 Forbidden: Required scope access for this SKY API operation: 'rnxt.d'. Current scope access: rnxt.r,rnxt.w.",
+      ),
+    );
+
+    const response = await DELETE(
+      new Request("https://example.com/api/prospects/7/updates/16", {
+        method: "DELETE",
+      }),
+      { params: { prospectId: "7", updateId: "16" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error).toMatch(/rnxt\.d delete scope/i);
+    expect(payload.error).toMatch(/Reconnect Blackbaud/i);
+  });
 });

@@ -12,6 +12,11 @@ function isBlackbaudNotFoundError(message) {
   return /404/i.test(text);
 }
 
+function isBlackbaudMissingDeleteScopeError(message) {
+  const text = String(message || "");
+  return /403/i.test(text) && /rnxt\.d|insufficient scope/i.test(text);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -217,6 +222,16 @@ export async function DELETE(request, { params }) {
             warning: "The linked NXT action could not be found and may have already been deleted.",
           };
         } else {
+          if (isBlackbaudMissingDeleteScopeError(message)) {
+            return Response.json(
+              {
+                error:
+                  "Blackbaud refused the NXT delete because this connection does not have the rnxt.d delete scope yet. Reconnect Blackbaud after the Marketplace approval, or use Remove from app only for cleanup.",
+              },
+              { status: 403 },
+            );
+          }
+
           return Response.json(
             {
               error: `Could not delete the synced NXT activity: ${message}`,
