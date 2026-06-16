@@ -6,6 +6,7 @@ const getWorkspaceUserMock = vi.fn();
 const syncPrimaryPendingActionMock = vi.fn();
 const createBlackbaudActionMock = vi.fn();
 const getBlackbaudActionMock = vi.fn();
+const getBlackbaudConstituentByIdMock = vi.fn();
 const getBlackbaudFundraiserByIdMock = vi.fn();
 const updateBlackbaudActionMock = vi.fn();
 const buildBlackbaudActionPayloadMock = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   findBlackbaudConstituentByEmail: findBlackbaudConstituentByEmailMock,
   findBlackbaudConstituentByLookupId: findBlackbaudConstituentByLookupIdMock,
   getBlackbaudAction: getBlackbaudActionMock,
+  getBlackbaudConstituentById: getBlackbaudConstituentByIdMock,
   getBlackbaudFundraiserById: getBlackbaudFundraiserByIdMock,
   searchBlackbaudConstituents: searchBlackbaudConstituentsMock,
   updateBlackbaudAction: updateBlackbaudActionMock,
@@ -66,6 +68,7 @@ describe("prospect action route", () => {
     syncPrimaryPendingActionMock.mockReset();
     createBlackbaudActionMock.mockReset();
     getBlackbaudActionMock.mockReset();
+    getBlackbaudConstituentByIdMock.mockReset();
     getBlackbaudFundraiserByIdMock.mockReset();
     updateBlackbaudActionMock.mockReset();
     buildBlackbaudActionPayloadMock.mockReset();
@@ -102,6 +105,11 @@ describe("prospect action route", () => {
       blackbaudConstituentId: "234684",
     });
     searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "234684",
+      lookupId: "LREDD",
+      name: "Leslie M. Redd",
+    });
     getBlackbaudFundraiserByIdMock.mockResolvedValue({
       fundraiserId: "234684",
     });

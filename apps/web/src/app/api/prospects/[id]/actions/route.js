@@ -8,6 +8,7 @@ import {
   findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
   getBlackbaudAction,
+  getBlackbaudConstituentById,
   getBlackbaudFundraiserById,
   searchBlackbaudConstituents,
   updateBlackbaudAction,
@@ -123,20 +124,50 @@ function summarizeActionCreatePayload(payload) {
   };
 }
 
-function formatActionCreateVariantDebug(attemptedCreateVariants) {
+function formatActionCreateVariantDebug(attemptedCreateVariants, context = {}) {
   const attempts = Array.isArray(attemptedCreateVariants)
     ? attemptedCreateVariants.filter(Boolean)
     : [];
-  if (attempts.length === 0) {
+  const extras = [];
+
+  if (attempts.length > 0) {
+    const lastAttempt = attempts[attempts.length - 1];
+    const keys = Array.isArray(lastAttempt?.payload?.keys)
+      ? lastAttempt.payload.keys.join(",")
+      : "";
+    extras.push(`variant=${lastAttempt?.syncVariant || "unknown"}`);
+    if (keys) {
+      extras.push(`keys=${keys}`);
+    }
+  }
+
+  if (context.constituentId) {
+    extras.push(`constituent_id=${context.constituentId}`);
+  }
+  if (context.category) {
+    extras.push(`category=${context.category}`);
+  }
+  if (context.date) {
+    extras.push(`date=${context.date}`);
+  }
+  if (context.summaryLength != null) {
+    extras.push(`summary_len=${context.summaryLength}`);
+  }
+  if (context.preflightStatus) {
+    extras.push(`preflight=${context.preflightStatus}`);
+  }
+  if (context.preflightName) {
+    extras.push(`preflight_name=${context.preflightName}`);
+  }
+  if (context.preflightLookupId) {
+    extras.push(`preflight_lookup_id=${context.preflightLookupId}`);
+  }
+
+  if (extras.length === 0) {
     return "";
   }
 
-  const lastAttempt = attempts[attempts.length - 1];
-  const keys = Array.isArray(lastAttempt?.payload?.keys)
-    ? lastAttempt.payload.keys.join(",")
-    : "";
-
-  return ` [variant=${lastAttempt?.syncVariant || "unknown"}${keys ? ` | keys=${keys}` : ""}]`;
+  return ` [${extras.join(" | ")}]`;
 }
 
 function addFundraiserCandidate(candidates, fundraiserId) {
@@ -365,6 +396,7 @@ export async function POST(request, { params }) {
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
       const attemptedCreateVariants = [];
+      let createPreflightContext = null;
       const fundraiserIds = await resolveActionFundraiserIds({
         currentUser: sessionUser || user,
         workspaceUser: user,
@@ -385,6 +417,39 @@ export async function POST(request, { params }) {
         syncVariant: "initial-full-action-payload",
         payload: summarizeActionCreatePayload(fullPayload),
       });
+
+      createPreflightContext = {
+        constituentId: String(linkedBlackbaudConstituentId),
+        category: fullPayload?.category || null,
+        date: fullPayload?.date || null,
+        summaryLength: String(fullPayload?.summary || "").length,
+        preflightStatus: "not-run",
+        preflightName: null,
+        preflightLookupId: null,
+      };
+
+      try {
+        const preflightConstituent = await getBlackbaudConstituentById({
+          userId: user.id,
+          authUserId: sessionUser?.id || user.id,
+          origin,
+          constituentId: linkedBlackbaudConstituentId,
+        });
+        createPreflightContext = {
+          ...createPreflightContext,
+          preflightStatus: preflightConstituent ? "read-ok" : "read-empty",
+          preflightName: preflightConstituent?.name || null,
+          preflightLookupId: preflightConstituent?.lookupId || null,
+        };
+      } catch (preflightError) {
+        createPreflightContext = {
+          ...createPreflightContext,
+          preflightStatus:
+            preflightError instanceof Error
+              ? `read-failed:${preflightError.message}`
+              : "read-failed",
+        };
+      }
 
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
@@ -507,6 +572,7 @@ export async function POST(request, { params }) {
             ...blackbaudAction,
             error: `${blackbaudAction.error}${formatActionCreateVariantDebug(
               attemptedCreateVariants,
+              createPreflightContext,
             )}`,
           };
         }
