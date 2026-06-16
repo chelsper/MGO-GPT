@@ -6,9 +6,13 @@ const getWorkspaceUserMock = vi.fn();
 const syncPrimaryPendingActionMock = vi.fn();
 const createBlackbaudActionMock = vi.fn();
 const getBlackbaudActionMock = vi.fn();
+const getBlackbaudFundraiserByIdMock = vi.fn();
 const updateBlackbaudActionMock = vi.fn();
 const buildBlackbaudActionPayloadMock = vi.fn();
 const buildBlackbaudActionMetadataPayloadMock = vi.fn();
+const findBlackbaudConstituentByEmailMock = vi.fn();
+const findBlackbaudConstituentByLookupIdMock = vi.fn();
+const searchBlackbaudConstituentsMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -40,7 +44,11 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   buildBlackbaudActionPayload: buildBlackbaudActionPayloadMock,
   buildBlackbaudActionMetadataPayload: buildBlackbaudActionMetadataPayloadMock,
   createBlackbaudAction: createBlackbaudActionMock,
+  findBlackbaudConstituentByEmail: findBlackbaudConstituentByEmailMock,
+  findBlackbaudConstituentByLookupId: findBlackbaudConstituentByLookupIdMock,
   getBlackbaudAction: getBlackbaudActionMock,
+  getBlackbaudFundraiserById: getBlackbaudFundraiserByIdMock,
+  searchBlackbaudConstituents: searchBlackbaudConstituentsMock,
   updateBlackbaudAction: updateBlackbaudActionMock,
 }));
 
@@ -58,9 +66,13 @@ describe("prospect action route", () => {
     syncPrimaryPendingActionMock.mockReset();
     createBlackbaudActionMock.mockReset();
     getBlackbaudActionMock.mockReset();
+    getBlackbaudFundraiserByIdMock.mockReset();
     updateBlackbaudActionMock.mockReset();
     buildBlackbaudActionPayloadMock.mockReset();
     buildBlackbaudActionMetadataPayloadMock.mockReset();
+    findBlackbaudConstituentByEmailMock.mockReset();
+    findBlackbaudConstituentByLookupIdMock.mockReset();
+    searchBlackbaudConstituentsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -70,6 +82,8 @@ describe("prospect action route", () => {
         name: "Leslie M. Redd",
         email: "lredd@example.com",
         role: "mgo",
+        blackbaud_constituent_id: "234684",
+        blackbaud_lookup_id: "LREDD",
       },
       sessionUser: {
         id: 44,
@@ -81,6 +95,16 @@ describe("prospect action route", () => {
     syncPrimaryPendingActionMock.mockResolvedValue(null);
     buildBlackbaudActionPayloadMock.mockReturnValue({ payload: "action" });
     buildBlackbaudActionMetadataPayloadMock.mockReturnValue({ payload: "metadata" });
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "234684",
+    });
+    findBlackbaudConstituentByEmailMock.mockResolvedValue({
+      blackbaudConstituentId: "234684",
+    });
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    getBlackbaudFundraiserByIdMock.mockResolvedValue({
+      fundraiserId: "234684",
+    });
   });
 
   it("logs a local action and syncs the primary next step", async () => {
@@ -204,10 +228,14 @@ describe("prospect action route", () => {
       constituent_id: "234684",
       date: "2026-06-11T00:00:00.000Z",
       category: "Meeting",
+      completed: true,
+      completed_date: "2026-06-11T00:00:00.000Z",
       direction: "Outbound",
+      fundraisers: ["234684"],
+      status: "Completed",
       summary: "Visit note",
       description: "Notes: Good meeting",
-      author: "Leslie M. Redd",
+      type: "Cultivation",
       opportunity_id: "bb-opp-1",
     });
     createBlackbaudActionMock
@@ -230,6 +258,7 @@ describe("prospect action route", () => {
       body: JSON.stringify({
         actionDate: "2026-06-11",
         actionCategory: "Meeting",
+        interactionType: "Cultivation",
         summary: "Visit note",
         notes: "Good meeting",
       }),
@@ -246,8 +275,13 @@ describe("prospect action route", () => {
       constituent_id: "234684",
       date: "2026-06-11T00:00:00.000Z",
       category: "Meeting",
+      completed: true,
+      completed_date: "2026-06-11T00:00:00.000Z",
+      fundraisers: ["234684"],
+      status: "Completed",
       summary: "Visit note",
       description: "Notes: Good meeting",
+      type: "Cultivation",
     });
   });
 });

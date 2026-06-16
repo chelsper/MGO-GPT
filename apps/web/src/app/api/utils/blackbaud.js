@@ -990,10 +990,11 @@ export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
   actionCategory,
+  interactionType,
   summary,
   actionNotes,
   nextStep,
-  authorName,
+  fundraiserIds,
   opportunityId,
 }) {
   if (!blackbaudConstituentId) {
@@ -1022,10 +1023,16 @@ export function buildBlackbaudActionPayload({
     constituent_id: String(blackbaudConstituentId),
     date: new Date(actionDate).toISOString(),
     category: categoryMap[normalizedCategory] || "Task/Other",
+    completed: true,
+    completed_date: new Date(actionDate).toISOString(),
     direction: "Outbound",
+    fundraisers: Array.isArray(fundraiserIds)
+      ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : undefined,
+    status: "Completed",
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
-    author: String(authorName || "").trim() || undefined,
+    type: String(interactionType || "").trim() || undefined,
     opportunity_id: opportunityId ? String(opportunityId) : undefined,
   };
 }
