@@ -743,7 +743,6 @@ export default function ActionOpportunityUpdatePage() {
         } else {
           setOpportunityLinkMode("create");
           setSelectedOpportunityId("");
-          setOpportunityTitle(`${donorName.trim()} opportunity`);
         }
       } catch (contextError) {
         console.error("Linked opportunity lookup error:", contextError);
@@ -778,7 +777,7 @@ export default function ActionOpportunityUpdatePage() {
       );
 
       if (selectedOpportunity) {
-        setOpportunityTitle(selectedOpportunity.title || `${donorName.trim()} opportunity`);
+        setOpportunityTitle(selectedOpportunity.title || "");
         setOpportunityPurpose(selectedOpportunity.purpose || DEFAULT_OPPORTUNITY_PURPOSE);
         setOpportunityStage(selectedOpportunity.current_stage || "Identification");
         setAskAmount(
@@ -791,10 +790,6 @@ export default function ActionOpportunityUpdatePage() {
         setOpportunityNotes(selectedOpportunity.latest_notes || "");
       }
       return;
-    }
-
-    if (opportunityLinkMode === "create" && donorName.trim() && !opportunityTitle.trim()) {
-      setOpportunityTitle(`${donorName.trim()} opportunity`);
     }
 
     if (opportunityLinkMode === "create" && !opportunityPurpose.trim()) {
@@ -1167,7 +1162,7 @@ export default function ActionOpportunityUpdatePage() {
       setAskAmount("");
       setAskDate("");
       setExpectedDate("");
-      setOpportunityPurpose("");
+      setOpportunityPurpose(DEFAULT_OPPORTUNITY_PURPOSE);
       setOpportunityNotes("");
       setOpportunityTitle("");
       setConstituentMatches([]);
@@ -2034,13 +2029,6 @@ export default function ActionOpportunityUpdatePage() {
                               setSelectedBlackbaudMatch(match);
                               if (match.name) {
                                 setDonorName(match.name);
-                                if (
-                                  !opportunityTitle.trim() ||
-                                  normalizeName(opportunityTitle) ===
-                                    `${normalizeName(donorName)} opportunity`
-                                ) {
-                                  setOpportunityTitle(`${match.name} opportunity`);
-                                }
                               }
                             }}
                             style={{
@@ -2698,7 +2686,7 @@ export default function ActionOpportunityUpdatePage() {
                     type="text"
                     value={opportunityTitle}
                     onChange={(event) => setOpportunityTitle(event.target.value)}
-                    placeholder={`${donorName.trim() || "Donor"} opportunity`}
+                    placeholder="Enter opportunity name"
                     style={{
                       width: "100%",
                       padding: "10px 14px",
