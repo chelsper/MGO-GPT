@@ -1454,6 +1454,32 @@ export default function ActionOpportunityUpdatePage() {
     });
   }
 
+  const visibleNotice = error
+    ? {
+        tone: "error",
+        title: "Action needed",
+        message: error,
+      }
+    : dictationError
+      ? {
+          tone: "error",
+          title: "Dictation issue",
+          message: dictationError,
+        }
+      : dictationStatus
+        ? {
+            tone: "info",
+            title: "Dictation",
+            message: dictationStatus,
+          }
+        : successMessage
+          ? {
+              tone: "success",
+              title: "Saved",
+              message: successMessage,
+            }
+          : null;
+
   if (loading) {
     return (
       <div
@@ -1548,6 +1574,48 @@ export default function ActionOpportunityUpdatePage() {
             }}
           >
             {toast.message}
+          </div>
+        ) : null}
+
+        {visibleNotice ? (
+          <div
+            role={visibleNotice.tone === "error" ? "alert" : "status"}
+            aria-live={visibleNotice.tone === "error" ? "assertive" : "polite"}
+            style={{
+              position: "fixed",
+              right: "24px",
+              bottom: toast ? "92px" : "24px",
+              zIndex: 35,
+              width: "min(380px, calc(100vw - 48px))",
+              padding: "16px",
+              borderRadius: "14px",
+              border:
+                visibleNotice.tone === "success"
+                  ? "1px solid #86EFAC"
+                  : visibleNotice.tone === "error"
+                    ? "1px solid #FCA5A5"
+                    : "1px solid #DDD6FE",
+              backgroundColor:
+                visibleNotice.tone === "success"
+                  ? "rgba(236,253,245,0.98)"
+                  : visibleNotice.tone === "error"
+                    ? "rgba(254,242,242,0.98)"
+                    : "rgba(245,243,255,0.98)",
+              color:
+                visibleNotice.tone === "success"
+                  ? "#166534"
+                  : visibleNotice.tone === "error"
+                    ? "#991B1B"
+                    : "#5B21B6",
+              boxShadow: "0 18px 44px rgba(15, 23, 42, 0.18)",
+              fontSize: "14px",
+              lineHeight: 1.45,
+            }}
+          >
+            <div style={{ fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>
+              {visibleNotice.title}
+            </div>
+            <div style={{ fontWeight: 650 }}>{visibleNotice.message}</div>
           </div>
         ) : null}
 
@@ -3334,6 +3402,24 @@ export default function ActionOpportunityUpdatePage() {
                 }}
               >
                 Saving update...
+              </div>
+            ) : null}
+            {error ? (
+              <div
+                role="alert"
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#FEE2E2",
+                  color: "#991B1B",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                }}
+              >
+                <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+                  Action needed
+                </div>
+                {error}
               </div>
             ) : null}
             {successMessage ? (
