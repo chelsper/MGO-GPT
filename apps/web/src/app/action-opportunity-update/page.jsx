@@ -997,9 +997,16 @@ export default function ActionOpportunityUpdatePage() {
   const submitMutation = useMutation({
     mutationFn: async (payload) => {
       const results = {};
+      let resolvedLinkedProspectId =
+        payload.actionBody?.linkedProspectId ||
+        payload.opportunityBody?.linkedProspectId ||
+        null;
 
-      if (payload.includeAction) {
-        let resolvedLinkedProspectId = payload.actionBody?.linkedProspectId || null;
+      async function resolveLinkedProspectForAction() {
+        if (!payload.includeAction || resolvedLinkedProspectId) {
+          return resolvedLinkedProspectId;
+        }
+
         const selectedBlackbaudIds = [
           payload.actionBody?.blackbaudConstituentId,
           payload.actionBody?.blackbaudLookupId,
@@ -1009,7 +1016,7 @@ export default function ActionOpportunityUpdatePage() {
           .map((value) => String(value || "").trim())
           .filter(Boolean);
 
-        if (!resolvedLinkedProspectId && selectedBlackbaudIds.length > 0) {
+        if (selectedBlackbaudIds.length > 0) {
           const prospectsResponse = await fetch("/api/prospects");
           if (prospectsResponse.ok) {
             const prospects = await prospectsResponse.json().catch(() => []);
@@ -1030,6 +1037,48 @@ export default function ActionOpportunityUpdatePage() {
           }
         }
 
+        return resolvedLinkedProspectId;
+      }
+
+      async function submitOpportunityUpdate() {
+        const opportunityBody = {
+          ...payload.opportunityBody,
+          linkedProspectId:
+            payload.opportunityBody?.linkedProspectId ||
+            resolvedLinkedProspectId ||
+            null,
+          createNewOpportunity:
+            Boolean(
+              payload.opportunityBody?.createNewOpportunity ||
+                (!payload.opportunityBody?.linkedOpportunityId && resolvedLinkedProspectId),
+            ),
+        };
+
+        const opportunityResponse = await fetch("/api/submissions/opportunity-update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(opportunityBody),
+        });
+
+        if (!opportunityResponse.ok) {
+          const errorData = await opportunityResponse.json().catch(() => null);
+          if (results.action) {
+            throw new Error(
+              `Action update saved, but the opportunity update failed: ${
+                errorData?.error || "Unknown error"
+              }`,
+            );
+          }
+          throw new Error(errorData?.error || "Failed to submit opportunity update");
+        }
+
+        results.opportunity = await opportunityResponse.json();
+        return results.opportunity;
+      }
+
+      async function submitActionUpdate({ linkedOpportunityIdOverride = null } = {}) {
+        await resolveLinkedProspectForAction();
+
         const useDirectProspectAction = Boolean(resolvedLinkedProspectId);
         const actionEndpoint = useDirectProspectAction
           ? `/api/prospects/${resolvedLinkedProspectId}/actions`
@@ -1043,7 +1092,10 @@ export default function ActionOpportunityUpdatePage() {
               notes: payload.actionBody.notes,
               nextStep: payload.actionBody.nextStep,
               nextActionDueDate: payload.actionBody.nextActionDueDate || null,
-              linkedOpportunityId: payload.actionBody.linkedOpportunityId || null,
+              linkedOpportunityId:
+                payload.actionBody.linkedOpportunityId ||
+                linkedOpportunityIdOverride ||
+                null,
             }
           : payload.actionBody;
 
@@ -1068,26 +1120,21 @@ export default function ActionOpportunityUpdatePage() {
         results.actionResolvedProspectId = resolvedLinkedProspectId;
       }
 
-      if (payload.includeOpportunity) {
-        const opportunityResponse = await fetch("/api/submissions/opportunity-update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload.opportunityBody),
-        });
+      if (payload.includeAction) {
+        await resolveLinkedProspectForAction();
+      }
 
-        if (!opportunityResponse.ok) {
-          const errorData = await opportunityResponse.json().catch(() => null);
-          if (results.action) {
-            throw new Error(
-              `Action update saved, but the opportunity update failed: ${
-                errorData?.error || "Unknown error"
-              }`,
-            );
-          }
-          throw new Error(errorData?.error || "Failed to submit opportunity update");
-        }
-
-        results.opportunity = await opportunityResponse.json();
+      if (payload.includeAction && payload.includeOpportunity) {
+        const opportunity = await submitOpportunityUpdate();
+        const linkedOpportunityId =
+          opportunity?.prospect_opportunity_id ||
+          opportunity?.prospectOpportunityId ||
+          null;
+        await submitActionUpdate({ linkedOpportunityIdOverride: linkedOpportunityId });
+      } else if (payload.includeAction) {
+        await submitActionUpdate();
+      } else if (payload.includeOpportunity) {
+        await submitOpportunityUpdate();
       }
 
       return results;
