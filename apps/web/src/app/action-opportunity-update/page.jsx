@@ -32,6 +32,7 @@ const INTERACTION_TYPES = [
   "Solicitation",
   "Stewardship",
 ];
+const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
 const COMMON_NEXT_STEPS = [
   "Send recap email",
   "Schedule next visit",
@@ -131,7 +132,7 @@ export default function ActionOpportunityUpdatePage() {
   const [askAmount, setAskAmount] = useState("");
   const [askDate, setAskDate] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
-  const [opportunityPurpose, setOpportunityPurpose] = useState("");
+  const [opportunityPurpose, setOpportunityPurpose] = useState(DEFAULT_OPPORTUNITY_PURPOSE);
   const [opportunityNotes, setOpportunityNotes] = useState("");
   const [opportunityTitle, setOpportunityTitle] = useState("");
   const [constituentMatches, setConstituentMatches] = useState([]);
@@ -778,7 +779,7 @@ export default function ActionOpportunityUpdatePage() {
 
       if (selectedOpportunity) {
         setOpportunityTitle(selectedOpportunity.title || `${donorName.trim()} opportunity`);
-        setOpportunityPurpose(selectedOpportunity.purpose || "");
+        setOpportunityPurpose(selectedOpportunity.purpose || DEFAULT_OPPORTUNITY_PURPOSE);
         setOpportunityStage(selectedOpportunity.current_stage || "Identification");
         setAskAmount(
           selectedOpportunity.estimated_amount != null
@@ -795,11 +796,16 @@ export default function ActionOpportunityUpdatePage() {
     if (opportunityLinkMode === "create" && donorName.trim() && !opportunityTitle.trim()) {
       setOpportunityTitle(`${donorName.trim()} opportunity`);
     }
+
+    if (opportunityLinkMode === "create" && !opportunityPurpose.trim()) {
+      setOpportunityPurpose(DEFAULT_OPPORTUNITY_PURPOSE);
+    }
   }, [
     donorName,
     includeOpportunity,
     linkedProspectContext,
     opportunityLinkMode,
+    opportunityPurpose,
     selectedOpportunityId,
   ]);
 
@@ -1426,7 +1432,7 @@ export default function ActionOpportunityUpdatePage() {
             blackbaudConstituentId,
             createNewConstituent,
             opportunityTitle: opportunityTitle.trim(),
-            purpose: opportunityPurpose.trim(),
+            purpose: opportunityPurpose.trim() || DEFAULT_OPPORTUNITY_PURPOSE,
             opportunityStage,
             askAmount: askAmount ? parseFloat(askAmount) : null,
             askDate: askDate || null,
@@ -2651,7 +2657,7 @@ export default function ActionOpportunityUpdatePage() {
                     type="text"
                     value={opportunityPurpose}
                     onChange={(event) => setOpportunityPurpose(event.target.value)}
-                    placeholder="Future. Made. Campaign"
+                    placeholder={DEFAULT_OPPORTUNITY_PURPOSE}
                     style={{
                       width: "100%",
                       padding: "10px 14px",

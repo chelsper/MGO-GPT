@@ -8,6 +8,8 @@ import {
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
+const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
+
 export async function PUT(request, { params }) {
   try {
     await ensureAppSchema();
@@ -63,7 +65,8 @@ export async function PUT(request, { params }) {
     const nextLatestNotes =
       latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes;
     const nextTitle = title?.trim() || existing.title;
-    const nextPurpose = purpose?.trim() || existing.purpose;
+    const nextPurpose =
+      purpose?.trim() || existing.purpose || DEFAULT_OPPORTUNITY_PURPOSE;
     const nextStage = currentStage || existing.current_stage;
     const nextClosedAmount =
       nextOpportunityStatus === "Closed – Gift Secured"

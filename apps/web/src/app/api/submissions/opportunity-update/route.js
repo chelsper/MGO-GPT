@@ -13,6 +13,8 @@ import {
   updateBlackbaudOpportunity,
 } from "@/app/api/utils/blackbaud";
 
+const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
+
 export async function POST(request) {
   try {
     const session = await auth();
@@ -79,12 +81,14 @@ export async function POST(request) {
 
     let blackbaudOpportunity = null;
     let blackbaudSync = null;
+    const opportunityPurpose =
+      String(purpose || "").trim() || DEFAULT_OPPORTUNITY_PURPOSE;
 
     if (linkedBlackbaudConstituentId) {
       const blackbaudPayload = buildBlackbaudOpportunityPayload({
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         title: opportunityTitle,
-        purpose,
+        purpose: opportunityPurpose,
         currentStage: opportunityStage,
         estimatedAmount: askAmount ?? null,
         askDate: askDate || null,
@@ -187,7 +191,7 @@ export async function POST(request) {
         blackbaudOpportunityId:
           blackbaudOpportunity?.id ? String(blackbaudOpportunity.id) : null,
         title: opportunityTitle,
-        purpose,
+        purpose: opportunityPurpose,
         currentStage: opportunityStage,
         askAmount: askAmount ?? null,
         askDate: askDate || null,
@@ -220,7 +224,7 @@ export async function POST(request) {
         donorName,
         blackbaudConstituentId,
         title: opportunityTitle,
-        purpose,
+        purpose: opportunityPurpose,
         currentStage: opportunityStage,
         askAmount: askAmount ?? null,
         askDate: askDate || null,

@@ -8,6 +8,8 @@ import {
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
+const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
+
 export async function POST(request, { params }) {
   try {
     await ensureAppSchema();
@@ -54,6 +56,8 @@ export async function POST(request, { params }) {
       prospect.linked_blackbaud_constituent_id ||
       prospect.blackbaud_constituent_id ||
       null;
+    const opportunityPurpose =
+      String(purpose || "").trim() || DEFAULT_OPPORTUNITY_PURPOSE;
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
@@ -64,7 +68,7 @@ export async function POST(request, { params }) {
         payload: buildBlackbaudOpportunityPayload({
           blackbaudConstituentId: linkedBlackbaudConstituentId,
           title,
-          purpose,
+          purpose: opportunityPurpose,
           currentStage: currentStage || "Identification",
           estimatedAmount: estimatedAmount ?? null,
           askDate: askDate || null,
@@ -82,7 +86,7 @@ export async function POST(request, { params }) {
         ? String(blackbaudOpportunity.id)
         : null,
       title,
-      purpose,
+      purpose: opportunityPurpose,
       currentStage: currentStage || "Identification",
       askAmount: estimatedAmount ?? null,
       askDate: askDate || null,
