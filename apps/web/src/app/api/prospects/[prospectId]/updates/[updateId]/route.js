@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   deleteBlackbaudAction,
   getBlackbaudAction,
+  updateBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -19,6 +20,25 @@ function isBlackbaudMissingDeleteScopeError(message) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatBlackbaudDate(value) {
+  if (!value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+    return String(value);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
+function formatBlackbaudDateTime(value) {
+  const normalizedDate = formatBlackbaudDate(value);
+  return normalizedDate ? `${normalizedDate}T00:00:00Z` : undefined;
 }
 
 async function verifyBlackbaudActionDeleted({
@@ -70,7 +90,10 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(
+      session,
+      request,
+    );
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -87,10 +110,72 @@ export async function PUT(request, { params }) {
       );
     }
 
+    const existingRows = await sql`
+      SELECT pu.*
+      FROM prospect_updates pu
+      INNER JOIN prospects p ON p.id = pu.prospect_id
+      WHERE pu.id = ${updateId}
+        AND pu.prospect_id = ${prospectId}
+        AND p.user_id = ${user.id}
+      LIMIT 1
+    `;
+
+    const existingUpdate = existingRows[0] || null;
+    if (!existingUpdate) {
+      return Response.json({ error: "Update not found" }, { status: 404 });
+    }
+
+    const nextUpdateDate = updateDate || new Date().toISOString().split("T")[0];
+    const blackbaudActionId = String(existingUpdate.blackbaud_action_id || "").trim();
+
+    let blackbaudSync = null;
+    if (blackbaudActionId) {
+      const blackbaudPayload = {
+        date: formatBlackbaudDateTime(nextUpdateDate),
+        completed: true,
+        completed_date: formatBlackbaudDate(nextUpdateDate),
+        summary:
+          String(existingUpdate.update_title || "").trim() || "Action update from JUMGOGPT",
+        description: updateNotes,
+      };
+
+      Object.keys(blackbaudPayload).forEach((key) => {
+        if (blackbaudPayload[key] === undefined || blackbaudPayload[key] === "") {
+          delete blackbaudPayload[key];
+        }
+      });
+
+      try {
+        await updateBlackbaudAction({
+          userId: user.id,
+          authUserId: isActing ? sessionUser?.id || user.id : user.id,
+          origin: request?.url ? new URL(request.url).origin : null,
+          actionId: blackbaudActionId,
+          payload: blackbaudPayload,
+        });
+
+        blackbaudSync = {
+          status: "synced",
+          actionId: blackbaudActionId,
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to update synced Blackbaud action";
+        return Response.json(
+          {
+            error: `Could not update the synced NXT activity: ${message}`,
+          },
+          { status: 502 },
+        );
+      }
+    }
+
     const result = await sql`
       UPDATE prospect_updates pu
       SET
-        update_date = ${updateDate || new Date().toISOString().split("T")[0]},
+        update_date = ${nextUpdateDate},
         update_notes = ${updateNotes},
         created_at = pu.created_at
       FROM prospects p
@@ -101,17 +186,16 @@ export async function PUT(request, { params }) {
       RETURNING pu.*
     `;
 
-    if (result.length === 0) {
-      return Response.json({ error: "Update not found" }, { status: 404 });
-    }
-
     await sql`
       UPDATE prospects
       SET updated_at = NOW()
       WHERE id = ${prospectId} AND user_id = ${user.id}
     `;
 
-    return Response.json(result[0]);
+    return Response.json({
+      ...result[0],
+      blackbaudSync: blackbaudSync || { status: "local-only" },
+    });
   } catch (error) {
     console.error("Error updating progress update:", error);
     return Response.json(

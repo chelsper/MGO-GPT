@@ -5,6 +5,7 @@ const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const deleteBlackbaudActionMock = vi.fn();
 const getBlackbaudActionMock = vi.fn();
+const updateBlackbaudActionMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -30,6 +31,7 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   deleteBlackbaudAction: deleteBlackbaudActionMock,
   getBlackbaudAction: getBlackbaudActionMock,
+  updateBlackbaudAction: updateBlackbaudActionMock,
 }));
 
 vi.mock("@/app/api/utils/sql", () => ({
@@ -45,6 +47,7 @@ describe("prospect update route", () => {
     getWorkspaceUserMock.mockReset();
     deleteBlackbaudActionMock.mockReset();
     getBlackbaudActionMock.mockReset();
+    updateBlackbaudActionMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -52,6 +55,123 @@ describe("prospect update route", () => {
       workspaceUser: { id: 44, email: "mgo@example.com" },
       sessionUser: { id: 44, email: "mgo@example.com" },
     });
+  });
+
+  it("updates a local-only activity without calling Blackbaud", async () => {
+    const { PUT } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 17,
+        prospect_id: 7,
+        blackbaud_action_id: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 17,
+        prospect_id: 7,
+        update_notes: "Edited notes",
+      },
+    ]);
+    queueSqlResult([]);
+
+    const response = await PUT(
+      new Request("https://example.com/api/prospects/7/updates/17", {
+        method: "PUT",
+        body: JSON.stringify({
+          updateDate: "2026-06-17",
+          updateNotes: "Edited notes",
+        }),
+      }),
+      { params: { prospectId: "7", updateId: "17" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.blackbaudSync.status).toBe("local-only");
+    expect(updateBlackbaudActionMock).not.toHaveBeenCalled();
+  });
+
+  it("updates the synced NXT action before saving local activity edits", async () => {
+    const { PUT } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 18,
+        prospect_id: 7,
+        update_title: "Lunch meeting",
+        blackbaud_action_id: "bb-action-18",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 18,
+        prospect_id: 7,
+        update_notes: "Edited synced notes",
+        blackbaud_action_id: "bb-action-18",
+      },
+    ]);
+    queueSqlResult([]);
+    updateBlackbaudActionMock.mockResolvedValue({ ok: true });
+
+    const response = await PUT(
+      new Request("https://example.com/api/prospects/7/updates/18", {
+        method: "PUT",
+        body: JSON.stringify({
+          updateDate: "2026-06-17",
+          updateNotes: "Edited synced notes",
+        }),
+      }),
+      { params: { prospectId: "7", updateId: "18" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.blackbaudSync.status).toBe("synced");
+    expect(updateBlackbaudActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "bb-action-18",
+        authUserId: 44,
+        payload: expect.objectContaining({
+          date: "2026-06-17T00:00:00Z",
+          completed: true,
+          completed_date: "2026-06-17",
+          summary: "Lunch meeting",
+          description: "Edited synced notes",
+        }),
+      }),
+    );
+  });
+
+  it("does not save local activity edits when the synced NXT action update fails", async () => {
+    const { PUT } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 19,
+        prospect_id: 7,
+        update_title: "Lunch meeting",
+        blackbaud_action_id: "bb-action-19",
+      },
+    ]);
+    updateBlackbaudActionMock.mockRejectedValue(new Error("NXT unavailable"));
+
+    const response = await PUT(
+      new Request("https://example.com/api/prospects/7/updates/19", {
+        method: "PUT",
+        body: JSON.stringify({
+          updateDate: "2026-06-17",
+          updateNotes: "Edited synced notes",
+        }),
+      }),
+      { params: { prospectId: "7", updateId: "19" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload.error).toMatch(/Could not update the synced NXT activity/i);
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
   });
 
   it("deletes a local-only activity", async () => {
