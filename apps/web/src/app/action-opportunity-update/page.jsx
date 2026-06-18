@@ -318,7 +318,7 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
     const shouldLoadTeammates = includeAction || isJointSolicitation || createDiscussionItem;
-    if (!shouldLoadTeammates || jointMgoLoaded || jointMgoLoading) {
+    if (!shouldLoadTeammates || jointMgoLoaded) {
       return;
     }
 
@@ -360,8 +360,17 @@ export default function ActionOpportunityUpdatePage() {
 
         if (mgoOptions.length === 0) {
           try {
-            const response = await fetch("/api/admin/access");
+            const fallbackController = new AbortController();
+            const fallbackTimeoutId = window.setTimeout(
+              () => fallbackController.abort(),
+              4500,
+            );
+            const response = await fetch("/api/admin/access", {
+              credentials: "include",
+              signal: fallbackController.signal,
+            });
             const payload = await response.json().catch(() => null);
+            window.clearTimeout(fallbackTimeoutId);
             if (!active) return;
 
             if (response.ok) {
@@ -407,7 +416,6 @@ export default function ActionOpportunityUpdatePage() {
     includeOpportunity,
     isJointSolicitation,
     jointMgoLoaded,
-    jointMgoLoading,
     user?.id,
   ]);
 
