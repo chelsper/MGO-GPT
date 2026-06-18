@@ -157,4 +157,26 @@ describe("Blackbaud constituent summary identity language", () => {
       }),
     ).toBe("Prospect Friend is currently a prospect.");
   });
+
+  it("does not invent a JU relationship sentence for sparse placeholder records", async () => {
+    const { buildIdentitySentence } = await import("./route.js");
+
+    expect(
+      buildIdentitySentence({
+        ...baseArgs,
+        constituent: { name: "Dolphin Dasher 12 Anonymous" },
+        constituencyEntries: [entry("Individual")],
+        lifetimeGiving: { totalGiving: 0 },
+      }),
+    ).toBeNull();
+
+    expect(
+      buildIdentitySentence({
+        ...baseArgs,
+        constituent: { name: "Sparse Record" },
+        constituencyEntries: [],
+        lifetimeGiving: { totalGiving: 0 },
+      }),
+    ).toBeNull();
+  });
 });

@@ -695,7 +695,7 @@ function isActiveConstituency(entry) {
 
 function formatRelationshipSentence(name, phrases) {
   const values = phrases.filter(Boolean);
-  if (!values.length) return `${name} has a documented JU connection.`;
+  if (!values.length) return null;
   return `${name} ${formatSentenceList(values)}.`;
 }
 
@@ -830,15 +830,6 @@ export function buildIdentitySentence({
 
   if (friend) {
     phrases.push(hasGiving ? "is a donor and supporter of JU" : "is currently a prospect");
-  }
-
-  if (!phrases.length) {
-    const meaningfulLabels = labels
-      .map((label) => compactWhitespace(label))
-      .filter((label) => label && !["individual", "organization"].includes(normalizeLabel(label)));
-    if (meaningfulLabels.length) {
-      phrases.push("has a documented JU connection");
-    }
   }
 
   return formatRelationshipSentence(name, phrases);
