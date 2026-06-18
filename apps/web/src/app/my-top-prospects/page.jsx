@@ -11,6 +11,7 @@ import {
   Target,
   DollarSign,
   Trophy,
+  Star,
   X,
   MessageSquare,
 } from "lucide-react";
@@ -215,6 +216,7 @@ function PortfolioTier({
   accent,
   onAddToTopProspects,
   isAdding,
+  topProspectConstituentIds = new Set(),
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
@@ -314,6 +316,9 @@ function PortfolioTier({
               }}
             >
               {(() => {
+                const isTopProspect = topProspectConstituentIds.has(
+                  String(person.constituentId || ""),
+                );
                 const summaryState = summaryStates[person.constituentId];
                 const isSummaryExpanded = Boolean(
                   expandedSummaries[person.constituentId],
@@ -332,8 +337,30 @@ function PortfolioTier({
                   flexWrap: "wrap",
                 }}
               >
-                <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>
-                  {person.name || "Unnamed constituent"}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>
+                    {person.name || "Unnamed constituent"}
+                  </div>
+                  {isTopProspect ? (
+                    <span
+                      title="Already in your Top Prospects list"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        padding: "5px 9px",
+                        borderRadius: "999px",
+                        backgroundColor: "#FEF3C7",
+                        color: "#92400E",
+                        border: "1px solid #FDE68A",
+                        fontSize: "11px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      <Star size={13} fill="currentColor" />
+                      Top Prospect
+                    </span>
+                  ) : null}
                 </div>
                 {person.lookupId ? (
                   <div
@@ -466,20 +493,24 @@ function PortfolioTier({
                   </div>
                   <button
                     type="button"
-                    onClick={() => onAddToTopProspects?.(person)}
-                    disabled={isAdding}
+                    onClick={() => {
+                      if (!isTopProspect) {
+                        onAddToTopProspects?.(person);
+                      }
+                    }}
+                    disabled={isAdding || isTopProspect}
                     style={{
                       padding: "8px 12px",
                       borderRadius: "999px",
-                      border: "1px solid #C7D2FE",
-                      backgroundColor: "white",
-                      color: "#4338CA",
+                      border: isTopProspect ? "1px solid #FDE68A" : "1px solid #C7D2FE",
+                      backgroundColor: isTopProspect ? "#FFFBEB" : "white",
+                      color: isTopProspect ? "#92400E" : "#4338CA",
                       fontSize: "12px",
                       fontWeight: "700",
-                      cursor: isAdding ? "not-allowed" : "pointer",
+                      cursor: isAdding || isTopProspect ? "not-allowed" : "pointer",
                     }}
                   >
-                    Add to Top Prospects
+                    {isTopProspect ? "Already in Top Prospects" : "Add to Top Prospects"}
                   </button>
                 </div>
               </div>
@@ -6341,6 +6372,12 @@ export default function MyTopProspectsPage() {
   }
 
   const activeProspects = prospects.filter((p) => p.status === "Active");
+  const topProspectConstituentIds = new Set(
+    activeProspects
+      .map((prospect) => prospect.linked_blackbaud_constituent_id || prospect.blackbaud_constituent_id)
+      .filter(Boolean)
+      .map((value) => String(value)),
+  );
   const closedSecured = prospects.filter(
     (p) => p.status === "Closed – Gift Secured",
   );
@@ -6739,6 +6776,7 @@ export default function MyTopProspectsPage() {
                   accent={{ background: "#EEF2FF", text: "#4338CA" }}
                   onAddToTopProspects={openPortfolioAddModal}
                   isAdding={addMutation.isPending}
+                  topProspectConstituentIds={topProspectConstituentIds}
                 />
                 <PortfolioTier
                   title="Secondary / Athletics Solicitor"
@@ -6747,6 +6785,7 @@ export default function MyTopProspectsPage() {
                   accent={{ background: "#ECFDF5", text: "#065F46" }}
                   onAddToTopProspects={openPortfolioAddModal}
                   isAdding={addMutation.isPending}
+                  topProspectConstituentIds={topProspectConstituentIds}
                 />
               </div>
             )}
