@@ -270,6 +270,33 @@ export const ClientOnly: React.FC<ClientOnlyProps> = ({ loader }) => {
   );
 };
 
+function HydratedRouteBody({ children }: { children: ReactNode }) {
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'grid',
+          placeItems: 'center',
+          backgroundColor: '#F9FAFB',
+          color: '#6B7280',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+        }}
+      >
+        Loading...
+      </div>
+    );
+  }
+
+  return <ErrorBoundaryWrapper>{children}</ErrorBoundaryWrapper>;
+}
+
 /**
  * useHmrConnection()
  * ------------------
@@ -453,7 +480,7 @@ export function Layout({ children }: { children: ReactNode }) {
         {LoadFontsSSR ? <LoadFontsSSR /> : null}
       </head>
       <body>
-        <ErrorBoundaryWrapper>{children}</ErrorBoundaryWrapper>
+        <HydratedRouteBody>{children}</HydratedRouteBody>
         <Toaster position={isMobile ? 'top-center' : 'bottom-right'} />
         <Analytics />
         <ScrollRestoration />
