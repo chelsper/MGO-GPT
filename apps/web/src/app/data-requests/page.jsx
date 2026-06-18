@@ -43,6 +43,11 @@ export default function DataRequestsPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [blackbaudMatches, setBlackbaudMatches] = useState([]);
+  const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [blackbaudSearchLoading, setBlackbaudSearchLoading] = useState(false);
+  const [blackbaudSearchError, setBlackbaudSearchError] = useState("");
+  const [blackbaudSearchWarning, setBlackbaudSearchWarning] = useState("");
   const [drafts, setDrafts] = useState({});
   const [newRequest, setNewRequest] = useState({
     constituentName: "",
@@ -101,6 +106,68 @@ export default function DataRequestsPage() {
       loadQueue();
     }
   }, [loading, loadingProfile, statusFilter]);
+
+  useEffect(() => {
+    const query = newRequest.constituentName.trim();
+    if (query.length < 2) {
+      setBlackbaudMatches([]);
+      setBlackbaudSearchError("");
+      setBlackbaudSearchWarning("");
+      setBlackbaudSearchLoading(false);
+      return;
+    }
+
+    let active = true;
+    setBlackbaudSearchLoading(true);
+    setBlackbaudSearchError("");
+    setBlackbaudSearchWarning("");
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
+        );
+        const payload = await response.json().catch(() => null);
+
+        if (!active) return;
+
+        if (!response.ok) {
+          setBlackbaudMatches([]);
+          setBlackbaudSearchError(
+            payload?.error || "Could not search Raiser's Edge NXT right now.",
+          );
+          return;
+        }
+
+        const results = Array.isArray(payload?.results) ? payload.results.slice(0, 5) : [];
+        setBlackbaudMatches(results);
+        setBlackbaudSearchWarning(payload?.warning || "");
+        setSelectedBlackbaudMatch((current) =>
+          results.find(
+            (match) =>
+              match.blackbaudConstituentId === current?.blackbaudConstituentId ||
+              match.lookupId === current?.lookupId,
+          ) || current,
+        );
+      } catch (searchError) {
+        console.error("Data request constituent lookup error:", searchError);
+        if (active) {
+          setBlackbaudMatches([]);
+          setBlackbaudSearchError("Could not search Raiser's Edge NXT right now.");
+          setBlackbaudSearchWarning("");
+        }
+      } finally {
+        if (active) {
+          setBlackbaudSearchLoading(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [newRequest.constituentName]);
 
   const summary = useMemo(
     () =>
@@ -185,7 +252,12 @@ export default function DataRequestsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           constituentName: newRequest.constituentName.trim(),
-          blackbaudConstituentId: newRequest.blackbaudConstituentId.trim() || null,
+          blackbaudConstituentId:
+            selectedBlackbaudMatch?.lookupId ||
+            selectedBlackbaudMatch?.blackbaudLookupId ||
+            selectedBlackbaudMatch?.blackbaudConstituentId ||
+            newRequest.blackbaudConstituentId.trim() ||
+            null,
           requestType: newRequest.requestType,
           requestNote: newRequest.requestNote.trim(),
           providedData: providedDetails ? { details: providedDetails } : null,
@@ -203,6 +275,10 @@ export default function DataRequestsPage() {
         requestNote: "",
         providedData: "",
       });
+      setSelectedBlackbaudMatch(null);
+      setBlackbaudMatches([]);
+      setBlackbaudSearchError("");
+      setBlackbaudSearchWarning("");
       setSuccessMessage("Sent to the Advancement Services data request queue.");
       await loadQueue();
     } catch (createError) {
@@ -307,15 +383,9 @@ export default function DataRequestsPage() {
                 record. This creates a queue item; it does not write directly to NXT.
               </p>
             </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "12px",
-              }}
-            >
+            <div style={{ display: "grid", gap: "12px" }}>
               <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
-                Constituent name
+                Constituent name / NXT lookup
                 <input
                   name="constituentName"
                   value={newRequest.constituentName}
@@ -323,28 +393,143 @@ export default function DataRequestsPage() {
                     setNewRequest((current) => ({
                       ...current,
                       constituentName: event.target.value,
+                      blackbaudConstituentId: "",
                     }))
                   }
-                  placeholder="Example: Megan Piggott"
+                  onInput={() => setSelectedBlackbaudMatch(null)}
+                  placeholder="Search by name, email, or Lookup ID"
                   required
                   style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB" }}
                 />
               </label>
-              <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
-                NXT Lookup ID, if known
-                <input
-                  name="blackbaudConstituentId"
-                  value={newRequest.blackbaudConstituentId}
-                  onChange={(event) =>
-                    setNewRequest((current) => ({
-                      ...current,
-                      blackbaudConstituentId: event.target.value,
-                    }))
-                  }
-                  placeholder="Optional"
-                  style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB" }}
-                />
-              </label>
+
+              {blackbaudSearchLoading ? (
+                <div style={{ color: "#64748B", fontSize: "13px" }}>
+                  Searching Raiser's Edge NXT...
+                </div>
+              ) : null}
+              {blackbaudSearchError ? (
+                <div style={{ color: "#991B1B", fontSize: "13px", fontWeight: 700 }}>
+                  {blackbaudSearchError}
+                </div>
+              ) : null}
+              {blackbaudSearchWarning ? (
+                <div style={{ color: "#92400E", fontSize: "13px", fontWeight: 700 }}>
+                  {blackbaudSearchWarning}
+                </div>
+              ) : null}
+
+              {blackbaudMatches.length > 0 ? (
+                <div
+                  style={{
+                    padding: "12px",
+                    borderRadius: "12px",
+                    border: "1px solid #BFDBFE",
+                    backgroundColor: "#EFF6FF",
+                  }}
+                >
+                  <div style={{ fontSize: "13px", fontWeight: 800, color: "#1D4ED8", marginBottom: "8px" }}>
+                    NXT matches
+                  </div>
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {blackbaudMatches.map((match) => {
+                      const selected =
+                        selectedBlackbaudMatch?.blackbaudConstituentId ===
+                          match.blackbaudConstituentId ||
+                        selectedBlackbaudMatch?.lookupId === match.lookupId;
+                      return (
+                        <div
+                          key={match.blackbaudConstituentId || match.lookupId || match.name}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: selected ? "2px solid #2563EB" : "1px solid #DBEAFE",
+                            backgroundColor: selected ? "#DBEAFE" : "white",
+                          }}
+                        >
+                          <div style={{ fontSize: "14px", fontWeight: 800, color: "#111827" }}>
+                            {match.name || "Unnamed constituent"}
+                          </div>
+                          {match.lookupId ? (
+                            <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                              Lookup ID: {match.lookupId}
+                            </div>
+                          ) : null}
+                          {match.email ? (
+                            <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                              Email: {match.email}
+                            </div>
+                          ) : null}
+                          {match.phone ? (
+                            <div style={{ marginTop: "2px", fontSize: "12px", color: "#4B5563" }}>
+                              Phone: {match.phone}
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const lookupId =
+                                match.lookupId ||
+                                match.blackbaudLookupId ||
+                                match.blackbaudConstituentId ||
+                                "";
+                              setSelectedBlackbaudMatch(match);
+                              setNewRequest((current) => ({
+                                ...current,
+                                constituentName: match.name || current.constituentName,
+                                blackbaudConstituentId: lookupId,
+                              }));
+                            }}
+                            style={{
+                              marginTop: "10px",
+                              padding: "8px 12px",
+                              borderRadius: "999px",
+                              border: selected ? "1px solid #1D4ED8" : "1px solid #93C5FD",
+                              backgroundColor: selected ? "#1D4ED8" : "white",
+                              color: selected ? "white" : "#1D4ED8",
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {selected ? "NXT match selected" : "Select NXT match"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedBlackbaudMatch ? (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: "12px",
+                    border: "1px solid #BFDBFE",
+                    backgroundColor: "#EFF6FF",
+                    color: "#1E3A8A",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                  }}
+                >
+                  Selected NXT constituent: {selectedBlackbaudMatch.name || newRequest.constituentName}
+                  {selectedBlackbaudMatch.lookupId ? ` · Lookup ID ${selectedBlackbaudMatch.lookupId}` : ""}
+                </div>
+              ) : (
+                <div style={{ color: "#64748B", fontSize: "13px" }}>
+                  Select the matching NXT constituent before sending the request.
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "12px",
+              }}
+            >
               <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
                 Request type
                 <select
@@ -400,6 +585,7 @@ export default function DataRequestsPage() {
               disabled={
                 creating ||
                 !newRequest.constituentName.trim() ||
+                !selectedBlackbaudMatch ||
                 (!newRequest.requestNote.trim() && !newRequest.providedData.trim())
               }
               style={{
@@ -410,6 +596,7 @@ export default function DataRequestsPage() {
                 backgroundColor:
                   creating ||
                   !newRequest.constituentName.trim() ||
+                  !selectedBlackbaudMatch ||
                   (!newRequest.requestNote.trim() && !newRequest.providedData.trim())
                     ? "#94A3B8"
                     : "#0F766E",
@@ -418,6 +605,7 @@ export default function DataRequestsPage() {
                 cursor:
                   creating ||
                   !newRequest.constituentName.trim() ||
+                  !selectedBlackbaudMatch ||
                   (!newRequest.requestNote.trim() && !newRequest.providedData.trim())
                     ? "not-allowed"
                     : "pointer",
