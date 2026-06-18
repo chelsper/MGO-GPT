@@ -1042,7 +1042,7 @@ export function buildBlackbaudActionPayload({
     Meeting: "Meeting",
     "Phone Call": "Phone Call",
     Email: "Email",
-    Mail: "Mail",
+    Mail: "Task/Other",
     Task: "Task/Other",
   };
   const descriptionParts = [

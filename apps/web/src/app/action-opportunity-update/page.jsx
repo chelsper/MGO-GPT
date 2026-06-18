@@ -23,7 +23,7 @@ const UPDATE_MODES = [
   },
 ];
 
-const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Mail", "Task"];
+const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Task"];
 const INTERACTION_TYPES = [
   "Cultivation",
   "Identification/Discovery",

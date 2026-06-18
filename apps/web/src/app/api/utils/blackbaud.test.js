@@ -26,4 +26,15 @@ describe("blackbaud action payload helpers", () => {
     expect(actionPayload.date).toBe("2026-06-16T00:00:00.000Z");
     expect(metadataPayload.completed_date).toBe("2026-06-16");
   });
+
+  it("maps legacy mail actions to an active NXT action category", () => {
+    const actionPayload = buildBlackbaudActionPayload({
+      blackbaudConstituentId: "227949",
+      actionDate: "2026-06-16",
+      actionCategory: "Mail",
+      summary: "Mailed campaign update",
+    });
+
+    expect(actionPayload.category).toBe("Task/Other");
+  });
 });

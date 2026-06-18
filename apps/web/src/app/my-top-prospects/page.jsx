@@ -28,7 +28,7 @@ const ASK_TYPES = [
 ];
 
 const FY_OPTIONS = ["FY25", "FY26", "FY27", "FY28", "FY29", "FY30"];
-const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Mail", "Task"];
+const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Task"];
 const ACTION_TYPES = [
   "Cultivation",
   "Identification/Discovery",
