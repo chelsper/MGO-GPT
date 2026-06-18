@@ -15,11 +15,14 @@ export default function SignInPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [oktaEnabled, setOktaEnabled] = useState(false);
-  const [credentialsEnabled, setCredentialsEnabled] = useState(true);
+  const [credentialsEnabled, setCredentialsEnabled] = useState(false);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [signupQuery, setSignupQuery] = useState("");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
+      setSignupQuery(window.location.search);
       const msg = params.get("message");
       if (msg) {
         setMessage(msg);
@@ -47,6 +50,9 @@ export default function SignInPage() {
         .catch(() => {
           setOktaEnabled(false);
           setCredentialsEnabled(true);
+        })
+        .finally(() => {
+          setProvidersLoaded(true);
         });
 
       fetch("/api/auth/session", {
@@ -206,7 +212,22 @@ export default function SignInPage() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {oktaEnabled ? (
+          {!providersLoaded ? (
+            <div
+              style={{
+                padding: "14px",
+                borderRadius: "8px",
+                backgroundColor: "#F9FAFB",
+                border: "1px solid #E5E7EB",
+                fontSize: "14px",
+                color: "#4B5563",
+                lineHeight: 1.6,
+                textAlign: "center",
+              }}
+            >
+              Loading sign-in options...
+            </div>
+          ) : oktaEnabled ? (
             <>
               <button
                 type="button"
@@ -245,7 +266,7 @@ export default function SignInPage() {
             </>
           ) : null}
 
-          {credentialsEnabled ? (
+          {providersLoaded && credentialsEnabled ? (
             <>
               <div style={{ marginBottom: "16px" }}>
                 <label
@@ -345,7 +366,7 @@ export default function SignInPage() {
                 {loading ? "Signing In..." : "Sign In"}
               </button>
             </>
-          ) : (
+          ) : providersLoaded ? (
             <div
               style={{
                 padding: "14px",
@@ -359,10 +380,10 @@ export default function SignInPage() {
             >
               Password sign-in is disabled for this workspace. Use Jacksonville University SSO to continue.
             </div>
-          )}
+          ) : null}
         </form>
 
-        {credentialsEnabled ? (
+        {providersLoaded && credentialsEnabled ? (
           <p
             style={{
               marginTop: "24px",
@@ -373,7 +394,7 @@ export default function SignInPage() {
           >
             Don't have an account?{" "}
             <a
-              href={`/account/signup${typeof window !== "undefined" ? window.location.search : ""}`}
+              href={`/account/signup${signupQuery}`}
               style={{
                 color: "#6A5BFF",
                 fontWeight: "500",

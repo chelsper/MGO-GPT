@@ -406,7 +406,15 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location?.pathname;
-  const isMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const syncViewport = () => setIsMobile(window.innerWidth < 768);
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'sandbox:navigation') {
