@@ -20,7 +20,7 @@ export async function findLinkedProspectForUser({
     WHERE
       user_id = ${userId}
       AND (
-        (${constituentId || null} IS NOT NULL AND constituent_id = ${constituentId || null})
+        (${constituentId || null}::BIGINT IS NOT NULL AND constituent_id = ${constituentId || null}::BIGINT)
         OR (
           ${normalizedName} <> ''
           AND LOWER(TRIM(REGEXP_REPLACE(prospect_name, '\s+', ' ', 'g'))) = ${normalizedName}
@@ -168,10 +168,10 @@ async function findOrCreateProspectForUser({
     WHERE
       p.user_id = ${userId}
       AND (
-        (${constituent?.id || null} IS NOT NULL AND p.constituent_id = ${constituent?.id || null})
+        (${constituent?.id || null}::BIGINT IS NOT NULL AND p.constituent_id = ${constituent?.id || null}::BIGINT)
         OR (
-          ${blackbaudConstituentId || null} IS NOT NULL
-          AND c.blackbaud_constituent_id = ${blackbaudConstituentId || null}
+          ${blackbaudConstituentId || null}::TEXT IS NOT NULL
+          AND c.blackbaud_constituent_id = ${blackbaudConstituentId || null}::TEXT
         )
         OR (
           ${normalizeConstituentName(donorName)} <> ''
@@ -391,9 +391,9 @@ export async function syncJointSolicitationOpportunities({
         p.user_id = ${userId}
         AND po.prospect_id = ${prospect.id}
         AND (
-          (${sharedOpportunityKey || null} IS NOT NULL AND po.shared_opportunity_key = ${sharedOpportunityKey || null})
+          (${sharedOpportunityKey || null}::TEXT IS NOT NULL AND po.shared_opportunity_key = ${sharedOpportunityKey || null}::TEXT)
           OR (
-            ${sharedOpportunityKey || null} IS NULL
+            ${sharedOpportunityKey || null}::TEXT IS NULL
             AND LOWER(TRIM(po.title)) = LOWER(TRIM(${title || ""}))
           )
         )
