@@ -41,6 +41,14 @@ function getAnchorLabel(item) {
   );
 }
 
+function getAnchorGroupKey(item) {
+  if (item.prospect_id) return `prospect-${item.prospect_id}`;
+  if (item.constituent_id) return `constituent-${item.constituent_id}`;
+  if (item.prospect_opportunity_id) return `opportunity-${item.prospect_opportunity_id}`;
+  if (item.initiative_name) return `initiative-${item.initiative_name}`;
+  return `general-${getAnchorLabel(item)}`;
+}
+
 function groupItems(items, keyBuilder) {
   const groups = new Map();
   items.forEach((item) => {
@@ -605,7 +613,7 @@ export default function TeamDiscussionPage() {
       return groupItems(filteredItems, (item) => {
         const anchorLabel = getAnchorLabel(item);
         return {
-          key: `${item.prospect_id || item.constituent_id || item.prospect_opportunity_id || item.initiative_name || anchorLabel}`,
+          key: getAnchorGroupKey(item),
           label: anchorLabel,
           description: item.prospect_name
             ? "Discussion connected to a prospect workspace"
