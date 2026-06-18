@@ -291,6 +291,7 @@ export async function GET(request) {
               LIMIT 1
             ) latest_action ON TRUE
             WHERE pp.assigned_user_id = ${workspaceUser.id}
+              AND COALESCE(pp.solicitor_assignment_sync_state, '') <> 'success'
             ORDER BY pp.updated_at DESC, pp.created_at DESC
           `;
 

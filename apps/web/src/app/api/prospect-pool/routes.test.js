@@ -164,6 +164,37 @@ describe("prospect pool routes", () => {
     expect(createBlackbaudConstituentCustomFieldMock).toHaveBeenCalled();
   });
 
+  it("does not include successfully synced solicitor assignments in the MGO prospect pool feed", async () => {
+    const { GET } = await import("./route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 44,
+      name: "Gretchen Picotte",
+      email: "gretchen@example.com",
+      role: "mgo",
+      blackbaud_constituent_id: "234684",
+    });
+    getWorkspaceUserMock.mockResolvedValue({
+      workspaceUser: {
+        id: 44,
+        name: "Gretchen Picotte",
+        email: "gretchen@example.com",
+        role: "mgo",
+        blackbaud_constituent_id: "234684",
+      },
+    });
+    queueSqlResult([]);
+
+    const response = await GET(new Request("https://example.com/api/prospect-pool?view=mgo"));
+
+    expect(response.status).toBe(200);
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+    const [strings] = sqlMockImpl.mock.calls[0];
+    expect(strings.join(" ")).toContain(
+      "COALESCE(pp.solicitor_assignment_sync_state, '') <> 'success'",
+    );
+  });
+
   it("rejects assignment creation when the MGO selection is missing", async () => {
     const { POST } = await import("./route.js");
 

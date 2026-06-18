@@ -15,6 +15,15 @@ const MGOGPT_OUTCOME_OPTIONS = [
   "Qualified - Major Gifts",
   "Unable to Connect",
 ];
+const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
+const CLEARED_MGO_REQUEST_DRAFT = {
+  needsContactInfo: false,
+  contactInfoRequestNote: "",
+  solicitorRequested: false,
+  solicitorAssignmentValue: "",
+  mgogptDispositionValue: "",
+  mgogptDispositionComment: "",
+};
 
 function formatDate(value) {
   if (!value) return "Unknown";
@@ -110,6 +119,13 @@ function getDisplayText(value, fallback = "Unavailable") {
     return parts.length ? parts.join(", ") : fallback;
   }
   return fallback;
+}
+
+function isSolicitorAssignmentSynced(entry) {
+  return (
+    String(entry?.solicitor_assignment_sync_state || "").trim().toLowerCase() ===
+    SOLICITOR_ASSIGNMENT_SYNC_SUCCESS
+  );
 }
 
 function getNxtSyncPresentation(syncState) {
@@ -668,6 +684,11 @@ export default function ProspectPoolPage() {
           current[id]?.solicitorRequested ??
           entries.find((entry) => entry.id === id)?.solicitor_requested ??
           false,
+        solicitorAssignmentValue:
+          current[id]?.solicitorAssignmentValue ??
+          (entries.find((entry) => entry.id === id)?.solicitor_assignment_value != null
+            ? String(entries.find((entry) => entry.id === id)?.solicitor_assignment_value)
+            : ""),
         mgogptDispositionValue:
           current[id]?.mgogptDispositionValue ??
           entries.find((entry) => entry.id === id)?.mgogpt_disposition_value ??
@@ -872,14 +893,20 @@ export default function ProspectPoolPage() {
       }
 
       const updated = await response.json();
+      const movedToPortfolio = solicitorRequested && isSolicitorAssignmentSynced(updated);
       setEntries((current) =>
-        current.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)),
+        movedToPortfolio
+          ? current.filter((entry) => entry.id !== id)
+          : current.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)),
       );
-      setDrafts((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
+      setDrafts((current) =>
+        movedToPortfolio
+          ? Object.fromEntries(Object.entries(current).filter(([entryId]) => entryId !== String(id)))
+          : {
+              ...current,
+              [id]: { ...CLEARED_MGO_REQUEST_DRAFT },
+            },
+      );
       const solicitorMessage = solicitorRequested
         ? getSolicitorAssignmentPresentation(updated.solicitor_assignment_sync_state)
         : null;
@@ -895,6 +922,9 @@ export default function ProspectPoolPage() {
       }
       if (mgogptDispositionMessage) {
         messageParts.push(mgogptDispositionMessage.label);
+      }
+      if (movedToPortfolio) {
+        messageParts.push("This prospect was removed from your pool and should now appear in your portfolio.");
       }
       const message = messageParts.join(" ");
       setActionMessage(message);
