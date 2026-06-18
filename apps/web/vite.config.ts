@@ -13,7 +13,7 @@ import { nextPublicProcessEnv } from './plugins/nextPublicProcessEnv';
 import { restart } from './plugins/restart';
 import { restartEnvFileChange } from './plugins/restartEnvFileChange';
 
-export default defineConfig(({ isSsrBuild }) => ({
+export default defineConfig(({ isSsrBuild, mode }) => ({
   // Keep them available via import.meta.env.NEXT_PUBLIC_*
   envPrefix: 'NEXT_PUBLIC_',
   optimizeDeps: {
@@ -60,7 +60,7 @@ export default defineConfig(({ isSsrBuild }) => ({
     }),
     consoleToParent(),
     loadFontsFromTailwindSource(),
-    addRenderIds(),
+    mode === 'development' ? addRenderIds() : null,
     reactRouter(),
     tsconfigPaths({ projects: ['./tsconfig.json'] }),
     aliases(),
