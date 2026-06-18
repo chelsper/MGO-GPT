@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import { isMgoRole, isReviewerRole } from "@/utils/workspaceRoles";
 
 const STATUS_OPTIONS = ["Open", "In Progress", "Completed", "Declined"];
 
@@ -49,6 +49,7 @@ export default function DataRequestsPage() {
     providedData: "",
   });
   const isReviewer = isReviewerRole(user?.role);
+  const canCreateRequests = isMgoRole(user?.role);
 
   async function loadQueue() {
     setLoadingQueue(true);
@@ -102,7 +103,7 @@ export default function DataRequestsPage() {
     }));
   }
 
-  async function saveRequest(item) {
+  async function saveRequest(item, overrides = {}) {
     if (!isReviewer) return;
     const draft = drafts[item.id] || {};
     setSavingId(item.id);
@@ -112,17 +113,27 @@ export default function DataRequestsPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: draft.status || item.status,
-          reviewerNotes: draft.reviewerNotes ?? item.reviewer_notes ?? "",
+          status: overrides.status || draft.status || item.status,
+          reviewerNotes:
+            overrides.reviewerNotes ??
+            draft.reviewerNotes ??
+            item.reviewer_notes ??
+            "",
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to update data request");
       }
-      setRequests((current) =>
-        current.map((request) => (request.id === item.id ? { ...request, ...payload } : request)),
-      );
+      setRequests((current) => {
+        const next = current.map((request) =>
+          request.id === item.id ? { ...request, ...payload } : request,
+        );
+        if (statusFilter && payload?.status !== statusFilter) {
+          return next.filter((request) => request.id !== item.id);
+        }
+        return next;
+      });
       setDrafts((current) => {
         const next = { ...current };
         delete next[item.id];
@@ -208,7 +219,9 @@ export default function DataRequestsPage() {
             <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
               {isReviewer
                 ? "Review contact updates, corrected information, and record-change requests from MGOs."
-                : "Track the data updates you sent to Advancement Services."}
+                : canCreateRequests
+                  ? "Send and track data updates for Advancement Services."
+                  : "Track data requests and updates."}
             </p>
           </div>
         </div>
@@ -245,7 +258,7 @@ export default function DataRequestsPage() {
           ))}
         </section>
 
-        {!isReviewer ? (
+        {canCreateRequests ? (
           <form
             onSubmit={createRequest}
             style={{
@@ -519,6 +532,26 @@ export default function DataRequestsPage() {
                     >
                       {savingId === item.id ? "Saving..." : "Save queue update"}
                     </button>
+                    {item.status !== "Completed" ? (
+                      <button
+                        type="button"
+                        disabled={savingId === item.id}
+                        onClick={() => saveRequest(item, { status: "Completed" })}
+                        style={{
+                          marginTop: "8px",
+                          width: "100%",
+                          padding: "11px 14px",
+                          border: "1px solid #BBF7D0",
+                          borderRadius: "12px",
+                          backgroundColor: "white",
+                          color: "#166534",
+                          fontWeight: 800,
+                          cursor: savingId === item.id ? "wait" : "pointer",
+                        }}
+                      >
+                        Mark complete
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </article>
