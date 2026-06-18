@@ -48,6 +48,33 @@ const STAGES = [
   "Stewardship",
 ];
 
+const TEAMMATE_ROLES = new Set(["mgo", "reviewer", "executive_admin", "admin"]);
+
+function getRoleLabel(role) {
+  switch (role) {
+    case "mgo":
+      return "MGO";
+    case "reviewer":
+      return "Advancement Services";
+    case "executive_admin":
+      return "Executive Admin";
+    case "admin":
+      return "Admin";
+    default:
+      return "Team";
+  }
+}
+
+function isFundraiserOption(option) {
+  return (
+    option?.role === "mgo" ||
+    Boolean(option?.blackbaud_constituent_id) ||
+    Boolean(option?.blackbaudConstituentId) ||
+    Boolean(option?.blackbaud_lookup_id) ||
+    Boolean(option?.blackbaudLookupId)
+  );
+}
+
 function normalizeName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -177,6 +204,8 @@ export default function ActionOpportunityUpdatePage() {
   const [jointMgoLoaded, setJointMgoLoaded] = useState(false);
   const [jointMgoError, setJointMgoError] = useState("");
   const [selectedJointMgoIds, setSelectedJointMgoIds] = useState([]);
+  const [selectedAdditionalFundraiserUserId, setSelectedAdditionalFundraiserUserId] =
+    useState("");
   const [createDiscussionItem, setCreateDiscussionItem] = useState(false);
   const [discussionSubject, setDiscussionSubject] = useState("");
   const [discussionSubjectEdited, setDiscussionSubjectEdited] = useState(false);
@@ -200,6 +229,10 @@ export default function ActionOpportunityUpdatePage() {
 
   const includeAction = updateMode === "action" || updateMode === "both";
   const includeOpportunity = updateMode === "opportunity" || updateMode === "both";
+  const fundraiserOptions = useMemo(
+    () => jointMgoOptions.filter((option) => isFundraiserOption(option)),
+    [jointMgoOptions],
+  );
   const supportsSpeechRecognition =
     typeof window !== "undefined" &&
     (typeof window.SpeechRecognition !== "undefined" ||
@@ -271,14 +304,21 @@ export default function ActionOpportunityUpdatePage() {
   }, [updateMode]);
 
   useEffect(() => {
-    if (!includeOpportunity && !createDiscussionItem) {
+    if (!includeAction) {
+      setSelectedAdditionalFundraiserUserId("");
+    }
+  }, [includeAction]);
+
+  useEffect(() => {
+    if (!includeAction && !includeOpportunity && !createDiscussionItem) {
       setIsJointSolicitation(false);
       setSelectedJointMgoIds([]);
       setJointMgoLoaded(false);
       setJointMgoError("");
       return;
     }
-    if (!(isJointSolicitation || createDiscussionItem) || jointMgoLoaded || jointMgoLoading) {
+    const shouldLoadTeammates = includeAction || isJointSolicitation || createDiscussionItem;
+    if (!shouldLoadTeammates || jointMgoLoaded || jointMgoLoading) {
       return;
     }
 
@@ -296,6 +336,7 @@ export default function ActionOpportunityUpdatePage() {
 
         try {
           const response = await fetch("/api/users/mgos", {
+            credentials: "include",
             signal: controller.signal,
           });
           const payload = await response.json().catch(() => null);
@@ -328,7 +369,7 @@ export default function ActionOpportunityUpdatePage() {
               mgoOptions = adminUsers.filter(
                 (option) =>
                   option.active !== false &&
-                  option.role === "mgo" &&
+                  TEAMMATE_ROLES.has(option.role) &&
                   Number(option.id) !== Number(user?.id || 0),
               );
             }
@@ -362,6 +403,7 @@ export default function ActionOpportunityUpdatePage() {
     };
   }, [
     createDiscussionItem,
+    includeAction,
     includeOpportunity,
     isJointSolicitation,
     jointMgoLoaded,
@@ -1092,6 +1134,8 @@ export default function ActionOpportunityUpdatePage() {
               notes: payload.actionBody.notes,
               nextStep: payload.actionBody.nextStep,
               nextActionDueDate: payload.actionBody.nextActionDueDate || null,
+              additionalFundraiserUserId:
+                payload.actionBody.additionalFundraiserUserId || null,
               linkedOpportunityId:
                 payload.actionBody.linkedOpportunityId ||
                 linkedOpportunityIdOverride ||
@@ -1457,6 +1501,7 @@ export default function ActionOpportunityUpdatePage() {
             notes: combinedActionNotes,
             nextStep,
             nextActionDueDate: nextStepDueDate || null,
+            additionalFundraiserUserId: selectedAdditionalFundraiserUserId || null,
             estimatedAmount: askAmount ? parseFloat(askAmount) : null,
             transcript: null,
             attachments: [],
@@ -2530,6 +2575,60 @@ export default function ActionOpportunityUpdatePage() {
                       marginBottom: "8px",
                     }}
                   >
+                    Additional fundraiser involved
+                  </label>
+                  <select
+                    value={selectedAdditionalFundraiserUserId}
+                    onChange={(event) =>
+                      setSelectedAdditionalFundraiserUserId(event.target.value)
+                    }
+                    disabled={jointMgoLoading}
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: "12px",
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#111827",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      marginBottom: "16px",
+                    }}
+                  >
+                    <option value="">Only assign this action to me</option>
+                    {fundraiserOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name} ({getRoleLabel(option.role)})
+                      </option>
+                    ))}
+                  </select>
+                  {jointMgoLoading ? (
+                    <div style={{ marginTop: "-10px", marginBottom: "16px", fontSize: "12px", color: "#6B7280" }}>
+                      Loading fundraiser options...
+                    </div>
+                  ) : jointMgoError ? (
+                    <div style={{ marginTop: "-10px", marginBottom: "16px", fontSize: "12px", color: "#991B1B" }}>
+                      {jointMgoError}
+                    </div>
+                  ) : fundraiserOptions.length === 0 ? (
+                    <div style={{ marginTop: "-10px", marginBottom: "16px", fontSize: "12px", color: "#6B7280" }}>
+                      No other fundraiser users with Blackbaud mappings are available right now.
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: "-10px", marginBottom: "16px", fontSize: "12px", color: "#6B7280" }}>
+                      This adds the selected fundraiser to the NXT action assignment when sync succeeds.
+                    </div>
+                  )}
+
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
                     Action type
                   </label>
                   <select
@@ -2934,7 +3033,7 @@ export default function ActionOpportunityUpdatePage() {
                             marginBottom: "8px",
                           }}
                         >
-                          Add other MGOs
+                          Add other fundraisers
                         </div>
                         {jointMgoLoading ? (
                           <div style={{ fontSize: "13px", color: "#6B7280" }}>
@@ -2944,13 +3043,13 @@ export default function ActionOpportunityUpdatePage() {
                           <div style={{ fontSize: "13px", color: "#991B1B" }}>
                             {jointMgoError}
                           </div>
-                        ) : jointMgoOptions.length === 0 ? (
+                        ) : fundraiserOptions.length === 0 ? (
                           <div style={{ fontSize: "13px", color: "#6B7280" }}>
-                            No other active MGO users are available to add right now.
+                            No other active fundraiser users are available to add right now.
                           </div>
                         ) : (
                           <div style={{ display: "grid", gap: "8px" }}>
-                            {jointMgoOptions.map((option) => {
+                            {fundraiserOptions.map((option) => {
                               const checked = selectedJointMgoIds.includes(Number(option.id));
                               return (
                                 <label
@@ -2984,7 +3083,7 @@ export default function ActionOpportunityUpdatePage() {
                           </div>
                         )}
                         <div style={{ marginTop: "10px", fontSize: "12px", color: "#6B7280" }}>
-                          Selected MGOs will get this opportunity in their own opportunities and top prospects list.
+                          Selected fundraisers will get this opportunity in their own opportunities and top prospects list.
                         </div>
                     </div>
                   ) : null}
@@ -3380,7 +3479,7 @@ export default function ActionOpportunityUpdatePage() {
                       <option value="">Keep on my discussion list</option>
                       {jointMgoOptions.map((option) => (
                         <option key={option.id} value={option.id}>
-                          {option.name}
+                          {option.name} ({getRoleLabel(option.role)})
                         </option>
                       ))}
                     </select>

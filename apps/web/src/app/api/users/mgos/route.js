@@ -18,9 +18,10 @@ export async function GET(request) {
     }
 
     const users = await sql`
-      SELECT id, name, email
+      SELECT id, name, email, role, blackbaud_constituent_id, blackbaud_lookup_id
       FROM users
-      WHERE role = 'mgo' AND active = TRUE
+      WHERE active = TRUE
+        AND role IN ('mgo', 'reviewer', 'executive_admin', 'admin')
       ORDER BY LOWER(name) ASC, LOWER(email) ASC
     `;
 
@@ -32,6 +33,9 @@ export async function GET(request) {
               id: currentUser.id,
               name: currentUser.name,
               email: currentUser.email,
+              role: currentUser.role,
+              blackbaud_constituent_id: currentUser.blackbaud_constituent_id,
+              blackbaud_lookup_id: currentUser.blackbaud_lookup_id,
             },
             ...users,
           ];

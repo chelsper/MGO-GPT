@@ -108,11 +108,16 @@ async function fetchTeammateOptions() {
     }
     const users = Array.isArray(payload?.users) ? payload.users : [];
     return users
-      .filter((user) => user.active !== false && user.role === "mgo")
+      .filter(
+        (user) =>
+          user.active !== false &&
+          ["mgo", "reviewer", "executive_admin", "admin"].includes(user.role),
+      )
       .map((user) => ({
         id: user.id,
         name: user.name,
         email: user.email,
+        role: user.role,
       }));
   } catch (_error) {
     return primaryOptions;
