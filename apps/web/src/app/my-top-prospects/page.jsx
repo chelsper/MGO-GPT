@@ -2092,7 +2092,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     setActionError("");
     if (
       !window.confirm(
-        "Delete this prospect permanently? This should only be used for records added by mistake.",
+        "Remove this prospect from your Top Prospects list? This will not delete the constituent record from NXT.",
       )
     ) {
       return;
