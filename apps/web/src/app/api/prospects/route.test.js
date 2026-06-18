@@ -170,4 +170,87 @@ describe("prospects route", () => {
       }),
     );
   });
+
+  it("returns an existing active top prospect as a successful add", async () => {
+    const { POST } = await import("./route.js");
+
+    resolveConstituentMock.mockResolvedValue({
+      id: 12,
+      blackbaud_constituent_id: "572405",
+    });
+    queueSqlResult([{ max_order: 3 }]);
+    queueSqlResult([
+      {
+        id: 21,
+        user_id: 44,
+        constituent_id: 12,
+        prospect_name: "Megan Piggott",
+        status: "Active",
+        priority_order: 2,
+      },
+    ]);
+
+    const response = await POST(
+      new Request("https://example.com/api/prospects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prospectName: "Megan Piggott",
+          blackbaudConstituentId: "572405",
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.already_exists).toBe(true);
+    expect(payload.id).toBe(21);
+  });
+
+  it("restores an inactive existing prospect to the active top prospect list", async () => {
+    const { POST } = await import("./route.js");
+
+    resolveConstituentMock.mockResolvedValue({
+      id: 12,
+      blackbaud_constituent_id: "572405",
+    });
+    queueSqlResult([{ max_order: 3 }]);
+    queueSqlResult([
+      {
+        id: 21,
+        user_id: 44,
+        constituent_id: 12,
+        prospect_name: "Megan Piggott",
+        status: "Archived",
+        priority_order: 2,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 21,
+        user_id: 44,
+        constituent_id: 12,
+        prospect_name: "Megan Piggott",
+        status: "Active",
+        priority_order: 4,
+      },
+    ]);
+
+    const response = await POST(
+      new Request("https://example.com/api/prospects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prospectName: "Megan Piggott",
+          blackbaudConstituentId: "572405",
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.restored_to_top_prospects).toBe(true);
+    expect(payload.status).toBe("Active");
+    expect(payload.priority_order).toBe(4);
+  });
 });

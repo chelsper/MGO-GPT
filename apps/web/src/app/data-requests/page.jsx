@@ -37,8 +37,17 @@ export default function DataRequestsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [drafts, setDrafts] = useState({});
+  const [newRequest, setNewRequest] = useState({
+    constituentName: "",
+    blackbaudConstituentId: "",
+    requestType: "Contact info update",
+    requestNote: "",
+    providedData: "",
+  });
   const isReviewer = isReviewerRole(user?.role);
 
   async function loadQueue() {
@@ -126,6 +135,45 @@ export default function DataRequestsPage() {
     }
   }
 
+  async function createRequest(event) {
+    event.preventDefault();
+    setError("");
+    setSuccessMessage("");
+    setCreating(true);
+    try {
+      const providedDetails = newRequest.providedData.trim();
+      const response = await fetch("/api/data-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          constituentName: newRequest.constituentName.trim(),
+          blackbaudConstituentId: newRequest.blackbaudConstituentId.trim() || null,
+          requestType: newRequest.requestType,
+          requestNote: newRequest.requestNote.trim(),
+          providedData: providedDetails ? { details: providedDetails } : null,
+          sourceContext: "data_requests_page",
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to send data request");
+      }
+      setNewRequest({
+        constituentName: "",
+        blackbaudConstituentId: "",
+        requestType: "Contact info update",
+        requestNote: "",
+        providedData: "",
+      });
+      setSuccessMessage("Sent to the Advancement Services data request queue.");
+      await loadQueue();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Failed to send data request");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   if (loading || loadingQueue) {
     return (
       <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#6B7280" }}>
@@ -197,6 +245,149 @@ export default function DataRequestsPage() {
           ))}
         </section>
 
+        {!isReviewer ? (
+          <form
+            onSubmit={createRequest}
+            style={{
+              backgroundColor: "white",
+              border: "1px solid #BBF7D0",
+              borderRadius: "18px",
+              padding: "18px",
+              marginBottom: "18px",
+              display: "grid",
+              gap: "12px",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, fontSize: "20px", color: "#064E3B" }}>
+                Send a data request
+              </h2>
+              <p style={{ margin: "6px 0 0", color: "#047857", lineHeight: 1.5 }}>
+                Ask Advancement Services to verify contact information or update a constituent
+                record. This creates a queue item; it does not write directly to NXT.
+              </p>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "12px",
+              }}
+            >
+              <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+                Constituent name
+                <input
+                  name="constituentName"
+                  value={newRequest.constituentName}
+                  onChange={(event) =>
+                    setNewRequest((current) => ({
+                      ...current,
+                      constituentName: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: Megan Piggott"
+                  required
+                  style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+                NXT Lookup ID, if known
+                <input
+                  name="blackbaudConstituentId"
+                  value={newRequest.blackbaudConstituentId}
+                  onChange={(event) =>
+                    setNewRequest((current) => ({
+                      ...current,
+                      blackbaudConstituentId: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional"
+                  style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+                Request type
+                <select
+                  name="requestType"
+                  value={newRequest.requestType}
+                  onChange={(event) =>
+                    setNewRequest((current) => ({
+                      ...current,
+                      requestType: event.target.value,
+                    }))
+                  }
+                  style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", backgroundColor: "white" }}
+                >
+                  <option value="Contact info update">Contact info update</option>
+                  <option value="Record update">Record update</option>
+                </select>
+              </label>
+            </div>
+            <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+              What should Advancement Services update or verify?
+              <textarea
+                name="requestNote"
+                rows={4}
+                value={newRequest.requestNote}
+                onChange={(event) =>
+                  setNewRequest((current) => ({
+                    ...current,
+                    requestNote: event.target.value,
+                  }))
+                }
+                placeholder="Example: Please verify the preferred phone number, or update the employer/title."
+                style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", resize: "vertical" }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+              Updated information, if you already have it
+              <textarea
+                name="providedData"
+                rows={3}
+                value={newRequest.providedData}
+                onChange={(event) =>
+                  setNewRequest((current) => ({
+                    ...current,
+                    providedData: event.target.value,
+                  }))
+                }
+                placeholder="Paste the new phone, email, address, employer, title, or other corrected data."
+                style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", resize: "vertical" }}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={
+                creating ||
+                !newRequest.constituentName.trim() ||
+                (!newRequest.requestNote.trim() && !newRequest.providedData.trim())
+              }
+              style={{
+                justifySelf: "start",
+                padding: "11px 16px",
+                border: "none",
+                borderRadius: "12px",
+                backgroundColor:
+                  creating ||
+                  !newRequest.constituentName.trim() ||
+                  (!newRequest.requestNote.trim() && !newRequest.providedData.trim())
+                    ? "#94A3B8"
+                    : "#0F766E",
+                color: "white",
+                fontWeight: 800,
+                cursor:
+                  creating ||
+                  !newRequest.constituentName.trim() ||
+                  (!newRequest.requestNote.trim() && !newRequest.providedData.trim())
+                    ? "not-allowed"
+                    : "pointer",
+              }}
+            >
+              {creating ? "Sending..." : "Send to Advancement Services"}
+            </button>
+          </form>
+        ) : null}
+
         <div style={{ marginBottom: "14px", display: "flex", justifyContent: "space-between", gap: "12px" }}>
           <select
             value={statusFilter}
@@ -219,6 +410,11 @@ export default function DataRequestsPage() {
         {error ? (
           <div style={{ marginBottom: "14px", padding: "12px 14px", borderRadius: "12px", backgroundColor: "#FEF2F2", color: "#991B1B", border: "1px solid #FECACA" }}>
             {error}
+          </div>
+        ) : null}
+        {successMessage ? (
+          <div style={{ marginBottom: "14px", padding: "12px 14px", borderRadius: "12px", backgroundColor: "#ECFDF5", color: "#047857", border: "1px solid #A7F3D0", fontWeight: 700 }}>
+            {successMessage}
           </div>
         ) : null}
 

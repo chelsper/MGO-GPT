@@ -637,7 +637,7 @@ function getOpportunityDisplayAmount(opportunity) {
   return opportunity.estimated_amount ?? 0;
 }
 
-function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) {
+function AddProspectModal({ onClose, onSubmit, isPending, errorMessage = "", initialData = null }) {
   const [name, setName] = useState(initialData?.prospectName || "");
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(
@@ -778,6 +778,7 @@ function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) 
               Prospect Name <span style={{ color: "#DC2626" }}>*</span>
             </label>
             <input
+              name="prospectName"
               type="text"
               value={name}
               onChange={(e) => {
@@ -932,6 +933,23 @@ function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) 
           >
             {isPending ? "Adding..." : "Add Prospect"}
           </button>
+          {errorMessage ? (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #FECACA",
+                backgroundColor: "#FEF2F2",
+                color: "#991B1B",
+                fontSize: "13px",
+                fontWeight: 700,
+                lineHeight: 1.5,
+              }}
+            >
+              {errorMessage}
+            </div>
+          ) : null}
         </form>
       </div>
     </div>
@@ -5883,6 +5901,8 @@ export default function MyTopProspectsPage() {
   const [actionFilter, setActionFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [addProspectInitialData, setAddProspectInitialData] = useState(null);
+  const [addProspectMessage, setAddProspectMessage] = useState("");
+  const [addProspectError, setAddProspectError] = useState("");
   const autoBootstrapAttemptRef = useRef("");
 
   const { data: profileStatus } = useQuery({
@@ -6097,6 +6117,10 @@ export default function MyTopProspectsPage() {
   };
 
   const addMutation = useMutation({
+    onMutate: () => {
+      setAddProspectMessage("");
+      setAddProspectError("");
+    },
     mutationFn: async (body) => {
       const res = await fetch("/api/prospects", {
         method: "POST",
@@ -6109,16 +6133,42 @@ export default function MyTopProspectsPage() {
       }
       return data;
     },
-    onSuccess: (createdProspect) => {
-      queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
-      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+    onSuccess: async (createdProspect) => {
+      if (activeWorkspaceUserId) {
+        queryClient.setQueryData(["prospects", activeWorkspaceUserId], (current) => {
+          if (!Array.isArray(current) || !createdProspect?.id) return current;
+          const normalized = { ...createdProspect, status: createdProspect.status || "Active" };
+          const withoutExisting = current.filter(
+            (prospect) => String(prospect.id) !== String(normalized.id),
+          );
+          return [...withoutExisting, normalized].sort((left, right) => {
+            const leftOrder = Number(left.priority_order || 999999);
+            const rightOrder = Number(right.priority_order || 999999);
+            return leftOrder - rightOrder;
+          });
+        });
+      }
+
       updateWorkspaceTab("top-prospects");
       if (createdProspect?.id) {
         setSelectedProspectId(Number(createdProspect.id));
       }
       setShowAddModal(false);
       setAddProspectInitialData(null);
+      setAddProspectMessage(
+        createdProspect?.message ||
+          `${createdProspect?.prospect_name || "Prospect"} was added to Top Prospects.`,
+      );
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["prospects"] }),
+        queryClient.refetchQueries({ queryKey: ["prospect-summary-base"] }),
+        queryClient.refetchQueries({ queryKey: ["prospect-summary-closed"] }),
+      ]);
+    },
+    onError: (mutationError) => {
+      setAddProspectError(
+        mutationError instanceof Error ? mutationError.message : "Failed to add prospect",
+      );
     },
   });
 
@@ -6245,6 +6295,8 @@ export default function MyTopProspectsPage() {
   }
 
   const openPortfolioAddModal = (person) => {
+    setAddProspectMessage("");
+    setAddProspectError("");
     setAddProspectInitialData({
       prospectName: person.name || "",
       expectedCloseFY: "FY26",
@@ -6464,7 +6516,11 @@ export default function MyTopProspectsPage() {
                   Log Update
                 </a>
                 <button
-                  onClick={() => setShowAddModal(true)}
+                  onClick={() => {
+                    setAddProspectMessage("");
+                    setAddProspectError("");
+                    setShowAddModal(true);
+                  }}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -6519,6 +6575,21 @@ export default function MyTopProspectsPage() {
               >
                 {stopViewingMutation.isPending ? "Returning..." : "Return to my dashboard"}
               </button>
+            </div>
+          ) : null}
+          {addProspectMessage ? (
+            <div
+              style={{
+                backgroundColor: "#ECFDF5",
+                borderRadius: "12px",
+                border: "1px solid #A7F3D0",
+                color: "#047857",
+                padding: "12px 14px",
+                fontSize: "14px",
+                fontWeight: 700,
+              }}
+            >
+              {addProspectMessage}
             </div>
           ) : null}
           {workspaceSwitchMessage ? (
@@ -7660,9 +7731,11 @@ export default function MyTopProspectsPage() {
           onClose={() => {
             setShowAddModal(false);
             setAddProspectInitialData(null);
+            setAddProspectError("");
           }}
           onSubmit={(data) => addMutation.mutate(data)}
           isPending={addMutation.isPending}
+          errorMessage={addProspectError}
           initialData={addProspectInitialData}
         />
       )}

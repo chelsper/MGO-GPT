@@ -334,7 +334,7 @@ export default async function ensureAppSchema() {
         id BIGSERIAL PRIMARY KEY,
         requester_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
         owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
-        prospect_id BIGINT REFERENCES prospects(id) ON DELETE SET NULL,
+        prospect_id BIGINT,
         prospect_pool_id BIGINT REFERENCES prospect_pool(id) ON DELETE SET NULL,
         constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
         blackbaud_constituent_id TEXT,
@@ -362,7 +362,7 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       ALTER TABLE data_change_requests
-      ADD COLUMN IF NOT EXISTS prospect_id BIGINT REFERENCES prospects(id) ON DELETE SET NULL
+      ADD COLUMN IF NOT EXISTS prospect_id BIGINT
     `;
     await sql`
       ALTER TABLE data_change_requests

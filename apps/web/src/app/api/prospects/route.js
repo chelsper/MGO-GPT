@@ -497,10 +497,34 @@ export async function POST(request) {
     `;
 
     if (existingProspect.length > 0) {
-      return Response.json(
-        { error: "This constituent is already on your top prospects list." },
-        { status: 409 },
-      );
+      const existing = existingProspect[0];
+      if (existing.status === "Active") {
+        return Response.json({
+          ...existing,
+          already_exists: true,
+          message: "This constituent is already on your top prospects list.",
+        });
+      }
+
+      const restored = await sql`
+        UPDATE prospects
+        SET
+          status = 'Active',
+          priority_order = ${nextOrder},
+          expected_close_fy = COALESCE(expected_close_fy, ${normalizedExpectedCloseFY}),
+          ask_amount = COALESCE(ask_amount, ${normalizedAskAmount}),
+          ask_type = COALESCE(NULLIF(ask_type, ''), ${normalizedAskType}),
+          updated_at = NOW()
+        WHERE id = ${existing.id}
+          AND user_id = ${user.id}
+        RETURNING *
+      `;
+
+      return Response.json({
+        ...restored[0],
+        restored_to_top_prospects: true,
+        message: "This constituent was restored to your top prospects list.",
+      });
     }
 
     const result = await sql`
