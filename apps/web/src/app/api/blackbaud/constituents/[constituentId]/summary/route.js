@@ -268,6 +268,26 @@ function normalizeLabel(value) {
   return compactWhitespace(value).toLowerCase();
 }
 
+function normalizeConstituencyLabel(value) {
+  return normalizeLabel(value)
+    .replace(/[’']/g, "")
+    .replace(/[–—-]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function constituencyLabelMatches(label, target) {
+  const normalizedLabel = normalizeConstituencyLabel(label);
+  const normalizedTarget = normalizeConstituencyLabel(target);
+  if (!normalizedLabel || !normalizedTarget) return false;
+  return (
+    normalizedLabel === normalizedTarget ||
+    normalizedLabel.includes(normalizedTarget) ||
+    normalizedTarget.includes(normalizedLabel)
+  );
+}
+
 function formatCurrency(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return null;
@@ -327,31 +347,93 @@ function getDisplayName(constituent) {
   );
 }
 
-function getConstituencyLabels(constituent, educationRecords) {
-  const rawValues = [
-    constituent?.type,
+function extractConstituencyYear(value) {
+  const text = compactWhitespace(value);
+  if (!text) return null;
+  const explicitYear = text.match(/\b(19|20)\d{2}\b/);
+  if (explicitYear) return explicitYear[0];
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return String(parsed.getFullYear());
+}
+
+function getConstituentGender(constituent) {
+  const rawGender = firstDefined(constituent, [
+    "gender",
+    "gender.description",
+    "gender.name",
+    "gender_identity",
+    "gender_identity.description",
+    "gender_description",
+    "sex",
+  ]);
+  const gender = normalizeLabel(rawGender);
+  if (!gender) return null;
+  if (gender === "f" || gender.includes("female") || gender.includes("woman")) {
+    return "female";
+  }
+  if (gender === "m" || gender.includes("male") || gender.includes("man")) {
+    return "male";
+  }
+  return null;
+}
+
+function getAlumniNoun(constituent) {
+  const gender = getConstituentGender(constituent);
+  if (gender === "female") return "alumna";
+  if (gender === "male") return "alumnus";
+  return "alum";
+}
+
+function firstConstituencyLabel(item) {
+  return compactWhitespace(
+    item?.description ||
+      item?.name ||
+      item?.constituency ||
+      item?.code ||
+      item?.type ||
+      "",
+  );
+}
+
+function mapConstituencyEntry(item) {
+  const label = firstConstituencyLabel(item);
+  if (!label) return null;
+
+  return {
+    label,
+    normalized: normalizeConstituencyLabel(label),
+    start: firstDefined(item, [
+      "date_from",
+      "dateFrom",
+      "start",
+      "start_date",
+      "startDate",
+      "from",
+    ]),
+    end: firstDefined(item, [
+      "date_to",
+      "dateTo",
+      "end",
+      "end_date",
+      "endDate",
+      "to",
+    ]),
+  };
+}
+
+function getConstituencyEntries(constituent, educationRecords) {
+  const entries = [
     ...(Array.isArray(constituent?.constituencies)
-      ? constituent.constituencies.flatMap((item) => [
-          item?.description,
-          item?.name,
-          item?.constituency,
-          item?.type,
-        ])
+      ? constituent.constituencies.map(mapConstituencyEntry)
       : []),
     ...(Array.isArray(constituent?.constituent_codes)
-      ? constituent.constituent_codes.flatMap((item) => [
-          item?.description,
-          item?.name,
-          item?.constituency,
-          item?.code,
-        ])
+      ? constituent.constituent_codes.map(mapConstituencyEntry)
       : []),
-  ]
-    .map((value) => compactWhitespace(value))
-    .filter(Boolean);
+  ].filter(Boolean);
 
-  const labels = [...new Set(rawValues)];
-  const normalized = new Set(labels.map(normalizeLabel));
+  const normalized = new Set(entries.map((entry) => entry.normalized));
   const juDegrees = educationRecords.filter(
     (education) => Array.isArray(education?.degrees) && education.degrees.length > 0,
   );
@@ -369,15 +451,40 @@ function getConstituencyLabels(constituent, educationRecords) {
     );
 
     if (hasBachelors) {
-      labels.push("Alumni Bachelor's Degree");
+      entries.push({
+        label: "Alumni Bachelor's Degree",
+        normalized: normalizeConstituencyLabel("Alumni Bachelor's Degree"),
+        start: null,
+        end: null,
+      });
     } else if (hasGraduate) {
-      labels.push("Alumni Graduate Degree");
+      entries.push({
+        label: "Alumni Graduate Degree",
+        normalized: normalizeConstituencyLabel("Alumni Graduate Degree"),
+        start: null,
+        end: null,
+      });
     } else {
-      labels.push("Alumni Non-Graduate");
+      entries.push({
+        label: "Alumni Non-Graduate",
+        normalized: normalizeConstituencyLabel("Alumni Non-Graduate"),
+        start: null,
+        end: null,
+      });
     }
   }
 
-  return [...new Set(labels)];
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const key = [entry.normalized, entry.start || "", entry.end || ""].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getConstituencyLabels(constituent, educationRecords) {
+  return [...new Set(getConstituencyEntries(constituent, educationRecords).map((entry) => entry.label))];
 }
 
 const PRIMARY_IDENTITY_HIERARCHY = [
@@ -578,81 +685,163 @@ function buildPipelineSentence(proposals, assignments, workspaceUser) {
   return parts.length ? parts.join(" ") : null;
 }
 
-function buildIdentitySentence({
+function findConstituencyEntry(entries, target) {
+  return entries.find((entry) => constituencyLabelMatches(entry.label, target)) || null;
+}
+
+function isActiveConstituency(entry) {
+  return Boolean(entry) && !entry.end;
+}
+
+function formatRelationshipSentence(name, phrases) {
+  const values = phrases.filter(Boolean);
+  if (!values.length) return `${name} has a documented JU connection.`;
+  return `${name} ${formatSentenceList(values)}.`;
+}
+
+export function buildIdentitySentence({
   constituent,
+  constituencyEntries,
   constituencyLabels,
   educationRecords,
   spouseSummary,
   primaryBusinessRelationship,
+  lifetimeGiving,
 }) {
   const name = getDisplayName(constituent);
-  const primaryIdentity = resolvePrimaryIdentity(constituencyLabels);
   const businessOrg = normalizeLabel(primaryBusinessRelationship?.organizationName);
-  const hasBachelorAlumni = constituencyLabels.some((label) =>
-    normalizeLabel(label).includes("alumni bachelor's degree"),
+  const entries =
+    Array.isArray(constituencyEntries) && constituencyEntries.length
+      ? constituencyEntries
+      : getConstituencyEntries(constituent, educationRecords);
+  const labels =
+    Array.isArray(constituencyLabels) && constituencyLabels.length
+      ? constituencyLabels
+      : entries.map((entry) => entry.label);
+  const alumnNoun = getAlumniNoun(constituent);
+  const hasBachelorAlumni = entries.some((entry) =>
+    constituencyLabelMatches(entry.label, "Alumni Bachelor's Degree"),
   );
-  const hasGraduateAlumni = constituencyLabels.some((label) =>
-    normalizeLabel(label).includes("alumni graduate degree"),
+  const hasGraduateAlumni = entries.some((entry) =>
+    constituencyLabelMatches(entry.label, "Alumni Graduate Degree"),
   );
-  const hasOrthodonticsAlumni = constituencyLabels.some((label) =>
-    normalizeLabel(label).includes("orthodontics"),
+  const hasOrthodonticsAlumni = entries.some((entry) =>
+    normalizeConstituencyLabel(entry.label).includes("orthodontics"),
   );
-  const juDegrees = educationRecords.flatMap((education) => education.degrees || []);
-  const classYears = educationRecords
-    .map((education) => compactWhitespace(education.classOf))
-    .filter(Boolean);
+  const activeTrustee = entries.find(
+    (entry) =>
+      constituencyLabelMatches(entry.label, "Trustee") &&
+      !normalizeConstituencyLabel(entry.label).includes("former") &&
+      isActiveConstituency(entry),
+  );
+  const formerTrustee = entries.find((entry) => {
+    const normalized = normalizeConstituencyLabel(entry.label);
+    return (
+      (constituencyLabelMatches(entry.label, "Former Trustee") ||
+        normalized.includes("trustee former")) &&
+      entry.end
+    );
+  });
+  const activeEmployee =
+    entries.find(
+      (entry) =>
+        constituencyLabelMatches(entry.label, "Employee") &&
+        !normalizeConstituencyLabel(entry.label).includes("former") &&
+        isActiveConstituency(entry),
+    ) ||
+    (businessOrg === "jacksonville university"
+      ? { label: "Employee", normalized: "employee", start: null, end: null }
+      : null);
+  const formerEmployee = entries.find((entry) => {
+    const normalized = normalizeConstituencyLabel(entry.label);
+    return (
+      normalized.includes("employee former") ||
+      constituencyLabelMatches(entry.label, "Employee - Former") ||
+      (constituencyLabelMatches(entry.label, "Employee") && Boolean(entry.end))
+    );
+  });
+  const currentParent = findConstituencyEntry(entries, "Parent - Current");
+  const formerParent = findConstituencyEntry(entries, "Parent - Former");
+  const friend = findConstituencyEntry(entries, "Friend");
+  const totalGiving = Number(lifetimeGiving?.totalGiving || 0);
+  const hasGiving = Number.isFinite(totalGiving) && totalGiving > 0;
   const varsitySports = educationRecords
     .filter((education) => normalizeLabel(education?.attribution) === "varsity sports")
     .map((education) => compactWhitespace(education?.sport))
     .filter(Boolean);
-  const identityPhrases = [];
 
-  if (primaryIdentity === "Employee" && businessOrg === "jacksonville university") {
-    identityPhrases.push("is an employee of Jacksonville University");
-  } else if (hasBachelorAlumni || hasGraduateAlumni || hasOrthodonticsAlumni) {
-    identityPhrases.push("is a Jacksonville University graduate");
-  } else if (primaryIdentity === "Trustee") {
-    identityPhrases.push("has served Jacksonville University as a trustee");
-  } else if (primaryIdentity === "Parent – Current") {
-    identityPhrases.push("is connected to Jacksonville University as a current parent");
-  } else if (primaryIdentity === "Parent – Former") {
-    identityPhrases.push("is connected to Jacksonville University as a former parent");
-  } else if (primaryIdentity === "Employee") {
-    identityPhrases.push("is connected to Jacksonville University as an employee");
-  } else if (primaryIdentity === "Employee – Former") {
-    identityPhrases.push("has a past connection to Jacksonville University as an employee");
-  } else if (primaryIdentity === "Parent Non-Graduate") {
-    identityPhrases.push("is connected to Jacksonville University through family");
-  } else {
-    identityPhrases.push("has a relationship with Jacksonville University");
+  const phrases = [];
+
+  if (activeTrustee) {
+    phrases.push("currently serves on Jacksonville University's Board of Trustees");
+  } else if (formerTrustee) {
+    phrases.push("is a member of JU's Society of Trustees");
   }
 
-  const identityDetails = [];
-  if (juDegrees.length) {
-    identityDetails.push(formatSentenceList(juDegrees.map(compactWhitespace).filter(Boolean)));
-  }
-  if (classYears.length) {
-    identityDetails.push(
-      `class ${formatSentenceList(classYears.map((year) => String(year)))}`,
-    );
-  }
   if (educationRecords.length >= 2) {
-    identityDetails.push("Double Dolphin");
+    phrases.push(
+      "is a Double Dolphin, having earned both undergraduate and graduate degrees from JU",
+    );
+  } else if (hasBachelorAlumni && hasGraduateAlumni) {
+    phrases.push(
+      "is a Double Dolphin, having earned both undergraduate and graduate degrees from JU",
+    );
+  } else if (hasGraduateAlumni) {
+    phrases.push(`is a JU graduate ${alumnNoun}`);
+  } else if (hasBachelorAlumni) {
+    phrases.push(`is a JU ${alumnNoun}`);
+  } else if (hasOrthodonticsAlumni) {
+    phrases.push(`is a JU ${alumnNoun}`);
   }
+
   if (spouseSummary?.isAlumniSpouse) {
-    identityDetails.push("part of a Dolphin Couple");
+    phrases.push("is part of a Dolphin Couple");
   }
   if (varsitySports.length) {
-    identityDetails.push(`with a varsity connection in ${formatSentenceList(varsitySports)}`);
+    phrases.push(`has a varsity connection in ${formatSentenceList(varsitySports)}`);
   }
 
-  let sentence = `${name} ${identityPhrases[0]}`;
-  if (identityDetails.length) {
-    sentence += `, ${identityDetails.join(", ")}`;
+  if (activeEmployee) {
+    const role = compactWhitespace(primaryBusinessRelationship?.position);
+    phrases.push(
+      role
+        ? `is a current JU employee, serving as ${role.toLowerCase()}`
+        : "is a current JU employee",
+    );
+  } else if (formerEmployee) {
+    phrases.push("previously worked at JU");
   }
-  sentence += ".";
 
-  return sentence;
+  if (currentParent) {
+    const expectedYear = extractConstituencyYear(currentParent.end);
+    phrases.push(
+      expectedYear
+        ? `is the parent of a current JU student expected to graduate in ${expectedYear}`
+        : "is the parent of a current JU student",
+    );
+  } else if (formerParent) {
+    const graduationYear = extractConstituencyYear(formerParent.start);
+    phrases.push(
+      graduationYear
+        ? `is the parent of a JU graduate from ${graduationYear}`
+        : "is the parent of a JU graduate",
+    );
+  }
+
+  if (friend) {
+    phrases.push(hasGiving ? "is a donor and supporter of JU" : "is currently a prospect");
+  }
+
+  if (!phrases.length) {
+    const meaningfulLabels = labels
+      .map((label) => compactWhitespace(label))
+      .filter((label) => label && !["individual", "organization"].includes(normalizeLabel(label)));
+    if (meaningfulLabels.length) {
+      phrases.push("has a documented JU connection");
+    }
+  }
+
+  return formatRelationshipSentence(name, phrases);
 }
 
 function buildBusinessSentence(name, primaryBusinessRelationship) {
@@ -870,17 +1059,23 @@ function buildProspectSummaryNarrative({
   lastGiftDate,
   workspaceUser,
 }) {
+  const constituencyEntries = getConstituencyEntries(constituent, educationRecords);
   const constituencyLabels = getConstituencyLabels(constituent, educationRecords);
   const name = getDisplayName(constituent);
   const identitySentence = buildIdentitySentence({
     constituent,
+    constituencyEntries,
     constituencyLabels,
     educationRecords,
     spouseSummary: familySummary?.spouse,
     primaryBusinessRelationship,
+    lifetimeGiving,
   });
 
-  const businessSentence = buildBusinessSentence(name, primaryBusinessRelationship);
+  const businessSentence =
+    normalizeLabel(primaryBusinessRelationship?.organizationName) === "jacksonville university"
+      ? null
+      : buildBusinessSentence(name, primaryBusinessRelationship);
   const givingSentence = buildGivingSentence({
     name,
     lifetimeGiving,
