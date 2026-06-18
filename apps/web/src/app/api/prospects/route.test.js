@@ -169,6 +169,9 @@ describe("prospects route", () => {
         createNew: false,
       }),
     );
+    expect(sqlMockImpl.mock.calls.map((call) => call[0].join(" ")).join("\n")).not.toContain(
+      "IS NOT NULL",
+    );
   });
 
   it("returns an existing active top prospect as a successful add", async () => {

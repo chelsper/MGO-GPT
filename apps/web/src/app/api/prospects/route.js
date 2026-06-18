@@ -477,24 +477,48 @@ export async function POST(request) {
       createNew: false,
     });
 
-    const existingProspect = await sql`
-      SELECT
-        p.*,
-        c.blackbaud_constituent_id AS linked_blackbaud_constituent_id
-      FROM prospects p
-      LEFT JOIN constituents c ON c.id = p.constituent_id
-      WHERE
-        p.user_id = ${user.id}
-        AND (
-          (${constituent?.id || null} IS NOT NULL AND p.constituent_id = ${constituent?.id || null})
-          OR (
-            ${blackbaudConstituentId || null} IS NOT NULL
-            AND c.blackbaud_constituent_id = ${blackbaudConstituentId || null}
+    let existingProspect = [];
+    if (constituent?.id && blackbaudConstituentId) {
+      existingProspect = await sql`
+        SELECT
+          p.*,
+          c.blackbaud_constituent_id AS linked_blackbaud_constituent_id
+        FROM prospects p
+        LEFT JOIN constituents c ON c.id = p.constituent_id
+        WHERE
+          p.user_id = ${user.id}
+          AND (
+            p.constituent_id = ${constituent.id}
+            OR c.blackbaud_constituent_id = ${blackbaudConstituentId}
           )
-        )
-      ORDER BY p.updated_at DESC, p.created_at DESC
-      LIMIT 1
-    `;
+        ORDER BY p.updated_at DESC, p.created_at DESC
+        LIMIT 1
+      `;
+    } else if (constituent?.id) {
+      existingProspect = await sql`
+        SELECT
+          p.*,
+          c.blackbaud_constituent_id AS linked_blackbaud_constituent_id
+        FROM prospects p
+        LEFT JOIN constituents c ON c.id = p.constituent_id
+        WHERE p.user_id = ${user.id}
+          AND p.constituent_id = ${constituent.id}
+        ORDER BY p.updated_at DESC, p.created_at DESC
+        LIMIT 1
+      `;
+    } else if (blackbaudConstituentId) {
+      existingProspect = await sql`
+        SELECT
+          p.*,
+          c.blackbaud_constituent_id AS linked_blackbaud_constituent_id
+        FROM prospects p
+        LEFT JOIN constituents c ON c.id = p.constituent_id
+        WHERE p.user_id = ${user.id}
+          AND c.blackbaud_constituent_id = ${blackbaudConstituentId}
+        ORDER BY p.updated_at DESC, p.created_at DESC
+        LIMIT 1
+      `;
+    }
 
     if (existingProspect.length > 0) {
       const existing = existingProspect[0];
@@ -512,7 +536,7 @@ export async function POST(request) {
           status = 'Active',
           priority_order = ${nextOrder},
           expected_close_fy = COALESCE(expected_close_fy, ${normalizedExpectedCloseFY}),
-          ask_amount = COALESCE(ask_amount, ${normalizedAskAmount}),
+          ask_amount = COALESCE(ask_amount, ${normalizedAskAmount}::NUMERIC),
           ask_type = COALESCE(NULLIF(ask_type, ''), ${normalizedAskType}),
           updated_at = NOW()
         WHERE id = ${existing.id}
