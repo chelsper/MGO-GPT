@@ -123,4 +123,51 @@ describe("prospects route", () => {
     expect(payload[0].latest_blackbaud_activity_at).toBe("2026-05-20T09:30:00.000Z");
     expect(payload[0].latest_activity_at).toBe("2026-05-20T09:30:00.000Z");
   });
+
+  it("creates a top prospect with only a name and Blackbaud constituent link", async () => {
+    const { POST } = await import("./route.js");
+
+    resolveConstituentMock.mockResolvedValue({
+      id: 12,
+      blackbaud_constituent_id: "572405",
+    });
+    queueSqlResult([{ max_order: 3 }]);
+    queueSqlResult([]);
+    queueSqlResult([
+      {
+        id: 21,
+        user_id: 44,
+        constituent_id: 12,
+        prospect_name: "Megan Piggott",
+        expected_close_fy: "FY26",
+        ask_amount: null,
+        ask_type: "Unspecified",
+        priority_order: 4,
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prospectName: "Megan Piggott",
+        blackbaudConstituentId: "572405",
+      }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.prospect_name).toBe("Megan Piggott");
+    expect(payload.ask_amount).toBeNull();
+    expect(payload.ask_type).toBe("Unspecified");
+    expect(resolveConstituentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Megan Piggott",
+        blackbaudConstituentId: "572405",
+        createNew: false,
+      }),
+    );
+  });
 });

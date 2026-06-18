@@ -26,6 +26,13 @@ function maxIsoTimestamp(...values) {
   }, null);
 }
 
+function getCurrentFiscalYearLabel(date = new Date()) {
+  const currentYear = date.getFullYear();
+  const currentMonth = date.getMonth();
+  const fiscalEndYear = currentMonth >= 6 ? currentYear + 1 : currentYear;
+  return `FY${String(fiscalEndYear).slice(-2)}`;
+}
+
 function getBlackbaudActionActivityAt(action) {
   return (
     action?.completed_date ||
@@ -430,12 +437,26 @@ export async function POST(request) {
       blackbaudConstituentId,
       nextActionText,
       nextActionDueDate,
-    } =
-      body;
+    } = body;
+    const normalizedProspectName = String(prospectName || "").trim();
+    const normalizedExpectedCloseFY =
+      String(expectedCloseFY || "").trim() || getCurrentFiscalYearLabel();
+    const normalizedAskType = String(askType || "").trim() || "Unspecified";
+    const normalizedAskAmount =
+      askAmount !== undefined && askAmount !== null && String(askAmount).trim() !== ""
+        ? Number(askAmount)
+        : null;
 
-    if (!prospectName || !expectedCloseFY || !askType) {
+    if (!normalizedProspectName) {
       return Response.json(
-        { error: "Missing required fields" },
+        { error: "Prospect name is required" },
+        { status: 400 },
+      );
+    }
+
+    if (normalizedAskAmount !== null && !Number.isFinite(normalizedAskAmount)) {
+      return Response.json(
+        { error: "Ask amount must be a valid number" },
         { status: 400 },
       );
     }
@@ -450,7 +471,7 @@ export async function POST(request) {
 
     const constituent = await resolveConstituent({
       userId: user.id,
-      name: prospectName,
+      name: normalizedProspectName,
       constituentId,
       blackbaudConstituentId,
       createNew: false,
@@ -487,8 +508,8 @@ export async function POST(request) {
         user_id, constituent_id, prospect_name, expected_close_fy,
         ask_amount, ask_type, priority_order, next_action_text, next_action_due_date
       ) VALUES (
-        ${user.id}, ${constituent?.id || null}, ${prospectName}, ${expectedCloseFY},
-        ${askAmount || null}, ${askType}, ${nextOrder}, ${nextActionText || null}, ${nextActionDueDate || null}
+        ${user.id}, ${constituent?.id || null}, ${normalizedProspectName}, ${normalizedExpectedCloseFY},
+        ${normalizedAskAmount}, ${normalizedAskType}, ${nextOrder}, ${nextActionText || null}, ${nextActionDueDate || null}
       )
       RETURNING *
     `;

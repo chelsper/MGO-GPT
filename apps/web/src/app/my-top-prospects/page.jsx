@@ -639,9 +639,6 @@ function getOpportunityDisplayAmount(opportunity) {
 
 function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) {
   const [name, setName] = useState(initialData?.prospectName || "");
-  const [fy, setFy] = useState(initialData?.expectedCloseFY || "FY26");
-  const [amount, setAmount] = useState(initialData?.askAmount || "");
-  const [askType, setAskType] = useState(initialData?.askType || "Major Gift");
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(
     initialData?.selectedBlackbaudMatch || null,
@@ -650,9 +647,6 @@ function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) 
   useEffect(() => {
     if (!initialData) return;
     setName(initialData.prospectName || "");
-    setFy(initialData.expectedCloseFY || "FY26");
-    setAmount(initialData.askAmount || "");
-    setAskType(initialData.askType || "Major Gift");
     setSelectedBlackbaudMatch(initialData.selectedBlackbaudMatch || null);
     setBlackbaudMatches(
       initialData.selectedBlackbaudMatch ? [initialData.selectedBlackbaudMatch] : [],
@@ -708,9 +702,6 @@ function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) 
     if (!name.trim()) return;
     onSubmit({
       prospectName: name.trim(),
-      expectedCloseFY: fy,
-      askAmount: amount ? parseFloat(amount) : null,
-      askType,
       blackbaudConstituentId:
         selectedBlackbaudMatch?.blackbaudConstituentId || null,
     });
@@ -922,112 +913,6 @@ function AddProspectModal({ onClose, onSubmit, isPending, initialData = null }) 
                 )}
               </div>
             ) : null}
-          </div>
-
-          <div style={{ marginBottom: "20px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#374151",
-                marginBottom: "6px",
-              }}
-            >
-              Expected Close Fiscal Year
-            </label>
-            <select
-              value={fy}
-              onChange={(e) => setFy(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1px solid #D1D5DB",
-                borderRadius: "8px",
-                fontSize: "14px",
-                boxSizing: "border-box",
-                backgroundColor: "white",
-              }}
-            >
-              {FY_OPTIONS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ marginBottom: "20px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#374151",
-                marginBottom: "6px",
-              }}
-            >
-              Ask Amount
-            </label>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span
-                style={{
-                  fontSize: "16px",
-                  fontWeight: "600",
-                  color: "#374151",
-                }}
-              >
-                $
-              </span>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-                step="0.01"
-                style={{
-                  flex: 1,
-                  padding: "10px 14px",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginBottom: "24px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#374151",
-                marginBottom: "6px",
-              }}
-            >
-              Ask Type
-            </label>
-            <select
-              value={askType}
-              onChange={(e) => setAskType(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1px solid #D1D5DB",
-                borderRadius: "8px",
-                fontSize: "14px",
-                boxSizing: "border-box",
-                backgroundColor: "white",
-              }}
-            >
-              {ASK_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
           </div>
 
           <button
@@ -6007,13 +5892,20 @@ export default function MyTopProspectsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to add prospect");
-      return res.json();
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to add prospect");
+      }
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (createdProspect) => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      updateWorkspaceTab("top-prospects");
+      if (createdProspect?.id) {
+        setSelectedProspectId(Number(createdProspect.id));
+      }
       setShowAddModal(false);
       setAddProspectInitialData(null);
     },
