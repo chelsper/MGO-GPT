@@ -545,6 +545,7 @@ export default function DataRequestsPage() {
                 >
                   <option value="Contact info update">Contact info update</option>
                   <option value="Record update">Record update</option>
+                  <option value="Research request">Research request</option>
                 </select>
               </label>
             </div>

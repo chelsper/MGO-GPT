@@ -2777,6 +2777,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   >
                     <option value="Contact info update">Contact info update</option>
                     <option value="Record update">Record update</option>
+                    <option value="Research request">Research request</option>
                   </select>
                 </label>
                 <label style={{ display: "grid", gap: "6px", color: "#111827", fontSize: "13px", fontWeight: 700 }}>

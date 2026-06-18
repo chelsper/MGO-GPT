@@ -12,6 +12,7 @@ export const DATA_REQUEST_STATUSES = new Set([
 
 export const DATA_REQUEST_TYPE_CONTACT_INFO = "Contact info update";
 export const DATA_REQUEST_TYPE_RECORD_UPDATE = "Record update";
+export const DATA_REQUEST_TYPE_RESEARCH = "Research request";
 
 export function normalizeDataRequestStatus(value, fallback = DATA_REQUEST_STATUS_OPEN) {
   const normalized = String(value || "").trim();

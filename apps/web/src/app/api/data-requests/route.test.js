@@ -93,6 +93,42 @@ describe("data requests route", () => {
     expect(payload.constituent_name).toBe("Megan Piggott");
   });
 
+  it("creates a research request from a constituent record", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([]);
+    queueSqlResult([
+      {
+        id: 13,
+        requester_user_id: 44,
+        owner_user_id: 44,
+        blackbaud_constituent_id: "572405",
+        constituent_name: "Megan Piggott",
+        request_type: "Research request",
+        request_note: "Please research capacity and employment.",
+        status: "Open",
+      },
+    ]);
+
+    const response = await POST(
+      new Request("https://example.com/api/data-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          constituentName: "Megan Piggott",
+          blackbaudConstituentId: "572405",
+          requestType: "Research request",
+          requestNote: "Please research capacity and employment.",
+          sourceContext: "prospect_detail",
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.request_type).toBe("Research request");
+  });
+
   it("lets Advancement Services view the shared queue", async () => {
     const { GET } = await import("./route.js");
 
