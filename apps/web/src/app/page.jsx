@@ -43,6 +43,12 @@ const MGO_ACTIONS = [
     section: "requestsReview",
   },
   {
+    title: "Request Data Update",
+    href: "/data-requests",
+    description: "Send contact updates or corrected constituent information to Advancement Services.",
+    section: "requestsReview",
+  },
+  {
     title: "Suggest New Constituent",
     href: "/new-constituent",
     description: "Add a new constituent lead or suggest a record for review.",
@@ -61,6 +67,12 @@ const REVIEWER_ACTIONS = [
     title: "List Request Queue",
     href: "/list-requests",
     description: "Prioritize DevData requests in one shared Advancement Services queue.",
+    section: "requestsReview",
+  },
+  {
+    title: "Data Request Queue",
+    href: "/data-requests",
+    description: "Work contact updates and constituent record corrections from MGOs.",
     section: "requestsReview",
   },
   {
@@ -111,6 +123,7 @@ const MGO_NAV_ITEMS = [
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
   { label: "Request List from DevData", href: "/request-list", section: "Requests & Review" },
+  { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
   { label: "Suggest New Constituent", href: "/new-constituent", section: "Requests & Review" },
 ];
 
@@ -121,6 +134,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
   { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
+  { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
 ];
 
 const ADMIN_WORKSPACE_ITEMS = [

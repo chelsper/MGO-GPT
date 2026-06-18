@@ -1245,6 +1245,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     useState("");
   const [showOpportunityForm, setShowOpportunityForm] = useState(false);
   const [showDiscussionForm, setShowDiscussionForm] = useState(false);
+  const [showDataRequestForm, setShowDataRequestForm] = useState(false);
+  const [dataRequestType, setDataRequestType] = useState("Contact info update");
+  const [dataRequestNote, setDataRequestNote] = useState("");
+  const [dataRequestProvidedInfo, setDataRequestProvidedInfo] = useState("");
+  const [dataRequestFeedback, setDataRequestFeedback] = useState("");
+  const [dataRequestError, setDataRequestError] = useState("");
   const [discussionSubject, setDiscussionSubject] = useState("");
   const [discussionBody, setDiscussionBody] = useState("");
   const [discussionDueDate, setDiscussionDueDate] = useState("");
@@ -1283,6 +1289,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setShowNextStepForm(false);
       setShowOpportunityForm(false);
       setShowDiscussionForm(false);
+      setShowDataRequestForm(false);
       return;
     }
     if (initialPanel === "next-step") {
@@ -1290,6 +1297,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setShowActionForm(false);
       setShowOpportunityForm(false);
       setShowDiscussionForm(false);
+      setShowDataRequestForm(false);
       return;
     }
     if (initialPanel === "discussion") {
@@ -1297,6 +1305,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setShowActionForm(false);
       setShowNextStepForm(false);
       setShowOpportunityForm(false);
+      setShowDataRequestForm(false);
       return;
     }
     if (initialPanel === "opportunity") {
@@ -1304,6 +1313,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setShowActionForm(false);
       setShowNextStepForm(false);
       setShowDiscussionForm(false);
+      setShowDataRequestForm(false);
       return;
     }
   }, [initialPanel, prospectId, readOnly]);
@@ -1446,6 +1456,34 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+    },
+  });
+
+  const dataRequestMutation = useMutation({
+    mutationFn: async (body) => {
+      const response = await fetch("/api/data-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to send data request");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      setDataRequestFeedback("Sent to the Advancement Services data request queue.");
+      setDataRequestError("");
+      setDataRequestNote("");
+      setDataRequestProvidedInfo("");
+      setShowDataRequestForm(false);
+    },
+    onError: (mutationError) => {
+      setDataRequestFeedback("");
+      setDataRequestError(
+        mutationError instanceof Error ? mutationError.message : "Failed to send data request",
+      );
     },
   });
 
@@ -1950,6 +1988,23 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     });
   };
 
+  const saveDataRequest = () => {
+    setDataRequestError("");
+    setDataRequestFeedback("");
+    dataRequestMutation.mutate({
+      prospectId,
+      constituentId: prospect?.constituent_id || null,
+      blackbaudConstituentId: linkedBlackbaudConstituentId || null,
+      constituentName: prospect?.prospect_name || "",
+      requestType: dataRequestType,
+      requestNote: dataRequestNote,
+      providedData: dataRequestProvidedInfo.trim()
+        ? { details: dataRequestProvidedInfo.trim() }
+        : null,
+      sourceContext: "prospect_detail",
+    });
+  };
+
   const toggleDiscussionStatus = (discussionItem) => {
     updateDiscussionMutation.mutate({
       id: discussionItem.id,
@@ -2451,6 +2506,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       setShowNextStepForm(false);
                       setShowOpportunityForm(false);
                       setShowDiscussionForm(false);
+                      setShowDataRequestForm(false);
                     }}
                     style={{
                       padding: "10px 16px",
@@ -2471,6 +2527,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       setShowActionForm(false);
                       setShowOpportunityForm(false);
                       setShowDiscussionForm(false);
+                      setShowDataRequestForm(false);
                     }}
                     style={{
                       padding: "10px 16px",
@@ -2491,6 +2548,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       setShowActionForm(false);
                       setShowNextStepForm(false);
                       setShowDiscussionForm(false);
+                      setShowDataRequestForm(false);
                     }}
                     style={{
                       padding: "10px 16px",
@@ -2511,6 +2569,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       setShowActionForm(false);
                       setShowNextStepForm(false);
                       setShowOpportunityForm(false);
+                      setShowDataRequestForm(false);
                     }}
                     style={{
                       padding: "10px 16px",
@@ -2528,6 +2587,29 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   >
                     <MessageSquare size={14} />
                     Team Discussion
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDataRequestForm(true);
+                      setShowActionForm(false);
+                      setShowNextStepForm(false);
+                      setShowOpportunityForm(false);
+                      setShowDiscussionForm(false);
+                      setDataRequestFeedback("");
+                      setDataRequestError("");
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      backgroundColor: "#ECFDF5",
+                      color: "#047857",
+                      border: "1px solid #A7F3D0",
+                      borderRadius: "10px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Request Data Update
                   </button>
                 </div>
                 <div
@@ -2646,6 +2728,135 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                 </div>
               )}
             </>
+          ) : null}
+
+          {showDataRequestForm && !readOnly ? (
+            <div
+              style={{
+                ...workspaceCardStyle,
+                marginBottom: "24px",
+                backgroundColor: "#F0FDF4",
+                borderColor: "#BBF7D0",
+              }}
+            >
+              <p style={{ ...sectionEyebrowStyle, color: "#047857" }}>Data request / update</p>
+              <p style={{ margin: "0 0 14px", color: "#065F46", lineHeight: 1.6 }}>
+                Send corrected contact information or other constituent record updates to
+                Advancement Services. This does not write directly to NXT.
+              </p>
+              <div style={{ display: "grid", gap: "12px" }}>
+                <label style={{ display: "grid", gap: "6px", color: "#111827", fontSize: "13px", fontWeight: 700 }}>
+                  Request type
+                  <select
+                    value={dataRequestType}
+                    onChange={(event) => setDataRequestType(event.target.value)}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #A7F3D0",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    <option value="Contact info update">Contact info update</option>
+                    <option value="Record update">Record update</option>
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: "6px", color: "#111827", fontSize: "13px", fontWeight: 700 }}>
+                  What should Advancement Services update or verify?
+                  <textarea
+                    rows={4}
+                    value={dataRequestNote}
+                    onChange={(event) => setDataRequestNote(event.target.value)}
+                    placeholder="Example: Please update the preferred phone number, or verify the employer shown in NXT."
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #A7F3D0",
+                      resize: "vertical",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px", color: "#111827", fontSize: "13px", fontWeight: 700 }}>
+                  Updated information, if you already have it
+                  <textarea
+                    rows={3}
+                    value={dataRequestProvidedInfo}
+                    onChange={(event) => setDataRequestProvidedInfo(event.target.value)}
+                    placeholder="Paste the new address, phone, email, employer, title, or other corrected data here."
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #A7F3D0",
+                      resize: "vertical",
+                    }}
+                  />
+                </label>
+              </div>
+              {dataRequestError ? (
+                <div style={{ marginTop: "12px", color: "#991B1B", fontSize: "13px", fontWeight: 700 }}>
+                  {dataRequestError}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px" }}>
+                <button
+                  type="button"
+                  disabled={
+                    dataRequestMutation.isPending ||
+                    (!dataRequestNote.trim() && !dataRequestProvidedInfo.trim())
+                  }
+                  onClick={saveDataRequest}
+                  style={{
+                    padding: "11px 16px",
+                    border: "none",
+                    borderRadius: "12px",
+                    backgroundColor:
+                      dataRequestMutation.isPending ||
+                      (!dataRequestNote.trim() && !dataRequestProvidedInfo.trim())
+                        ? "#94A3B8"
+                        : "#047857",
+                    color: "white",
+                    fontWeight: 800,
+                    cursor:
+                      dataRequestMutation.isPending ||
+                      (!dataRequestNote.trim() && !dataRequestProvidedInfo.trim())
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                >
+                  {dataRequestMutation.isPending ? "Sending..." : "Send to Advancement Services"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDataRequestForm(false)}
+                  style={{
+                    padding: "11px 16px",
+                    borderRadius: "12px",
+                    border: "1px solid #A7F3D0",
+                    backgroundColor: "white",
+                    color: "#047857",
+                    fontWeight: 800,
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {dataRequestFeedback ? (
+            <div
+              style={{
+                marginBottom: "18px",
+                padding: "12px 14px",
+                borderRadius: "12px",
+                backgroundColor: "#ECFDF5",
+                border: "1px solid #A7F3D0",
+                color: "#047857",
+                fontWeight: 700,
+              }}
+            >
+              {dataRequestFeedback}
+            </div>
           ) : null}
 
           {editMode ? (

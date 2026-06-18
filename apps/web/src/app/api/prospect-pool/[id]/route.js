@@ -15,6 +15,10 @@ import {
   searchBlackbaudConstituents,
   updateBlackbaudConstituentCustomField,
 } from "@/app/api/utils/blackbaud";
+import {
+  DATA_REQUEST_TYPE_CONTACT_INFO,
+  upsertOpenDataRequest,
+} from "@/app/api/utils/dataRequests";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   applyAssignmentStateToProspectPool,
@@ -1131,8 +1135,27 @@ export async function PATCH(request, { params }) {
       RETURNING *
     `;
 
+    let dataRequest = null;
+    if (needsContactInfo) {
+      dataRequest = await upsertOpenDataRequest({
+        sql,
+        requesterUserId: currentUser.id,
+        ownerUserId: entry.assigned_user_id || workspaceUser.id,
+        prospectPoolId: entryId,
+        constituentId: entry.constituent_id || null,
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+        constituentName: entry.prospect_name,
+        requestType: DATA_REQUEST_TYPE_CONTACT_INFO,
+        requestNote:
+          contactInfoRequestNote ||
+          "Please verify or update this constituent's contact information.",
+        sourceContext: "prospect_pool",
+      });
+    }
+
     return Response.json({
       ...updated[0],
+      data_request_id: dataRequest?.id || null,
       solicitor_assignment_sync_debug:
         solicitorAssignmentSyncDebug || updated[0]?.solicitor_assignment_sync_debug || null,
     });

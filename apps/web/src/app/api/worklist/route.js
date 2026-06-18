@@ -25,7 +25,7 @@ export async function GET(request) {
         : isReviewerRole(user.role);
 
     if (isReviewer) {
-      const [submissionCounts, clarificationThreads, poolItems, discussionItems] =
+      const [submissionCounts, clarificationThreads, poolItems, discussionItems, dataRequests] =
         await Promise.all([
           sql`
             SELECT
@@ -76,6 +76,17 @@ export async function GET(request) {
               di.updated_at DESC
             LIMIT 6
           `,
+          sql`
+            SELECT
+              dcr.*,
+              requester.name AS requester_name,
+              requester.email AS requester_email
+            FROM data_change_requests dcr
+            LEFT JOIN users requester ON requester.id = dcr.requester_user_id
+            WHERE dcr.status IN ('Open', 'In Progress')
+            ORDER BY dcr.updated_at DESC
+            LIMIT 6
+          `,
         ]);
 
       return Response.json({
@@ -85,11 +96,13 @@ export async function GET(request) {
           clarificationRequests: Number(submissionCounts[0]?.clarification_count || 0),
           approvedToday: Number(submissionCounts[0]?.approved_count || 0),
           openDiscussionItems: discussionItems.length,
+          openDataRequests: dataRequests.length,
           poolNeedsAttention: poolItems.length,
         },
         clarificationThreads,
         poolItems,
         discussionItems,
+        dataRequests,
       });
     }
 

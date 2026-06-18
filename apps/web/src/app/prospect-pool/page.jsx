@@ -237,6 +237,7 @@ export default function ProspectPoolPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
   const [retryingSyncId, setRetryingSyncId] = useState(null);
+  const [clearedMgoRequestIds, setClearedMgoRequestIds] = useState(() => new Set());
   const [exportingQueue, setExportingQueue] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -654,6 +655,12 @@ export default function ProspectPoolPage() {
   }, [blackbaudSummaries, visibleEntries]);
 
   function setDraft(id, updates) {
+    setClearedMgoRequestIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
     setDrafts((current) => ({
       ...current,
       [id]: {
@@ -902,11 +909,17 @@ export default function ProspectPoolPage() {
       setDrafts((current) =>
         movedToPortfolio
           ? Object.fromEntries(Object.entries(current).filter(([entryId]) => entryId !== String(id)))
-          : {
-              ...current,
-              [id]: { ...CLEARED_MGO_REQUEST_DRAFT },
-            },
+          : Object.fromEntries(Object.entries(current).filter(([entryId]) => entryId !== String(id))),
       );
+      setClearedMgoRequestIds((current) => {
+        const next = new Set(current);
+        if (movedToPortfolio) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      });
       const solicitorMessage = solicitorRequested
         ? getSolicitorAssignmentPresentation(updated.solicitor_assignment_sync_state)
         : null;
@@ -922,6 +935,9 @@ export default function ProspectPoolPage() {
       }
       if (mgogptDispositionMessage) {
         messageParts.push(mgogptDispositionMessage.label);
+      }
+      if (updated.data_request_id) {
+        messageParts.push("Sent to the Advancement Services data request queue.");
       }
       if (movedToPortfolio) {
         messageParts.push("This prospect was removed from your pool and should now appear in your portfolio.");
@@ -1841,19 +1857,32 @@ export default function ProspectPoolPage() {
             const stateColors = getStateColors(stateLabel);
             const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
             const draft = drafts[entry.id];
-            const needsContactInfo = draft?.needsContactInfo ?? entry.needs_contact_info;
-            const solicitorRequested = draft?.solicitorRequested ?? entry.solicitor_requested;
+            const useClearedMgoRequestDraft = !isReviewer && !draft && clearedMgoRequestIds.has(entry.id);
+            const needsContactInfo = useClearedMgoRequestDraft
+              ? CLEARED_MGO_REQUEST_DRAFT.needsContactInfo
+              : draft?.needsContactInfo ?? entry.needs_contact_info;
+            const solicitorRequested = useClearedMgoRequestDraft
+              ? CLEARED_MGO_REQUEST_DRAFT.solicitorRequested
+              : draft?.solicitorRequested ?? entry.solicitor_requested;
             const solicitorAssignmentValue =
-              draft?.solicitorAssignmentValue ??
-              (entry.solicitor_assignment_value != null
-                ? String(entry.solicitor_assignment_value)
-                : "");
+              useClearedMgoRequestDraft
+                ? CLEARED_MGO_REQUEST_DRAFT.solicitorAssignmentValue
+                : draft?.solicitorAssignmentValue ??
+                  (entry.solicitor_assignment_value != null
+                    ? String(entry.solicitor_assignment_value)
+                    : "");
             const contactInfoRequestNote =
-              draft?.contactInfoRequestNote ?? entry.contact_info_request_note ?? "";
+              useClearedMgoRequestDraft
+                ? CLEARED_MGO_REQUEST_DRAFT.contactInfoRequestNote
+                : draft?.contactInfoRequestNote ?? entry.contact_info_request_note ?? "";
             const mgogptDispositionValue =
-              draft?.mgogptDispositionValue ?? entry.mgogpt_disposition_value ?? "";
+              useClearedMgoRequestDraft
+                ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionValue
+                : draft?.mgogptDispositionValue ?? entry.mgogpt_disposition_value ?? "";
             const mgogptDispositionComment =
-              draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
+              useClearedMgoRequestDraft
+                ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionComment
+                : draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
             const blackbaudSummaryState = entry.linked_blackbaud_constituent_id
               ? blackbaudSummaries[entry.linked_blackbaud_constituent_id]
               : null;

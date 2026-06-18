@@ -330,6 +330,98 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS data_change_requests (
+        id BIGSERIAL PRIMARY KEY,
+        requester_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        prospect_id BIGINT REFERENCES prospects(id) ON DELETE SET NULL,
+        prospect_pool_id BIGINT REFERENCES prospect_pool(id) ON DELETE SET NULL,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        blackbaud_constituent_id TEXT,
+        constituent_name TEXT,
+        request_type TEXT NOT NULL DEFAULT 'Record update',
+        request_note TEXT,
+        provided_data JSONB,
+        source_context TEXT,
+        status TEXT NOT NULL DEFAULT 'Open',
+        reviewer_notes TEXT,
+        reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS requester_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS prospect_id BIGINT REFERENCES prospects(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS prospect_pool_id BIGINT REFERENCES prospect_pool(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS constituent_name TEXT
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS request_type TEXT NOT NULL DEFAULT 'Record update'
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS request_note TEXT
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS provided_data JSONB
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS source_context TEXT
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Open'
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS reviewer_notes TEXT
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE data_change_requests
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+
+    await sql`
       ALTER TABLE prospect_pool
       ADD COLUMN IF NOT EXISTS assigned_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
     `;
@@ -1142,6 +1234,18 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_prospect_primary
       ON pending_actions (owner_user_id, prospect_id, is_primary, status, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_data_change_requests_status_updated
+      ON data_change_requests (status, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_data_change_requests_requester
+      ON data_change_requests (requester_user_id, status, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_data_change_requests_owner
+      ON data_change_requests (owner_user_id, status, updated_at DESC)
     `;
 
     await sql`
