@@ -71,7 +71,7 @@ function buildMinimalBlackbaudActionPayload(payload) {
     return payload;
   }
 
-  return {
+  const minimalPayload = {
     constituent_id: payload.constituent_id,
     date: payload.date,
     category: payload.category,
@@ -79,6 +79,12 @@ function buildMinimalBlackbaudActionPayload(payload) {
     summary: payload.summary,
     description: payload.description,
   };
+
+  if (payload.opportunity_id) {
+    minimalPayload.opportunity_id = payload.opportunity_id;
+  }
+
+  return minimalPayload;
 }
 
 function buildActionCreateFallbackVariants(payload) {
@@ -99,6 +105,7 @@ function buildActionCreateFallbackVariants(payload) {
         category: payload.category,
         summary: payload.summary,
         description: payload.description,
+        ...(payload.opportunity_id ? { opportunity_id: payload.opportunity_id } : {}),
       },
     },
     {
@@ -108,6 +115,7 @@ function buildActionCreateFallbackVariants(payload) {
         date: payload.date,
         category: payload.category,
         summary: payload.summary,
+        ...(payload.opportunity_id ? { opportunity_id: payload.opportunity_id } : {}),
       },
     },
   ];
@@ -667,6 +675,7 @@ export async function POST(request, { params }) {
                   actionDate,
                   interactionType,
                   fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
+                  opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
                 }),
               });
             } catch (metadataError) {

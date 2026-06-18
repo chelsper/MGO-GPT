@@ -1136,6 +1136,7 @@ export function buildBlackbaudActionMetadataPayload({
   actionDate,
   interactionType,
   fundraiserIds,
+  opportunityId,
 }) {
   const normalizedActionType = String(interactionType || "").trim() || undefined;
 
@@ -1143,6 +1144,7 @@ export function buildBlackbaudActionMetadataPayload({
     type: normalizedActionType,
     completed: true,
     completed_date: formatBlackbaudActionDate(actionDate),
+    opportunity_id: opportunityId ? String(opportunityId) : undefined,
     fundraisers: Array.isArray(fundraiserIds)
       ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)
       : undefined,

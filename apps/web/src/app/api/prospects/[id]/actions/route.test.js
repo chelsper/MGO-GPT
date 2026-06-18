@@ -297,6 +297,94 @@ describe("prospect action route", () => {
     });
   });
 
+  it("preserves the linked NXT opportunity through action create fallbacks", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        prospect_name: "Pat Prospect",
+        constituent_id: 88,
+        linked_blackbaud_constituent_id: "234684",
+        blackbaud_constituent_id: "234684",
+        next_action_completed_at: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 301,
+        prospect_id: 7,
+        blackbaud_opportunity_id: "bb-opp-301",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 906,
+        prospect_id: 7,
+        update_title: "Visit note",
+      },
+    ]);
+    queueSqlResult([]);
+
+    buildBlackbaudActionPayloadMock.mockReturnValue({
+      constituent_id: "234684",
+      date: "2026-06-18",
+      category: "Meeting",
+      direction: "Outbound",
+      summary: "Visit note",
+      description: "Notes: Good meeting",
+      opportunity_id: "bb-opp-301",
+    });
+    createBlackbaudActionMock
+      .mockRejectedValueOnce(
+        new Error(
+          'Blackbaud 404 Not Found: [{"message":"The requested operation could not be fulfilled","error_name":"RequestNotFulfilled","error_code":404}]',
+        ),
+      )
+      .mockResolvedValueOnce({
+        id: "bb-action-301",
+      });
+    getBlackbaudActionMock.mockResolvedValue({
+      id: "bb-action-301",
+      constituent_id: "234684",
+    });
+    updateBlackbaudActionMock.mockResolvedValue({ ok: true });
+
+    const request = new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionDate: "2026-06-18",
+        actionCategory: "Meeting",
+        interactionType: "Cultivation",
+        summary: "Visit note",
+        notes: "Good meeting",
+        linkedOpportunityId: 301,
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "7" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.update.id).toBe(906);
+    expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        opportunityId: "bb-opp-301",
+      }),
+    );
+    expect(createBlackbaudActionMock.mock.calls[1][0].payload).toEqual(
+      expect.objectContaining({
+        opportunity_id: "bb-opp-301",
+      }),
+    );
+    expect(buildBlackbaudActionMetadataPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        opportunityId: "bb-opp-301",
+      }),
+    );
+  });
+
   it("includes an additional fundraiser when another MGO is selected on the action form", async () => {
     const { POST } = await import("./route.js");
 
