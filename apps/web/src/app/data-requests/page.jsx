@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
+import useWorkspaceView from "@/utils/useWorkspaceView";
 import { isMgoRole, isReviewerRole } from "@/utils/workspaceRoles";
 
 const STATUS_OPTIONS = ["Open", "In Progress", "Completed", "Declined"];
@@ -33,6 +34,8 @@ function statusStyle(status) {
 
 export default function DataRequestsPage() {
   const { data: user, loading } = useUser();
+  const [profile, setProfile] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [requests, setRequests] = useState([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [loadingQueue, setLoadingQueue] = useState(true);
@@ -48,8 +51,26 @@ export default function DataRequestsPage() {
     requestNote: "",
     providedData: "",
   });
-  const isReviewer = isReviewerRole(user?.role);
-  const canCreateRequests = isMgoRole(user?.role);
+  const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
+  const { effectiveRole } = useWorkspaceView(profileRole);
+  const isReviewer = isReviewerRole(effectiveRole);
+  const canCreateRequests = isMgoRole(effectiveRole);
+
+  async function loadProfile() {
+    setLoadingProfile(true);
+    try {
+      const response = await fetch("/api/users/profile");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load profile");
+      }
+      setProfile(payload);
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : "Failed to load profile");
+    } finally {
+      setLoadingProfile(false);
+    }
+  }
 
   async function loadQueue() {
     setLoadingQueue(true);
@@ -71,9 +92,15 @@ export default function DataRequestsPage() {
 
   useEffect(() => {
     if (!loading) {
+      loadProfile();
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    if (!loading && !loadingProfile) {
       loadQueue();
     }
-  }, [loading, statusFilter]);
+  }, [loading, loadingProfile, statusFilter]);
 
   const summary = useMemo(
     () =>
@@ -185,7 +212,7 @@ export default function DataRequestsPage() {
     }
   }
 
-  if (loading || loadingQueue) {
+  if (loading || loadingProfile || loadingQueue) {
     return (
       <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#6B7280" }}>
         Loading data request queue...
