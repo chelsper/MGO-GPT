@@ -28,12 +28,25 @@ function isAllowedWorkspaceEmail(email) {
   return email.trim().toLowerCase().endsWith(`@${allowedDomain}`);
 }
 
+function getBootstrapAdminEmails() {
+  return String(
+    [
+      process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAIL,
+      process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAILS,
+    ]
+      .filter(Boolean)
+      .join(","),
+  )
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 async function getProvisioningDecision(email) {
   const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail) return { kind: "none" };
 
-  const bootstrapAdminEmail =
-    process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || "";
+  const bootstrapAdminEmails = getBootstrapAdminEmails();
 
   const { rows: existingRows } = await globalThis.__mgoAuthPool.query(
     "SELECT id, role, active FROM users WHERE email = $1 LIMIT 1",
@@ -46,7 +59,7 @@ async function getProvisioningDecision(email) {
     return { kind: "existing", role: existingRows[0].role };
   }
 
-  if (bootstrapAdminEmail && normalizedEmail === bootstrapAdminEmail) {
+  if (bootstrapAdminEmails.includes(normalizedEmail)) {
     return { kind: "bootstrap-admin", role: "admin" };
   }
 

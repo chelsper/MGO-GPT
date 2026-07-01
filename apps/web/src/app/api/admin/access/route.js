@@ -5,6 +5,7 @@ import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import {
   assertAssignableRole,
   getBootstrapAdminEmail,
+  getBootstrapAdminEmails,
   normalizeEmail,
 } from "@/app/api/utils/invitations";
 import { isAdminRole } from "@/utils/workspaceRoles";
@@ -91,6 +92,7 @@ export async function GET() {
     return Response.json({
       currentUser: user,
       bootstrapAdminEmail: getBootstrapAdminEmail() || null,
+      bootstrapAdminEmails: getBootstrapAdminEmails(),
       users,
       invitations,
     });

@@ -6,13 +6,31 @@ export function normalizeEmail(email) {
   return typeof email === "string" ? email.trim().toLowerCase() : "";
 }
 
+function parseBootstrapAdminEmails(value) {
+  return String(value || "")
+    .split(",")
+    .map((email) => normalizeEmail(email))
+    .filter(Boolean);
+}
+
+export function getBootstrapAdminEmails() {
+  return parseBootstrapAdminEmails(
+    [
+      process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAIL,
+      process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAILS,
+    ]
+      .filter(Boolean)
+      .join(","),
+  );
+}
+
 export function getBootstrapAdminEmail() {
-  return normalizeEmail(process.env.WORKSPACE_BOOTSTRAP_ADMIN_EMAIL);
+  return getBootstrapAdminEmails()[0] || "";
 }
 
 export function isBootstrapAdminEmail(email) {
   const normalized = normalizeEmail(email);
-  return Boolean(normalized) && normalized === getBootstrapAdminEmail();
+  return Boolean(normalized) && getBootstrapAdminEmails().includes(normalized);
 }
 
 export function assertAssignableRole(role) {

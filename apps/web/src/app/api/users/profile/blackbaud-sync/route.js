@@ -3,7 +3,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
-import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
+import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import { isAdminRole } from "@/utils/workspaceRoles";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
@@ -18,10 +18,8 @@ export async function POST(request) {
 
     const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
-    const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
-      Boolean(bootstrapAdminEmail) &&
-      workspaceUser?.email === bootstrapAdminEmail &&
+      isBootstrapAdminEmail(workspaceUser?.email) &&
       Boolean(workspaceUser?.blackbaud_constituent_id) &&
       isAdminRole(sessionUser?.role);
 

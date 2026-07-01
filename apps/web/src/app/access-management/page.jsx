@@ -56,6 +56,7 @@ export default function AccessManagementPage() {
   const [users, setUsers] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState("");
+  const [bootstrapAdminEmails, setBootstrapAdminEmails] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("mgo");
@@ -103,6 +104,13 @@ export default function AccessManagementPage() {
     setUsers(accessData.users || []);
     setInvitations(accessData.invitations || []);
     setBootstrapAdminEmail(accessData.bootstrapAdminEmail || "");
+    setBootstrapAdminEmails(
+      Array.isArray(accessData.bootstrapAdminEmails)
+        ? accessData.bootstrapAdminEmails
+        : accessData.bootstrapAdminEmail
+          ? [accessData.bootstrapAdminEmail]
+          : [],
+    );
   }
 
   useEffect(() => {
@@ -660,7 +668,7 @@ export default function AccessManagementPage() {
             Invite JU users into the app as MGOs, Executive Admins, or Advancement Services reviewers. The bootstrap admin account is
             controlled by the environment and can always regain access.
           </p>
-          {bootstrapAdminEmail ? (
+          {bootstrapAdminEmails.length > 0 || bootstrapAdminEmail ? (
             <div
               style={{
                 marginTop: "16px",
@@ -673,7 +681,11 @@ export default function AccessManagementPage() {
                 fontWeight: 600,
               }}
             >
-              Bootstrap admin: {bootstrapAdminEmail}
+              Bootstrap admin{bootstrapAdminEmails.length === 1 ? "" : "s"}:{" "}
+              {(bootstrapAdminEmails.length > 0
+                ? bootstrapAdminEmails
+                : [bootstrapAdminEmail]
+              ).join(", ")}
             </div>
           ) : null}
           {workspaceUser && profile && workspaceUser.id !== profile.id ? (
@@ -914,7 +926,10 @@ export default function AccessManagementPage() {
           </h2>
           <div style={{ display: "grid", gap: "12px" }}>
             {users.map((user) => {
-              const isBootstrapAdmin = bootstrapAdminEmail && user.email === bootstrapAdminEmail;
+              const normalizedUserEmail = String(user.email || "").trim().toLowerCase();
+              const isBootstrapAdmin =
+                bootstrapAdminEmails.includes(normalizedUserEmail) ||
+                (bootstrapAdminEmail && normalizedUserEmail === bootstrapAdminEmail);
               const blackbaudLink = getBlackbaudLinkMeta(user);
               return (
                 <div

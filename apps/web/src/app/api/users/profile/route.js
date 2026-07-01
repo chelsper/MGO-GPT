@@ -5,7 +5,7 @@ import { isAllowedWorkspaceEmail, workspaceEmailAccessMessage } from "@/utils/au
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
-import { getBootstrapAdminEmail } from "@/app/api/utils/invitations";
+import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import getWorkspaceUser, { clearActingUserCookie } from "@/app/api/utils/getWorkspaceUser";
 
 function shouldAutoSyncPortfolio(user) {
@@ -34,10 +34,8 @@ export async function GET(request) {
     const origin = request?.url ? new URL(request.url).origin : null;
     const shouldBootstrapPortfolio =
       new URL(request.url).searchParams.get("bootstrapPortfolio") === "1";
-    const bootstrapAdminEmail = getBootstrapAdminEmail();
     const canSeedBootstrapAdmin =
-      Boolean(bootstrapAdminEmail) &&
-      workspaceUser?.email === bootstrapAdminEmail &&
+      isBootstrapAdminEmail(workspaceUser?.email) &&
       Boolean(workspaceUser?.blackbaud_constituent_id);
 
     if (shouldBootstrapPortfolio && (workspaceUser?.role === "mgo" || canSeedBootstrapAdmin)) {
