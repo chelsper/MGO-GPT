@@ -1,11 +1,17 @@
 import sql from "@/app/api/utils/sql";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { acceptInvitation, getProvisioningDecision, isBootstrapAdminEmail } from "@/app/api/utils/invitations";
+import {
+  acceptInvitation,
+  getProvisioningDecision,
+  isBootstrapAdminEmail,
+  normalizeEmail,
+} from "@/app/api/utils/invitations";
 
 export default async function getOrCreateUser(session, fallbackRole = "mgo") {
   await ensureAppSchema();
 
-  const email = session?.user?.email;
+  const rawEmail = session?.user?.email;
+  const email = normalizeEmail(rawEmail);
   if (!email) {
     throw new Error("Authenticated user email is required");
   }
@@ -14,19 +20,24 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
 
   const existing = await sql`
     SELECT
-      id,
-      name,
-      email,
-      role,
-      active,
-      deactivated_at,
-      blackbaud_constituent_id,
-      blackbaud_lookup_id,
-      blackbaud_portfolio_seeded_at,
-      blackbaud_portfolio_seed_attempted_at,
-      blackbaud_portfolio_seed_error
+      users.id,
+      users.name,
+      users.email,
+      users.role,
+      users.active,
+      users.deactivated_at,
+      users.blackbaud_constituent_id,
+      users.blackbaud_lookup_id,
+      users.blackbaud_portfolio_seeded_at,
+      users.blackbaud_portfolio_seed_attempted_at,
+      users.blackbaud_portfolio_seed_error
     FROM users
-    WHERE email = ${email}
+    LEFT JOIN blackbaud_connections bb_connection
+      ON bb_connection.user_id = users.id
+    WHERE LOWER(users.email) = ${email}
+    ORDER BY
+      CASE WHEN bb_connection.user_id IS NOT NULL THEN 0 ELSE 1 END,
+      users.created_at ASC
     LIMIT 1
   `;
 

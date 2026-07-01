@@ -28,6 +28,10 @@ function isAllowedWorkspaceEmail(email) {
   return email.trim().toLowerCase().endsWith(`@${allowedDomain}`);
 }
 
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
 function getBootstrapAdminEmails() {
   return String(
     [
@@ -43,13 +47,13 @@ function getBootstrapAdminEmails() {
 }
 
 async function getProvisioningDecision(email) {
-  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+  const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return { kind: "none" };
 
   const bootstrapAdminEmails = getBootstrapAdminEmails();
 
   const { rows: existingRows } = await globalThis.__mgoAuthPool.query(
-    "SELECT id, role, active FROM users WHERE email = $1 LIMIT 1",
+    "SELECT id, role, active FROM users WHERE LOWER(email) = $1 LIMIT 1",
     [normalizedEmail],
   );
   if (existingRows.length > 0) {
@@ -167,6 +171,7 @@ async function getAuthConfig() {
             if (token.sub) {
               session.user.id = token.sub;
             }
+            session.user.email = normalizeEmail(session.user.email || token.email);
             return session;
           },
         },
@@ -182,9 +187,10 @@ async function getAuthConfig() {
                     password: { label: "Password", type: "password" },
                   },
                   authorize: async (credentials) => {
-                    const { email, password } = credentials ?? {};
+                    const { email: rawEmail, password } = credentials ?? {};
+                    const email = normalizeEmail(rawEmail);
                     if (!email || !password) return null;
-                    if (typeof email !== "string" || typeof password !== "string")
+                    if (typeof password !== "string")
                       return null;
                     if (!isAllowedWorkspaceEmail(email)) return null;
 
@@ -214,9 +220,10 @@ async function getAuthConfig() {
                     image: { label: "Image", type: "text", required: false },
                   },
                   authorize: async (credentials) => {
-                    const { email, password, name, image } = credentials ?? {};
+                    const { email: rawEmail, password, name, image } = credentials ?? {};
+                    const email = normalizeEmail(rawEmail);
                     if (!email || !password) return null;
-                    if (typeof email !== "string" || typeof password !== "string")
+                    if (typeof password !== "string")
                       return null;
                     if (!isAllowedWorkspaceEmail(email)) return null;
 
