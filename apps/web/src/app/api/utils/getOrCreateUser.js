@@ -34,6 +34,7 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
     if (existing[0].active === false) {
       throw new Error("This account has been deactivated. Contact an administrator.");
     }
+    await acceptInvitation(email);
     if (isBootstrapAdminEmail(email) && existing[0].role !== "admin") {
       const elevated = await sql`
         UPDATE users

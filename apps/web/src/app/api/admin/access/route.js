@@ -48,6 +48,15 @@ export async function GET() {
     const { user, error } = await requireAdminSession();
     if (error) return error;
 
+    await sql`
+      UPDATE user_invitations inv
+      SET accepted_at = NOW(), updated_at = NOW()
+      FROM users existing_user
+      WHERE LOWER(existing_user.email) = LOWER(inv.email)
+        AND inv.accepted_at IS NULL
+        AND inv.revoked_at IS NULL
+    `;
+
     const [users, invitations] = await Promise.all([
       sql`
         SELECT

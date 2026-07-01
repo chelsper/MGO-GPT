@@ -253,7 +253,13 @@ export default function AccessManagementPage() {
   }, [editingUserId, userBlackbaudQuery]);
 
   const pendingInvitations = useMemo(
-    () => invitations.filter((invitation) => !invitation.accepted_at && !invitation.revoked_at),
+    () =>
+      invitations.filter(
+        (invitation) =>
+          !invitation.accepted_at &&
+          !invitation.revoked_at &&
+          !invitation.existing_user_id,
+      ),
     [invitations],
   );
 
