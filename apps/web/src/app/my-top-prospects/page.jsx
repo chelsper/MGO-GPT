@@ -6351,7 +6351,9 @@ export default function MyTopProspectsPage() {
           totalAskPipeline:
             summary?.totalAskPipeline ?? closedSummary?.totalAskPipeline ?? 0,
           currentFY: closedSummary?.currentFY ?? summary?.currentFY ?? "FY",
+          priorFY: closedSummary?.priorFY ?? summary?.priorFY ?? null,
           closedThisFY: closedSummary?.closedThisFY,
+          closedPriorFY: closedSummary?.closedPriorFY,
         }
       : null;
 
@@ -6944,6 +6946,21 @@ export default function MyTopProspectsPage() {
                   ? "Loading..."
                   : formatCurrency(combinedSummary.closedThisFY)}
               </p>
+              {combinedSummary.priorFY ? (
+                <div
+                  style={{
+                    marginTop: "6px",
+                    fontSize: "13px",
+                    color: "#6B7280",
+                    fontWeight: 600,
+                  }}
+                >
+                  {combinedSummary.priorFY}:{" "}
+                  {isClosedSummaryLoading && combinedSummary.closedPriorFY == null
+                    ? "Loading..."
+                    : formatCurrency(combinedSummary.closedPriorFY)}
+                </div>
+              ) : null}
             </div>
           </div>
         )}

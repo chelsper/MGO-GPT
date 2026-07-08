@@ -790,8 +790,15 @@ export async function GET(request) {
     const currentFY = `FY${String(fiscalEndYear).slice(-2)}`;
     const fiscalYearStart = `${fiscalStartYear}-07-01`;
     const fiscalYearEnd = `${fiscalEndYear}-06-30`;
+    const priorFiscalStartYear = fiscalStartYear - 1;
+    const priorFiscalEndYear = fiscalEndYear - 1;
+    const priorFY = `FY${String(priorFiscalEndYear).slice(-2)}`;
+    const priorFiscalYearStart = `${priorFiscalStartYear}-07-01`;
+    const priorFiscalYearEnd = `${priorFiscalEndYear}-06-30`;
     const summaryCacheKey = [
+      "closed-summary-v2",
       currentFY,
+      priorFY,
       user.id,
       user.blackbaud_constituent_id || "",
       user.blackbaud_lookup_id || "",
@@ -800,16 +807,19 @@ export async function GET(request) {
     ].join("|");
 
     let closedThisFY = null;
+    let closedPriorFY = null;
     let closedDebug = null;
+    let closedPriorDebug = null;
 
     if (includeClosed && origin) {
       if (!debug) {
         const cachedSummary = await getCachedBlackbaudSummary(user.id, summaryCacheKey);
         if (cachedSummary && typeof cachedSummary === "object") {
           closedThisFY = Number(cachedSummary.closedThisFY || 0);
+          closedPriorFY = Number(cachedSummary.closedPriorFY || 0);
         } else {
-          closedThisFY = Number(
-            await getLiveBlackbaudClosedThisFY({
+          const [currentClosed, priorClosed] = await Promise.all([
+            getLiveBlackbaudClosedThisFY({
               user,
               authUserId,
               origin,
@@ -817,25 +827,49 @@ export async function GET(request) {
               fiscalYearEnd,
               debug: false,
             }).catch(() => 0),
-          );
+            getLiveBlackbaudClosedThisFY({
+              user,
+              authUserId,
+              origin,
+              fiscalYearStart: priorFiscalYearStart,
+              fiscalYearEnd: priorFiscalYearEnd,
+              debug: false,
+            }).catch(() => 0),
+          ]);
+          closedThisFY = Number(currentClosed || 0);
+          closedPriorFY = Number(priorClosed || 0);
 
           await saveCachedBlackbaudSummary(user.id, summaryCacheKey, {
             currentFY,
+            priorFY,
             closedThisFY,
+            closedPriorFY,
           });
         }
       } else {
-        const closedPayload = await getLiveBlackbaudClosedThisFY({
-          user,
-          authUserId,
-          origin,
-          fiscalYearStart,
-          fiscalYearEnd,
-          debug: true,
-        }).catch(() => ({ closedTotal: 0, debug: null }));
+        const [closedPayload, priorClosedPayload] = await Promise.all([
+          getLiveBlackbaudClosedThisFY({
+            user,
+            authUserId,
+            origin,
+            fiscalYearStart,
+            fiscalYearEnd,
+            debug: true,
+          }).catch(() => ({ closedTotal: 0, debug: null })),
+          getLiveBlackbaudClosedThisFY({
+            user,
+            authUserId,
+            origin,
+            fiscalYearStart: priorFiscalYearStart,
+            fiscalYearEnd: priorFiscalYearEnd,
+            debug: true,
+          }).catch(() => ({ closedTotal: 0, debug: null })),
+        ]);
 
         closedThisFY = Number(closedPayload?.closedTotal || 0);
+        closedPriorFY = Number(priorClosedPayload?.closedTotal || 0);
         closedDebug = closedPayload?.debug || null;
+        closedPriorDebug = priorClosedPayload?.debug || null;
       }
     }
 
@@ -844,7 +878,9 @@ export async function GET(request) {
       totalAskPipeline: parseFloat(activeResult[0].total_pipeline) || 0,
       closedThisFY,
       currentFY,
-      ...(debug ? { closedDebug } : {}),
+      closedPriorFY,
+      priorFY,
+      ...(debug ? { closedDebug, closedPriorDebug } : {}),
     });
   } catch (error) {
     console.error("Error fetching prospect summary:", error);
