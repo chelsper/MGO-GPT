@@ -16,6 +16,7 @@ const MGOGPT_OUTCOME_OPTIONS = [
   "Unable to Connect",
 ];
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
+const NXT_SUMMARY_PREFETCH_LIMIT = 4;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -600,17 +601,34 @@ export default function ProspectPoolPage() {
   }, [createForm.prospectName, isReviewer]);
 
   useEffect(() => {
+    const hasActiveSummaryLoads = Object.values(blackbaudSummaries).some(
+      (summaryState) => summaryState?.status === "loading",
+    );
+    if (hasActiveSummaryLoads) {
+      return;
+    }
+
     const entriesToLoad = visibleEntries.filter(
       (entry) =>
         entry.linked_blackbaud_constituent_id &&
         !blackbaudSummaries[entry.linked_blackbaud_constituent_id],
-    );
+    ).slice(0, NXT_SUMMARY_PREFETCH_LIMIT);
 
     if (entriesToLoad.length === 0) {
       return;
     }
 
     let active = true;
+    setBlackbaudSummaries((current) => {
+      const next = { ...current };
+      for (const entry of entriesToLoad) {
+        const constituentId = entry.linked_blackbaud_constituent_id;
+        if (constituentId && !next[constituentId]) {
+          next[constituentId] = { status: "loading" };
+        }
+      }
+      return next;
+    });
 
     async function loadBlackbaudSummaries() {
       const results = await Promise.allSettled(
@@ -2075,6 +2093,10 @@ export default function ProspectPoolPage() {
                         </div>
 
                         {!blackbaudSummaryState ? (
+                          <div style={{ fontSize: "13px", color: "#4B5563" }}>
+                            Loading Blackbaud summary...
+                          </div>
+                        ) : blackbaudSummaryState.status === "loading" ? (
                           <div style={{ fontSize: "13px", color: "#4B5563" }}>
                             Loading Blackbaud summary...
                           </div>

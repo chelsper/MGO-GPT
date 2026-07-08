@@ -84,6 +84,29 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS blackbaud_constituent_summary_cache (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        auth_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        cache_key TEXT NOT NULL,
+        constituent_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_blackbaud_constituent_summary_cache_key
+      ON blackbaud_constituent_summary_cache (workspace_user_id, auth_user_id, cache_key)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_blackbaud_constituent_summary_cache_updated_at
+      ON blackbaud_constituent_summary_cache (updated_at)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS user_invitations (
         id BIGSERIAL PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,

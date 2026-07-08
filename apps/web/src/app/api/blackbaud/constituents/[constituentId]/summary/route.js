@@ -7,6 +7,93 @@ import {
   getBlackbaudConfigIssues,
 } from "@/app/api/utils/blackbaud";
 
+const CONSTITUENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function isFreshSummaryCache(cachedAt) {
+  if (!cachedAt) return false;
+  const cachedTime = new Date(cachedAt).getTime();
+  if (!Number.isFinite(cachedTime)) return false;
+  return Date.now() - cachedTime <= CONSTITUENT_SUMMARY_CACHE_TTL_MS;
+}
+
+function buildSummaryCacheKey({
+  constituentId,
+  lookupId,
+  recordId,
+  name,
+  includeInactive,
+}) {
+  return [
+    "constituent-summary-v2",
+    String(constituentId || "").trim(),
+    String(lookupId || "").trim(),
+    String(recordId || "").trim(),
+    String(name || "").trim().toLowerCase(),
+    includeInactive ? "include-inactive" : "active-only",
+  ].join("|");
+}
+
+async function getCachedSummary({ workspaceUserId, authUserId, cacheKey }) {
+  if (!workspaceUserId || !authUserId || !cacheKey) return null;
+
+  const rows = await sql`
+    SELECT payload, updated_at
+    FROM blackbaud_constituent_summary_cache
+    WHERE workspace_user_id = ${workspaceUserId}
+      AND auth_user_id = ${authUserId}
+      AND cache_key = ${cacheKey}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row?.payload || !isFreshSummaryCache(row.updated_at)) return null;
+  return row.payload;
+}
+
+async function saveCachedSummary({
+  workspaceUserId,
+  authUserId,
+  cacheKey,
+  constituentId,
+  payload,
+}) {
+  if (!workspaceUserId || !authUserId || !cacheKey || !constituentId || !payload) {
+    return;
+  }
+
+  await sql`
+    INSERT INTO blackbaud_constituent_summary_cache (
+      workspace_user_id,
+      auth_user_id,
+      cache_key,
+      constituent_id,
+      payload,
+      updated_at
+    )
+    VALUES (
+      ${workspaceUserId},
+      ${authUserId},
+      ${cacheKey},
+      ${String(constituentId)},
+      ${JSON.stringify(payload)}::jsonb,
+      NOW()
+    )
+    ON CONFLICT (workspace_user_id, auth_user_id, cache_key)
+    DO UPDATE SET
+      constituent_id = EXCLUDED.constituent_id,
+      payload = EXCLUDED.payload,
+      updated_at = NOW()
+  `;
+}
+
+function summaryResponse(payload, cacheStatus = "miss") {
+  return Response.json(payload, {
+    headers: {
+      "Cache-Control": "private, max-age=300",
+      "X-MGOGPT-NXT-Summary-Cache": cacheStatus,
+    },
+  });
+}
+
 async function tryFetchConstituentById({
   userId,
   authUserId,
@@ -1150,6 +1237,7 @@ export async function GET(request, { params }) {
   const includeInactive =
     new URL(request.url).searchParams.get("include_inactive") === "true";
   const includeRaw = new URL(request.url).searchParams.get("raw") === "true";
+  const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
   const lookupId = new URL(request.url).searchParams.get("lookupId")?.trim() || "";
   const recordId = new URL(request.url).searchParams.get("recordId")?.trim() || "";
   const name = new URL(request.url).searchParams.get("name")?.trim() || "";
@@ -1158,6 +1246,25 @@ export async function GET(request, { params }) {
     const { workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request);
     const user = workspaceUser;
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
+    const cacheKey = buildSummaryCacheKey({
+      constituentId,
+      lookupId,
+      recordId,
+      name,
+      includeInactive,
+    });
+
+    if (!includeRaw && !forceRefresh) {
+      const cachedSummary = await getCachedSummary({
+        workspaceUserId: user.id,
+        authUserId,
+        cacheKey,
+      });
+      if (cachedSummary) {
+        return summaryResponse(cachedSummary, "hit");
+      }
+    }
+
     const constituentPayload = await resolveConstituentPayload({
       userId: user.id,
       authUserId,
@@ -1285,7 +1392,7 @@ export async function GET(request, { params }) {
       workspaceUser,
     });
 
-    return Response.json({
+    const responsePayload = {
       constituentId,
       includeInactive,
       mapped: {
@@ -1320,7 +1427,21 @@ export async function GET(request, { params }) {
             },
           }
         : {}),
-    });
+    };
+
+    if (!includeRaw) {
+      await saveCachedSummary({
+        workspaceUserId: user.id,
+        authUserId,
+        cacheKey,
+        constituentId: resolvedConstituentId,
+        payload: responsePayload,
+      }).catch((cacheError) => {
+        console.error("Blackbaud constituent summary cache write error:", cacheError);
+      });
+    }
+
+    return summaryResponse(responsePayload, "miss");
   } catch (error) {
     console.error("Blackbaud constituent summary error:", error);
     return Response.json(
