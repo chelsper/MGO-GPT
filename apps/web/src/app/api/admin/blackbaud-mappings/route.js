@@ -6,7 +6,7 @@ import {
   getDefaultBlackbaudFieldMappings,
   mergeBlackbaudFieldMappings,
 } from "@/app/api/utils/blackbaudFieldMappings";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
 async function requireAdminSession() {
   await ensureAppSchema();
@@ -17,9 +17,12 @@ async function requireAdminSession() {
   }
 
   const user = await getOrCreateUser(session, "admin");
-  if (!isAdminRole(user.role)) {
+  if (!canManageWorkspaceRole(user.role)) {
     return {
-      error: Response.json({ error: "Forbidden — admins only" }, { status: 403 }),
+      error: Response.json(
+        { error: "Forbidden — workspace administrators only" },
+        { status: 403 },
+      ),
     };
   }
 

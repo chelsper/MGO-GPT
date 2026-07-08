@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
 const cardStyle = {
   backgroundColor: "white",
@@ -130,8 +130,8 @@ export default function BlackbaudMappingPage() {
     ]);
 
     const profileData = await profileResponse.json().catch(() => null);
-    if (!profileResponse.ok || !isAdminRole(profileData?.user?.role)) {
-      throw new Error("Forbidden — admins only");
+    if (!profileResponse.ok || !canManageWorkspaceRole(profileData?.user?.role)) {
+      throw new Error("Forbidden — workspace administrators only");
     }
 
     const mappingData = await mappingResponse.json().catch(() => null);
@@ -345,7 +345,7 @@ export default function BlackbaudMappingPage() {
     );
   }
 
-  if (!isAdminRole(profile?.role)) {
+  if (!canManageWorkspaceRole(profile?.role)) {
     return (
       <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
         <main style={{ maxWidth: "760px", margin: "0 auto", padding: "24px 18px 48px" }}>

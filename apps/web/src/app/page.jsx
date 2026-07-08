@@ -5,6 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import {
+  canManageWorkspaceRole,
+  getWorkspaceRoleLabel,
+} from "@/utils/workspaceRoles";
 const MGO_ACTIONS = [
   {
     title: "My Prospects",
@@ -185,7 +189,7 @@ const ROLE_WORKFLOW_STEPS = {
   adminReviewer: [
     "Handle access or role changes first.",
     "Work the shared reviewer queues next.",
-    "Switch to MGO view only when testing that workflow.",
+    "Use workspace admin tools only when access, mapping, or configuration needs attention.",
   ],
 };
 
@@ -316,37 +320,40 @@ export default function Page() {
     profile?.role,
   );
   const isReviewer = isReviewerView;
+  const canManageWorkspace = canManageWorkspaceRole(profile?.role);
   const roleLabel = isAdmin
     ? `Admin · ${isReviewer ? "Advancement Services view" : "MGO view"}`
-    : effectiveRole || "mgo";
+    : profile?.role === "advancement_admin"
+      ? getWorkspaceRoleLabel(profile.role)
+      : effectiveRole || "mgo";
 
   const quickActions = useMemo(
     () => {
-      if (!isAdmin) {
+      if (!isAdmin && !canManageWorkspace) {
         return isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS;
       }
 
       return isReviewer ? ADMIN_ACTIONS : MGO_ACTIONS;
     },
-    [isAdmin, isReviewer],
+    [canManageWorkspace, isAdmin, isReviewer],
   );
   const navItems = useMemo(
     () => {
-      if (!isAdmin) {
+      if (!isAdmin && !canManageWorkspace) {
         return isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS;
       }
 
       return isReviewer ? ADMIN_NAV_ITEMS : MGO_NAV_ITEMS;
     },
-    [isAdmin, isReviewer],
+    [canManageWorkspace, isAdmin, isReviewer],
   );
   const { primary: primaryActions, teamSupport, requestsReview, workflow } = useMemo(
-    () => getActionGroups({ isAdmin, isReviewer, quickActions }),
-    [isAdmin, isReviewer, quickActions],
+    () => getActionGroups({ isAdmin: isAdmin || canManageWorkspace, isReviewer, quickActions }),
+    [canManageWorkspace, isAdmin, isReviewer, quickActions],
   );
   const adminWorkspaceItems = useMemo(
-    () => (isAdmin && isReviewer ? ADMIN_WORKSPACE_ITEMS : []),
-    [isAdmin, isReviewer],
+    () => ((isAdmin || canManageWorkspace) && isReviewer ? ADMIN_WORKSPACE_ITEMS : []),
+    [canManageWorkspace, isAdmin, isReviewer],
   );
   const groupedNavItems = useMemo(() => groupNavItems(navItems), [navItems]);
   const {

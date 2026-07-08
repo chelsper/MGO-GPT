@@ -8,7 +8,7 @@ import {
   getBootstrapAdminEmails,
   normalizeEmail,
 } from "@/app/api/utils/invitations";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
 async function resetPortfolioSeedState(userId) {
   await sql`
@@ -34,9 +34,12 @@ async function requireAdminSession() {
   }
 
   const user = await getOrCreateUser(session, "admin");
-  if (!isAdminRole(user.role)) {
+  if (!canManageWorkspaceRole(user.role)) {
     return {
-      error: Response.json({ error: "Forbidden — admins only" }, { status: 403 }),
+      error: Response.json(
+        { error: "Forbidden — workspace administrators only" },
+        { status: 403 },
+      ),
     };
   }
 

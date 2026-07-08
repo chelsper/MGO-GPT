@@ -34,6 +34,16 @@ export async function GET(request) {
     const origin = request?.url ? new URL(request.url).origin : null;
     const shouldBootstrapPortfolio =
       new URL(request.url).searchParams.get("bootstrapPortfolio") === "1";
+    const portfolioSync = shouldBootstrapPortfolio
+      ? {
+          requested: true,
+          attempted: false,
+          connected: false,
+          skippedReason: null,
+          result: null,
+          error: null,
+        }
+      : null;
     const canSeedBootstrapAdmin =
       isBootstrapAdminEmail(workspaceUser?.email) &&
       Boolean(workspaceUser?.blackbaud_constituent_id);
@@ -42,10 +52,12 @@ export async function GET(request) {
       const hasBlackbaudConnection = await getValidBlackbaudConnection(authUserId, origin).catch(
         () => null,
       );
+      portfolioSync.connected = Boolean(hasBlackbaudConnection);
 
       if (hasBlackbaudConnection && (context.isActing || shouldAutoSyncPortfolio(workspaceUser))) {
         try {
-          await bootstrapMgoPortfolioFromBlackbaud({
+          portfolioSync.attempted = true;
+          portfolioSync.result = await bootstrapMgoPortfolioFromBlackbaud({
             userId: workspaceUser.id,
             authUserId,
             origin,
@@ -53,8 +65,18 @@ export async function GET(request) {
           });
         } catch (bootstrapError) {
           console.error("Profile Blackbaud bootstrap error:", bootstrapError);
+          portfolioSync.error =
+            bootstrapError instanceof Error
+              ? bootstrapError.message
+              : "Failed to sync Blackbaud portfolio.";
         }
+      } else if (!hasBlackbaudConnection) {
+        portfolioSync.skippedReason = "blackbaud-not-connected";
+      } else {
+        portfolioSync.skippedReason = "recent-attempt";
       }
+    } else if (shouldBootstrapPortfolio) {
+      portfolioSync.skippedReason = "workspace-not-syncable";
     }
 
     const refreshedUser = await sql`
@@ -77,6 +99,7 @@ export async function GET(request) {
     const response = Response.json({
       user: refreshedUser[0] || user,
       workspaceUser: refreshedWorkspaceUser,
+      portfolioSync,
       actingAsUser: context.isActing
         ? {
             id: refreshedWorkspaceUser.id,

@@ -21,7 +21,7 @@ export async function GET(request) {
       SELECT id, name, email, role, blackbaud_constituent_id, blackbaud_lookup_id
       FROM users
       WHERE active = TRUE
-        AND role IN ('mgo', 'reviewer', 'executive_admin', 'admin')
+        AND role IN ('mgo', 'reviewer', 'advancement_admin', 'executive_admin', 'admin')
       ORDER BY LOWER(name) ASC, LOWER(email) ASC
     `;
 

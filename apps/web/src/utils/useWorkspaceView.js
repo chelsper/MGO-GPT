@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { isAdminRole, isReviewerRole } from "@/utils/workspaceRoles";
 
 const STORAGE_KEY = "mgo-gpt:admin-view-mode";
 
@@ -20,7 +20,7 @@ export default function useWorkspaceView(profileRole) {
   const isAdmin = isAdminRole(profileRole);
 
   const effectiveRole = useMemo(() => {
-    if (!isAdmin) return profileRole || "mgo";
+    if (!isAdmin) return isReviewerRole(profileRole) ? "reviewer" : profileRole || "mgo";
     return adminViewMode === "mgo" ? "mgo" : "reviewer";
   }, [adminViewMode, isAdmin, profileRole]);
 

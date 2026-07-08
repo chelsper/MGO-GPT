@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import {
+  canManageWorkspaceRole,
+  getWorkspaceRoleLabel,
+} from "@/utils/workspaceRoles";
 
 const cardStyle = {
   backgroundColor: "white",
@@ -90,8 +93,8 @@ export default function AccessManagementPage() {
     ]);
 
     const profileData = await profileResponse.json().catch(() => null);
-    if (!profileResponse.ok || !isAdminRole(profileData?.user?.role)) {
-      throw new Error("Forbidden — admins only");
+    if (!profileResponse.ok || !canManageWorkspaceRole(profileData?.user?.role)) {
+      throw new Error("Forbidden — workspace administrators only");
     }
 
     const accessData = await accessResponse.json().catch(() => null);
@@ -589,7 +592,7 @@ export default function AccessManagementPage() {
     );
   }
 
-  if (!isAdminRole(profile?.role)) {
+  if (!canManageWorkspaceRole(profile?.role)) {
     return (
       <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
         <main style={{ maxWidth: "760px", margin: "0 auto", padding: "24px 18px 48px" }}>
@@ -671,7 +674,7 @@ export default function AccessManagementPage() {
             Access Management
           </h1>
           <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.6 }}>
-            Invite JU users into the app as MGOs, Executive Admins, or Advancement Services reviewers. The bootstrap admin account is
+            Invite JU users into the app as MGOs, Executive Admins, Advancement Services reviewers, or Advancement Services Admins. The bootstrap admin account is
             controlled by the environment and can always regain access.
           </p>
           {bootstrapAdminEmails.length > 0 || bootstrapAdminEmail ? (
@@ -791,6 +794,7 @@ export default function AccessManagementPage() {
                 <option value="mgo">MGO</option>
                 <option value="executive_admin">Executive Admin</option>
                 <option value="reviewer">Advancement Services</option>
+                <option value="advancement_admin">Advancement Services Admin</option>
               </select>
             </div>
           </div>
@@ -998,6 +1002,7 @@ export default function AccessManagementPage() {
                           <option value="mgo">MGO</option>
                           <option value="executive_admin">Executive Admin</option>
                           <option value="reviewer">Advancement Services</option>
+                          <option value="advancement_admin">Advancement Services Admin</option>
                         </select>
                       )}
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1271,7 +1276,7 @@ export default function AccessManagementPage() {
                       </div>
                       <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>{invitation.email}</div>
                       <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px" }}>
-                        Role: {invitation.role === "reviewer" ? "Advancement Services" : "MGO"}
+                        Role: {getWorkspaceRoleLabel(invitation.role)}
                       </div>
                       <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
                         {blackbaudLink.detail}
