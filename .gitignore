@@ -1,1 +1,9 @@
 FundLayerDemo/
+
+# Local environment files. Keep real credentials in Vercel or a password manager.
+.env
+.env.*
+apps/**/.env
+apps/**/.env.*
+!.env.example
+!apps/**/.env.example

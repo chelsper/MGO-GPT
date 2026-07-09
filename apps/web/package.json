@@ -5,6 +5,7 @@
 	"scripts": {
 		"dev": "react-router dev",
 		"build": "react-router build",
+		"test": "vitest run",
 		"typecheck": "react-router typegen && tsc --noEmit",
 		"check:release": "node ./scripts/check-release-worktree.mjs",
 		"verify:prod": "node ./scripts/verify-production-deploy.mjs"
