@@ -63,21 +63,32 @@ export async function GET() {
     const [users, invitations] = await Promise.all([
       sql`
         SELECT
-          id,
-          name,
-          email,
-          role,
-          active,
-          deactivated_at,
-          blackbaud_constituent_id,
-          blackbaud_lookup_id,
-          created_at,
-          updated_at
+          users.id,
+          users.name,
+          users.email,
+          users.role,
+          users.active,
+          users.deactivated_at,
+          users.blackbaud_constituent_id,
+          users.blackbaud_lookup_id,
+          users.blackbaud_portfolio_seeded_at,
+          users.blackbaud_portfolio_seed_attempted_at,
+          users.blackbaud_portfolio_seed_error,
+          users.created_at,
+          users.updated_at,
+          bb_connection.scope AS blackbaud_connection_scope,
+          bb_connection.expires_at AS blackbaud_connection_expires_at,
+          bb_connection.connected_at AS blackbaud_connected_at,
+          bb_connection.updated_at AS blackbaud_connection_updated_at,
+          bb_connection.access_token IS NOT NULL AS blackbaud_connected,
+          bb_connection.refresh_token IS NOT NULL AS blackbaud_refresh_available
         FROM users
+        LEFT JOIN blackbaud_connections bb_connection
+          ON bb_connection.user_id = users.id
         ORDER BY
-          CASE WHEN email = ${getBootstrapAdminEmail() || ""} THEN 0 ELSE 1 END,
-          LOWER(name) ASC,
-          LOWER(email) ASC
+          CASE WHEN users.email = ${getBootstrapAdminEmail() || ""} THEN 0 ELSE 1 END,
+          LOWER(users.name) ASC,
+          LOWER(users.email) ASC
       `,
       sql`
         SELECT

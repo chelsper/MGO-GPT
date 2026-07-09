@@ -51,6 +51,106 @@ function getBlackbaudLinkMeta(record) {
   };
 }
 
+function getScopeList(record) {
+  return String(record?.blackbaud_connection_scope || "")
+    .split(/\s+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function hasUsableBlackbaudConnection(record) {
+  if (!record?.blackbaud_connected) return false;
+  if (record?.blackbaud_refresh_available) return true;
+  if (!record?.blackbaud_connection_expires_at) return true;
+
+  const expiresAt = new Date(record.blackbaud_connection_expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+function formatAccessDate(value) {
+  if (!value) return "Not yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not yet";
+  return date.toLocaleString();
+}
+
+function getMgoReadiness(user) {
+  const scopes = getScopeList(user);
+  const hasBlackbaudIdentity = Boolean(
+    user?.blackbaud_lookup_id || user?.blackbaud_constituent_id,
+  );
+  const hasRequiredScopes = scopes.includes("rnxt.r") && scopes.includes("rnxt.w");
+  const hasConnection = hasUsableBlackbaudConnection(user);
+  const missing = [];
+
+  if (!user?.active) missing.push("Reactivate app user");
+  if (!hasBlackbaudIdentity) missing.push("Link Blackbaud user");
+  if (!user?.blackbaud_connected) missing.push("User must connect Blackbaud");
+  if (user?.blackbaud_connected && !hasConnection) {
+    missing.push("Reconnect Blackbaud");
+  }
+  if (user?.blackbaud_connected && !hasRequiredScopes) {
+    missing.push("Reconnect with read/write scopes");
+  }
+  if (user?.blackbaud_portfolio_seed_error) {
+    missing.push("Resolve portfolio sync error");
+  }
+
+  if (!user?.active) {
+    return {
+      label: "Inactive",
+      status: "inactive",
+      missing,
+      scopes,
+      tone: {
+        backgroundColor: "#F3F4F6",
+        border: "1px solid #D1D5DB",
+        color: "#4B5563",
+      },
+    };
+  }
+
+  if (missing.length > 0) {
+    return {
+      label: "Needs attention",
+      status: "attention",
+      missing,
+      scopes,
+      tone: {
+        backgroundColor: "#FEF2F2",
+        border: "1px solid #FECACA",
+        color: "#991B1B",
+      },
+    };
+  }
+
+  if (!user?.blackbaud_portfolio_seeded_at) {
+    return {
+      label: "Ready, pending sync",
+      status: "pending",
+      missing: ["Open dashboard or run sync once"],
+      scopes,
+      tone: {
+        backgroundColor: "#FFFBEB",
+        border: "1px solid #FDE68A",
+        color: "#92400E",
+      },
+    };
+  }
+
+  return {
+    label: "Ready",
+    status: "ready",
+    missing: [],
+    scopes,
+    tone: {
+      backgroundColor: "#ECFDF5",
+      border: "1px solid #A7F3D0",
+      color: "#166534",
+    },
+  };
+}
+
 export default function AccessManagementPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -266,6 +366,32 @@ export default function AccessManagementPage() {
     [invitations],
   );
 
+  const mgoReadiness = useMemo(
+    () =>
+      users
+        .filter((user) => user.role === "mgo")
+        .map((user) => ({
+          user,
+          readiness: getMgoReadiness(user),
+        })),
+    [users],
+  );
+
+  const readinessCounts = useMemo(
+    () =>
+      mgoReadiness.reduce(
+        (counts, entry) => {
+          if (entry.readiness.status === "ready") counts.ready += 1;
+          else if (entry.readiness.status === "pending") counts.pending += 1;
+          else counts.needsAttention += 1;
+          counts.total += 1;
+          return counts;
+        },
+        { ready: 0, pending: 0, needsAttention: 0, total: 0 },
+      ),
+    [mgoReadiness],
+  );
+
   async function handleInviteSubmit(event, options = {}) {
     event.preventDefault();
     setSaving(true);
@@ -449,6 +575,7 @@ export default function AccessManagementPage() {
       );
       setStatusMessage("User role updated.");
       setToast({ tone: "success", message: "User role updated." });
+      await loadAccessState();
     } catch (err) {
       console.error(err);
       const message = err instanceof Error ? err.message : "Failed to update user role";
@@ -559,6 +686,7 @@ export default function AccessManagementPage() {
       setUsers((current) =>
         current.map((entry) => (entry.id === user.id ? data.user : entry)),
       );
+      await loadAccessState();
       setEditingUserId(null);
       setUserBlackbaudQuery("");
       setUserBlackbaudMatches([]);
@@ -749,6 +877,201 @@ export default function AccessManagementPage() {
             {error}
           </div>
         ) : null}
+
+        <div style={cardStyle}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              marginBottom: "16px",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, fontSize: "18px", color: "#111827" }}>
+                MGO readiness
+              </h2>
+              <p style={{ margin: "6px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.5 }}>
+                Confirm each MGO has app access, a linked NXT record, their own Blackbaud connection, required scopes, and a clean portfolio sync state.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadAccessState()}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "10px",
+                border: "1px solid #D1D5DB",
+                backgroundColor: "white",
+                color: "#111827",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+              gap: "10px",
+              marginBottom: "16px",
+            }}
+          >
+            {[
+              ["Total MGOs", readinessCounts.total],
+              ["Ready", readinessCounts.ready],
+              ["Pending sync", readinessCounts.pending],
+              ["Needs attention", readinessCounts.needsAttention],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                style={{
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "12px",
+                  padding: "12px",
+                  backgroundColor: "#F9FAFB",
+                }}
+              >
+                <div style={{ fontSize: "11px", fontWeight: 800, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  {label}
+                </div>
+                <div style={{ marginTop: "6px", fontSize: "24px", fontWeight: 900, color: "#111827" }}>
+                  {value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {mgoReadiness.length === 0 ? (
+            <div style={{ color: "#6B7280", fontSize: "14px" }}>
+              No MGO users yet.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "12px" }}>
+              {mgoReadiness.map(({ user, readiness }) => (
+                <div
+                  key={`readiness-${user.id}`}
+                  style={{
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "14px",
+                    padding: "16px",
+                    backgroundColor: "white",
+                    display: "grid",
+                    gap: "12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      alignItems: "flex-start",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "16px", fontWeight: 800, color: "#111827" }}>
+                        {user.name || user.email}
+                      </div>
+                      <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
+                        {user.email}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "6px 10px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        ...readiness.tone,
+                      }}
+                    >
+                      {readiness.label}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    <div style={{ borderRadius: "12px", border: "1px solid #E5E7EB", padding: "12px", backgroundColor: "#F9FAFB" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 800, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        NXT identity
+                      </div>
+                      <div style={{ marginTop: "6px", fontSize: "13px", color: user.blackbaud_lookup_id || user.blackbaud_constituent_id ? "#166534" : "#991B1B", fontWeight: 700 }}>
+                        {user.blackbaud_lookup_id
+                          ? `Lookup ID ${user.blackbaud_lookup_id}`
+                          : user.blackbaud_constituent_id
+                            ? "Internal Blackbaud ID linked"
+                            : "Not linked"}
+                      </div>
+                    </div>
+                    <div style={{ borderRadius: "12px", border: "1px solid #E5E7EB", padding: "12px", backgroundColor: "#F9FAFB" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 800, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        Blackbaud connection
+                      </div>
+                      <div style={{ marginTop: "6px", fontSize: "13px", color: hasUsableBlackbaudConnection(user) ? "#166534" : "#991B1B", fontWeight: 700 }}>
+                        {hasUsableBlackbaudConnection(user) ? "Connected" : "Needs connection"}
+                      </div>
+                      <div style={{ marginTop: "4px", fontSize: "12px", color: "#6B7280" }}>
+                        Scopes: {readiness.scopes.length > 0 ? readiness.scopes.join(", ") : "None"}
+                      </div>
+                    </div>
+                    <div style={{ borderRadius: "12px", border: "1px solid #E5E7EB", padding: "12px", backgroundColor: "#F9FAFB" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 800, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        Portfolio sync
+                      </div>
+                      <div style={{ marginTop: "6px", fontSize: "13px", color: user.blackbaud_portfolio_seed_error ? "#991B1B" : user.blackbaud_portfolio_seeded_at ? "#166534" : "#92400E", fontWeight: 700 }}>
+                        {user.blackbaud_portfolio_seed_error
+                          ? "Sync error"
+                          : user.blackbaud_portfolio_seeded_at
+                            ? "Seeded"
+                            : "Not seeded yet"}
+                      </div>
+                      <div style={{ marginTop: "4px", fontSize: "12px", color: "#6B7280" }}>
+                        Last attempt: {formatAccessDate(user.blackbaud_portfolio_seed_attempted_at)}
+                      </div>
+                    </div>
+                    <div style={{ borderRadius: "12px", border: "1px solid #E5E7EB", padding: "12px", backgroundColor: "#F9FAFB" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 800, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        Next step
+                      </div>
+                      <div style={{ marginTop: "6px", fontSize: "13px", color: readiness.missing.length > 0 ? "#991B1B" : "#166534", fontWeight: 700 }}>
+                        {readiness.missing.length > 0 ? readiness.missing.join("; ") : "No action needed"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {user.blackbaud_portfolio_seed_error ? (
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        backgroundColor: "#FEF2F2",
+                        border: "1px solid #FECACA",
+                        color: "#991B1B",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Sync error: {user.blackbaud_portfolio_seed_error}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <form onSubmit={handleInviteSubmit} style={cardStyle}>
           <h2 style={{ margin: "0 0 16px", fontSize: "18px", color: "#111827" }}>
