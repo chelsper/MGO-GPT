@@ -5935,6 +5935,8 @@ export default function MyTopProspectsPage() {
   const [addProspectInitialData, setAddProspectInitialData] = useState(null);
   const [addProspectMessage, setAddProspectMessage] = useState("");
   const [addProspectError, setAddProspectError] = useState("");
+  const [portfolioSyncMessage, setPortfolioSyncMessage] = useState("");
+  const [portfolioSyncError, setPortfolioSyncError] = useState("");
   const autoBootstrapAttemptRef = useRef("");
 
   const { data: profileStatus } = useQuery({
@@ -6220,6 +6222,10 @@ export default function MyTopProspectsPage() {
   });
 
   const syncMutation = useMutation({
+    onMutate: () => {
+      setPortfolioSyncMessage("");
+      setPortfolioSyncError("");
+    },
     mutationFn: async () => {
       const res = await fetch("/api/users/profile/blackbaud-sync", {
         method: "POST",
@@ -6230,12 +6236,32 @@ export default function MyTopProspectsPage() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const result = data?.result || {};
+      if (result?.skipped) {
+        setPortfolioSyncMessage(
+          `NXT portfolio sync skipped: ${result.reason || "No import was needed."}`,
+        );
+      } else {
+        setPortfolioSyncMessage(
+          [
+            "NXT portfolio sync complete.",
+            `${Number(result.matchedOpportunities || 0)} qualifying opportunities found.`,
+            `${Number(result.createdProspects || 0)} Top Prospects added.`,
+            `${Number(result.createdOpportunities || 0)} opportunity records added.`,
+          ].join(" "),
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
+    },
+    onError: (error) => {
+      setPortfolioSyncError(
+        error instanceof Error ? error.message : "Failed to sync NXT portfolio.",
+      );
     },
   });
 
@@ -6744,12 +6770,66 @@ export default function MyTopProspectsPage() {
                   Solicitor appears first, followed by Secondary and Athletics Solicitor assignments.
                 </div>
               </div>
-              {blackbaudPortfolio?.summary ? (
-                <div style={{ fontSize: "13px", color: "#4B5563", fontWeight: "600" }}>
-                  {blackbaudPortfolio.summary.leadCount + blackbaudPortfolio.summary.supportingCount} assigned constituents
-                </div>
-              ) : null}
+              <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                {blackbaudPortfolio?.summary ? (
+                  <div style={{ fontSize: "13px", color: "#4B5563", fontWeight: "600" }}>
+                    {blackbaudPortfolio.summary.leadCount + blackbaudPortfolio.summary.supportingCount} assigned constituents
+                  </div>
+                ) : null}
+                {!isExecutiveReadOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => syncMutation.mutate()}
+                    disabled={syncMutation.isPending}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #C7D2FE",
+                      backgroundColor: syncMutation.isPending ? "#F3F4F6" : "#EEF2FF",
+                      color: syncMutation.isPending ? "#6B7280" : "#4338CA",
+                      fontSize: "13px",
+                      fontWeight: 800,
+                      cursor: syncMutation.isPending ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {syncMutation.isPending ? "Syncing..." : "Sync NXT portfolio"}
+                  </button>
+                ) : null}
+              </div>
             </div>
+
+            {portfolioSyncMessage ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "12px",
+                  backgroundColor: "#ECFDF5",
+                  border: "1px solid #A7F3D0",
+                  color: "#047857",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                }}
+              >
+                {portfolioSyncMessage}
+              </div>
+            ) : null}
+            {portfolioSyncError ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "12px",
+                  backgroundColor: "#FEF2F2",
+                  border: "1px solid #FECACA",
+                  color: "#991B1B",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                }}
+              >
+                {portfolioSyncError}
+              </div>
+            ) : null}
 
             {isBlackbaudPortfolioLoading ? (
               <div style={{ fontSize: "14px", color: "#6B7280" }}>
