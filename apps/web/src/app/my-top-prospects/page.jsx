@@ -6490,19 +6490,26 @@ export default function MyTopProspectsPage() {
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <a
                 href="/"
+                aria-label="Return to home"
                 style={{
-                  display: "flex",
+                  display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: "36px",
-                  height: "36px",
+                  gap: "8px",
+                  minHeight: "36px",
+                  padding: "0 12px",
                   borderRadius: "8px",
                   backgroundColor: "#F3F4F6",
                   border: "1px solid #E5E7EB",
                   textDecoration: "none",
+                  color: "#374151",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
                 }}
               >
                 <ArrowLeft size={18} color="#374151" />
+                Return to home
               </a>
               <div>
                 <h1
