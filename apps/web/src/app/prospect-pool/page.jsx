@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
@@ -16,9 +16,10 @@ const MGOGPT_OUTCOME_OPTIONS = [
   "Unable to Connect",
 ];
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
-const NXT_SUMMARY_PREFETCH_LIMIT = 1;
 const NXT_SUMMARY_FETCH_TIMEOUT_MS = 45000;
 const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
+const NXT_SUMMARY_AUTO_ATTEMPTS = 3;
+const NXT_SUMMARY_RETRY_DELAY_MS = 1500;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -321,6 +322,10 @@ export default function ProspectPoolPage() {
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
+  const blackbaudSummariesRef = useRef({});
+  const summaryQueueRunningRef = useRef(false);
+  const mountedRef = useRef(false);
+  const [summaryQueueTick, setSummaryQueueTick] = useState(0);
   const [expandedNarrativeSummaries, setExpandedNarrativeSummaries] = useState({});
   const [reviewerFilters, setReviewerFilters] = useState({
     assignedUserId: "all",
@@ -331,9 +336,17 @@ export default function ProspectPoolPage() {
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
+    mountedRef.current = true;
     setHasMounted(true);
     setMountedNow(Date.now());
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
+
+  useEffect(() => {
+    blackbaudSummariesRef.current = blackbaudSummaries;
+  }, [blackbaudSummaries]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -347,6 +360,18 @@ export default function ProspectPoolPage() {
       [entryId]: !current[entryId],
     }));
   };
+
+  function updateBlackbaudSummaryState(constituentId, summaryState) {
+    if (!constituentId) return;
+    setBlackbaudSummaries((current) => {
+      const next = {
+        ...current,
+        [constituentId]: summaryState,
+      };
+      blackbaudSummariesRef.current = next;
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!loading && !sessionUser) {
@@ -695,6 +720,10 @@ export default function ProspectPoolPage() {
           }
         }
 
+        if (changed) {
+          blackbaudSummariesRef.current = next;
+        }
+
         return changed ? next : current;
       });
     }, 5000);
@@ -703,104 +732,93 @@ export default function ProspectPoolPage() {
   }, []);
 
   useEffect(() => {
-    const activeSummaryLoadCount = Object.values(blackbaudSummaries).filter(
-      (summaryState) => summaryState?.status === "loading",
-    ).length;
-    const availableSummarySlots = Math.max(
-      0,
-      NXT_SUMMARY_PREFETCH_LIMIT - activeSummaryLoadCount,
-    );
-    if (availableSummarySlots === 0) {
+    if (!hasMounted || summaryQueueRunningRef.current) {
       return;
     }
 
-    const entriesToLoad = visibleEntries
-      .filter((entry) => {
-        const constituentId = getEntryBlackbaudConstituentId(entry);
-        return constituentId && !blackbaudSummaries[constituentId];
-      })
-      .slice(0, availableSummarySlots);
-
-    if (entriesToLoad.length === 0) {
-      return;
-    }
-
-    let active = true;
-    setBlackbaudSummaries((current) => {
-      const next = { ...current };
-      const startedAt = Date.now();
-      for (const entry of entriesToLoad) {
-        const constituentId = getEntryBlackbaudConstituentId(entry);
-        if (constituentId && !next[constituentId]) {
-          next[constituentId] = { status: "loading", startedAt };
-        }
-      }
-      return next;
+    const entryToLoad = visibleEntries.find((entry) => {
+      const constituentId = getEntryBlackbaudConstituentId(entry);
+      return constituentId && !blackbaudSummariesRef.current[constituentId];
     });
 
-    async function loadBlackbaudSummaries() {
-      const results = await Promise.allSettled(
-        entriesToLoad.map(async (entry) => {
-          const constituentId = getEntryBlackbaudConstituentId(entry);
-          const payload = await fetchBlackbaudSummaryPayload(entry);
-          return [constituentId, payload];
-        }),
-      );
-
-      if (!active) return;
-
-      setBlackbaudSummaries((current) => {
-        const next = { ...current };
-        for (const [index, result] of results.entries()) {
-          const constituentId = getEntryBlackbaudConstituentId(entriesToLoad[index]);
-          if (!constituentId) continue;
-
-          if (result.status === "fulfilled") {
-            const [, payload] = result.value;
-            next[constituentId] = { status: "ready", payload };
-          } else {
-            next[constituentId] = {
-              status: "error",
-              error:
-                result.reason instanceof Error
-                  ? result.reason.message
-                  : "Failed to load Blackbaud summary",
-            };
-          }
-        }
-        return next;
-      });
+    if (!entryToLoad) {
+      return;
     }
 
-    loadBlackbaudSummaries();
+    const constituentId = getEntryBlackbaudConstituentId(entryToLoad);
+    summaryQueueRunningRef.current = true;
 
-    return () => {
-      active = false;
-    };
-  }, [blackbaudSummaries, visibleEntries]);
+    async function loadQueuedSummary() {
+      let lastError = null;
+
+      try {
+        for (let attempt = 1; attempt <= NXT_SUMMARY_AUTO_ATTEMPTS; attempt += 1) {
+          if (!mountedRef.current) return;
+
+          updateBlackbaudSummaryState(constituentId, {
+            status: "loading",
+            startedAt: Date.now(),
+            attempt,
+            automaticRetry: attempt > 1,
+          });
+
+          try {
+            const payload = await fetchBlackbaudSummaryPayload(entryToLoad, {
+              forceRefresh: attempt > 1,
+            });
+            if (!mountedRef.current) return;
+
+            updateBlackbaudSummaryState(constituentId, { status: "ready", payload });
+            return;
+          } catch (error) {
+            lastError = error;
+
+            if (attempt < NXT_SUMMARY_AUTO_ATTEMPTS) {
+              await new Promise((resolve) =>
+                window.setTimeout(resolve, NXT_SUMMARY_RETRY_DELAY_MS * attempt),
+              );
+              continue;
+            }
+
+            if (!mountedRef.current) return;
+            updateBlackbaudSummaryState(constituentId, {
+              status: "error",
+              error:
+                lastError instanceof Error
+                  ? `${lastError.message} It retried automatically ${NXT_SUMMARY_AUTO_ATTEMPTS - 1} times.`
+                  : "Failed to load Blackbaud summary after automatic retries.",
+              attempts: NXT_SUMMARY_AUTO_ATTEMPTS,
+            });
+          }
+        }
+      } finally {
+        summaryQueueRunningRef.current = false;
+        if (mountedRef.current) {
+          setSummaryQueueTick((current) => current + 1);
+        }
+      }
+    }
+
+    loadQueuedSummary();
+  }, [hasMounted, summaryQueueTick, visibleEntries]);
 
   async function retryBlackbaudSummary(entry) {
     const constituentId = getEntryBlackbaudConstituentId(entry);
     if (!constituentId) return;
 
-    setBlackbaudSummaries((current) => ({
-      ...current,
-      [constituentId]: { status: "loading", manualRetry: true, startedAt: Date.now() },
-    }));
+    updateBlackbaudSummaryState(constituentId, {
+      status: "loading",
+      manualRetry: true,
+      startedAt: Date.now(),
+    });
 
     try {
       const payload = await fetchBlackbaudSummaryPayload(entry, { forceRefresh: true });
-      setBlackbaudSummaries((current) => ({
-        ...current,
-        [constituentId]: { status: "ready", payload },
-      }));
+      updateBlackbaudSummaryState(constituentId, { status: "ready", payload });
       setToast({ tone: "success", message: "Blackbaud summary loaded." });
     } catch (error) {
       const message = getBlackbaudSummaryErrorMessage(error);
-      setBlackbaudSummaries((current) => ({
-        ...current,
-        [constituentId]: { status: "error", error: message },
-      }));
+      updateBlackbaudSummaryState(constituentId, { status: "error", error: message });
       setToast({ tone: "error", message });
     }
   }
@@ -2241,7 +2259,9 @@ export default function ProspectPoolPage() {
                             <span>
                               {!blackbaudSummaryState
                                 ? "Waiting to load Blackbaud summary..."
-                                : "Loading Blackbaud summary..."}
+                                : blackbaudSummaryState.automaticRetry
+                                  ? `NXT is slow; retrying automatically (${blackbaudSummaryState.attempt} of ${NXT_SUMMARY_AUTO_ATTEMPTS})...`
+                                  : "Loading Blackbaud summary..."}
                             </span>
                             <button
                               type="button"
