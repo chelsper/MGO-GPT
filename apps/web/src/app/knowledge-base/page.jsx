@@ -728,10 +728,15 @@ function CategoryView({ category, categoryArticles, categoriesById, articlesById
   );
 }
 
-function DirectoryView({ directory, items, articlesById, onOpenArticle }) {
+function DirectoryView({ directory, items, articlesById, onBack, onOpenArticle }) {
   return (
     <div style={{ display: "grid", gap: "18px" }}>
-      <Breadcrumbs items={[{ type: "home", label: "Knowledge Base" }, { type: "directory", label: directory.title }]} onSelect={() => {}} />
+      <Breadcrumbs
+        items={[{ type: "home", label: "Knowledge Base" }, { type: "directory", label: directory.title }]}
+        onSelect={(item) => {
+          if (item.type === "home") onBack();
+        }}
+      />
       <Card padding={24}>
         <h2 style={{ margin: 0, fontSize: "28px", color: "#111827" }}>{directory.title}</h2>
         <p style={{ margin: "10px 0 0", fontSize: "14px", color: "#6B7280", lineHeight: 1.7 }}>
@@ -1100,6 +1105,7 @@ export default function KnowledgeBasePage() {
   const [activeCategoryId, setActiveCategoryId] = useState(null);
   const [activeArticleId, setActiveArticleId] = useState(null);
   const [activeDirectoryId, setActiveDirectoryId] = useState(null);
+  const [knowledgeBaseHistory, setKnowledgeBaseHistory] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -1171,11 +1177,78 @@ export default function KnowledgeBasePage() {
     [articles, activeCategoryId],
   );
 
-  function goHome() {
+  function getCurrentKnowledgeBaseView() {
+    if (activeArticleId) {
+      return {
+        type: "article",
+        id: activeArticleId,
+        categoryId: activeCategoryId,
+        directoryId: activeDirectoryId,
+      };
+    }
+    if (activeCategoryId) return { type: "category", id: activeCategoryId };
+    if (activeDirectoryId) return { type: "directory", id: activeDirectoryId };
+    return { type: "home" };
+  }
+
+  function isSameKnowledgeBaseView(left, right) {
+    return (
+      left?.type === right?.type &&
+      String(left?.id || "") === String(right?.id || "") &&
+      String(left?.categoryId || "") === String(right?.categoryId || "") &&
+      String(left?.directoryId || "") === String(right?.directoryId || "")
+    );
+  }
+
+  function applyKnowledgeBaseView(view) {
+    if (view?.type === "article") {
+      setActiveArticleId(view.id || null);
+      setActiveCategoryId(view.categoryId || null);
+      setActiveDirectoryId(view.directoryId || null);
+      return;
+    }
+
+    if (view?.type === "category") {
+      setActiveCategoryId(view.id || null);
+      setActiveArticleId(null);
+      setActiveDirectoryId(null);
+      return;
+    }
+
+    if (view?.type === "directory") {
+      setActiveDirectoryId(view.id || null);
+      setActiveArticleId(null);
+      setActiveCategoryId(null);
+      return;
+    }
+
     setActiveCategoryId(null);
     setActiveArticleId(null);
     setActiveDirectoryId(null);
   }
+
+  function navigateKnowledgeBase(nextView) {
+    const currentView = getCurrentKnowledgeBaseView();
+    if (!isSameKnowledgeBaseView(currentView, nextView)) {
+      setKnowledgeBaseHistory((current) => [...current, currentView].slice(-20));
+    }
+    applyKnowledgeBaseView(nextView);
+  }
+
+  function goBackInKnowledgeBase() {
+    const previousView = knowledgeBaseHistory[knowledgeBaseHistory.length - 1] || { type: "home" };
+    setKnowledgeBaseHistory((current) => current.slice(0, -1));
+    applyKnowledgeBaseView(previousView);
+  }
+
+  function goHome() {
+    setKnowledgeBaseHistory([]);
+    setActiveCategoryId(null);
+    setActiveArticleId(null);
+    setActiveDirectoryId(null);
+  }
+
+  const isKnowledgeBaseHome = !activeArticle && !activeCategory && !activeDirectory;
 
   if (!data) {
     return (
@@ -1223,28 +1296,55 @@ export default function KnowledgeBasePage() {
             alignItems: "center",
           }}
         >
-          <a
-            href="/"
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "12px",
-              display: "grid",
-              placeItems: "center",
-              backgroundColor: "#F3F4F6",
-              border: "1px solid #E5E7EB",
-              textDecoration: "none",
-              flexShrink: 0,
-            }}
-          >
-            <ArrowLeft size={18} color="#374151" />
-          </a>
+          {!isKnowledgeBaseHome ? (
+            <button
+              type="button"
+              onClick={goBackInKnowledgeBase}
+              aria-label="Back in Knowledge Base"
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "12px",
+                display: "grid",
+                placeItems: "center",
+                backgroundColor: "#F3F4F6",
+                border: "1px solid #E5E7EB",
+                textDecoration: "none",
+                flexShrink: 0,
+                cursor: "pointer",
+              }}
+            >
+              <ArrowLeft size={18} color="#374151" />
+            </button>
+          ) : null}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: "21px", fontWeight: 900, color: "#111827" }}>Knowledge Base</div>
             <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
               Interconnected procedures, systems, process maps, and reference guidance.
             </div>
           </div>
+          <a
+            href="/"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              minHeight: "40px",
+              borderRadius: "12px",
+              padding: "0 13px",
+              backgroundColor: "#F3F4F6",
+              border: "1px solid #E5E7EB",
+              color: "#374151",
+              textDecoration: "none",
+              fontSize: "13px",
+              fontWeight: 800,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            <Home size={16} color="#374151" />
+            Return to home
+          </a>
           {data.viewer?.canEdit ? (
             <a
               href="/knowledge-base/manage"
@@ -1278,19 +1378,13 @@ export default function KnowledgeBasePage() {
             viewer={data.viewer}
             goHome={goHome}
             onOpenCategory={(id) => {
-              setActiveCategoryId(id);
-              setActiveArticleId(null);
-              setActiveDirectoryId(null);
+              navigateKnowledgeBase({ type: "category", id });
             }}
             onOpenArticle={(id) => {
-              setActiveArticleId(id);
-              setActiveCategoryId(null);
-              setActiveDirectoryId(null);
+              navigateKnowledgeBase({ type: "article", id });
             }}
             onOpenDirectory={(id) => {
-              setActiveDirectoryId(id);
-              setActiveArticleId(null);
-              setActiveCategoryId(null);
+              navigateKnowledgeBase({ type: "directory", id });
             }}
           />
         ) : activeCategory ? (
@@ -1300,34 +1394,41 @@ export default function KnowledgeBasePage() {
             categoriesById={categoriesById}
             articlesById={articlesById}
             onBack={goHome}
-            onOpenArticle={(id) => setActiveArticleId(id)}
-            onOpenCategory={(id) => setActiveCategoryId(id)}
+            onOpenArticle={(id) =>
+              navigateKnowledgeBase({
+                type: "article",
+                id,
+                categoryId: activeCategory.id,
+              })
+            }
+            onOpenCategory={(id) => navigateKnowledgeBase({ type: "category", id })}
           />
         ) : activeDirectory ? (
           <DirectoryView
             directory={activeDirectory}
             items={directoryItems}
             articlesById={articlesById}
-            onOpenArticle={(id) => setActiveArticleId(id)}
+            onBack={goHome}
+            onOpenArticle={(id) =>
+              navigateKnowledgeBase({
+                type: "article",
+                id,
+                directoryId: activeDirectory.id,
+              })
+            }
           />
         ) : (
           <HomeView
             data={data}
             articlesById={articlesById}
             onOpenCategory={(id) => {
-              setActiveCategoryId(id);
-              setActiveDirectoryId(null);
-              setActiveArticleId(null);
+              navigateKnowledgeBase({ type: "category", id });
             }}
             onOpenArticle={(id) => {
-              setActiveArticleId(id);
-              setActiveCategoryId(null);
-              setActiveDirectoryId(null);
+              navigateKnowledgeBase({ type: "article", id });
             }}
             onOpenDirectory={(id) => {
-              setActiveDirectoryId(id);
-              setActiveCategoryId(null);
-              setActiveArticleId(null);
+              navigateKnowledgeBase({ type: "directory", id });
             }}
             query={query}
             searchResults={searchResults}
