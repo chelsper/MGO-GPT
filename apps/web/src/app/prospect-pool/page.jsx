@@ -17,6 +17,7 @@ const MGOGPT_OUTCOME_OPTIONS = [
 ];
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
 const NXT_SUMMARY_PREFETCH_LIMIT = 4;
+const NXT_SUMMARY_FETCH_TIMEOUT_MS = 15000;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -143,6 +144,49 @@ function buildBlackbaudSummaryUrl(entry) {
   return `/api/blackbaud/constituents/${encodeURIComponent(
     constituentId,
   )}/summary?${params.toString()}`;
+}
+
+function getBlackbaudSummaryErrorMessage(error) {
+  if (error?.name === "AbortError") {
+    return "Blackbaud summary timed out. This usually means NXT is slow or the connection needs to be refreshed. Try again in a moment.";
+  }
+
+  return error instanceof Error
+    ? error.message
+    : "Linked Blackbaud data could not be loaded right now.";
+}
+
+async function fetchBlackbaudSummaryPayload(entry, { forceRefresh = false } = {}) {
+  let url = buildBlackbaudSummaryUrl(entry);
+  if (!url) {
+    throw new Error("This pool entry is not linked to a Blackbaud constituent ID.");
+  }
+
+  if (forceRefresh) {
+    url += `${url.includes("?") ? "&" : "?"}refresh=${Date.now()}`;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), NXT_SUMMARY_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      cache: forceRefresh ? "no-store" : "default",
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const detail = payload?.error || payload?.message || `HTTP ${response.status}`;
+      throw new Error(`Blackbaud summary request failed (${response.status}): ${detail}`);
+    }
+
+    return payload;
+  } catch (error) {
+    throw new Error(getBlackbaudSummaryErrorMessage(error));
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function isSolicitorAssignmentSynced(entry) {
@@ -624,10 +668,14 @@ export default function ProspectPoolPage() {
   }, [createForm.prospectName, isReviewer]);
 
   useEffect(() => {
-    const hasActiveSummaryLoads = Object.values(blackbaudSummaries).some(
+    const activeSummaryLoadCount = Object.values(blackbaudSummaries).filter(
       (summaryState) => summaryState?.status === "loading",
+    ).length;
+    const availableSummarySlots = Math.max(
+      0,
+      NXT_SUMMARY_PREFETCH_LIMIT - activeSummaryLoadCount,
     );
-    if (hasActiveSummaryLoads) {
+    if (availableSummarySlots === 0) {
       return;
     }
 
@@ -636,7 +684,7 @@ export default function ProspectPoolPage() {
         const constituentId = getEntryBlackbaudConstituentId(entry);
         return constituentId && !blackbaudSummaries[constituentId];
       })
-      .slice(0, NXT_SUMMARY_PREFETCH_LIMIT);
+      .slice(0, availableSummarySlots);
 
     if (entriesToLoad.length === 0) {
       return;
@@ -658,11 +706,7 @@ export default function ProspectPoolPage() {
       const results = await Promise.allSettled(
         entriesToLoad.map(async (entry) => {
           const constituentId = getEntryBlackbaudConstituentId(entry);
-          const response = await fetch(buildBlackbaudSummaryUrl(entry));
-          const payload = await response.json().catch(() => null);
-          if (!response.ok) {
-            throw new Error(payload?.error || "Failed to load Blackbaud summary");
-          }
+          const payload = await fetchBlackbaudSummaryPayload(entry);
           return [constituentId, payload];
         }),
       );
@@ -698,6 +742,32 @@ export default function ProspectPoolPage() {
       active = false;
     };
   }, [blackbaudSummaries, visibleEntries]);
+
+  async function retryBlackbaudSummary(entry) {
+    const constituentId = getEntryBlackbaudConstituentId(entry);
+    if (!constituentId) return;
+
+    setBlackbaudSummaries((current) => ({
+      ...current,
+      [constituentId]: { status: "loading", manualRetry: true },
+    }));
+
+    try {
+      const payload = await fetchBlackbaudSummaryPayload(entry, { forceRefresh: true });
+      setBlackbaudSummaries((current) => ({
+        ...current,
+        [constituentId]: { status: "ready", payload },
+      }));
+      setToast({ tone: "success", message: "Blackbaud summary loaded." });
+    } catch (error) {
+      const message = getBlackbaudSummaryErrorMessage(error);
+      setBlackbaudSummaries((current) => ({
+        ...current,
+        [constituentId]: { status: "error", error: message },
+      }));
+      setToast({ tone: "error", message });
+    }
+  }
 
   function setDraft(id, updates) {
     setClearedMgoRequestIds((current) => {
@@ -2139,8 +2209,43 @@ export default function ProspectPoolPage() {
                               padding: "10px 12px",
                             }}
                           >
-                            {blackbaudSummaryState.error ||
-                              "Linked Blackbaud data could not be loaded right now."}
+                            <div style={{ fontWeight: 700, marginBottom: "4px" }}>
+                              NXT summary could not load.
+                            </div>
+                            <div style={{ lineHeight: 1.5 }}>
+                              {blackbaudSummaryState.error ||
+                                "Linked Blackbaud data could not be loaded right now."}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: "8px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: "10px",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span style={{ color: "#7F1D1D" }}>
+                                NXT ID: {blackbaudConstituentId}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => retryBlackbaudSummary(entry)}
+                                style={{
+                                  border: "1px solid #FCA5A5",
+                                  borderRadius: "999px",
+                                  backgroundColor: "white",
+                                  color: "#991B1B",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                  padding: "6px 10px",
+                                }}
+                              >
+                                Retry NXT summary
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <>
