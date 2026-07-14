@@ -122,6 +122,29 @@ function getDisplayText(value, fallback = "Unavailable") {
   return fallback;
 }
 
+function getEntryBlackbaudConstituentId(entry) {
+  return String(
+    entry?.linked_blackbaud_constituent_id ||
+      entry?.blackbaud_constituent_id ||
+      "",
+  ).trim();
+}
+
+function buildBlackbaudSummaryUrl(entry) {
+  const constituentId = getEntryBlackbaudConstituentId(entry);
+  if (!constituentId) return "";
+
+  const params = new URLSearchParams();
+  params.set("lookupId", constituentId);
+  if (entry?.prospect_name) {
+    params.set("name", entry.prospect_name);
+  }
+
+  return `/api/blackbaud/constituents/${encodeURIComponent(
+    constituentId,
+  )}/summary?${params.toString()}`;
+}
+
 function isSolicitorAssignmentSynced(entry) {
   return (
     String(entry?.solicitor_assignment_sync_state || "").trim().toLowerCase() ===
@@ -608,11 +631,12 @@ export default function ProspectPoolPage() {
       return;
     }
 
-    const entriesToLoad = visibleEntries.filter(
-      (entry) =>
-        entry.linked_blackbaud_constituent_id &&
-        !blackbaudSummaries[entry.linked_blackbaud_constituent_id],
-    ).slice(0, NXT_SUMMARY_PREFETCH_LIMIT);
+    const entriesToLoad = visibleEntries
+      .filter((entry) => {
+        const constituentId = getEntryBlackbaudConstituentId(entry);
+        return constituentId && !blackbaudSummaries[constituentId];
+      })
+      .slice(0, NXT_SUMMARY_PREFETCH_LIMIT);
 
     if (entriesToLoad.length === 0) {
       return;
@@ -622,7 +646,7 @@ export default function ProspectPoolPage() {
     setBlackbaudSummaries((current) => {
       const next = { ...current };
       for (const entry of entriesToLoad) {
-        const constituentId = entry.linked_blackbaud_constituent_id;
+        const constituentId = getEntryBlackbaudConstituentId(entry);
         if (constituentId && !next[constituentId]) {
           next[constituentId] = { status: "loading" };
         }
@@ -633,10 +657,8 @@ export default function ProspectPoolPage() {
     async function loadBlackbaudSummaries() {
       const results = await Promise.allSettled(
         entriesToLoad.map(async (entry) => {
-          const constituentId = entry.linked_blackbaud_constituent_id;
-          const response = await fetch(
-            `/api/blackbaud/constituents/${constituentId}/summary`,
-          );
+          const constituentId = getEntryBlackbaudConstituentId(entry);
+          const response = await fetch(buildBlackbaudSummaryUrl(entry));
           const payload = await response.json().catch(() => null);
           if (!response.ok) {
             throw new Error(payload?.error || "Failed to load Blackbaud summary");
@@ -650,15 +672,20 @@ export default function ProspectPoolPage() {
       setBlackbaudSummaries((current) => {
         const next = { ...current };
         for (const [index, result] of results.entries()) {
-          const constituentId =
-            entriesToLoad[index]?.linked_blackbaud_constituent_id || null;
+          const constituentId = getEntryBlackbaudConstituentId(entriesToLoad[index]);
           if (!constituentId) continue;
 
           if (result.status === "fulfilled") {
             const [, payload] = result.value;
             next[constituentId] = { status: "ready", payload };
-          } else if (!next[constituentId]) {
-            next[constituentId] = { status: "error" };
+          } else {
+            next[constituentId] = {
+              status: "error",
+              error:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : "Failed to load Blackbaud summary",
+            };
           }
         }
         return next;
@@ -1901,8 +1928,9 @@ export default function ProspectPoolPage() {
               useClearedMgoRequestDraft
                 ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionComment
                 : draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
-            const blackbaudSummaryState = entry.linked_blackbaud_constituent_id
-              ? blackbaudSummaries[entry.linked_blackbaud_constituent_id]
+            const blackbaudConstituentId = getEntryBlackbaudConstituentId(entry);
+            const blackbaudSummaryState = blackbaudConstituentId
+              ? blackbaudSummaries[blackbaudConstituentId]
               : null;
             const blackbaudConstituent =
               blackbaudSummaryState?.payload?.mapped?.constituent || null;
@@ -2037,7 +2065,7 @@ export default function ProspectPoolPage() {
                       </div>
                     </div>
 
-                    {entry.linked_blackbaud_constituent_id ? (
+                    {blackbaudConstituentId ? (
                       <div
                         style={{
                           marginTop: "16px",
@@ -2111,7 +2139,8 @@ export default function ProspectPoolPage() {
                               padding: "10px 12px",
                             }}
                           >
-                            Linked Blackbaud data could not be loaded right now.
+                            {blackbaudSummaryState.error ||
+                              "Linked Blackbaud data could not be loaded right now."}
                           </div>
                         ) : (
                           <>
