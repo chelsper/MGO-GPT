@@ -16,9 +16,9 @@ const MGOGPT_OUTCOME_OPTIONS = [
   "Unable to Connect",
 ];
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
-const NXT_SUMMARY_PREFETCH_LIMIT = 4;
-const NXT_SUMMARY_FETCH_TIMEOUT_MS = 15000;
-const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 5000;
+const NXT_SUMMARY_PREFETCH_LIMIT = 1;
+const NXT_SUMMARY_FETCH_TIMEOUT_MS = 45000;
+const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -689,7 +689,7 @@ export default function ProspectPoolPage() {
             next[constituentId] = {
               status: "error",
               error:
-                "Blackbaud summary is taking longer than expected. Try again; if this repeats, the NXT connection or constituent ID needs attention.",
+                "Blackbaud summary is taking longer than usual. Retry this record to load it by itself.",
             };
             changed = true;
           }
