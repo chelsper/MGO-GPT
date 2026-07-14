@@ -18,6 +18,7 @@ const MGOGPT_OUTCOME_OPTIONS = [
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
 const NXT_SUMMARY_PREFETCH_LIMIT = 4;
 const NXT_SUMMARY_FETCH_TIMEOUT_MS = 15000;
+const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 5000;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -668,6 +669,40 @@ export default function ProspectPoolPage() {
   }, [createForm.prospectName, isReviewer]);
 
   useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const now = Date.now();
+      setBlackbaudSummaries((current) => {
+        let changed = false;
+        const next = { ...current };
+
+        for (const [constituentId, summaryState] of Object.entries(current)) {
+          if (summaryState?.status !== "loading") continue;
+
+          const startedAt = Number(summaryState.startedAt || 0);
+          if (!startedAt) {
+            next[constituentId] = { ...summaryState, startedAt: now };
+            changed = true;
+            continue;
+          }
+
+          if (now - startedAt >= NXT_SUMMARY_STALE_TIMEOUT_MS) {
+            next[constituentId] = {
+              status: "error",
+              error:
+                "Blackbaud summary is taking longer than expected. Try again; if this repeats, the NXT connection or constituent ID needs attention.",
+            };
+            changed = true;
+          }
+        }
+
+        return changed ? next : current;
+      });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
     const activeSummaryLoadCount = Object.values(blackbaudSummaries).filter(
       (summaryState) => summaryState?.status === "loading",
     ).length;
@@ -693,10 +728,11 @@ export default function ProspectPoolPage() {
     let active = true;
     setBlackbaudSummaries((current) => {
       const next = { ...current };
+      const startedAt = Date.now();
       for (const entry of entriesToLoad) {
         const constituentId = getEntryBlackbaudConstituentId(entry);
         if (constituentId && !next[constituentId]) {
-          next[constituentId] = { status: "loading" };
+          next[constituentId] = { status: "loading", startedAt };
         }
       }
       return next;
@@ -749,7 +785,7 @@ export default function ProspectPoolPage() {
 
     setBlackbaudSummaries((current) => ({
       ...current,
-      [constituentId]: { status: "loading", manualRetry: true },
+      [constituentId]: { status: "loading", manualRetry: true, startedAt: Date.now() },
     }));
 
     try {
@@ -2190,13 +2226,39 @@ export default function ProspectPoolPage() {
                           </div>
                         </div>
 
-                        {!blackbaudSummaryState ? (
-                          <div style={{ fontSize: "13px", color: "#4B5563" }}>
-                            Loading Blackbaud summary...
-                          </div>
-                        ) : blackbaudSummaryState.status === "loading" ? (
-                          <div style={{ fontSize: "13px", color: "#4B5563" }}>
-                            Loading Blackbaud summary...
+                        {!blackbaudSummaryState || blackbaudSummaryState.status === "loading" ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "10px",
+                              flexWrap: "wrap",
+                              fontSize: "13px",
+                              color: "#4B5563",
+                            }}
+                          >
+                            <span>
+                              {!blackbaudSummaryState
+                                ? "Waiting to load Blackbaud summary..."
+                                : "Loading Blackbaud summary..."}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => retryBlackbaudSummary(entry)}
+                              style={{
+                                border: "1px solid #93C5FD",
+                                borderRadius: "999px",
+                                backgroundColor: "white",
+                                color: "#1D4ED8",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                padding: "6px 10px",
+                              }}
+                            >
+                              {!blackbaudSummaryState ? "Load now" : "Retry NXT summary"}
+                            </button>
                           </div>
                         ) : blackbaudSummaryState.status === "error" ? (
                           <div
