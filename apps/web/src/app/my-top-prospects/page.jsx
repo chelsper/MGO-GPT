@@ -191,6 +191,37 @@ function formatPortfolioContact(person) {
   return [person?.email, person?.phone].filter(Boolean).join(" · ");
 }
 
+function buildPortfolioUpdateHref(person, mode) {
+  const params = new URLSearchParams();
+  params.set("mode", mode);
+  params.set("returnTo", "/my-top-prospects?tab=portfolio");
+
+  if (person?.name) {
+    params.set("donor", person.name);
+  }
+
+  if (person?.constituentId) {
+    params.set("blackbaudConstituentId", String(person.constituentId));
+  }
+
+  if (person?.lookupId) {
+    params.set("lookupId", String(person.lookupId));
+  }
+
+  return `/action-opportunity-update?${params.toString()}`;
+}
+
+function formatPortfolioGiftDate(value) {
+  if (!value) return "Unavailable";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unavailable";
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function isNeedsFollowUpProspect(prospect) {
   if (prospect.next_action_text && !prospect.next_action_completed_at) {
     return false;
@@ -216,6 +247,7 @@ function PortfolioTier({
   accent,
   onAddToTopProspects,
   isAdding,
+  isReadOnly = false,
   topProspectConstituentIds = new Set(),
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
@@ -380,11 +412,60 @@ function PortfolioTier({
               <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
                 {formatPortfolioContact(person) || "No email or phone in NXT"}
               </div>
-                  {person.address ? (
+              {person.address ? (
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                   {person.address}
                 </div>
               ) : null}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                  gap: "8px",
+                  marginTop: "4px",
+                }}
+              >
+                {[
+                  ["Last gift", formatPortfolioGiftDate(person.lastGift?.date)],
+                  ["Gift type", person.lastGift?.type || "Unavailable"],
+                  ["Gift fund", person.lastGift?.fund || "Unavailable"],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    style={{
+                      borderRadius: "10px",
+                      border: "1px solid #E5E7EB",
+                      backgroundColor: "white",
+                      padding: "8px 10px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        letterSpacing: "0.05em",
+                        textTransform: "uppercase",
+                        color: "#6B7280",
+                        marginBottom: "3px",
+                      }}
+                    >
+                      {label}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        color: "#111827",
+                        lineHeight: 1.35,
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
               <div
                 style={{
                   marginTop: "4px",
@@ -491,14 +572,54 @@ function PortfolioTier({
                     Lifetime giving:{" "}
                     {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
                   </div>
+                  {!isReadOnly ? (
+                    <>
+                      <a
+                        href={buildPortfolioUpdateHref(person, "action")}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "8px 12px",
+                          borderRadius: "999px",
+                          border: "1px solid #C7D2FE",
+                          backgroundColor: "#EEF2FF",
+                          color: "#4338CA",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          textDecoration: "none",
+                        }}
+                      >
+                        Log action
+                      </a>
+                      <a
+                        href={buildPortfolioUpdateHref(person, "opportunity")}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "8px 12px",
+                          borderRadius: "999px",
+                          border: "1px solid #A7F3D0",
+                          backgroundColor: "#ECFDF5",
+                          color: "#047857",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          textDecoration: "none",
+                        }}
+                      >
+                        Add opportunity
+                      </a>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
-                      if (!isTopProspect) {
+                      if (!isReadOnly && !isTopProspect) {
                         onAddToTopProspects?.(person);
                       }
                     }}
-                    disabled={isAdding || isTopProspect}
+                    disabled={isAdding || isTopProspect || isReadOnly}
                     style={{
                       padding: "8px 12px",
                       borderRadius: "999px",
@@ -507,10 +628,14 @@ function PortfolioTier({
                       color: isTopProspect ? "#92400E" : "#4338CA",
                       fontSize: "12px",
                       fontWeight: "700",
-                      cursor: isAdding || isTopProspect ? "not-allowed" : "pointer",
+                      cursor: isAdding || isTopProspect || isReadOnly ? "not-allowed" : "pointer",
                     }}
                   >
-                    {isTopProspect ? "Already in Top Prospects" : "Add to Top Prospects"}
+                    {isTopProspect
+                      ? "Already in Top Prospects"
+                      : isReadOnly
+                        ? "Read-only view"
+                        : "Add to Top Prospects"}
                   </button>
                 </div>
               </div>
@@ -6865,6 +6990,7 @@ export default function MyTopProspectsPage() {
                   accent={{ background: "#EEF2FF", text: "#4338CA" }}
                   onAddToTopProspects={openPortfolioAddModal}
                   isAdding={addMutation.isPending}
+                  isReadOnly={isExecutiveReadOnly}
                   topProspectConstituentIds={topProspectConstituentIds}
                 />
                 <PortfolioTier
@@ -6874,6 +7000,7 @@ export default function MyTopProspectsPage() {
                   accent={{ background: "#ECFDF5", text: "#065F46" }}
                   onAddToTopProspects={openPortfolioAddModal}
                   isAdding={addMutation.isPending}
+                  isReadOnly={isExecutiveReadOnly}
                   topProspectConstituentIds={topProspectConstituentIds}
                 />
               </div>

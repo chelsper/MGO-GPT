@@ -8,15 +8,191 @@ import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
+  listBlackbaudGifts,
   listBlackbaudConstituents,
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
+const PORTFOLIO_CACHE_VERSION = "v2";
+const EXCLUDED_LAST_GIFT_FUNDS = new Set(["credit card processing fee"]);
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function getNestedValue(source, path) {
+  return path.split(".").reduce((current, key) => {
+    if (current == null) return undefined;
+    return current[key];
+  }, source);
+}
+
+function firstDefined(source, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function normalizeGiftFundName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function getTextFromMaybeObject(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value).trim() || null;
+  }
+
+  if (typeof value === "object") {
+    return (
+      String(
+        firstDefined(value, [
+          "name",
+          "description",
+          "fund_name",
+          "fundName",
+          "fund_description",
+          "fundDescription",
+          "value",
+          "id",
+        ]) || "",
+      ).trim() || null
+    );
+  }
+
+  return null;
+}
+
+function getGiftDate(gift) {
+  return firstDefined(gift, [
+    "date",
+    "gift_date",
+    "giftDate",
+    "date_received",
+    "dateReceived",
+    "received_date",
+    "receivedDate",
+  ]);
+}
+
+function getGiftTypeLabel(gift) {
+  const rawType = String(
+    firstDefined(gift, [
+      "gift_type",
+      "giftType",
+      "type",
+      "type_name",
+      "category",
+    ]) || "",
+  ).trim();
+
+  if (!rawType) return null;
+
+  return rawType
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getGiftFundNames(gift) {
+  const fundNames = [];
+  const paths = [
+    "fund",
+    "fund.name",
+    "fund.description",
+    "fund_name",
+    "fundName",
+    "fund_description",
+    "fundDescription",
+    "gift_fund",
+    "giftFund",
+    "designation",
+    "designation.name",
+    "designation.description",
+    "payments.0.applications.0.fund",
+    "payments.0.applications.0.fund.name",
+    "payments.0.applications.0.fund.description",
+    "applications.0.fund",
+    "applications.0.fund.name",
+    "applications.0.fund.description",
+  ];
+
+  for (const path of paths) {
+    const value = getNestedValue(gift, path);
+    const label = getTextFromMaybeObject(value);
+    if (label && !fundNames.some((existing) => normalizeGiftFundName(existing) === normalizeGiftFundName(label))) {
+      fundNames.push(label);
+    }
+  }
+
+  const arrayPaths = ["funds", "designations", "payments.0.applications", "applications"];
+  for (const path of arrayPaths) {
+    const value = getNestedValue(gift, path);
+    if (!Array.isArray(value)) continue;
+
+    for (const item of value) {
+      const label =
+        getTextFromMaybeObject(item?.fund) ||
+        getTextFromMaybeObject(item?.designation) ||
+        getTextFromMaybeObject(item);
+      if (label && !fundNames.some((existing) => normalizeGiftFundName(existing) === normalizeGiftFundName(label))) {
+        fundNames.push(label);
+      }
+    }
+  }
+
+  return fundNames;
+}
+
+function isExcludedLastGiftFund(gift) {
+  return getGiftFundNames(gift).some((fundName) =>
+    EXCLUDED_LAST_GIFT_FUNDS.has(normalizeGiftFundName(fundName)),
+  );
+}
+
+function mapLastGift(gift) {
+  if (!gift) return null;
+
+  const fundNames = getGiftFundNames(gift);
+  return {
+    date: getGiftDate(gift) || null,
+    type: getGiftTypeLabel(gift),
+    fund: fundNames[0] || null,
+  };
+}
+
+async function fetchLastGift({ userId, authUserId, origin, constituentId }) {
+  const gifts = await listBlackbaudGifts({
+    userId,
+    authUserId,
+    origin,
+    searchParams: {
+      constituent_id: String(constituentId),
+    },
+    pageLimit: 100,
+    maxPages: 2,
+  });
+
+  const sortedGifts = gifts
+    .filter((gift) => getGiftDate(gift))
+    .filter((gift) => !isExcludedLastGiftFund(gift))
+    .sort((left, right) => {
+      const rightDate = new Date(getGiftDate(right)).getTime();
+      const leftDate = new Date(getGiftDate(left)).getTime();
+      return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0);
+    });
+
+  return mapLastGift(sortedGifts[0] || null);
 }
 
 function isCurrentAssignment(assignment) {
@@ -178,7 +354,7 @@ function mapLifetimeGiving(lifetimeGiving) {
 }
 
 async function fetchPortfolioConstituent({ userId, authUserId, origin, constituentId }) {
-  const [constituentResult, lifetimeGivingResult] = await Promise.allSettled([
+  const [constituentResult, lifetimeGivingResult, lastGiftResult] = await Promise.allSettled([
     blackbaudApiFetch(
       `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
       {
@@ -197,16 +373,24 @@ async function fetchPortfolioConstituent({ userId, authUserId, origin, constitue
         origin,
       },
     ),
+    fetchLastGift({
+      userId,
+      authUserId,
+      origin,
+      constituentId,
+    }),
   ]);
 
   const constituent =
     constituentResult.status === "fulfilled" ? constituentResult.value : null;
   const lifetimeGiving =
     lifetimeGivingResult.status === "fulfilled" ? lifetimeGivingResult.value : null;
+  const lastGift = lastGiftResult.status === "fulfilled" ? lastGiftResult.value : null;
 
   return {
     ...mapConstituentBasics(constituent),
     lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
+    lastGift,
   };
 }
 
@@ -237,6 +421,7 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
           phone: details.phone,
           address: details.address,
           lifetimeGiving: details.lifetimeGiving,
+          lastGift: details.lastGift,
           assignmentTypes: Array.from(entry.assignmentTypes),
         };
       }),
@@ -428,10 +613,13 @@ export async function GET(request) {
       });
     }
 
-    const initialCacheKey =
+    const candidateCacheKey =
       resolutionCandidates.map((candidate) => candidate.fundraiserId).filter(Boolean).join("|") ||
       fundraiserId ||
       null;
+    const initialCacheKey = candidateCacheKey
+      ? `${PORTFOLIO_CACHE_VERSION}:${candidateCacheKey}`
+      : null;
     const cachedPortfolio = includeDiagnostics
       ? null
       : await getCachedPortfolio(workspaceUser.id, initialCacheKey);
@@ -601,7 +789,7 @@ export async function GET(request) {
     if (!includeDiagnostics) {
       await saveCachedPortfolio(
         workspaceUser.id,
-        selectedFundraiserId || initialCacheKey,
+        initialCacheKey,
         responsePayload,
       );
     }

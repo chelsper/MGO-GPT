@@ -149,6 +149,7 @@ function DictationButton({
 
 export default function ActionOpportunityUpdatePage() {
   const { data: user, loading } = useUser();
+  const [returnPath, setReturnPath] = useState("/");
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
   const [actionCategory, setActionCategory] = useState(ACTION_CATEGORIES[0]);
@@ -220,6 +221,50 @@ export default function ActionOpportunityUpdatePage() {
   const recognitionDisplayRef = useRef("");
   const recognitionFinalizedRef = useRef(false);
   const dictationBaseValueRef = useRef("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedReturnPath = params.get("returnTo") || "";
+    const requestedMode = params.get("mode") || "";
+    const requestedDonorName = params.get("donor") || params.get("name") || "";
+    const requestedBlackbaudConstituentId =
+      params.get("blackbaudConstituentId") || "";
+    const requestedLookupId =
+      params.get("lookupId") || params.get("blackbaudLookupId") || "";
+
+    if (
+      requestedReturnPath.startsWith("/") &&
+      !requestedReturnPath.startsWith("//")
+    ) {
+      setReturnPath(requestedReturnPath);
+    }
+
+    if (UPDATE_MODES.some((mode) => mode.value === requestedMode)) {
+      setUpdateMode(requestedMode);
+    }
+
+    if (requestedDonorName) {
+      setDonorName(requestedDonorName);
+    }
+
+    if (requestedBlackbaudConstituentId || requestedLookupId) {
+      setSelectedBlackbaudMatch({
+        blackbaudConstituentId: requestedBlackbaudConstituentId || null,
+        blackbaudLookupId: requestedLookupId || null,
+        lookupId: requestedLookupId || null,
+        name: requestedDonorName || "Selected constituent",
+        email: null,
+        phone: null,
+        address: null,
+      });
+      setMatchDecision("link");
+      setBlackbaudSearchWarning(
+        "Using the Raiser's Edge NXT record selected from your portfolio.",
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -1619,7 +1664,7 @@ export default function ActionOpportunityUpdatePage() {
           }}
         >
           <a
-            href="/"
+            href={returnPath}
             style={{
               display: "flex",
               alignItems: "center",
