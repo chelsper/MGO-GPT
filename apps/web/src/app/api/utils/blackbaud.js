@@ -1049,6 +1049,7 @@ export function buildBlackbaudActionPayload({
   nextStep,
   authorName,
   opportunityId,
+  fundraiserIds,
 }) {
   if (!blackbaudConstituentId) {
     throw new Error("A linked Blackbaud constituent ID is required");
@@ -1071,6 +1072,9 @@ export function buildBlackbaudActionPayload({
     appendActionSection("Notes", actionNotes),
     appendActionSection("Next step", nextStep),
   ].filter(Boolean);
+  const normalizedFundraiserIds = Array.isArray(fundraiserIds)
+    ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
 
   return {
     constituent_id: String(blackbaudConstituentId),
@@ -1084,6 +1088,7 @@ export function buildBlackbaudActionPayload({
     description: descriptionParts.join("\n\n") || undefined,
     author: String(authorName || "").trim() || undefined,
     opportunity_id: opportunityId ? String(opportunityId) : undefined,
+    fundraisers: normalizedFundraiserIds.length > 0 ? normalizedFundraiserIds : undefined,
   };
 }
 

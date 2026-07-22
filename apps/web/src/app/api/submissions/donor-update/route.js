@@ -110,6 +110,7 @@ export async function POST(request) {
           actionNotes: notes,
           nextStep,
           authorName: actionSolicitorUser.name,
+          fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
         }),
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",

@@ -17,6 +17,7 @@ describe("blackbaud action payload helpers", () => {
       actionNotes: "Sent the spring campaign note.",
       nextStep: "Follow up next week",
       authorName: "Leslie M. Redd",
+      fundraiserIds: ["800", " 172263 ", "", null],
     });
 
     const metadataPayload = buildBlackbaudActionMetadataPayload({
@@ -29,6 +30,7 @@ describe("blackbaud action payload helpers", () => {
     expect(actionPayload.completed).toBe(true);
     expect(actionPayload.completed_date).toBe("2026-06-16");
     expect(actionPayload.status).toBe("Completed");
+    expect(actionPayload.fundraisers).toEqual(["800", "172263"]);
     expect(metadataPayload.completed).toBe(true);
     expect(metadataPayload.completed_date).toBe("2026-06-16");
     expect(metadataPayload.status).toBe("Completed");

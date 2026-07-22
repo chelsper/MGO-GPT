@@ -455,6 +455,7 @@ describe("prospect action route", () => {
       expect.objectContaining({
         summary: "Joint visit",
         completedDate: "2026-07-22",
+        fundraiserIds: ["234684", "172263"],
       }),
     );
     expect(buildBlackbaudActionMetadataPayloadMock).toHaveBeenCalledWith(

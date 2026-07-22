@@ -363,6 +363,7 @@ export async function POST(request, { params }) {
         nextStep,
         authorName: actionSolicitorUser.name,
         opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
+        fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
       });
       attemptedCreateVariants.push({
         syncVariant: "initial-full-action-payload",
@@ -415,6 +416,7 @@ export async function POST(request, { params }) {
             nextStep,
             authorName: actionSolicitorUser.name,
             opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
+            fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
           });
           attemptedCreateVariants[0] = {
             syncVariant: "initial-full-action-payload",

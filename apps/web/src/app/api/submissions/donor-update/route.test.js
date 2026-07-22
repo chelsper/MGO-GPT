@@ -159,6 +159,7 @@ describe("donor update route", () => {
       expect.objectContaining({
         authorName: "Chelsea Santoro",
         completedDate: "2026-07-22",
+        fundraiserIds: ["800"],
         summary: "Discovery visit with Pat",
       }),
     );
