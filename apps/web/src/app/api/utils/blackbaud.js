@@ -951,6 +951,32 @@ export async function createBlackbaudFundraiserAssignment({
   });
 }
 
+export async function updateBlackbaudFundraiserAssignment({
+  userId,
+  authUserId,
+  origin,
+  assignmentId,
+  payload,
+}) {
+  const normalizedAssignmentId = String(assignmentId || "").trim();
+  if (!normalizedAssignmentId) {
+    throw new Error("A Blackbaud fundraiser assignment ID is required");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/assignments/${encodeURIComponent(
+      normalizedAssignmentId,
+    )}`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
+}
+
 export async function listBlackbaudConstituents({
   userId,
   authUserId,

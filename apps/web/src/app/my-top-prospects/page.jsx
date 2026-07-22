@@ -334,6 +334,9 @@ function PortfolioTier({
   topProspectByConstituentId = new Map(),
   onRemoveFromTopProspects,
   isRemovingFromTopProspects = false,
+  onRemoveSolicitorAssignment,
+  isRemovingSolicitorAssignment = false,
+  removingSolicitorConstituentId = "",
   emptyMessage = "No current constituents in this tier right now.",
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
@@ -449,6 +452,10 @@ function PortfolioTier({
                 const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
                   person.constituentId,
                 );
+                const isRemovingThisSolicitorAssignment =
+                  isRemovingSolicitorAssignment &&
+                  String(removingSolicitorConstituentId || "") ===
+                    String(person.constituentId || "");
 
                 return (
                   <>
@@ -712,6 +719,31 @@ function PortfolioTier({
                       >
                         Add opportunity
                       </a>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveSolicitorAssignment?.(person)}
+                        disabled={isRemovingSolicitorAssignment}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "8px 12px",
+                          borderRadius: "999px",
+                          border: "1px solid #FECACA",
+                          backgroundColor: "#FEF2F2",
+                          color: "#991B1B",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          cursor: isRemovingSolicitorAssignment
+                            ? "not-allowed"
+                            : "pointer",
+                          opacity: isRemovingSolicitorAssignment ? 0.7 : 1,
+                        }}
+                      >
+                        {isRemovingThisSolicitorAssignment
+                          ? "Removing..."
+                          : "Remove me as solicitor"}
+                      </button>
                     </>
                   ) : null}
                   {isTopProspect && !isReadOnly ? (
@@ -6234,6 +6266,8 @@ export default function MyTopProspectsPage() {
   const [addProspectError, setAddProspectError] = useState("");
   const [portfolioSyncMessage, setPortfolioSyncMessage] = useState("");
   const [portfolioSyncError, setPortfolioSyncError] = useState("");
+  const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
+    useState("");
   const autoBootstrapAttemptRef = useRef("");
 
   const { data: profileStatus } = useQuery({
@@ -6549,6 +6583,57 @@ export default function MyTopProspectsPage() {
     },
   });
 
+  const removeSolicitorAssignmentMutation = useMutation({
+    onMutate: (person) => {
+      setRemovingSolicitorConstituentId(String(person?.constituentId || ""));
+      setPortfolioSyncMessage("");
+      setPortfolioSyncError("");
+    },
+    mutationFn: async (person) => {
+      const constituentId = String(person?.constituentId || "").trim();
+      if (!constituentId) {
+        throw new Error("Could not identify the Blackbaud constituent.");
+      }
+
+      const res = await fetch("/api/blackbaud/portfolio/solicitor-assignment", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ constituentId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          data?.error || "Failed to remove your solicitor assignment in NXT.",
+        );
+      }
+
+      return { data, person };
+    },
+    onSuccess: async ({ data, person }) => {
+      setPortfolioSyncMessage(
+        data?.message ||
+          `${person?.name || "This constituent"} was removed from your active solicitor assignments in NXT.`,
+      );
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["blackbaud-portfolio"] }),
+        queryClient.invalidateQueries({ queryKey: ["profile-sync-status"] }),
+        queryClient.invalidateQueries({ queryKey: ["prospects"] }),
+        queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] }),
+        queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] }),
+      ]);
+    },
+    onError: (error) => {
+      setPortfolioSyncError(
+        error instanceof Error
+          ? error.message
+          : "Failed to remove your solicitor assignment in NXT.",
+      );
+    },
+    onSettled: () => {
+      setRemovingSolicitorConstituentId("");
+    },
+  });
+
   const reorderMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch("/api/prospects/reorder", {
@@ -6723,6 +6808,22 @@ export default function MyTopProspectsPage() {
     }
 
     removePortfolioTopProspectMutation.mutate(topProspect);
+  };
+
+  const removePortfolioSolicitorAssignment = (person) => {
+    if (!person?.constituentId) {
+      setPortfolioSyncError("Could not identify the linked Blackbaud constituent.");
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Remove yourself as solicitor for ${person.name || "this constituent"}? This will change your active NXT solicitor assignment to Former Solicitor and set today's date as the end date.`,
+      );
+      if (!confirmed) return;
+    }
+
+    removeSolicitorAssignmentMutation.mutate(person);
   };
 
   const combinedSummary =
@@ -7330,6 +7431,9 @@ export default function MyTopProspectsPage() {
                   topProspectByConstituentId={topProspectByConstituentId}
                   onRemoveFromTopProspects={removePortfolioTopProspect}
                   isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
+                  onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
+                  isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
+                  removingSolicitorConstituentId={removingSolicitorConstituentId}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No Lead Solicitor assignments match this search."
@@ -7348,6 +7452,9 @@ export default function MyTopProspectsPage() {
                   topProspectByConstituentId={topProspectByConstituentId}
                   onRemoveFromTopProspects={removePortfolioTopProspect}
                   isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
+                  onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
+                  isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
+                  removingSolicitorConstituentId={removingSolicitorConstituentId}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No supporting assignments match this search."
