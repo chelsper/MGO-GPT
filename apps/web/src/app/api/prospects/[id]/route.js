@@ -428,8 +428,12 @@ export async function DELETE(request, { params }) {
     const prospectId = params.id;
 
     const existingProspect = await sql`
-      SELECT p.id
+      SELECT
+        p.id,
+        p.constituent_id,
+        COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) AS linked_blackbaud_constituent_id
       FROM prospects p
+      LEFT JOIN constituents c ON c.id = p.constituent_id
       WHERE p.id = ${prospectId} AND p.user_id = ${user.id}
       LIMIT 1
     `;
@@ -438,14 +442,58 @@ export async function DELETE(request, { params }) {
       return Response.json({ error: "Prospect not found" }, { status: 404 });
     }
 
+    const existing = existingProspect[0];
+    const linkedBlackbaudConstituentId =
+      String(existing.linked_blackbaud_constituent_id || "").trim() || null;
+
     const result = await sql`
-      UPDATE prospects
+      WITH target AS (
+        SELECT
+          ${prospectId}::BIGINT AS id,
+          ${existing.constituent_id || null}::BIGINT AS constituent_id,
+          ${linkedBlackbaudConstituentId}::TEXT AS linked_blackbaud_constituent_id
+      ),
+      matching_active_prospects AS (
+        SELECT p.id
+        FROM prospects p
+        LEFT JOIN constituents c ON c.id = p.constituent_id
+        CROSS JOIN target t
+        WHERE p.user_id = ${user.id}
+          AND p.status = 'Active'
+          AND (
+            p.id = t.id
+            OR (
+              t.constituent_id IS NOT NULL
+              AND p.constituent_id = t.constituent_id
+            )
+            OR (
+              t.linked_blackbaud_constituent_id IS NOT NULL
+              AND t.linked_blackbaud_constituent_id <> ''
+              AND (
+                p.blackbaud_constituent_id = t.linked_blackbaud_constituent_id
+                OR c.blackbaud_constituent_id = t.linked_blackbaud_constituent_id
+              )
+            )
+          )
+      )
+      UPDATE prospects p
       SET status = 'Archived', updated_at = NOW()
-      WHERE id = ${prospectId} AND user_id = ${user.id}
-      RETURNING id, status
+      FROM matching_active_prospects match
+      WHERE p.id = match.id
+      RETURNING p.id, p.status, p.constituent_id, p.blackbaud_constituent_id
     `;
 
-    return Response.json({ success: true, prospect: result[0] || null });
+    return Response.json({
+      success: true,
+      prospect: result[0] || {
+        id: existing.id,
+        constituent_id: existing.constituent_id,
+        status: "Archived",
+      },
+      archivedProspectIds: result.map((prospect) => prospect.id),
+      archivedConstituentId: existing.constituent_id || null,
+      linkedBlackbaudConstituentId,
+    });
   } catch (error) {
     console.error("Error deleting prospect:", error);
     return Response.json(

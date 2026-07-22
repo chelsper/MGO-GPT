@@ -180,4 +180,51 @@ describe("prospect detail route", () => {
       completedAt: null,
     });
   });
+
+  it("archives duplicate active top prospect rows for the same linked constituent", async () => {
+    const { DELETE } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 7,
+        constituent_id: 88,
+        linked_blackbaud_constituent_id: "40126",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 7,
+        status: "Archived",
+        constituent_id: 88,
+        blackbaud_constituent_id: "40126",
+      },
+      {
+        id: 8,
+        status: "Archived",
+        constituent_id: 88,
+        blackbaud_constituent_id: "40126",
+      },
+    ]);
+
+    const response = await DELETE(
+      new Request("https://example.com/api/prospects/7", {
+        method: "DELETE",
+      }),
+      { params: { id: "7" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.success).toBe(true);
+    expect(payload.archivedProspectIds).toEqual([7, 8]);
+    expect(payload.archivedConstituentId).toBe(88);
+    expect(payload.linkedBlackbaudConstituentId).toBe("40126");
+
+    const updateCall = sqlMockImpl.mock.calls.find(([firstArg]) => {
+      const text = Array.isArray(firstArg) ? firstArg.join("") : String(firstArg);
+      return text.includes("matching_active_prospects");
+    });
+
+    expect(updateCall).toBeTruthy();
+  });
 });

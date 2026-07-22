@@ -233,6 +233,44 @@ function getProspectBlackbaudConstituentId(prospect) {
   ).trim();
 }
 
+function isRemovedTopProspectMatch(prospect, removalResult, fallbackProspectId) {
+  const archivedIds = new Set(
+    [
+      ...(Array.isArray(removalResult?.archivedProspectIds)
+        ? removalResult.archivedProspectIds
+        : []),
+      removalResult?.prospect?.id,
+      fallbackProspectId,
+    ]
+      .filter((id) => id !== undefined && id !== null && id !== "")
+      .map((id) => String(id)),
+  );
+
+  if (archivedIds.has(String(prospect?.id || ""))) {
+    return true;
+  }
+
+  const archivedConstituentId = String(
+    removalResult?.archivedConstituentId ||
+      removalResult?.prospect?.constituent_id ||
+      "",
+  ).trim();
+  if (
+    archivedConstituentId &&
+    String(prospect?.constituent_id || "").trim() === archivedConstituentId
+  ) {
+    return true;
+  }
+
+  const archivedBlackbaudConstituentId = String(
+    removalResult?.linkedBlackbaudConstituentId || "",
+  ).trim();
+  return (
+    Boolean(archivedBlackbaudConstituentId) &&
+    getProspectBlackbaudConstituentId(prospect) === archivedBlackbaudConstituentId
+  );
+}
+
 function matchesPortfolioSearch(person, normalizedSearch) {
   if (!normalizedSearch) return true;
 
@@ -1863,7 +1901,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       queryClient.setQueriesData({ queryKey: ["prospects"] }, (current) => {
         if (!Array.isArray(current)) return current;
         return current.map((item) =>
-          String(item.id) === String(prospectId)
+          isRemovedTopProspectMatch(item, result, prospectId)
             ? { ...item, ...removedProspect, status: removedProspect.status || "Archived" }
             : item,
         );
@@ -6478,7 +6516,7 @@ export default function MyTopProspectsPage() {
       queryClient.setQueriesData({ queryKey: ["prospects"] }, (current) => {
         if (!Array.isArray(current)) return current;
         return current.map((prospect) =>
-          String(prospect.id) === String(topProspect.id)
+          isRemovedTopProspectMatch(prospect, data, topProspect.id)
             ? { ...prospect, ...removedProspect, status: removedProspect.status || "Archived" }
             : prospect,
         );
