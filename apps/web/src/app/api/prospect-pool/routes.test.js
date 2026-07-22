@@ -304,7 +304,7 @@ describe("prospect pool routes", () => {
     expect(payload.nxt_status_retry_count).toBe(1);
   });
 
-  it("lets the assigned workspace MGO add themselves as Lead Solicitor in NXT", async () => {
+  it("lets the assigned workspace MGO add themselves as Lead Solicitor in NXT without an amount", async () => {
     const { PATCH } = await import("./[id]/route.js");
 
     getOrCreateUserMock.mockResolvedValue({
@@ -346,7 +346,6 @@ describe("prospect pool routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         solicitorRequested: true,
-        solicitorAssignmentValue: "25000",
       }),
     });
 
@@ -355,17 +354,14 @@ describe("prospect pool routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.solicitor_assignment_sync_state).toBe("success");
-    expect(createBlackbaudFundraiserAssignmentMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          fundraiser_id: "234684",
-          constituent_id: "555123",
-          type: "Lead Solicitor",
-          start: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-          value: 25000,
-        }),
-      }),
-    );
+    const assignmentPayload = createBlackbaudFundraiserAssignmentMock.mock.calls[0][0].payload;
+    expect(assignmentPayload).toMatchObject({
+      fundraiser_id: "234684",
+      constituent_id: "555123",
+      type: "Lead Solicitor",
+      start: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+    expect(assignmentPayload).not.toHaveProperty("value");
   });
 
   it("uses the MGO solicitor sync path when an admin is acting as an MGO workspace", async () => {
@@ -672,7 +668,7 @@ describe("prospect pool routes", () => {
     );
   });
 
-  it("rejects Lead Solicitor sync when no assignment amount is supplied", async () => {
+  it("stores a null solicitor assignment value when no amount is supplied", async () => {
     const { PATCH } = await import("./[id]/route.js");
 
     getOrCreateUserMock.mockResolvedValue({
@@ -682,6 +678,8 @@ describe("prospect pool routes", () => {
       role: "mgo",
       blackbaud_constituent_id: "234684",
     });
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([]);
+    createBlackbaudFundraiserAssignmentMock.mockResolvedValue({ id: "assign-without-value" });
 
     queueSqlResult([
       {
@@ -697,6 +695,16 @@ describe("prospect pool routes", () => {
         solicitor_assignment_sync_state: null,
       },
     ]);
+    queueSqlResult([
+      {
+        id: 904,
+        assigned_user_id: 44,
+        prospect_name: "Pat Prospect",
+        solicitor_requested: true,
+        solicitor_assignment_value: null,
+        solicitor_assignment_sync_state: "success",
+      },
+    ]);
 
     const request = new Request("https://example.com/api/prospect-pool/904", {
       method: "PATCH",
@@ -709,9 +717,11 @@ describe("prospect pool routes", () => {
     const response = await PATCH(request, { params: { id: "904" } });
     const payload = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(payload.error).toMatch(/assignment amount is required/i);
-    expect(createBlackbaudFundraiserAssignmentMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(payload.solicitor_assignment_value).toBeNull();
+    expect(payload.solicitor_assignment_sync_state).toBe("success");
+    const assignmentPayload = createBlackbaudFundraiserAssignmentMock.mock.calls[0][0].payload;
+    expect(assignmentPayload).not.toHaveProperty("value");
   });
 
   it("creates a second MGOGPT custom field entry when the MGO selects an outcome and comment", async () => {
