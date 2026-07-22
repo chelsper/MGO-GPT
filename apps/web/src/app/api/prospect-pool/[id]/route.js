@@ -111,6 +111,22 @@ function normalizeOptionalAssignmentValue(value) {
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
 }
 
+async function clearBlackbaudPortfolioCacheForUser(userId) {
+  if (!userId) return false;
+
+  await sql`
+    UPDATE users
+    SET
+      blackbaud_portfolio_cache = NULL,
+      blackbaud_portfolio_cache_key = NULL,
+      blackbaud_portfolio_cached_at = NULL,
+      updated_at = NOW()
+    WHERE id = ${userId}
+  `;
+
+  return true;
+}
+
 function buildSolicitorAssignmentDebug({
   operation,
   endpointPath,
@@ -1137,9 +1153,31 @@ export async function PATCH(request, { params }) {
       });
     }
 
+    let blackbaudPortfolioCacheCleared = false;
+    if (
+      solicitorRequested &&
+      solicitorAssignmentSyncState === SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS
+    ) {
+      try {
+        const userIdsToClear = [
+          Number(workspaceUser.id || 0),
+          Number(entry.assigned_user_id || 0),
+        ].filter((userId, index, items) => userId > 0 && items.indexOf(userId) === index);
+
+        for (const userId of userIdsToClear) {
+          blackbaudPortfolioCacheCleared =
+            (await clearBlackbaudPortfolioCacheForUser(userId)) ||
+            blackbaudPortfolioCacheCleared;
+        }
+      } catch (cacheError) {
+        console.warn("Could not clear Blackbaud portfolio cache:", cacheError);
+      }
+    }
+
     return Response.json({
       ...updated[0],
       data_request_id: dataRequest?.id || null,
+      blackbaud_portfolio_cache_cleared: blackbaudPortfolioCacheCleared,
       solicitor_assignment_sync_debug:
         solicitorAssignmentSyncDebug || updated[0]?.solicitor_assignment_sync_debug || null,
     });

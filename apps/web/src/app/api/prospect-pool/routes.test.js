@@ -354,6 +354,7 @@ describe("prospect pool routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.solicitor_assignment_sync_state).toBe("success");
+    expect(payload.blackbaud_portfolio_cache_cleared).toBe(true);
     const assignmentPayload = createBlackbaudFundraiserAssignmentMock.mock.calls[0][0].payload;
     expect(assignmentPayload).toMatchObject({
       fundraiser_id: "234684",
@@ -362,6 +363,11 @@ describe("prospect pool routes", () => {
       start: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
     expect(assignmentPayload).not.toHaveProperty("value");
+    expect(
+      sqlMockImpl.mock.calls.some(([strings]) =>
+        strings.join(" ").includes("blackbaud_portfolio_cache = NULL"),
+      ),
+    ).toBe(true);
   });
 
   it("uses the MGO solicitor sync path when an admin is acting as an MGO workspace", async () => {
