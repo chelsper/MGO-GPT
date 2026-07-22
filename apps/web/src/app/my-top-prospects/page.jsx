@@ -225,6 +225,14 @@ function buildPortfolioUpdateHref(person, mode) {
   return `/action-opportunity-update?${params.toString()}`;
 }
 
+function getProspectBlackbaudConstituentId(prospect) {
+  return String(
+    prospect?.linked_blackbaud_constituent_id ||
+      prospect?.blackbaud_constituent_id ||
+      "",
+  ).trim();
+}
+
 function formatPortfolioGiftDate(value) {
   if (!value) return "Unavailable";
   const parsed = new Date(value);
@@ -263,6 +271,9 @@ function PortfolioTier({
   isAdding,
   isReadOnly = false,
   topProspectConstituentIds = new Set(),
+  topProspectByConstituentId = new Map(),
+  onRemoveFromTopProspects,
+  isRemovingFromTopProspects = false,
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
@@ -363,6 +374,9 @@ function PortfolioTier({
             >
               {(() => {
                 const isTopProspect = topProspectConstituentIds.has(
+                  String(person.constituentId || ""),
+                );
+                const topProspect = topProspectByConstituentId.get(
                   String(person.constituentId || ""),
                 );
                 const summaryState = summaryStates[person.constituentId];
@@ -639,31 +653,57 @@ function PortfolioTier({
                       </a>
                     </>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isReadOnly && !isTopProspect) {
-                        onAddToTopProspects?.(person);
-                      }
-                    }}
-                    disabled={isAdding || isTopProspect || isReadOnly}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: "999px",
-                      border: isTopProspect ? "1px solid #FDE68A" : "1px solid #C7D2FE",
-                      backgroundColor: isTopProspect ? "#FFFBEB" : "white",
-                      color: isTopProspect ? "#92400E" : "#4338CA",
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      cursor: isAdding || isTopProspect || isReadOnly ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {isTopProspect
-                      ? "Already in Top Prospects"
-                      : isReadOnly
-                        ? "Read-only view"
-                        : "Add to Top Prospects"}
-                  </button>
+                  {isTopProspect && !isReadOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveFromTopProspects?.(topProspect)}
+                      disabled={isRemovingFromTopProspects || !topProspect?.id}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "999px",
+                        border: "1px solid #FDE68A",
+                        backgroundColor: "#FFFBEB",
+                        color: "#92400E",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor:
+                          isRemovingFromTopProspects || !topProspect?.id
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity: isRemovingFromTopProspects || !topProspect?.id ? 0.7 : 1,
+                      }}
+                    >
+                      {isRemovingFromTopProspects
+                        ? "Removing..."
+                        : "Remove from Top Prospects"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isReadOnly && !isTopProspect) {
+                          onAddToTopProspects?.(person);
+                        }
+                      }}
+                      disabled={isAdding || isTopProspect || isReadOnly}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "999px",
+                        border: isTopProspect ? "1px solid #FDE68A" : "1px solid #C7D2FE",
+                        backgroundColor: isTopProspect ? "#FFFBEB" : "white",
+                        color: isTopProspect ? "#92400E" : "#4338CA",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: isAdding || isTopProspect || isReadOnly ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {isTopProspect
+                        ? "Already in Top Prospects"
+                        : isReadOnly
+                          ? "Read-only view"
+                          : "Add to Top Prospects"}
+                    </button>
+                  )}
                 </div>
               </div>
                   </>
@@ -6390,6 +6430,51 @@ export default function MyTopProspectsPage() {
     },
   });
 
+  const removePortfolioTopProspectMutation = useMutation({
+    onMutate: () => {
+      setPortfolioSyncMessage("");
+      setPortfolioSyncError("");
+    },
+    mutationFn: async (topProspect) => {
+      if (!topProspect?.id) {
+        throw new Error("Could not identify the linked Top Prospect record.");
+      }
+
+      const res = await fetch(`/api/prospects/${topProspect.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to remove prospect");
+      }
+      return { data, topProspect };
+    },
+    onSuccess: async ({ data, topProspect }) => {
+      const removedProspect = data?.prospect || { status: "Archived" };
+      queryClient.setQueriesData({ queryKey: ["prospects"] }, (current) => {
+        if (!Array.isArray(current)) return current;
+        return current.map((prospect) =>
+          String(prospect.id) === String(topProspect.id)
+            ? { ...prospect, ...removedProspect, status: removedProspect.status || "Archived" }
+            : prospect,
+        );
+      });
+      setPortfolioSyncMessage(
+        `${topProspect.prospect_name || "Prospect"} was removed from Top Prospects. They may still appear in Portfolio if assigned in NXT.`,
+      );
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["prospects"] }),
+        queryClient.refetchQueries({ queryKey: ["prospect-summary-base"] }),
+        queryClient.refetchQueries({ queryKey: ["prospect-summary-closed"] }),
+      ]);
+    },
+    onError: (error) => {
+      setPortfolioSyncError(
+        error instanceof Error ? error.message : "Failed to remove prospect.",
+      );
+    },
+  });
+
   const reorderMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch("/api/prospects/reorder", {
@@ -6554,6 +6639,18 @@ export default function MyTopProspectsPage() {
     setShowAddModal(true);
   };
 
+  const removePortfolioTopProspect = (topProspect) => {
+    if (!topProspect?.id) return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Remove ${topProspect.prospect_name || "this prospect"} from Top Prospects? This will not remove the constituent from NXT or from the portfolio assignment list.`,
+      );
+      if (!confirmed) return;
+    }
+
+    removePortfolioTopProspectMutation.mutate(topProspect);
+  };
+
   const combinedSummary =
     summary || closedSummary
       ? {
@@ -6584,12 +6681,14 @@ export default function MyTopProspectsPage() {
   }
 
   const activeProspects = prospects.filter((p) => p.status === "Active");
-  const topProspectConstituentIds = new Set(
-    activeProspects
-      .map((prospect) => prospect.linked_blackbaud_constituent_id || prospect.blackbaud_constituent_id)
-      .filter(Boolean)
-      .map((value) => String(value)),
-  );
+  const topProspectByConstituentId = new Map();
+  for (const prospect of activeProspects) {
+    const constituentId = getProspectBlackbaudConstituentId(prospect);
+    if (constituentId && !topProspectByConstituentId.has(constituentId)) {
+      topProspectByConstituentId.set(constituentId, prospect);
+    }
+  }
+  const topProspectConstituentIds = new Set(topProspectByConstituentId.keys());
   const closedSecured = prospects.filter(
     (p) => p.status === "Closed – Gift Secured",
   );
@@ -7051,6 +7150,9 @@ export default function MyTopProspectsPage() {
                   isAdding={addMutation.isPending}
                   isReadOnly={isExecutiveReadOnly}
                   topProspectConstituentIds={topProspectConstituentIds}
+                  topProspectByConstituentId={topProspectByConstituentId}
+                  onRemoveFromTopProspects={removePortfolioTopProspect}
+                  isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
                 />
                 <PortfolioTier
                   title="Secondary / Athletics Solicitor"
@@ -7061,6 +7163,9 @@ export default function MyTopProspectsPage() {
                   isAdding={addMutation.isPending}
                   isReadOnly={isExecutiveReadOnly}
                   topProspectConstituentIds={topProspectConstituentIds}
+                  topProspectByConstituentId={topProspectByConstituentId}
+                  onRemoveFromTopProspects={removePortfolioTopProspect}
+                  isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
                 />
               </div>
             )}
