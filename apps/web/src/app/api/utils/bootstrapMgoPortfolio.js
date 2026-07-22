@@ -599,8 +599,12 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
       continue;
     }
 
-    let prospectId = existingProspectRows[0]?.id || null;
-    let reactivatedPriorityOrder = null;
+    const existingProspect = existingProspectRows[0] || null;
+    if (existingProspect && existingProspect.status !== "Active") {
+      continue;
+    }
+
+    let prospectId = existingProspect?.id || null;
     if (!prospectId) {
       nextPriorityOrder += 1;
       const insertedProspects = await sql`
@@ -633,9 +637,6 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
       if (prospectId) {
         createdProspects += 1;
       }
-    } else if (existingProspectRows[0]?.status !== "Active") {
-      nextPriorityOrder += 1;
-      reactivatedPriorityOrder = nextPriorityOrder;
     }
 
     if (!prospectId) {
@@ -659,7 +660,6 @@ export async function bootstrapMgoPortfolioFromBlackbaud({
         closed_amount = NULL,
         close_date = NULL,
         decline_reason = NULL,
-        priority_order = COALESCE(${reactivatedPriorityOrder}, priority_order),
         updated_at = NOW()
       WHERE id = ${prospectId}
     `;

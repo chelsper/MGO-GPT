@@ -1791,14 +1791,19 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(payload?.error || "Failed to delete prospect");
+        throw new Error(payload?.error || "Failed to remove prospect");
       }
       return payload;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      const removedProspect = result?.prospect || { status: "Archived" };
       queryClient.setQueriesData({ queryKey: ["prospects"] }, (current) => {
         if (!Array.isArray(current)) return current;
-        return current.filter((item) => String(item.id) !== String(prospectId));
+        return current.map((item) =>
+          String(item.id) === String(prospectId)
+            ? { ...item, ...removedProspect, status: removedProspect.status || "Archived" }
+            : item,
+        );
       });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
@@ -1809,7 +1814,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setActionError(
         mutationError instanceof Error
           ? mutationError.message
-          : "Failed to delete prospect",
+          : "Failed to remove prospect",
       );
     },
   });
@@ -2916,7 +2921,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                           deleteMutation.isPending || editMutation.isPending ? 0.7 : 1,
                       }}
                     >
-                      Delete
+                      Remove
                     </button>
                   ) : null}
                 </div>

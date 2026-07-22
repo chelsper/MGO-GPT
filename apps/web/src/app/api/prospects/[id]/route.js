@@ -411,7 +411,7 @@ export async function PUT(request, { params }) {
   }
 }
 
-// DELETE a prospect
+// Remove a prospect from the active Top Prospects list.
 export async function DELETE(request, { params }) {
   try {
     await ensureAppSchema();
@@ -427,50 +427,29 @@ export async function DELETE(request, { params }) {
 
     const prospectId = params.id;
 
-    const lockedProspect = await sql`
-      SELECT
-        p.id,
-        p.closed_amount,
-        EXISTS (
-          SELECT 1
-          FROM prospect_opportunities po
-          WHERE po.prospect_id = p.id
-            AND (
-              COALESCE(po.closed_amount, 0) > 0
-              OR po.opportunity_status = 'Closed – Gift Secured'
-            )
-        ) AS has_closed_revenue
+    const existingProspect = await sql`
+      SELECT p.id
       FROM prospects p
       WHERE p.id = ${prospectId} AND p.user_id = ${user.id}
       LIMIT 1
     `;
 
-    if (lockedProspect.length === 0) {
+    if (existingProspect.length === 0) {
       return Response.json({ error: "Prospect not found" }, { status: 404 });
     }
 
-    if (
-      Number(lockedProspect[0]?.closed_amount || 0) > 0 ||
-      lockedProspect[0]?.has_closed_revenue
-    ) {
-      return Response.json(
-        {
-          error:
-            "Prospects with closed revenue can only be archived, not deleted.",
-        },
-        { status: 409 },
-      );
-    }
-
     const result = await sql`
-      DELETE FROM prospects WHERE id = ${prospectId} AND user_id = ${user.id} RETURNING id
+      UPDATE prospects
+      SET status = 'Archived', updated_at = NOW()
+      WHERE id = ${prospectId} AND user_id = ${user.id}
+      RETURNING id, status
     `;
 
-    return Response.json({ success: true });
+    return Response.json({ success: true, prospect: result[0] || null });
   } catch (error) {
     console.error("Error deleting prospect:", error);
     return Response.json(
-      { error: "Failed to delete prospect" },
+      { error: "Failed to remove prospect" },
       { status: 500 },
     );
   }
