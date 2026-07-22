@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -62,6 +63,19 @@ const OPPORTUNITY_STATUS_COLORS = {
   Active: { bg: "#DCFCE7", text: "#166534", border: "#BBF7D0" },
   "Closed – Gift Secured": { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
   "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
+};
+const nxtProfileLinkStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "8px 12px",
+  borderRadius: "999px",
+  border: "1px solid #93C5FD",
+  backgroundColor: "white",
+  color: "#1D4ED8",
+  fontSize: "12px",
+  fontWeight: "700",
+  textDecoration: "none",
 };
 
 function StatusBadge({ status }) {
@@ -357,6 +371,9 @@ function PortfolioTier({
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
+                const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
+                  person.constituentId,
+                );
 
                 return (
                   <>
@@ -572,6 +589,16 @@ function PortfolioTier({
                     Lifetime giving:{" "}
                     {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
                   </div>
+                  {nxtProfileUrl ? (
+                    <a
+                      href={nxtProfileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={nxtProfileLinkStyle}
+                    >
+                      Open NXT profile
+                    </a>
+                  ) : null}
                   {!isReadOnly ? (
                     <>
                       <a
@@ -1509,6 +1536,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     data?.prospect?.linked_blackbaud_constituent_id ||
     data?.prospect?.blackbaud_constituent_id ||
     null;
+  const linkedBlackbaudConstituentProfileUrl =
+    buildBlackbaudConstituentProfileUrl(linkedBlackbaudConstituentId);
 
   const {
     data: blackbaudSummary,
@@ -4587,18 +4616,30 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                     </div>
                   ) : null}
                 </div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: "700",
-                    color: "#1D4ED8",
-                    backgroundColor: "#DBEAFE",
-                    border: "1px solid #93C5FD",
-                    borderRadius: "999px",
-                    padding: "4px 10px",
-                  }}
-                >
-                  Read-only NXT data
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      color: "#1D4ED8",
+                      backgroundColor: "#DBEAFE",
+                      border: "1px solid #93C5FD",
+                      borderRadius: "999px",
+                      padding: "4px 10px",
+                    }}
+                  >
+                    Read-only NXT data
+                  </div>
+                  {linkedBlackbaudConstituentProfileUrl ? (
+                    <a
+                      href={linkedBlackbaudConstituentProfileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={nxtProfileLinkStyle}
+                    >
+                      Open NXT profile
+                    </a>
+                  ) : null}
                 </div>
               </div>
 
@@ -7377,6 +7418,9 @@ export default function MyTopProspectsPage() {
                 const nextAction = getProspectNextAction(p);
                 const nextStepBadge = getNextStepBadge(p);
                 const discussionBadge = getDiscussionBadge(p);
+                const prospectNxtProfileUrl = buildBlackbaudConstituentProfileUrl(
+                  p.linked_blackbaud_constituent_id || p.blackbaud_constituent_id,
+                );
 
                 return (
                   <div
@@ -7539,6 +7583,17 @@ export default function MyTopProspectsPage() {
                             >
                               View Prospect
                             </button>
+                            {prospectNxtProfileUrl ? (
+                              <a
+                                href={prospectNxtProfileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                                style={nxtProfileLinkStyle}
+                              >
+                                Open NXT profile
+                              </a>
+                            ) : null}
                           </div>
                           <div
                             style={{

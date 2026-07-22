@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 
 const DISPLAY_LOCALE = "en-US";
 const DISPLAY_TIME_ZONE = "America/New_York";
@@ -27,6 +28,19 @@ const CLEARED_MGO_REQUEST_DRAFT = {
   solicitorAssignmentValue: "",
   mgogptDispositionValue: "",
   mgogptDispositionComment: "",
+};
+const nxtProfileLinkStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #93C5FD",
+  borderRadius: "999px",
+  backgroundColor: "white",
+  color: "#1D4ED8",
+  fontSize: "12px",
+  fontWeight: 700,
+  padding: "6px 10px",
+  textDecoration: "none",
 };
 
 function formatDate(value) {
@@ -2053,6 +2067,7 @@ export default function ProspectPoolPage() {
                 ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionComment
                 : draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
             const blackbaudConstituentId = getEntryBlackbaudConstituentId(entry);
+            const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(blackbaudConstituentId);
             const blackbaudSummaryState = blackbaudConstituentId
               ? blackbaudSummaries[blackbaudConstituentId]
               : null;
@@ -2230,17 +2245,29 @@ export default function ProspectPoolPage() {
                               </div>
                             ) : null}
                           </div>
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              color: "#2563EB",
-                              backgroundColor: "rgba(255,255,255,0.72)",
-                              borderRadius: "999px",
-                              padding: "4px 10px",
-                            }}
-                          >
-                            Synced NXT record
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                color: "#2563EB",
+                                backgroundColor: "rgba(255,255,255,0.72)",
+                                borderRadius: "999px",
+                                padding: "4px 10px",
+                              }}
+                            >
+                              Synced NXT record
+                            </div>
+                            {nxtProfileUrl ? (
+                              <a
+                                href={nxtProfileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={nxtProfileLinkStyle}
+                              >
+                                Open NXT profile
+                              </a>
+                            ) : null}
                           </div>
                         </div>
 
