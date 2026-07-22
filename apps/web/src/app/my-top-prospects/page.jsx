@@ -233,6 +233,28 @@ function getProspectBlackbaudConstituentId(prospect) {
   ).trim();
 }
 
+function matchesPortfolioSearch(person, normalizedSearch) {
+  if (!normalizedSearch) return true;
+
+  const searchableValues = [
+    person?.name,
+    person?.lookupId,
+    person?.constituentId,
+    person?.email,
+    person?.phone,
+    person?.address,
+    person?.lastGift?.date ? formatPortfolioGiftDate(person.lastGift.date) : "",
+    person?.lastGift?.type,
+    person?.lastGift?.fund,
+    person?.lifetimeGiving?.totalGiving,
+    ...(Array.isArray(person?.assignmentTypes) ? person.assignmentTypes : []),
+  ];
+
+  return searchableValues.some((value) =>
+    String(value || "").toLowerCase().includes(normalizedSearch),
+  );
+}
+
 function formatPortfolioGiftDate(value) {
   if (!value) return "Unavailable";
   const parsed = new Date(value);
@@ -274,6 +296,7 @@ function PortfolioTier({
   topProspectByConstituentId = new Map(),
   onRemoveFromTopProspects,
   isRemovingFromTopProspects = false,
+  emptyMessage = "No current constituents in this tier right now.",
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
@@ -714,7 +737,7 @@ function PortfolioTier({
         </div>
       ) : (
         <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
-          No current constituents in this tier right now.
+          {emptyMessage}
         </div>
       )}
     </div>
@@ -6156,6 +6179,7 @@ export default function MyTopProspectsPage() {
   const [fyFilter, setFyFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [portfolioSearchTerm, setPortfolioSearchTerm] = useState("");
   const [addProspectInitialData, setAddProspectInitialData] = useState(null);
   const [addProspectMessage, setAddProspectMessage] = useState("");
   const [addProspectError, setAddProspectError] = useState("");
@@ -6697,6 +6721,19 @@ export default function MyTopProspectsPage() {
   );
   const archivedProspects = prospects.filter((p) => p.status === "Archived");
   const normalizedSearch = searchTerm.trim().toLowerCase();
+  const normalizedPortfolioSearch = portfolioSearchTerm.trim().toLowerCase();
+  const portfolioLeadSolicitor = blackbaudPortfolio?.leadSolicitor || [];
+  const portfolioSupportingSolicitor = blackbaudPortfolio?.supportingSolicitor || [];
+  const filteredPortfolioLeadSolicitor = portfolioLeadSolicitor.filter((person) =>
+    matchesPortfolioSearch(person, normalizedPortfolioSearch),
+  );
+  const filteredPortfolioSupportingSolicitor = portfolioSupportingSolicitor.filter((person) =>
+    matchesPortfolioSearch(person, normalizedPortfolioSearch),
+  );
+  const totalPortfolioConstituents =
+    portfolioLeadSolicitor.length + portfolioSupportingSolicitor.length;
+  const filteredPortfolioConstituents =
+    filteredPortfolioLeadSolicitor.length + filteredPortfolioSupportingSolicitor.length;
   const filteredActiveProspects = activeProspects.filter((prospect) => {
     const nextAction = getProspectNextAction(prospect);
     const matchesSearch =
@@ -7063,7 +7100,9 @@ export default function MyTopProspectsPage() {
               <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
                 {blackbaudPortfolio?.summary ? (
                   <div style={{ fontSize: "13px", color: "#4B5563", fontWeight: "600" }}>
-                    {blackbaudPortfolio.summary.leadCount + blackbaudPortfolio.summary.supportingCount} assigned constituents
+                    {normalizedPortfolioSearch
+                      ? `${filteredPortfolioConstituents} of ${totalPortfolioConstituents}`
+                      : totalPortfolioConstituents} assigned constituents
                   </div>
                 ) : null}
                 {!isExecutiveReadOnly ? (
@@ -7087,6 +7126,94 @@ export default function MyTopProspectsPage() {
                 ) : null}
               </div>
             </div>
+
+            {!isBlackbaudPortfolioLoading &&
+            !isBlackbaudPortfolioError &&
+            !blackbaudPortfolio?.warning ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "8px",
+                  padding: "12px",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  backgroundColor: "#F9FAFB",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <label
+                    htmlFor="portfolio-search"
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      color: "#374151",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Search Portfolio
+                  </label>
+                  <span style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700 }}>
+                    {normalizedPortfolioSearch
+                      ? `Showing ${filteredPortfolioConstituents} of ${totalPortfolioConstituents}`
+                      : `${totalPortfolioConstituents} assigned constituents`}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <input
+                    id="portfolio-search"
+                    name="portfolioSearch"
+                    type="search"
+                    value={portfolioSearchTerm}
+                    onChange={(event) => setPortfolioSearchTerm(event.target.value)}
+                    placeholder="Search by name, email, lookup ID, assignment, or last gift"
+                    style={{
+                      flex: "1 1 260px",
+                      minWidth: 0,
+                      padding: "10px 12px",
+                      border: "1px solid #D1D5DB",
+                      borderRadius: "10px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  />
+                  {portfolioSearchTerm ? (
+                    <button
+                      type="button"
+                      onClick={() => setPortfolioSearchTerm("")}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #D1D5DB",
+                        backgroundColor: "white",
+                        color: "#4B5563",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             {portfolioSyncMessage ? (
               <div
@@ -7144,7 +7271,7 @@ export default function MyTopProspectsPage() {
                 <PortfolioTier
                   title="Lead Solicitor"
                   description="Your primary portfolio assignments in NXT."
-                  items={blackbaudPortfolio?.leadSolicitor || []}
+                  items={filteredPortfolioLeadSolicitor}
                   accent={{ background: "#EEF2FF", text: "#4338CA" }}
                   onAddToTopProspects={openPortfolioAddModal}
                   isAdding={addMutation.isPending}
@@ -7153,11 +7280,16 @@ export default function MyTopProspectsPage() {
                   topProspectByConstituentId={topProspectByConstituentId}
                   onRemoveFromTopProspects={removePortfolioTopProspect}
                   isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
+                  emptyMessage={
+                    normalizedPortfolioSearch
+                      ? "No Lead Solicitor assignments match this search."
+                      : "No current constituents in this tier right now."
+                  }
                 />
                 <PortfolioTier
                   title="Secondary / Athletics Solicitor"
                   description="Supporting assignments where you still need visibility and follow-up."
-                  items={blackbaudPortfolio?.supportingSolicitor || []}
+                  items={filteredPortfolioSupportingSolicitor}
                   accent={{ background: "#ECFDF5", text: "#065F46" }}
                   onAddToTopProspects={openPortfolioAddModal}
                   isAdding={addMutation.isPending}
@@ -7166,6 +7298,11 @@ export default function MyTopProspectsPage() {
                   topProspectByConstituentId={topProspectByConstituentId}
                   onRemoveFromTopProspects={removePortfolioTopProspect}
                   isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
+                  emptyMessage={
+                    normalizedPortfolioSearch
+                      ? "No supporting assignments match this search."
+                      : "No current constituents in this tier right now."
+                  }
                 />
               </div>
             )}
