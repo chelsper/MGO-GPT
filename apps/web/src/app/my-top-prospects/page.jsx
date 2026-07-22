@@ -1709,7 +1709,16 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       if (!res.ok) throw new Error("Failed to close");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
+      const updatedProspect = result?.prospect || result || {};
+      queryClient.setQueriesData({ queryKey: ["prospects"] }, (current) => {
+        if (!Array.isArray(current)) return current;
+        return current.map((item) =>
+          String(item.id) === String(prospectId)
+            ? { ...item, ...updatedProspect, ...variables }
+            : item,
+        );
+      });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
@@ -1758,6 +1767,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       return payload;
     },
     onSuccess: () => {
+      queryClient.setQueriesData({ queryKey: ["prospects"] }, (current) => {
+        if (!Array.isArray(current)) return current;
+        return current.filter((item) => String(item.id) !== String(prospectId));
+      });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
