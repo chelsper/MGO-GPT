@@ -79,23 +79,6 @@ function normalizeName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function getDefaultFY() {
-  const now = new Date();
-  const fiscalYear = now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
-  return `FY${String(fiscalYear).slice(-2)}`;
-}
-
-function getFiscalYearLabel(value) {
-  if (!value) return getDefaultFY();
-  const parsedDate = new Date(value);
-  if (Number.isNaN(parsedDate.getTime())) return getDefaultFY();
-  const fiscalYear =
-    parsedDate.getUTCMonth() >= 6
-      ? parsedDate.getUTCFullYear() + 1
-      : parsedDate.getUTCFullYear();
-  return `FY${String(fiscalYear).slice(-2)}`;
-}
-
 function getSuccessLabel(mode) {
   if (mode === "both") return "Action and opportunity update submitted successfully.";
   if (mode === "opportunity") return "Opportunity update submitted successfully.";
@@ -210,7 +193,6 @@ export default function ActionOpportunityUpdatePage() {
   const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [prospectPrompt, setProspectPrompt] = useState(null);
   const [prospectError, setProspectError] = useState("");
   const [prospectAdded, setProspectAdded] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -1054,7 +1036,17 @@ export default function ActionOpportunityUpdatePage() {
     onSuccess: (createdProspect) => {
       setProspectAdded(true);
       setProspectError("");
-      setProspectPrompt(null);
+      if (createdProspect?.id) {
+        setLinkedProspectContext((current) => ({
+          ...(current || {}),
+          prospect: {
+            ...(current?.prospect || {}),
+            ...createdProspect,
+            status: createdProspect.status || "Active",
+          },
+          opportunities: current?.opportunities || [],
+        }));
+      }
       setToast({ tone: "success", message: "Prospect added to My Top Prospects." });
       if (nextStepPrompt?.nextActionText && createdProspect?.id) {
         setNextStepPrompt((current) =>
@@ -1315,9 +1307,6 @@ export default function ActionOpportunityUpdatePage() {
       setDiscussionFeedback(null);
 
       const submittedName = donorName.trim();
-      const submittedAmount = askAmount ? parseFloat(askAmount) : null;
-      const submittedExpectedDate = expectedDate || null;
-      const submittedNextStep = nextStep.trim();
       const submittedActionItemText =
         createActionItem && actionItemText.trim() ? actionItemText.trim() : "";
       const submittedActionItemDueDate = nextStepDueDate || null;
@@ -1375,7 +1364,6 @@ export default function ActionOpportunityUpdatePage() {
       try {
         const response = await fetch("/api/prospects");
         if (!response.ok) {
-          setProspectPrompt(null);
           setNextStepPrompt(null);
           navigateAfterSuccessfulSubmit();
           return;
@@ -1395,21 +1383,8 @@ export default function ActionOpportunityUpdatePage() {
           alreadyTracked ||
           Boolean(matchedProspect);
 
-        setProspectPrompt(
-          trackedInList
-            ? null
-            : {
-                prospectName: submittedName,
-                constituentId: submittedConstituentId,
-                askAmount: submittedAmount,
-                expectedCloseFY: getFiscalYearLabel(submittedExpectedDate),
-                askType: "Major Gift",
-                nextActionText: submittedActionItemText || null,
-                nextActionDueDate: submittedActionItemDueDate,
-              },
-        );
         setNextStepPrompt(
-          submittedActionItemText
+          trackedInList && submittedActionItemText
             ? {
                 prospectId: matchedProspect?.id || null,
                 prospectName: submittedName,
@@ -1448,7 +1423,6 @@ export default function ActionOpportunityUpdatePage() {
         navigateAfterSuccessfulSubmit();
       } catch (prospectLookupError) {
         console.error("Prospect lookup error:", prospectLookupError);
-        setProspectPrompt(null);
         setNextStepPrompt(null);
         if (submittedDiscussionItem) {
           try {
@@ -1483,11 +1457,40 @@ export default function ActionOpportunityUpdatePage() {
     },
   });
 
+  function addCurrentDonorToTopProspects() {
+    const prospectName = (
+      selectedBlackbaudMatch?.name ||
+      exactMatch?.name ||
+      donorName ||
+      ""
+    ).trim();
+    if (!prospectName) {
+      setProspectError("Choose a donor before adding them to My Top Prospects.");
+      return;
+    }
+
+    const constituentId =
+      exactMatch?.id ||
+      linkedProspectContext?.prospect?.constituent_id ||
+      null;
+    const blackbaudConstituentId =
+      selectedBlackbaudMatch?.blackbaudConstituentId ||
+      exactMatch?.blackbaudConstituentId ||
+      linkedProspectContext?.prospect?.linked_blackbaud_constituent_id ||
+      linkedProspectContext?.prospect?.blackbaud_constituent_id ||
+      null;
+
+    addProspectMutation.mutate({
+      prospectName,
+      constituentId,
+      blackbaudConstituentId,
+    });
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setSuccessMessage("");
-    setProspectPrompt(null);
     setProspectError("");
     setProspectAdded(false);
     setNextStepPrompt(null);
@@ -1678,6 +1681,13 @@ export default function ActionOpportunityUpdatePage() {
       </div>
     );
   }
+
+  const linkedProspect = linkedProspectContext?.prospect || null;
+  const linkedProspectStatus = String(linkedProspect?.status || "").trim().toLowerCase();
+  const isActiveTopProspect = prospectAdded || linkedProspectStatus === "active";
+  const canShowProspectTracking =
+    Boolean(donorName.trim()) &&
+    Boolean(selectedBlackbaudMatch || exactMatch || linkedProspect);
 
   return (
     <div
@@ -2323,6 +2333,94 @@ export default function ActionOpportunityUpdatePage() {
                     "."
                   )}
                 </div>
+              </div>
+            ) : null}
+
+            {canShowProspectTracking ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "14px",
+                  borderRadius: "10px",
+                  border: isActiveTopProspect
+                    ? "1px solid #FDE68A"
+                    : "1px solid #DDD6FE",
+                  backgroundColor: isActiveTopProspect ? "#FFFBEB" : "#F5F3FF",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "#6B7280",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Prospect tracking
+                </div>
+                {isActiveTopProspect ? (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "8px 12px",
+                      borderRadius: "999px",
+                      border: "1px solid #FACC15",
+                      backgroundColor: "#FEF3C7",
+                      color: "#92400E",
+                      fontSize: "13px",
+                      fontWeight: 800,
+                    }}
+                  >
+                    Already in Top Prospects
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "#4B5563",
+                        lineHeight: 1.5,
+                        marginBottom: "12px",
+                      }}
+                    >
+                      This person is not currently active in your Top Prospects list. Add them
+                      here if you want this relationship tracked with your ranked prospects and
+                      next steps.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addCurrentDonorToTopProspects}
+                      disabled={addProspectMutation.isPending}
+                      style={{
+                        padding: "9px 14px",
+                        borderRadius: "999px",
+                        border: "1px solid #C4B5FD",
+                        backgroundColor: addProspectMutation.isPending ? "#DDD6FE" : "white",
+                        color: "#5B21B6",
+                        fontSize: "13px",
+                        fontWeight: 800,
+                        cursor: addProspectMutation.isPending ? "wait" : "pointer",
+                      }}
+                    >
+                      {addProspectMutation.isPending ? "Adding..." : "Add to Top Prospects"}
+                    </button>
+                  </>
+                )}
+                {prospectError ? (
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      fontSize: "12px",
+                      color: "#991B1B",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {prospectError}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -3700,62 +3798,6 @@ export default function ActionOpportunityUpdatePage() {
                 {successMessage}
                 <div style={{ marginTop: "8px", fontSize: "13px", fontWeight: 700 }}>
                   Synced to NXT where linked.
-                </div>
-              </div>
-            ) : null}
-            {prospectPrompt ? (
-              <div
-                style={{
-                  padding: "16px",
-                  backgroundColor: "#FEF3C7",
-                  color: "#92400E",
-                  borderRadius: "12px",
-                  marginBottom: "16px",
-                  fontSize: "14px",
-                }}
-              >
-                Would you like to add <strong>{prospectPrompt.prospectName}</strong> to My Top
-                Prospects?
-                <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      addProspectMutation.mutate({
-                        ...prospectPrompt,
-                        nextActionDueDate: prospectPrompt.nextActionDueDate || null,
-                      })
-                    }
-                    disabled={addProspectMutation.isPending}
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      border: "none",
-                      backgroundColor: "#92400E",
-                      color: "white",
-                      fontWeight: 600,
-                      cursor: addProspectMutation.isPending ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {addProspectMutation.isPending ? "Adding..." : "Add to Top Prospects"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProspectPrompt(null);
-                      setProspectError("");
-                    }}
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      border: "1px solid #D6D3D1",
-                      backgroundColor: "white",
-                      color: "#57534E",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Not now
-                  </button>
                 </div>
               </div>
             ) : null}
