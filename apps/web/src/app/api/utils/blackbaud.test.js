@@ -4,6 +4,7 @@ import {
   buildBlackbaudActionMetadataPayload,
   buildBlackbaudActionPayload,
   buildBlackbaudOpportunityPayload,
+  normalizeBlackbaudActionType,
 } from "./blackbaud";
 
 describe("blackbaud action payload helpers", () => {
@@ -42,6 +43,19 @@ describe("blackbaud action payload helpers", () => {
     });
 
     expect(actionPayload.category).toBe("Task/Other");
+  });
+
+  it("omits app-only action types that are not active NXT Actions table values", () => {
+    const metadataPayload = buildBlackbaudActionMetadataPayload({
+      actionDate: "2026-06-16",
+      interactionType: "Qualification/Re-engagement",
+      fundraiserIds: ["800"],
+    });
+
+    expect(normalizeBlackbaudActionType("Qualification/Re-engagement")).toBeUndefined();
+    expect(metadataPayload.type).toBeUndefined();
+    expect(metadataPayload.completed).toBe(true);
+    expect(metadataPayload.status).toBe("Completed");
   });
 
   it("maps closed declined opportunities to NXT declined status and completed-not-fulfilled purpose", () => {

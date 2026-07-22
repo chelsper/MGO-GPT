@@ -27,6 +27,12 @@ const BLACKBAUD_MAX_RETRIES = 2;
 const DEFAULT_BLACKBAUD_SCOPES = "offline_access rnxt.r rnxt.w rnxt.d";
 const DECLINED_OPPORTUNITY_STATUS = "Declined";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
+const NXT_ACTION_TYPE_MAP = new Map([
+  ["cultivation", "Cultivation"],
+  ["other", "Other"],
+  ["solicitation", "Solicitation"],
+  ["stewardship", "Stewardship"],
+]);
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -1020,6 +1026,16 @@ function formatBlackbaudActionCreateDateTime(value) {
   return parsed.toISOString();
 }
 
+export function normalizeBlackbaudActionType(value) {
+  const key = String(value || "")
+    .trim()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+  return NXT_ACTION_TYPE_MAP.get(key);
+}
+
 export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
@@ -1145,7 +1161,7 @@ export function buildBlackbaudActionMetadataPayload({
   fundraiserIds,
   opportunityId,
 }) {
-  const normalizedActionType = String(interactionType || "").trim() || undefined;
+  const normalizedActionType = normalizeBlackbaudActionType(interactionType);
 
   return {
     type: normalizedActionType,
