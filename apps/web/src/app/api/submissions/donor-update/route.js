@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
 import {
   buildBlackbaudActionMetadataPayload,
   buildBlackbaudActionPayload,
@@ -46,6 +47,8 @@ export async function POST(request) {
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
+    const actionSolicitorUser = sessionUser || user;
+    const authUserId = sessionUser?.id || user.id;
 
     const body = await request.json();
     const {
@@ -60,6 +63,7 @@ export async function POST(request) {
       constituentId,
       blackbaudConstituentId,
       createNewConstituent,
+      additionalFundraiserUserId,
     } = body;
 
     if (!donorName) {
@@ -83,18 +87,26 @@ export async function POST(request) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
+      const actionDate = new Date().toISOString().split("T")[0];
+      const fundraiserIds = await resolveActionFundraiserIds({
+        currentUser: actionSolicitorUser,
+        primaryFundraiserUser: actionSolicitorUser,
+        additionalFundraiserUserId,
+        origin,
+        apiUserId: user.id,
+      });
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
-        authUserId: sessionUser?.id || user.id,
+        authUserId,
         origin,
         payload: buildBlackbaudActionPayload({
           blackbaudConstituentId: linkedBlackbaudConstituentId,
-          actionDate: new Date().toISOString().split("T")[0],
+          actionDate,
           actionCategory,
           summary: donorName.trim() ? `${donorName.trim()} action` : "Action update from JUMGOGPT",
           actionNotes: notes,
           nextStep,
-          authorName: user.name,
+          authorName: actionSolicitorUser.name,
         }),
       }).catch((error) => ({
         error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
@@ -112,7 +124,7 @@ export async function POST(request) {
         try {
           const verifiedAction = await getBlackbaudAction({
             userId: user.id,
-            authUserId: sessionUser?.id || user.id,
+            authUserId,
             origin,
             actionId: createdActionId,
           });
@@ -138,12 +150,13 @@ export async function POST(request) {
             try {
               await updateBlackbaudAction({
                 userId: user.id,
-                authUserId: sessionUser?.id || user.id,
+                authUserId,
                 origin,
                 actionId: createdActionId,
                 payload: buildBlackbaudActionMetadataPayload({
-                  actionDate: new Date().toISOString().split("T")[0],
+                  actionDate,
                   interactionType,
+                  fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
                 }),
               });
             } catch (metadataError) {

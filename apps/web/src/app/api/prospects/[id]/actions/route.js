@@ -6,13 +6,12 @@ import {
   buildBlackbaudActionMetadataPayload,
   createBlackbaudAction,
   findBlackbaudConstituentByEmail,
-  findBlackbaudConstituentByLookupId,
   getBlackbaudAction,
   getBlackbaudConstituentById,
-  getBlackbaudFundraiserById,
   searchBlackbaudConstituents,
   updateBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
+import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 
@@ -182,26 +181,6 @@ function formatActionCreateVariantDebug(attemptedCreateVariants, context = {}) {
   return ` [${extras.join(" | ")}]`;
 }
 
-function addFundraiserCandidate(candidates, fundraiserId) {
-  const normalizedId = String(fundraiserId || "").trim();
-  if (!normalizedId) return;
-  if (candidates.includes(normalizedId)) return;
-  candidates.push(normalizedId);
-}
-
-async function getUserFundraiserIdentity(userId) {
-  if (!userId) return null;
-
-  const rows = await sql`
-    SELECT id, name, email, blackbaud_constituent_id, blackbaud_lookup_id
-    FROM users
-    WHERE id = ${userId}
-    LIMIT 1
-  `;
-
-  return rows[0] || null;
-}
-
 async function repairProspectBlackbaudConstituentLink({
   userId,
   prospectId,
@@ -288,137 +267,6 @@ async function repairProspectBlackbaudConstituentLink({
   };
 }
 
-async function resolveFundraiserCandidates({
-  workspaceUser,
-  authUserId,
-  origin,
-}) {
-  const candidates = [];
-  addFundraiserCandidate(candidates, workspaceUser?.blackbaud_constituent_id);
-
-  const exactLookupMatch = await findBlackbaudConstituentByLookupId({
-    userId: workspaceUser.id,
-    authUserId,
-    origin,
-    lookupId: workspaceUser.blackbaud_lookup_id,
-  }).catch(() => null);
-  addFundraiserCandidate(candidates, exactLookupMatch?.blackbaudConstituentId);
-
-  const exactEmailMatch = await findBlackbaudConstituentByEmail({
-    userId: workspaceUser.id,
-    authUserId,
-    origin,
-    email: workspaceUser.email,
-  }).catch(() => null);
-  addFundraiserCandidate(candidates, exactEmailMatch?.blackbaudConstituentId);
-
-  const normalizedName = String(workspaceUser?.name || "").trim().toLowerCase();
-  const normalizedEmail = String(workspaceUser?.email || "").trim().toLowerCase();
-  const matches = await searchBlackbaudConstituents({
-    userId: workspaceUser.id,
-    authUserId,
-    origin,
-    query: workspaceUser.name || workspaceUser.email,
-  }).catch(() => []);
-
-  const exactSearchMatch =
-    matches.find(
-      (candidate) =>
-        String(candidate?.name || "").trim().toLowerCase() === normalizedName &&
-        String(candidate?.email || "").trim().toLowerCase() === normalizedEmail,
-    ) ||
-    matches.find(
-      (candidate) =>
-        String(candidate?.name || "").trim().toLowerCase() === normalizedName,
-    ) ||
-    null;
-  addFundraiserCandidate(candidates, exactSearchMatch?.blackbaudConstituentId);
-
-  return candidates;
-}
-
-async function resolveActionFundraiserId({
-  currentUser,
-  workspaceUser,
-  origin,
-}) {
-  const candidates = await resolveFundraiserCandidates({
-    workspaceUser,
-    authUserId: currentUser.id,
-    origin,
-  });
-
-  if (candidates.length === 0) {
-    const storedIdentity = await getUserFundraiserIdentity(workspaceUser.id);
-    if (storedIdentity) {
-      const storedCandidates = await resolveFundraiserCandidates({
-        workspaceUser: storedIdentity,
-        authUserId: currentUser.id,
-        origin,
-      });
-      for (const candidate of storedCandidates) {
-        addFundraiserCandidate(candidates, candidate);
-      }
-    }
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const fundraiserRecord = await getBlackbaudFundraiserById({
-        userId: workspaceUser.id,
-        authUserId: currentUser.id,
-        origin,
-        fundraiserId: candidate,
-      });
-      if (fundraiserRecord?.fundraiserId) {
-        return fundraiserRecord.fundraiserId;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return candidates[0] || null;
-}
-
-async function resolveActionFundraiserIds({
-  currentUser,
-  workspaceUser,
-  additionalFundraiserUserId,
-  origin,
-}) {
-  const fundraiserIds = [];
-
-  const primaryFundraiserId = await resolveActionFundraiserId({
-    currentUser,
-    workspaceUser,
-    origin,
-  });
-  if (primaryFundraiserId) {
-    addFundraiserCandidate(fundraiserIds, primaryFundraiserId);
-  }
-
-  const normalizedAdditionalUserId = String(additionalFundraiserUserId || "").trim();
-  if (
-    normalizedAdditionalUserId &&
-    normalizedAdditionalUserId !== String(workspaceUser?.id || "")
-  ) {
-    const additionalUser = await getUserFundraiserIdentity(normalizedAdditionalUserId);
-    if (additionalUser) {
-      const additionalFundraiserId = await resolveActionFundraiserId({
-        currentUser,
-        workspaceUser: additionalUser,
-        origin,
-      });
-      if (additionalFundraiserId) {
-        addFundraiserCandidate(fundraiserIds, additionalFundraiserId);
-      }
-    }
-  }
-
-  return fundraiserIds;
-}
-
 export async function POST(request, { params }) {
   try {
     await ensureAppSchema();
@@ -432,6 +280,8 @@ export async function POST(request, { params }) {
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
+    const actionSolicitorUser = sessionUser || user;
+    const authUserId = sessionUser?.id || user.id;
 
     const prospectId = params.id;
     const body = await request.json();
@@ -496,10 +346,11 @@ export async function POST(request, { params }) {
       const attemptedCreateVariants = [];
       let createPreflightContext = null;
       const fundraiserIds = await resolveActionFundraiserIds({
-        currentUser: sessionUser || user,
-        workspaceUser: user,
+        currentUser: actionSolicitorUser,
+        primaryFundraiserUser: actionSolicitorUser,
         additionalFundraiserUserId,
         origin,
+        apiUserId: user.id,
       });
       const fullPayload = buildBlackbaudActionPayload({
         blackbaudConstituentId: linkedBlackbaudConstituentId,
@@ -508,7 +359,7 @@ export async function POST(request, { params }) {
         summary: summary || `${prospect.prospect_name} action`,
         actionNotes: notes,
         nextStep,
-        authorName: user.name,
+        authorName: actionSolicitorUser.name,
         opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
       });
       attemptedCreateVariants.push({
@@ -529,7 +380,7 @@ export async function POST(request, { params }) {
       try {
         const preflightConstituent = await getBlackbaudConstituentById({
           userId: user.id,
-          authUserId: sessionUser?.id || user.id,
+          authUserId,
           origin,
           constituentId: linkedBlackbaudConstituentId,
         });
@@ -546,7 +397,7 @@ export async function POST(request, { params }) {
           constituentId: prospect.constituent_id || null,
           prospectName: prospect.prospect_name || null,
           prospectEmail: prospect.email || null,
-          authUserId: sessionUser?.id || user.id,
+          authUserId,
           origin,
         }).catch(() => null);
 
@@ -559,7 +410,7 @@ export async function POST(request, { params }) {
             summary: summary || `${prospect.prospect_name} action`,
             actionNotes: notes,
             nextStep,
-            authorName: user.name,
+            authorName: actionSolicitorUser.name,
             opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
           });
           attemptedCreateVariants[0] = {
@@ -590,7 +441,7 @@ export async function POST(request, { params }) {
 
       blackbaudAction = await createBlackbaudAction({
         userId: user.id,
-        authUserId: sessionUser?.id || user.id,
+        authUserId,
         origin,
         payload: fullPayload,
       }).catch((error) => ({
@@ -607,7 +458,7 @@ export async function POST(request, { params }) {
           });
           blackbaudAction = await createBlackbaudAction({
             userId: user.id,
-            authUserId: sessionUser?.id || user.id,
+            authUserId,
             origin,
             payload: variant.payload,
           })
@@ -642,7 +493,7 @@ export async function POST(request, { params }) {
         try {
           const verifiedAction = await getBlackbaudAction({
             userId: user.id,
-            authUserId: sessionUser?.id || user.id,
+            authUserId,
             origin,
             actionId: createdActionId,
           });
@@ -668,7 +519,7 @@ export async function POST(request, { params }) {
             try {
               await updateBlackbaudAction({
                 userId: user.id,
-                authUserId: sessionUser?.id || user.id,
+                authUserId,
                 origin,
                 actionId: createdActionId,
                 payload: buildBlackbaudActionMetadataPayload({
