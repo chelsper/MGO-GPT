@@ -343,6 +343,7 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
+      const completedDate = new Date().toISOString().split("T")[0];
       const attemptedCreateVariants = [];
       let createPreflightContext = null;
       const fundraiserIds = await resolveActionFundraiserIds({
@@ -355,8 +356,9 @@ export async function POST(request, { params }) {
       const fullPayload = buildBlackbaudActionPayload({
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         actionDate,
+        completedDate,
         actionCategory,
-        summary: summary || `${prospect.prospect_name} action`,
+        summary,
         actionNotes: notes,
         nextStep,
         authorName: actionSolicitorUser.name,
@@ -406,8 +408,9 @@ export async function POST(request, { params }) {
           const repairedPayload = buildBlackbaudActionPayload({
             blackbaudConstituentId: linkedBlackbaudConstituentId,
             actionDate,
+            completedDate,
             actionCategory,
-            summary: summary || `${prospect.prospect_name} action`,
+            summary,
             actionNotes: notes,
             nextStep,
             authorName: actionSolicitorUser.name,
@@ -524,6 +527,7 @@ export async function POST(request, { params }) {
                 actionId: createdActionId,
                 payload: buildBlackbaudActionMetadataPayload({
                   actionDate,
+                  completedDate,
                   interactionType,
                   fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
                   opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,

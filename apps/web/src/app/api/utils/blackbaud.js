@@ -1023,6 +1023,7 @@ function formatBlackbaudActionCreateDateTime(value) {
 export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
+  completedDate,
   actionCategory,
   summary,
   actionNotes,
@@ -1056,6 +1057,9 @@ export function buildBlackbaudActionPayload({
     constituent_id: String(blackbaudConstituentId),
     date: formatBlackbaudActionCreateDateTime(actionDate),
     category: categoryMap[normalizedCategory] || "Task/Other",
+    completed: true,
+    completed_date: formatBlackbaudActionDate(completedDate || actionDate),
+    status: "Completed",
     direction: "Outbound",
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
@@ -1136,6 +1140,7 @@ export async function listBlackbaudActions({
 
 export function buildBlackbaudActionMetadataPayload({
   actionDate,
+  completedDate,
   interactionType,
   fundraiserIds,
   opportunityId,
@@ -1145,7 +1150,8 @@ export function buildBlackbaudActionMetadataPayload({
   return {
     type: normalizedActionType,
     completed: true,
-    completed_date: formatBlackbaudActionDate(actionDate),
+    completed_date: formatBlackbaudActionDate(completedDate || actionDate),
+    status: "Completed",
     opportunity_id: opportunityId ? String(opportunityId) : undefined,
     fundraisers: Array.isArray(fundraiserIds)
       ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)

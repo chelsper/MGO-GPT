@@ -57,6 +57,7 @@ export async function POST(request) {
       transcript,
       notes,
       nextStep,
+      summary,
       estimatedAmount,
       attachments,
       actionCategory,
@@ -88,6 +89,7 @@ export async function POST(request) {
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
       const actionDate = new Date().toISOString().split("T")[0];
+      const completedDate = actionDate;
       const fundraiserIds = await resolveActionFundraiserIds({
         currentUser: actionSolicitorUser,
         primaryFundraiserUser: actionSolicitorUser,
@@ -102,8 +104,9 @@ export async function POST(request) {
         payload: buildBlackbaudActionPayload({
           blackbaudConstituentId: linkedBlackbaudConstituentId,
           actionDate,
+          completedDate,
           actionCategory,
-          summary: donorName.trim() ? `${donorName.trim()} action` : "Action update from JUMGOGPT",
+          summary,
           actionNotes: notes,
           nextStep,
           authorName: actionSolicitorUser.name,
@@ -155,6 +158,7 @@ export async function POST(request) {
                 actionId: createdActionId,
                 payload: buildBlackbaudActionMetadataPayload({
                   actionDate,
+                  completedDate,
                   interactionType,
                   fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
                 }),

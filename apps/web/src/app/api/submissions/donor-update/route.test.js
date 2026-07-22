@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
@@ -58,6 +58,9 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
 
 describe("donor update route", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T13:00:00.000Z"));
+
     sqlQueue.length = 0;
     sqlMockImpl.mockClear();
     authMock.mockReset();
@@ -119,6 +122,10 @@ describe("donor update route", () => {
     sendSubmissionEmailMock.mockResolvedValue();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("assigns the logged-in app user as the NXT action fundraiser", async () => {
     const { POST } = await import("./route.js");
 
@@ -138,6 +145,7 @@ describe("donor update route", () => {
         blackbaudConstituentId: "227949",
         actionCategory: "Meeting",
         interactionType: "Cultivation",
+        summary: "Discovery visit with Pat",
         notes: "Met with Pat.",
       }),
     });
@@ -150,10 +158,13 @@ describe("donor update route", () => {
     expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
         authorName: "Chelsea Santoro",
+        completedDate: "2026-07-22",
+        summary: "Discovery visit with Pat",
       }),
     );
     expect(buildBlackbaudActionMetadataPayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        completedDate: "2026-07-22",
         interactionType: "Cultivation",
         fundraiserIds: ["800"],
       }),

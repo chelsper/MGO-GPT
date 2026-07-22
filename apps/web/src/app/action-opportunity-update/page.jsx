@@ -154,6 +154,7 @@ export default function ActionOpportunityUpdatePage() {
   const [donorName, setDonorName] = useState("");
   const [actionCategory, setActionCategory] = useState(ACTION_CATEGORIES[0]);
   const [interactionType, setInteractionType] = useState(INTERACTION_TYPES[0]);
+  const [actionSummary, setActionSummary] = useState("");
   const [actionNotes, setActionNotes] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [opportunityStage, setOpportunityStage] = useState("Identification");
@@ -706,7 +707,7 @@ export default function ActionOpportunityUpdatePage() {
       (!exactMatch && donorName.trim().length >= 2),
   );
   const hasUpdateDetails = Boolean(
-    (includeAction && (actionNotes.trim() || nextStep.trim())) ||
+    (includeAction && (actionSummary.trim() || actionNotes.trim() || nextStep.trim())) ||
       (includeOpportunity &&
         (opportunityNotes.trim() ||
           askAmount.trim() ||
@@ -1300,6 +1301,7 @@ export default function ActionOpportunityUpdatePage() {
       setDonorName("");
       setActionCategory(ACTION_CATEGORIES[0]);
       setInteractionType(INTERACTION_TYPES[0]);
+      setActionSummary("");
       setActionNotes("");
       setNextStep("");
       setOpportunityStage("Identification");
@@ -1465,8 +1467,8 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
-    if (includeAction && !actionNotes.trim()) {
-      setError("Please add action notes for the action update.");
+    if (includeAction && !actionSummary.trim()) {
+      setError("Please add a short action summary for NXT.");
       return;
     }
 
@@ -1525,6 +1527,7 @@ export default function ActionOpportunityUpdatePage() {
       selectedBlackbaudMatch?.blackbaudConstituentId || null;
     const createNewConstituent = matchDecision === "new";
     const combinedOpportunityNotes = opportunityNotes.trim();
+    const trimmedActionSummary = actionSummary.trim();
     const combinedActionNotes = actionNotes.trim();
     const jointMgoUserIds = isJointSolicitation ? selectedJointMgoIds : [];
     const sharedOpportunityKey = opportunityTitle.trim()
@@ -1550,7 +1553,7 @@ export default function ActionOpportunityUpdatePage() {
             createNewConstituent,
             interactionType,
             actionCategory,
-            summary: donorName.trim() ? `${donorName.trim()} action` : "",
+            summary: trimmedActionSummary,
             notes: combinedActionNotes,
             nextStep,
             nextActionDueDate: nextStepDueDate || null,
@@ -2705,6 +2708,36 @@ export default function ActionOpportunityUpdatePage() {
                       </option>
                     ))}
                   </select>
+
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Action summary
+                  </label>
+                  <input
+                    type="text"
+                    value={actionSummary}
+                    onChange={(event) => setActionSummary(event.target.value)}
+                    placeholder="Brief NXT summary, such as Discovery visit with donor"
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: "12px",
+                      border: "1px solid #D1D5DB",
+                      backgroundColor: "white",
+                      color: "#111827",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      boxSizing: "border-box",
+                      marginBottom: "16px",
+                    }}
+                  />
 
                   <label
                     style={{

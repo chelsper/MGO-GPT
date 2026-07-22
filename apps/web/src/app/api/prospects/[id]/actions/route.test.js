@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
@@ -60,6 +60,9 @@ vi.mock("@/app/api/utils/sql", () => ({
 
 describe("prospect action route", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T13:00:00.000Z"));
+
     sqlQueue.length = 0;
     sqlMockImpl.mockClear();
     authMock.mockReset();
@@ -113,6 +116,10 @@ describe("prospect action route", () => {
     getBlackbaudFundraiserByIdMock.mockResolvedValue({
       fundraiserId: "234684",
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("logs a local action and syncs the primary next step", async () => {
@@ -447,10 +454,12 @@ describe("prospect action route", () => {
     expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
         summary: "Joint visit",
+        completedDate: "2026-07-22",
       }),
     );
     expect(buildBlackbaudActionMetadataPayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        completedDate: "2026-07-22",
         fundraiserIds: ["234684", "172263"],
       }),
     );

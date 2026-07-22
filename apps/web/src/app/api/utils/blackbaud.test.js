@@ -25,7 +25,12 @@ describe("blackbaud action payload helpers", () => {
     });
 
     expect(actionPayload.date).toBe("2026-06-16T00:00:00.000Z");
+    expect(actionPayload.completed).toBe(true);
+    expect(actionPayload.completed_date).toBe("2026-06-16");
+    expect(actionPayload.status).toBe("Completed");
+    expect(metadataPayload.completed).toBe(true);
     expect(metadataPayload.completed_date).toBe("2026-06-16");
+    expect(metadataPayload.status).toBe("Completed");
   });
 
   it("maps legacy mail actions to an active NXT action category", () => {

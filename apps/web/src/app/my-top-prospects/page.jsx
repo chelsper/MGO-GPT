@@ -3972,7 +3972,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       marginBottom: "4px",
                     }}
                   >
-                    Completed date
+                    Action date
                   </label>
                   <input
                     type="date"
@@ -3987,6 +3987,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       boxSizing: "border-box",
                     }}
                   />
+                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#6B7280" }}>
+                    NXT completed date is set to today automatically.
+                  </div>
                 </div>
               </div>
               <div style={{ marginBottom: "12px" }}>
