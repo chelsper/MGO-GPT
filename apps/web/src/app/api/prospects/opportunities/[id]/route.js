@@ -9,6 +9,20 @@ import {
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
+const DECLINED_OPPORTUNITY_STATUS = "Declined";
+const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
+
+function normalizeOpportunityStatusLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s*[–—-]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function isClosedDeclinedOpportunityStatus(value) {
+  return normalizeOpportunityStatusLabel(value) === "closed - declined";
+}
 
 export async function PUT(request, { params }) {
   try {
@@ -62,16 +76,21 @@ export async function PUT(request, { params }) {
       estimatedAmount !== undefined ? estimatedAmount : existing.estimated_amount;
     const nextOpportunityStatus =
       opportunityStatus || existing.opportunity_status || "Active";
+    const isClosedDeclined = isClosedDeclinedOpportunityStatus(nextOpportunityStatus);
     const nextLatestNotes =
       latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes;
     const nextTitle = title?.trim() || existing.title;
     const nextPurpose =
-      purpose?.trim() || existing.purpose || DEFAULT_OPPORTUNITY_PURPOSE;
-    const nextStage = currentStage || existing.current_stage;
+      isClosedDeclined
+        ? DECLINED_OPPORTUNITY_PURPOSE
+        : purpose?.trim() || existing.purpose || DEFAULT_OPPORTUNITY_PURPOSE;
+    const nextStage = isClosedDeclined
+      ? DECLINED_OPPORTUNITY_STATUS
+      : currentStage || existing.current_stage;
     const nextClosedAmount =
       nextOpportunityStatus === "Closed – Gift Secured"
         ? (closedAmount ?? nextEstimatedAmount ?? existing.closed_amount ?? 0)
-        : nextOpportunityStatus === "Closed – Declined"
+        : isClosedDeclined
           ? 0
           : nextOpportunityStatus === "Active"
             ? null
@@ -83,11 +102,11 @@ export async function PUT(request, { params }) {
     const nextCloseDate =
       nextOpportunityStatus === "Active"
         ? null
-        : nextOpportunityStatus === "Closed – Gift Secured" || nextOpportunityStatus === "Closed – Declined"
+        : nextOpportunityStatus === "Closed – Gift Secured" || isClosedDeclined
           ? normalizedCloseDate
           : existing.close_date;
     const nextDeclineReason =
-      nextOpportunityStatus === "Closed – Declined"
+      isClosedDeclined
         ? declineReason?.trim() || existing.decline_reason || null
         : nextOpportunityStatus === "Active"
           ? null

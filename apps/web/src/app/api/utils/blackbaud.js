@@ -25,6 +25,8 @@ const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
 const DEFAULT_BLACKBAUD_SCOPES = "offline_access rnxt.r rnxt.w rnxt.d";
+const DECLINED_OPPORTUNITY_STATUS = "Declined";
+const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -1210,6 +1212,18 @@ function toBlackbaudDateTime(value) {
   return parsed.toISOString();
 }
 
+function normalizeOpportunityStatusLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s*[–—-]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function isClosedDeclinedOpportunityStatus(value) {
+  return normalizeOpportunityStatusLabel(value) === "closed - declined";
+}
+
 export function buildBlackbaudOpportunityPayload({
   blackbaudConstituentId,
   title,
@@ -1233,12 +1247,17 @@ export function buildBlackbaudOpportunityPayload({
     payload.name = normalizedTitle;
   }
 
-  const normalizedPurpose = String(purpose || "").trim();
+  const isDeclined = isClosedDeclinedOpportunityStatus(opportunityStatus);
+  const normalizedPurpose = String(
+    isDeclined ? DECLINED_OPPORTUNITY_PURPOSE : purpose || "",
+  ).trim();
   if (normalizedPurpose) {
     payload.purpose = normalizedPurpose;
   }
 
-  const normalizedStage = String(currentStage || "").trim();
+  const normalizedStage = String(
+    isDeclined ? DECLINED_OPPORTUNITY_STATUS : currentStage || "",
+  ).trim();
   if (normalizedStage) {
     payload.status = normalizedStage;
   }

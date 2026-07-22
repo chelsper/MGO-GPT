@@ -162,4 +162,80 @@ describe("prospect opportunity update route", () => {
     expect(payload.error).toMatch(/could not update nxt opportunity/i);
     expect(syncProspectAskAmountMock).not.toHaveBeenCalled();
   });
+
+  it("maps a closed declined app status to the NXT declined status and purpose", async () => {
+    const { PUT } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 301,
+        prospect_id: 7,
+        title: "Leadership Ask",
+        purpose: "Future. Made. Campaign",
+        current_stage: "Solicitation",
+        estimated_amount: 50000,
+        ask_date: null,
+        expected_date: "2026-12-31",
+        latest_notes: "Initial note",
+        opportunity_status: "Active",
+        closed_amount: null,
+        close_date: null,
+        decline_reason: null,
+        blackbaud_opportunity_id: "bb-opp-1",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 301,
+        prospect_id: 7,
+        title: "Leadership Ask",
+        purpose: "Completed -- Not Fulfilled",
+        current_stage: "Declined",
+        opportunity_status: "Closed – Declined",
+      },
+    ]);
+
+    buildBlackbaudOpportunityPayloadMock.mockReturnValue({
+      status: "Declined",
+      purpose: "Completed -- Not Fulfilled",
+    });
+    updateBlackbaudOpportunityMock.mockResolvedValue({});
+
+    const request = new Request("https://example.com/api/prospects/opportunities/301", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        opportunityStatus: "Closed – Declined",
+        purpose: "Future. Made. Campaign",
+        currentStage: "Solicitation",
+      }),
+    });
+
+    const response = await PUT(request, { params: { id: "301" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.blackbaudSync).toEqual({
+      status: "synced",
+      opportunityId: "bb-opp-1",
+    });
+    expect(buildBlackbaudOpportunityPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        opportunityStatus: "Closed – Declined",
+        purpose: "Completed -- Not Fulfilled",
+        currentStage: "Declined",
+        closedAmount: 0,
+      }),
+    );
+    expect(updateBlackbaudOpportunityMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        opportunityId: "bb-opp-1",
+        payload: {
+          status: "Declined",
+          purpose: "Completed -- Not Fulfilled",
+        },
+      }),
+    );
+    expect(syncProspectAskAmountMock).toHaveBeenCalledWith(7);
+  });
 });
