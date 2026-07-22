@@ -894,14 +894,12 @@ export default function ProspectPoolPage() {
           current[id]?.phone ??
           entries.find((entry) => entry.id === id)?.phone ??
           "",
-        needsContactInfo:
-          current[id]?.needsContactInfo ??
-          entries.find((entry) => entry.id === id)?.needs_contact_info ??
-          false,
-        contactInfoRequestNote:
-          current[id]?.contactInfoRequestNote ??
-          entries.find((entry) => entry.id === id)?.contact_info_request_note ??
-          "",
+        ...(Object.prototype.hasOwnProperty.call(current[id] || {}, "needsContactInfo")
+          ? { needsContactInfo: current[id].needsContactInfo }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(current[id] || {}, "contactInfoRequestNote")
+          ? { contactInfoRequestNote: current[id].contactInfoRequestNote }
+          : {}),
         solicitorRequested:
           current[id]?.solicitorRequested ??
           entries.find((entry) => entry.id === id)?.solicitor_requested ??
@@ -2069,14 +2067,14 @@ export default function ProspectPoolPage() {
             const useClearedMgoRequestDraft = !isReviewer && !draft && clearedMgoRequestIds.has(entry.id);
             const needsContactInfo = useClearedMgoRequestDraft
               ? CLEARED_MGO_REQUEST_DRAFT.needsContactInfo
-              : draft?.needsContactInfo ?? entry.needs_contact_info;
+              : draft?.needsContactInfo ?? false;
             const solicitorRequested = useClearedMgoRequestDraft
               ? CLEARED_MGO_REQUEST_DRAFT.solicitorRequested
               : draft?.solicitorRequested ?? entry.solicitor_requested;
             const contactInfoRequestNote =
               useClearedMgoRequestDraft
                 ? CLEARED_MGO_REQUEST_DRAFT.contactInfoRequestNote
-                : draft?.contactInfoRequestNote ?? entry.contact_info_request_note ?? "";
+                : draft?.contactInfoRequestNote ?? "";
             const mgogptDispositionValue =
               useClearedMgoRequestDraft
                 ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionValue
