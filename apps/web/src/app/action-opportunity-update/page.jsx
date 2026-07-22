@@ -102,6 +102,35 @@ function getSuccessLabel(mode) {
   return "Action update submitted successfully.";
 }
 
+function getSafeInternalReturnPath(value) {
+  const path = String(value || "").trim();
+  if (!path || !path.startsWith("/") || path.startsWith("//")) {
+    return "";
+  }
+  return path;
+}
+
+function getSameOriginReferrerPath() {
+  if (typeof window === "undefined" || !document.referrer) {
+    return "";
+  }
+
+  try {
+    const referrerUrl = new URL(document.referrer);
+    if (referrerUrl.origin !== window.location.origin) {
+      return "";
+    }
+    if (referrerUrl.pathname === window.location.pathname) {
+      return "";
+    }
+    return getSafeInternalReturnPath(
+      `${referrerUrl.pathname}${referrerUrl.search}${referrerUrl.hash}`,
+    );
+  } catch {
+    return "";
+  }
+}
+
 function buildOutlookCalendarUrl({ subject, notes, dueDate }) {
   if (!dueDate) return null;
 
@@ -234,12 +263,12 @@ export default function ActionOpportunityUpdatePage() {
       params.get("blackbaudConstituentId") || "";
     const requestedLookupId =
       params.get("lookupId") || params.get("blackbaudLookupId") || "";
+    const safeReturnPath =
+      getSafeInternalReturnPath(requestedReturnPath) ||
+      getSameOriginReferrerPath();
 
-    if (
-      requestedReturnPath.startsWith("/") &&
-      !requestedReturnPath.startsWith("//")
-    ) {
-      setReturnPath(requestedReturnPath);
+    if (safeReturnPath) {
+      setReturnPath(safeReturnPath);
     }
 
     if (UPDATE_MODES.some((mode) => mode.value === requestedMode)) {
@@ -1090,6 +1119,14 @@ export default function ActionOpportunityUpdatePage() {
     },
   });
 
+  function navigateAfterSuccessfulSubmit() {
+    if (typeof window === "undefined") return;
+    const destination = getSafeInternalReturnPath(returnPath) || "/";
+    window.setTimeout(() => {
+      window.location.replace(destination);
+    }, 650);
+  }
+
   const submitMutation = useMutation({
     mutationFn: async (payload) => {
       const results = {};
@@ -1340,6 +1377,7 @@ export default function ActionOpportunityUpdatePage() {
         if (!response.ok) {
           setProspectPrompt(null);
           setNextStepPrompt(null);
+          navigateAfterSuccessfulSubmit();
           return;
         }
 
@@ -1407,6 +1445,7 @@ export default function ActionOpportunityUpdatePage() {
             });
           }
         }
+        navigateAfterSuccessfulSubmit();
       } catch (prospectLookupError) {
         console.error("Prospect lookup error:", prospectLookupError);
         setProspectPrompt(null);
@@ -1433,6 +1472,7 @@ export default function ActionOpportunityUpdatePage() {
             });
           }
         }
+        navigateAfterSuccessfulSubmit();
       }
     },
     onError: (err) => {
