@@ -45,15 +45,20 @@ describe("blackbaud action payload helpers", () => {
     expect(actionPayload.category).toBe("Task/Other");
   });
 
-  it("omits app-only action types that are not active NXT Actions table values", () => {
+  it("maps slash-delimited action types to NXT Actions table spacing", () => {
     const metadataPayload = buildBlackbaudActionMetadataPayload({
       actionDate: "2026-06-16",
       interactionType: "Qualification/Re-engagement",
       fundraiserIds: ["800"],
     });
 
-    expect(normalizeBlackbaudActionType("Qualification/Re-engagement")).toBeUndefined();
-    expect(metadataPayload.type).toBeUndefined();
+    expect(normalizeBlackbaudActionType("Qualification/Re-engagement")).toBe(
+      "Qualification / Re-engagement",
+    );
+    expect(normalizeBlackbaudActionType("Identification / Discovery")).toBe(
+      "Identification / Discovery",
+    );
+    expect(metadataPayload.type).toBe("Qualification / Re-engagement");
     expect(metadataPayload.completed).toBe(true);
     expect(metadataPayload.status).toBe("Completed");
   });

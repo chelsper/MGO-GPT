@@ -26,9 +26,9 @@ const UPDATE_MODES = [
 const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Task"];
 const INTERACTION_TYPES = [
   "Cultivation",
-  "Identification/Discovery",
+  "Identification / Discovery",
   "Other",
-  "Qualification/Re-engagement",
+  "Qualification / Re-engagement",
   "Solicitation",
   "Stewardship",
 ];

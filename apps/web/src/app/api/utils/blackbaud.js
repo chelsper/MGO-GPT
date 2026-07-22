@@ -29,7 +29,9 @@ const DECLINED_OPPORTUNITY_STATUS = "Declined";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
 const NXT_ACTION_TYPE_MAP = new Map([
   ["cultivation", "Cultivation"],
+  ["identification/discovery", "Identification / Discovery"],
   ["other", "Other"],
+  ["qualification/re-engagement", "Qualification / Re-engagement"],
   ["solicitation", "Solicitation"],
   ["stewardship", "Stewardship"],
 ]);
@@ -1030,6 +1032,7 @@ export function normalizeBlackbaudActionType(value) {
   const key = String(value || "")
     .trim()
     .replace(/[–—]/g, "-")
+    .replace(/\s*\/\s*/g, "/")
     .replace(/\s+/g, " ")
     .toLowerCase();
 
