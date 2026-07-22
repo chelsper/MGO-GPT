@@ -2417,39 +2417,39 @@ export default function ProspectPoolPage() {
                               style={{
                                 display: "grid",
                                 gridTemplateColumns:
-                                  "repeat(auto-fit, minmax(180px, 1fr))",
+                                  "repeat(auto-fit, minmax(220px, 1fr))",
                                 gap: "12px",
                               }}
                             >
-                              <div>
+                              <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
                                   Constituent
                                 </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                <div style={{ fontSize: "14px", color: "#111827", overflowWrap: "anywhere", lineHeight: 1.4 }}>
                                   {getDisplayText(blackbaudConstituent?.name)}
                                 </div>
                               </div>
-                              <div>
+                              <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
                                   Email
                                 </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                <div style={{ fontSize: "14px", color: "#111827", overflowWrap: "anywhere", lineHeight: 1.4 }}>
                                   {getDisplayText(blackbaudConstituent?.email)}
                                 </div>
                               </div>
-                              <div>
+                              <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
                                   Phone
                                 </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                <div style={{ fontSize: "14px", color: "#111827", overflowWrap: "anywhere", lineHeight: 1.4 }}>
                                   {getDisplayText(blackbaudConstituent?.phone)}
                                 </div>
                               </div>
-                              <div>
+                              <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
                                   Lifetime Giving
                                 </div>
-                                <div style={{ fontSize: "14px", color: "#111827" }}>
+                                <div style={{ fontSize: "14px", color: "#111827", overflowWrap: "anywhere", lineHeight: 1.4 }}>
                                   {formatBlackbaudCurrency(blackbaudLifetimeGiving?.totalGiving)}
                                 </div>
                               </div>
