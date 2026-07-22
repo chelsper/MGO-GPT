@@ -42,6 +42,19 @@ const nxtProfileLinkStyle = {
   padding: "6px 10px",
   textDecoration: "none",
 };
+const postAssignmentActionLinkStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #A7F3D0",
+  borderRadius: "999px",
+  backgroundColor: "#ECFDF5",
+  color: "#047857",
+  fontSize: "12px",
+  fontWeight: 700,
+  padding: "6px 10px",
+  textDecoration: "none",
+};
 
 function formatDate(value) {
   if (!value) return "Unknown";
@@ -119,6 +132,26 @@ function getActionTypeFromNotes(value) {
   const [candidate] = firstLine.split(":");
   const normalized = candidate.trim();
   return normalized || null;
+}
+
+function getPostAssignmentActionType(entry) {
+  return (
+    getDisplayText(entry?.post_assignment_action_type, "") ||
+    getDisplayText(entry?.post_assignment_action_category, "") ||
+    getActionTypeFromNotes(entry?.post_assignment_action_notes) ||
+    "Logged action"
+  );
+}
+
+function buildPostAssignmentActionUrl(entry) {
+  if (!entry?.matched_prospect_id || !entry?.post_assignment_action_id) {
+    return "";
+  }
+
+  const params = new URLSearchParams();
+  params.set("prospectId", String(entry.matched_prospect_id));
+  params.set("actionId", String(entry.post_assignment_action_id));
+  return `/my-top-prospects?${params.toString()}`;
 }
 
 function getDisplayText(value, fallback = "Unavailable") {
@@ -2083,7 +2116,12 @@ export default function ProspectPoolPage() {
               blackbaudSummaryState?.payload?.mapped?.primaryBusinessRelationship || null;
             const juEducation =
               blackbaudSummaryState?.payload?.mapped?.jacksonvilleUniversityEducation || [];
-            const lastActionType = getActionTypeFromNotes(entry.last_action_notes);
+            const postAssignmentActionType = getPostAssignmentActionType(entry);
+            const postAssignmentActionUrl = buildPostAssignmentActionUrl(entry);
+            const hasPostAssignmentAction = Boolean(entry.post_assignment_action_date);
+            const lastActionType = hasPostAssignmentAction
+              ? postAssignmentActionType
+              : getActionTypeFromNotes(entry.last_action_notes);
             const canRetryNxtSync =
               entry.nxt_status_sync_state === "failed" ||
               entry.nxt_status_sync_state === "pending";
@@ -2190,6 +2228,41 @@ export default function ProspectPoolPage() {
                         </div>
                         <div>{getQuickRequestLabel(entry)}</div>
                       </div>
+                      {hasPostAssignmentAction || isSolicitorAssignmentSynced(entry) ? (
+                        <div>
+                          <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
+                            Solicitor follow-up
+                          </div>
+                          {hasPostAssignmentAction ? (
+                            <div style={{ display: "grid", gap: "6px", justifyItems: "start" }}>
+                              {postAssignmentActionUrl ? (
+                                <a
+                                  href={postAssignmentActionUrl}
+                                  style={postAssignmentActionLinkStyle}
+                                >
+                                  Outreach logged - see action
+                                </a>
+                              ) : (
+                                <span style={postAssignmentActionLinkStyle}>
+                                  Outreach logged
+                                </span>
+                              )}
+                              <div style={{ fontSize: "12px", color: "#4B5563", lineHeight: 1.5 }}>
+                                {postAssignmentActionType}
+                                {" · "}
+                                {formatShortDate(entry.post_assignment_action_date)}
+                                {entry.post_assignment_blackbaud_action_id
+                                  ? " · Synced to NXT"
+                                  : ""}
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: "14px", color: "#6B7280" }}>
+                              Awaiting an action from the assigned solicitor
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
 
                     {blackbaudConstituentId ? (
@@ -2536,7 +2609,7 @@ export default function ProspectPoolPage() {
                                     marginBottom: "8px",
                                   }}
                                 >
-                                  Last action
+                                  Post-assignment action
                                 </div>
                                 <div
                                   style={{

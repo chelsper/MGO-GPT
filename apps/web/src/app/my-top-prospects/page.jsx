@@ -1620,6 +1620,14 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     }
   }, [initialPanel, prospectId, readOnly]);
 
+  useEffect(() => {
+    if (!prospectId || typeof window === "undefined") return;
+    const requestedActionId = new URLSearchParams(window.location.search).get("actionId");
+    if (requestedActionId) {
+      setExpandedTimelineId(`progress-${requestedActionId}`);
+    }
+  }, [prospectId]);
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["prospect", prospectId],
     queryFn: async () => {
@@ -6432,6 +6440,7 @@ export default function MyTopProspectsPage() {
     if (url.searchParams.has("prospectId")) {
       url.searchParams.delete("prospectId");
       url.searchParams.delete("panel");
+      url.searchParams.delete("actionId");
       window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
     }
   };

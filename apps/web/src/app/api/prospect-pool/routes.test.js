@@ -195,6 +195,23 @@ describe("prospect pool routes", () => {
     );
   });
 
+  it("only exposes assigned solicitor actions dated on or after the pool assignment", async () => {
+    const { GET } = await import("./route.js");
+
+    queueSqlResult([]);
+
+    const response = await GET(new Request("https://example.com/api/prospect-pool"));
+
+    expect(response.status).toBe(200);
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+    const [strings] = sqlMockImpl.mock.calls[0];
+    const query = strings.join(" ");
+    expect(query).toContain("latest_action.id AS post_assignment_action_id");
+    expect(query).toContain(
+      "pu.update_date >= COALESCE(pp.assigned_at::date, pp.created_at::date)",
+    );
+  });
+
   it("rejects assignment creation when the MGO selection is missing", async () => {
     const { POST } = await import("./route.js");
 

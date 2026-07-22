@@ -194,7 +194,19 @@ export async function GET(request) {
               matched_prospect.prospect_name AS matched_prospect_name,
               matched_prospect_owner.name AS last_action_solicitor_name,
               latest_action.update_date AS last_action_date,
-              latest_action.update_notes AS last_action_notes
+              latest_action.update_notes AS last_action_notes,
+              latest_action.id AS post_assignment_action_id,
+              latest_action.update_date AS post_assignment_action_date,
+              latest_action.update_notes AS post_assignment_action_notes,
+              latest_action.update_title AS post_assignment_action_title,
+              latest_action.action_category AS post_assignment_action_category,
+              latest_action.action_type AS post_assignment_action_type,
+              latest_action.blackbaud_action_id AS post_assignment_blackbaud_action_id,
+              CASE
+                WHEN latest_action.id IS NULL THEN NULL
+                WHEN latest_action.blackbaud_action_id IS NOT NULL THEN 'app-nxt'
+                ELSE 'app'
+              END AS post_assignment_action_source
             FROM prospect_pool pp
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
@@ -227,10 +239,17 @@ export async function GET(request) {
               ON matched_prospect_owner.id = matched_prospect.user_id
             LEFT JOIN LATERAL (
               SELECT
+                pu.id,
                 pu.update_date,
-                pu.update_notes
+                pu.update_notes,
+                pu.update_title,
+                pu.action_category,
+                pu.action_type,
+                pu.blackbaud_action_id,
+                pu.created_at
               FROM prospect_updates pu
               WHERE pu.prospect_id = matched_prospect.id
+                AND pu.update_date >= COALESCE(pp.assigned_at::date, pp.created_at::date)
               ORDER BY pu.update_date DESC, pu.created_at DESC
               LIMIT 1
             ) latest_action ON TRUE
@@ -250,7 +269,19 @@ export async function GET(request) {
               matched_prospect.prospect_name AS matched_prospect_name,
               matched_prospect_owner.name AS last_action_solicitor_name,
               latest_action.update_date AS last_action_date,
-              latest_action.update_notes AS last_action_notes
+              latest_action.update_notes AS last_action_notes,
+              latest_action.id AS post_assignment_action_id,
+              latest_action.update_date AS post_assignment_action_date,
+              latest_action.update_notes AS post_assignment_action_notes,
+              latest_action.update_title AS post_assignment_action_title,
+              latest_action.action_category AS post_assignment_action_category,
+              latest_action.action_type AS post_assignment_action_type,
+              latest_action.blackbaud_action_id AS post_assignment_blackbaud_action_id,
+              CASE
+                WHEN latest_action.id IS NULL THEN NULL
+                WHEN latest_action.blackbaud_action_id IS NOT NULL THEN 'app-nxt'
+                ELSE 'app'
+              END AS post_assignment_action_source
             FROM prospect_pool pp
             LEFT JOIN constituents c ON c.id = pp.constituent_id
             LEFT JOIN users assigned_user ON assigned_user.id = pp.assigned_user_id
@@ -283,10 +314,17 @@ export async function GET(request) {
               ON matched_prospect_owner.id = matched_prospect.user_id
             LEFT JOIN LATERAL (
               SELECT
+                pu.id,
                 pu.update_date,
-                pu.update_notes
+                pu.update_notes,
+                pu.update_title,
+                pu.action_category,
+                pu.action_type,
+                pu.blackbaud_action_id,
+                pu.created_at
               FROM prospect_updates pu
               WHERE pu.prospect_id = matched_prospect.id
+                AND pu.update_date >= COALESCE(pp.assigned_at::date, pp.created_at::date)
               ORDER BY pu.update_date DESC, pu.created_at DESC
               LIMIT 1
             ) latest_action ON TRUE
