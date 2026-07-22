@@ -2186,18 +2186,6 @@ export default function ProspectPoolPage() {
                     >
                       <div>
                         <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                          Email
-                        </div>
-                        <div>{entry.email || "Not provided"}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                          Phone
-                        </div>
-                        <div>{entry.phone || "Not provided"}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
                           What needs to happen
                         </div>
                         <div>{getQuickRequestLabel(entry)}</div>
