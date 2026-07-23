@@ -215,6 +215,7 @@ export default function ActionOpportunityUpdatePage() {
   const [actionItemText, setActionItemText] = useState("");
   const [actionItemTextEdited, setActionItemTextEdited] = useState(false);
   const [createOutlookReminder, setCreateOutlookReminder] = useState(false);
+  const [outlookFallbackUrl, setOutlookFallbackUrl] = useState("");
   const [isJointSolicitation, setIsJointSolicitation] = useState(false);
   const [jointMgoOptions, setJointMgoOptions] = useState([]);
   const [jointMgoLoading, setJointMgoLoading] = useState(false);
@@ -1336,6 +1337,7 @@ export default function ActionOpportunityUpdatePage() {
                 : `${successLabel} Saved locally only because no tracked prospect matched the selected Blackbaud constituent.`
             : successLabel;
       setSuccessMessage(successLabel);
+      setOutlookFallbackUrl("");
       setToast({
         tone: submitWarnings.length > 0 ? "error" : "success",
         message: toastMessage,
@@ -1374,6 +1376,7 @@ export default function ActionOpportunityUpdatePage() {
               assignedUserId: discussionAssignedUserId || null,
             }
           : null;
+      let shouldHoldForOutlookFallback = false;
 
       setDonorName("");
       setActionCategory(ACTION_CATEGORIES[0]);
@@ -1419,7 +1422,13 @@ export default function ActionOpportunityUpdatePage() {
         if (outlookWindow && !outlookWindow.closed) {
           outlookWindow.location.href = submittedOutlookUrl;
         } else {
-          window.open(submittedOutlookUrl, "_blank", "noopener,noreferrer");
+          shouldHoldForOutlookFallback = true;
+          setOutlookFallbackUrl(submittedOutlookUrl);
+          setToast({
+            tone: "error",
+            message:
+              "Outlook was blocked by the browser. Use the Open Outlook reminder button below.",
+          });
         }
       }
 
@@ -1427,7 +1436,9 @@ export default function ActionOpportunityUpdatePage() {
         const response = await fetch("/api/prospects");
         if (!response.ok) {
           setNextStepPrompt(null);
-          navigateAfterSuccessfulSubmit();
+          if (!shouldHoldForOutlookFallback) {
+            navigateAfterSuccessfulSubmit();
+          }
           return;
         }
 
@@ -1491,7 +1502,9 @@ export default function ActionOpportunityUpdatePage() {
             });
           }
         }
-        navigateAfterSuccessfulSubmit();
+        if (!shouldHoldForOutlookFallback) {
+          navigateAfterSuccessfulSubmit();
+        }
       } catch (prospectLookupError) {
         console.error("Prospect lookup error:", prospectLookupError);
         setNextStepPrompt(null);
@@ -1517,7 +1530,9 @@ export default function ActionOpportunityUpdatePage() {
             });
           }
         }
-        navigateAfterSuccessfulSubmit();
+        if (!shouldHoldForOutlookFallback) {
+          navigateAfterSuccessfulSubmit();
+        }
       }
     },
     onError: (err) => {
@@ -1572,6 +1587,7 @@ export default function ActionOpportunityUpdatePage() {
     setNextStepSaved(false);
     setNextStepError("");
     setDiscussionFeedback(null);
+    setOutlookFallbackUrl("");
 
     if (!donorName.trim()) {
       setError("Please enter a donor name.");
@@ -3896,6 +3912,58 @@ export default function ActionOpportunityUpdatePage() {
                 {successMessage}
                 <div style={{ marginTop: "8px", fontSize: "13px", fontWeight: 700 }}>
                   Synced to NXT where linked.
+                </div>
+              </div>
+            ) : null}
+            {outlookFallbackUrl ? (
+              <div
+                style={{
+                  padding: "16px",
+                  backgroundColor: "#EEF2FF",
+                  color: "#3730A3",
+                  borderRadius: "12px",
+                  marginBottom: "16px",
+                  fontSize: "14px",
+                }}
+              >
+                <div style={{ fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+                  Outlook reminder ready
+                </div>
+                <div style={{ lineHeight: 1.5, marginBottom: "12px" }}>
+                  Your browser blocked the automatic Outlook tab. Open the reminder manually, then return to your previous page.
+                </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <a
+                    href={outlookFallbackUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      border: "none",
+                      backgroundColor: "#4F46E5",
+                      color: "white",
+                      fontWeight: 700,
+                      textDecoration: "none",
+                    }}
+                  >
+                    Open Outlook reminder
+                  </a>
+                  <button
+                    type="button"
+                    onClick={navigateAfterSuccessfulSubmit}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      border: "1px solid #C7D2FE",
+                      backgroundColor: "white",
+                      color: "#4338CA",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Return to previous page
+                  </button>
                 </div>
               </div>
             ) : null}
