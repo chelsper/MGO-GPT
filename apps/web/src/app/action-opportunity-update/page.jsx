@@ -1268,6 +1268,28 @@ export default function ActionOpportunityUpdatePage() {
       speechRecognitionRef.current = recognition;
       setDictationTarget(target);
 
+      recognition.onstart = () => {
+        setDictationStatus(
+          `Ready for ${getDictationTargetLabel(target)}. Start speaking now.`,
+        );
+      };
+
+      recognition.onaudiostart = () => {
+        setDictationStatus(
+          `Microphone is on for ${getDictationTargetLabel(target)}. Start speaking.`,
+        );
+      };
+
+      recognition.onspeechstart = () => {
+        setDictationStatus(`Hearing you. Dictating into ${getDictationTargetLabel(target)}.`);
+      };
+
+      recognition.onspeechend = () => {
+        setDictationStatus(
+          `Still listening for ${getDictationTargetLabel(target)}. Continue speaking or stop dictation.`,
+        );
+      };
+
       recognition.onresult = (event) => {
         let finalTranscript = "";
         let interimTranscript = "";
@@ -1294,6 +1316,9 @@ export default function ActionOpportunityUpdatePage() {
           target,
           appendTranscript(recognitionBaseValueRef.current, combinedTranscript),
         );
+        if (combinedTranscript) {
+          setDictationStatus(`Writing into ${getDictationTargetLabel(target)}.`);
+        }
       };
 
       recognition.onerror = (event) => {
@@ -1343,11 +1368,11 @@ export default function ActionOpportunityUpdatePage() {
         );
       };
 
-      recognition.start();
       setIsRecording(true);
       setDictationStatus(
-        `Dictating into ${getDictationTargetLabel(target)}. Speak naturally; the words will stay in the field when you stop.`,
+        `Starting microphone for ${getDictationTargetLabel(target)}...`,
       );
+      recognition.start();
       startRecordingTimer();
     } catch (dictationStartError) {
       console.error("Speech recognition error:", dictationStartError);
@@ -2375,76 +2400,6 @@ export default function ActionOpportunityUpdatePage() {
             }}
           >
             {dictationStatus}
-          </div>
-        ) : null}
-
-        {dictationPreview ? (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: pendingDictation ? "#F0FDF4" : "#EFF6FF",
-              color: pendingDictation ? "#14532D" : "#1E3A8A",
-              borderRadius: "12px",
-              border: pendingDictation ? "1px solid #86EFAC" : "1px solid #BFDBFE",
-              marginBottom: "20px",
-              fontSize: "14px",
-              lineHeight: 1.5,
-            }}
-          >
-            <div style={{ fontSize: "13px", fontWeight: 800, marginBottom: "8px" }}>
-              {pendingDictation
-                ? `Review transcript for ${getDictationTargetLabel(pendingDictation.target)}`
-                : `Live transcript preview for ${getDictationTargetLabel(dictationTarget)}`}
-            </div>
-            <div
-              style={{
-                padding: "12px",
-                borderRadius: "10px",
-                backgroundColor: "rgba(255,255,255,0.72)",
-                border: "1px solid rgba(148,163,184,0.36)",
-                whiteSpace: "pre-wrap",
-                color: "#111827",
-                fontWeight: 600,
-              }}
-            >
-              {dictationPreview}
-            </div>
-            {pendingDictation ? (
-              <div style={{ display: "flex", gap: "10px", marginTop: "12px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={addPendingDictation}
-                  style={{
-                    padding: "9px 14px",
-                    borderRadius: "999px",
-                    border: "1px solid #22C55E",
-                    backgroundColor: "#DCFCE7",
-                    color: "#166534",
-                    fontSize: "13px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  Add transcript
-                </button>
-                <button
-                  type="button"
-                  onClick={discardPendingDictation}
-                  style={{
-                    padding: "9px 14px",
-                    borderRadius: "999px",
-                    border: "1px solid #CBD5E1",
-                    backgroundColor: "white",
-                    color: "#475569",
-                    fontSize: "13px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  Discard
-                </button>
-              </div>
-            ) : null}
           </div>
         ) : null}
 
