@@ -67,10 +67,11 @@ const EXCLUSION_OPTIONS = [
   "Other",
 ];
 
-function RadioButton({ label, selected, onClick }) {
+function RadioButton({ label, selected, onClick, disabled = false }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       style={{
         display: "flex",
@@ -79,11 +80,12 @@ function RadioButton({ label, selected, onClick }) {
         padding: "10px 14px",
         borderRadius: "10px",
         border: selected ? "2px solid #6A5BFF" : "1px solid #E5E7EB",
-        backgroundColor: selected ? "#EDE9FE" : "white",
-        cursor: "pointer",
+        backgroundColor: selected ? "#EDE9FE" : disabled ? "#F9FAFB" : "white",
+        cursor: disabled ? "not-allowed" : "pointer",
         width: "100%",
         textAlign: "left",
         marginBottom: "6px",
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       <span
@@ -110,7 +112,7 @@ function RadioButton({ label, selected, onClick }) {
         )}
       </span>
       <span
-        style={{ fontSize: "14px", color: selected ? "#6A5BFF" : "#374151" }}
+        style={{ fontSize: "14px", color: selected ? "#6A5BFF" : disabled ? "#9CA3AF" : "#374151" }}
       >
         {label}
       </span>
@@ -181,7 +183,6 @@ export default function RequestListPage() {
   const [locationState, setLocationState] = useState("");
   const [locationCity, setLocationCity] = useState("");
   const [locationZip, setLocationZip] = useState("");
-  const [locationRadiusAddress, setLocationRadiusAddress] = useState("");
   const [locationRadiusMiles, setLocationRadiusMiles] = useState("");
   const [assignedMgo, setAssignedMgo] = useState("");
   const [specialInstructions, setSpecialInstructions] = useState("");
@@ -190,6 +191,18 @@ export default function RequestListPage() {
   const [priorityLevel, setPriorityLevel] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  const activeLocationValue = {
+    state: locationState,
+    city: locationCity,
+    "zip code": locationZip,
+  }[locationFilter]?.trim();
+  const canUseLocationRadius = Boolean(activeLocationValue);
+
+  function handleLocationFilterChange(nextFilter) {
+    setLocationFilter(nextFilter);
+    setLocationRadiusMiles("");
+  }
 
   const toggleArray = (arr, setArr, value) => {
     if (arr.includes(value)) {
@@ -212,7 +225,10 @@ export default function RequestListPage() {
       }
       return res.json();
     },
-    onSuccess: () => setSuccess(true),
+    onSuccess: () => {
+      setSuccess(true);
+      window.setTimeout(() => returnToPreviousScreen(), 900);
+    },
     onError: (err) => {
       console.error(err);
       setError(err?.message || "Failed to submit. Please try again.");
@@ -245,6 +261,11 @@ export default function RequestListPage() {
       return;
     }
 
+    const locationRadiusMilesValue =
+      canUseLocationRadius && locationRadiusMiles
+        ? parseInt(locationRadiusMiles, 10)
+        : null;
+
     submitMutation.mutate({
       requesterName: requesterName || user?.name || "",
       dateNeeded,
@@ -263,13 +284,11 @@ export default function RequestListPage() {
       giftTimeframeCustomStart,
       giftTimeframeCustomEnd,
       locationFilter,
-      locationState,
-      locationCity,
-      locationZip,
-      locationRadiusAddress,
-      locationRadiusMiles: locationRadiusMiles
-        ? parseInt(locationRadiusMiles)
-        : null,
+      locationState: locationFilter === "state" ? locationState : "",
+      locationCity: locationFilter === "city" ? locationCity : "",
+      locationZip: locationFilter === "zip code" ? locationZip : "",
+      locationRadiusAddress: "",
+      locationRadiusMiles: locationRadiusMilesValue,
       assignedMgo,
       specialInstructions,
       exclusions,
@@ -277,6 +296,14 @@ export default function RequestListPage() {
       priorityLevel,
     });
   };
+
+  function returnToPreviousScreen() {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = "/submissions";
+  }
 
   if (loading) {
     return (
@@ -380,66 +407,6 @@ export default function RequestListPage() {
       </header>
 
       <main style={{ maxWidth: "700px", margin: "0 auto", padding: "24px 24px 140px" }}>
-        {submitMutation.isPending && (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#EDE9FE",
-              color: "#5B21B6",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-              fontWeight: "600",
-            }}
-          >
-            Sending your list request to Advancement Services...
-          </div>
-        )}
-
-        {success && (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#D1FAE5",
-              color: "#065F46",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-              fontWeight: "600",
-            }}
-          >
-            List request submitted successfully.{" "}
-            <a
-              href="/submissions"
-              style={{ color: "#065F46", textDecoration: "underline", marginRight: "8px" }}
-            >
-              View submission tracker
-            </a>
-            or{" "}
-            <a
-              href="/"
-              style={{ color: "#065F46", textDecoration: "underline" }}
-            >
-              Back to dashboard
-            </a>
-          </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#FEE2E2",
-              color: "#991B1B",
-              borderRadius: "12px",
-              marginBottom: "20px",
-              fontSize: "14px",
-            }}
-          >
-            {error}
-          </div>
-        )}
-
         <form onSubmit={handleSubmit}>
           {/* Request Basics */}
           <div style={sectionStyle}>
@@ -626,13 +593,13 @@ export default function RequestListPage() {
             <label style={{ ...fieldLabel, marginTop: "20px" }}>
               Location Filter
             </label>
-            {["None", "State", "City", "Zip code", "Radius from location"].map(
+            {["None", "State", "City", "Zip code"].map(
               (f) => (
                 <RadioButton
                   key={f}
                   label={f}
                   selected={locationFilter === f.toLowerCase()}
-                  onClick={() => setLocationFilter(f.toLowerCase())}
+                  onClick={() => handleLocationFilterChange(f.toLowerCase())}
                 />
               ),
             )}
@@ -640,7 +607,10 @@ export default function RequestListPage() {
               <input
                 type="text"
                 value={locationState}
-                onChange={(e) => setLocationState(e.target.value)}
+                onChange={(e) => {
+                  setLocationState(e.target.value);
+                  if (!e.target.value.trim()) setLocationRadiusMiles("");
+                }}
                 placeholder="State"
                 style={{ ...inputStyle, marginTop: "8px" }}
               />
@@ -649,7 +619,10 @@ export default function RequestListPage() {
               <input
                 type="text"
                 value={locationCity}
-                onChange={(e) => setLocationCity(e.target.value)}
+                onChange={(e) => {
+                  setLocationCity(e.target.value);
+                  if (!e.target.value.trim()) setLocationRadiusMiles("");
+                }}
                 placeholder="City"
                 style={{ ...inputStyle, marginTop: "8px" }}
               />
@@ -658,27 +631,56 @@ export default function RequestListPage() {
               <input
                 type="text"
                 value={locationZip}
-                onChange={(e) => setLocationZip(e.target.value)}
+                onChange={(e) => {
+                  setLocationZip(e.target.value);
+                  if (!e.target.value.trim()) setLocationRadiusMiles("");
+                }}
                 placeholder="Zip code"
                 style={{ ...inputStyle, marginTop: "8px" }}
               />
             )}
-            {locationFilter === "radius from location" && (
-              <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-                <input
-                  type="text"
-                  value={locationRadiusAddress}
-                  onChange={(e) => setLocationRadiusAddress(e.target.value)}
-                  placeholder="Address"
-                  style={inputStyle}
-                />
+            {locationFilter !== "none" && (
+              <div
+                style={{
+                  marginTop: "10px",
+                  padding: "12px 14px",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  backgroundColor: canUseLocationRadius ? "#F9FAFB" : "#FFFFFF",
+                }}
+              >
+                <label style={{ ...fieldLabel, margin: "0 0 8px" }}>
+                  Optional radius from selected location
+                </label>
                 <input
                   type="number"
+                  min="1"
                   value={locationRadiusMiles}
                   onChange={(e) => setLocationRadiusMiles(e.target.value)}
-                  placeholder="Miles"
-                  style={{ ...inputStyle, maxWidth: "120px" }}
+                  placeholder={
+                    canUseLocationRadius
+                      ? "Miles from selected location"
+                      : "Enter a location first"
+                  }
+                  disabled={!canUseLocationRadius}
+                  style={{
+                    ...inputStyle,
+                    backgroundColor: canUseLocationRadius ? "white" : "#F3F4F6",
+                    cursor: canUseLocationRadius ? "text" : "not-allowed",
+                  }}
                 />
+                <div
+                  style={{
+                    marginTop: "8px",
+                    fontSize: "12px",
+                    color: canUseLocationRadius ? "#4B5563" : "#9CA3AF",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {canUseLocationRadius
+                    ? `Radius will be centered on ${activeLocationValue}.`
+                    : "Select and enter a state, city, or zip code before adding a radius."}
+                </div>
               </div>
             )}
 
@@ -785,6 +787,40 @@ export default function RequestListPage() {
               <div style={{ fontSize: "14px", color: "#374151", lineHeight: 1.5 }}>
                 Submit this request to the shared Advancement Services queue.
               </div>
+              {error || submitMutation.isPending || success ? (
+                <div
+                  role={error ? "alert" : "status"}
+                  aria-live={error ? "assertive" : "polite"}
+                  style={{
+                    marginTop: "10px",
+                    padding: "10px 12px",
+                    borderRadius: "12px",
+                    border: error
+                      ? "1px solid #FCA5A5"
+                      : success
+                        ? "1px solid #86EFAC"
+                        : "1px solid #C4B5FD",
+                    backgroundColor: error
+                      ? "#FEF2F2"
+                      : success
+                        ? "#ECFDF5"
+                        : "#F5F3FF",
+                    color: error
+                      ? "#991B1B"
+                      : success
+                        ? "#166534"
+                        : "#5B21B6",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {error ||
+                    (success
+                      ? "List request submitted. Returning you to the previous screen..."
+                      : "Sending your list request to Advancement Services...")}
+                </div>
+              ) : null}
             </div>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginLeft: "auto" }}>

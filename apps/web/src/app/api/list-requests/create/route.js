@@ -43,6 +43,35 @@ export async function POST(request) {
       priorityLevel,
     } = body;
 
+    const normalizedLocationFilter = ["state", "city", "zip code"].includes(
+      String(locationFilter || "").toLowerCase(),
+    )
+      ? String(locationFilter).toLowerCase()
+      : "none";
+    const normalizedLocationState =
+      normalizedLocationFilter === "state" ? String(locationState || "").trim() : "";
+    const normalizedLocationCity =
+      normalizedLocationFilter === "city" ? String(locationCity || "").trim() : "";
+    const normalizedLocationZip =
+      normalizedLocationFilter === "zip code" ? String(locationZip || "").trim() : "";
+    const hasSelectedLocation = Boolean(
+      normalizedLocationState || normalizedLocationCity || normalizedLocationZip,
+    );
+    const parsedRadiusMiles =
+      locationRadiusMiles === null || locationRadiusMiles === undefined || locationRadiusMiles === ""
+        ? null
+        : Number(locationRadiusMiles);
+
+    if (
+      parsedRadiusMiles !== null &&
+      (!Number.isInteger(parsedRadiusMiles) || parsedRadiusMiles < 1 || !hasSelectedLocation)
+    ) {
+      return Response.json(
+        { error: "Select and enter a location before adding a radius." },
+        { status: 400 },
+      );
+    }
+
     // Insert list request
     const result = await sql`
       INSERT INTO list_requests (
@@ -90,12 +119,12 @@ export async function POST(request) {
         ${giftTimeframe || null},
         ${giftTimeframeCustomStart || null},
         ${giftTimeframeCustomEnd || null},
-        ${locationFilter || null},
-        ${locationState || null},
-        ${locationCity || null},
-        ${locationZip || null},
-        ${locationRadiusAddress || null},
-        ${locationRadiusMiles || null},
+        ${normalizedLocationFilter === "none" ? null : normalizedLocationFilter},
+        ${normalizedLocationState || null},
+        ${normalizedLocationCity || null},
+        ${normalizedLocationZip || null},
+        ${parsedRadiusMiles ? String(locationRadiusAddress || "").trim() || null : null},
+        ${parsedRadiusMiles || null},
         ${assignedMgo || null},
         ${specialInstructions || null},
         ${exclusions ? JSON.stringify(exclusions) : null},
