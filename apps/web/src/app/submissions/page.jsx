@@ -28,8 +28,7 @@ const TYPE_LABELS = {
 const LIST_REQUEST_STATUSES = [
   "Pending",
   "Needs Clarification",
-  "Ready for CRM",
-  "Approved",
+  "Complete",
 ];
 
 const QUEUE_PRIORITY_LABELS = {
@@ -61,6 +60,7 @@ function getStatusColors(status) {
     "Ready for CRM": { bg: "#DBEAFE", fg: "#1D4ED8" },
     Open: { bg: "#FEF3C7", fg: "#92400E" },
     "In Progress": { bg: "#DBEAFE", fg: "#1D4ED8" },
+    Complete: { bg: "#DCFCE7", fg: "#166534" },
     Completed: { bg: "#DCFCE7", fg: "#166534" },
     Declined: { bg: "#FEE2E2", fg: "#991B1B" },
   };
@@ -182,6 +182,17 @@ function formatDataRequestDetails(value) {
     return JSON.stringify(value, null, 2);
   }
   return String(value);
+}
+
+function getListRequestStatus(status) {
+  const normalized = String(status || "").trim();
+  if (normalized === "Needs Clarification") return "Needs Clarification";
+  if (["Complete", "Completed", "Approved"].includes(normalized)) return "Complete";
+  return "Pending";
+}
+
+function isListRequestComplete(request) {
+  return getListRequestStatus(request?.status) === "Complete";
 }
 
 export default function SubmissionsPage() {
@@ -467,7 +478,7 @@ export default function SubmissionsPage() {
     if (!isReviewer) return {};
 
     return listRequests.reduce((counts, request) => {
-      const key = request.status || "Pending";
+      const key = getListRequestStatus(request.status);
       counts[key] = (counts[key] || 0) + 1;
       counts.All = (counts.All || 0) + 1;
     return counts;
@@ -621,7 +632,7 @@ export default function SubmissionsPage() {
     let next = [...listRequests];
 
     if (isReviewer && listRequestFilter !== "All") {
-      next = next.filter((request) => (request.status || "Pending") === listRequestFilter);
+      next = next.filter((request) => getListRequestStatus(request.status) === listRequestFilter);
     }
 
     return next.sort((a, b) => {
@@ -666,9 +677,9 @@ export default function SubmissionsPage() {
             detail: "Requests still blocking completion",
           },
           {
-            label: "Ready for CRM",
-            value: reviewerListRequestCounts["Ready for CRM"] || 0,
-            detail: "Prepared for the next system step",
+            label: "Needs clarification",
+            value: reviewerListRequestCounts["Needs Clarification"] || 0,
+            detail: "Questions waiting on an MGO",
           },
           {
             label: "Visible now",
@@ -681,19 +692,19 @@ export default function SubmissionsPage() {
       return [
         {
           label: "My open requests",
-          value: visibleListRequests.filter((request) => request.status !== "Approved").length,
+          value: visibleListRequests.filter((request) => !isListRequestComplete(request)).length,
           detail: "Still in progress",
         },
         {
           label: "Need response",
           value: visibleListRequests.filter(
-            (request) => request.status === "Needs Clarification",
+            (request) => getListRequestStatus(request.status) === "Needs Clarification",
           ).length,
           detail: "Waiting on your clarification",
         },
         {
-          label: "Approved",
-          value: visibleListRequests.filter((request) => request.status === "Approved").length,
+          label: "Complete",
+          value: visibleListRequests.filter((request) => isListRequestComplete(request)).length,
           detail: "Completed requests",
         },
       ];
@@ -1018,18 +1029,28 @@ export default function SubmissionsPage() {
     try {
       const currentRequest = listRequests.find((item) => item.id === id);
       const draft = listRequestDrafts[id] || {};
+      const nextStatus =
+        draft.status || getListRequestStatus(currentRequest?.status) || "Pending";
+      const nextReviewerNotes =
+        draft.reviewerNotes ?? currentRequest?.reviewer_notes ?? "";
+
+      if (nextStatus === "Needs Clarification" && !String(nextReviewerNotes).trim()) {
+        setError("Add reviewer notes with the clarification question before sending this back to the MGO.");
+        setUpdatingListRequestId(null);
+        return;
+      }
+
       const response = await fetch("/api/list-requests/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
-          status: draft.status || currentRequest?.status || "Pending",
+          status: nextStatus,
           queuePriority:
             Number(draft.queuePriority) ||
             currentRequest?.queue_priority ||
             2,
-          reviewerNotes:
-            draft.reviewerNotes ?? currentRequest?.reviewer_notes ?? "",
+          reviewerNotes: nextReviewerNotes,
         }),
       });
 
@@ -1247,7 +1268,7 @@ export default function SubmissionsPage() {
                     {
                       id: LIST_REQUESTS_TAB,
                       label: "List Requests",
-                      count: listRequests.filter((request) => request.status !== "Approved").length,
+                      count: listRequests.filter((request) => !isListRequestComplete(request)).length,
                     },
                     {
                       id: NXT_EXCEPTIONS_TAB,
@@ -1506,7 +1527,7 @@ export default function SubmissionsPage() {
                   Filter list queue
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {["Pending", "Needs Clarification", "Ready for CRM", "Approved", "All"].map(
+                  {["Pending", "Needs Clarification", "Complete", "All"].map(
                     (status) => {
                       const selected = listRequestFilter === status;
                       return (
@@ -1557,7 +1578,7 @@ export default function SubmissionsPage() {
                 <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
                   <div>Pending: {reviewerListRequestCounts.Pending || 0}</div>
                   <div>Needs Clarification: {reviewerListRequestCounts["Needs Clarification"] || 0}</div>
-                  <div>Ready for CRM: {reviewerListRequestCounts["Ready for CRM"] || 0}</div>
+                  <div>Complete: {reviewerListRequestCounts.Complete || 0}</div>
                   <div>Total: {reviewerListRequestCounts.All || 0}</div>
                 </div>
               </div>
@@ -2793,13 +2814,16 @@ export default function SubmissionsPage() {
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
               {visibleListRequests.map((request) => {
-                const colors = getStatusColors(request.status);
+                const displayStatus = getListRequestStatus(request.status);
+                const colors = getStatusColors(displayStatus);
                 const draft = listRequestDrafts[request.id];
-                const selectedStatus = draft?.status || request.status || "Pending";
+                const selectedStatus = draft?.status || displayStatus;
                 const reviewerNotes =
                   draft?.reviewerNotes ?? request.reviewer_notes ?? "";
                 const queuePriority =
                   draft?.queuePriority || request.queue_priority || 2;
+                const needsClarification = displayStatus === "Needs Clarification";
+                const requestComplete = displayStatus === "Complete";
 
                 return (
                   <article
@@ -2835,7 +2859,7 @@ export default function SubmissionsPage() {
                               fontWeight: 700,
                             }}
                           >
-                            {request.status}
+                            {displayStatus}
                           </span>
                           {isReviewer ? (
                             <span
@@ -2855,6 +2879,46 @@ export default function SubmissionsPage() {
                         <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
                           Requested {formatDate(request.created_at)}
                         </div>
+                        {!isReviewer && needsClarification ? (
+                          <div
+                            style={{
+                              marginTop: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              backgroundColor: "#FFFBEB",
+                              border: "1px solid #FCD34D",
+                              color: "#92400E",
+                              fontSize: "14px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            <strong>! Advancement Services has a question.</strong>
+                            <div style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
+                              {request.reviewer_notes ||
+                                "Open this request and respond with the missing details."}
+                            </div>
+                          </div>
+                        ) : null}
+                        {!isReviewer && requestComplete ? (
+                          <div
+                            style={{
+                              marginTop: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              backgroundColor: "#ECFDF5",
+                              border: "1px solid #A7F3D0",
+                              color: "#065F46",
+                              fontSize: "14px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            <strong>Complete.</strong>
+                            <div style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
+                              {request.reviewer_notes ||
+                                "Advancement Services marked this list request complete."}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       {isReviewer ? (
@@ -2903,7 +2967,7 @@ export default function SubmissionsPage() {
                               setListRequestDraft(request.id, { reviewerNotes: event.target.value })
                             }
                             rows={4}
-                            placeholder="Clarify scope, note priority, or share delivery context."
+                            placeholder="If you need clarification, write the question for the MGO here."
                             style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", backgroundColor: "white", fontSize: "14px", resize: "vertical", boxSizing: "border-box" }}
                           />
                           <button

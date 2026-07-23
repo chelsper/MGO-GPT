@@ -8,8 +8,7 @@ import useWorkspaceView from "@/utils/useWorkspaceView";
 const REQUEST_STATUSES = [
   "Pending",
   "Needs Clarification",
-  "Ready for CRM",
-  "Approved",
+  "Complete",
 ];
 
 const QUEUE_PRIORITIES = [
@@ -27,6 +26,13 @@ function formatDate(value) {
 
 function getPriorityLabel(priority) {
   return QUEUE_PRIORITIES.find((item) => item.value === priority)?.label || "Normal";
+}
+
+function getListRequestStatus(status) {
+  const normalized = String(status || "").trim();
+  if (normalized === "Needs Clarification") return "Needs Clarification";
+  if (["Complete", "Completed", "Approved"].includes(normalized)) return "Complete";
+  return "Pending";
 }
 
 function formatList(value) {
@@ -136,11 +142,12 @@ export default function ListRequestsQueuePage() {
   const queueSummary = useMemo(() => {
     return requests.reduce(
       (summary, request) => {
+        const status = getListRequestStatus(request.status);
         summary.total += 1;
-        summary[request.status] = (summary[request.status] || 0) + 1;
+        summary[status] = (summary[status] || 0) + 1;
         return summary;
       },
-      { total: 0, Pending: 0, "Needs Clarification": 0, "Ready for CRM": 0, Approved: 0 },
+      { total: 0, Pending: 0, "Needs Clarification": 0, Complete: 0 },
     );
   }, [requests]);
 
@@ -164,18 +171,28 @@ export default function ListRequestsQueuePage() {
     try {
       const currentRequest = requests.find((item) => item.id === id);
       const draft = drafts[id] || {};
+      const nextStatus =
+        draft.status || getListRequestStatus(currentRequest?.status) || "Pending";
+      const nextReviewerNotes =
+        draft.reviewerNotes ?? currentRequest?.reviewer_notes ?? "";
+
+      if (nextStatus === "Needs Clarification" && !String(nextReviewerNotes).trim()) {
+        setError("Add reviewer notes with the clarification question before sending this back to the MGO.");
+        setSavingId(null);
+        return;
+      }
+
       const response = await fetch("/api/list-requests/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
-          status: draft.status || currentRequest?.status || "Pending",
+          status: nextStatus,
           queuePriority:
             Number(draft.queuePriority) ||
             currentRequest?.queue_priority ||
             2,
-          reviewerNotes:
-            draft.reviewerNotes ?? currentRequest?.reviewer_notes ?? "",
+          reviewerNotes: nextReviewerNotes,
         }),
       });
 
@@ -290,7 +307,7 @@ export default function ListRequestsQueuePage() {
             </div>
             <div>Pending: {queueSummary.Pending}</div>
             <div>Needs Clarification: {queueSummary["Needs Clarification"]}</div>
-            <div>Ready for CRM: {queueSummary["Ready for CRM"]}</div>
+            <div>Complete: {queueSummary.Complete}</div>
             <div>Total: {queueSummary.total}</div>
           </div>
         </div>
@@ -309,7 +326,7 @@ export default function ListRequestsQueuePage() {
         <div style={{ display: "grid", gap: "12px" }}>
           {requests.map((request) => {
             const draft = drafts[request.id];
-            const status = draft?.status || request.status || "Pending";
+            const status = draft?.status || getListRequestStatus(request.status);
             const queuePriority = Number(draft?.queuePriority || request.queue_priority || 2);
             const reviewerNotes = draft?.reviewerNotes ?? request.reviewer_notes ?? "";
 
@@ -486,7 +503,7 @@ export default function ListRequestsQueuePage() {
                     value={reviewerNotes}
                     disabled={savingId === request.id}
                     onChange={(event) => setDraft(request.id, { reviewerNotes: event.target.value })}
-                    placeholder="Explain what is needed from the MGO or what is ready for CRM."
+                    placeholder="If you need clarification, write the question for the MGO here."
                     rows={4}
                     style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #D1D5DB", backgroundColor: "white", fontSize: "14px", resize: "vertical", boxSizing: "border-box" }}
                   />

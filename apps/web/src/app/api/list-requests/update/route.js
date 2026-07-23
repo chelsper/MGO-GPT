@@ -4,8 +4,24 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
-const VALID_STATUSES = ["Pending", "Needs Clarification", "Ready for CRM", "Approved"];
+const VALID_STATUSES = [
+  "Pending",
+  "Needs Clarification",
+  "Complete",
+  "Completed",
+  "Approved",
+  "Ready for CRM",
+];
 const VALID_PRIORITIES = [1, 2, 3];
+
+function normalizeListRequestStatus(status) {
+  const normalized = String(status || "").trim();
+  if (!normalized) return null;
+  if (normalized === "Needs Clarification") return "Needs Clarification";
+  if (["Complete", "Completed", "Approved"].includes(normalized)) return "Complete";
+  if (["Pending", "Ready for CRM"].includes(normalized)) return "Pending";
+  return null;
+}
 
 export async function POST(request) {
   try {
@@ -28,13 +44,14 @@ export async function POST(request) {
     const { id, status, queuePriority, reviewerNotes } = body;
     const notesProvided = typeof reviewerNotes === "string";
     const normalizedNotes = notesProvided ? reviewerNotes.trim() : null;
+    const normalizedStatus = status ? normalizeListRequestStatus(status) : null;
     const normalizedPriority =
       typeof queuePriority === "number" ? queuePriority : Number(queuePriority);
 
     if (!id) {
       return Response.json({ error: "ID is required" }, { status: 400 });
     }
-    if (status && !VALID_STATUSES.includes(status)) {
+    if (status && (!VALID_STATUSES.includes(status) || !normalizedStatus)) {
       return Response.json({ error: "Invalid status" }, { status: 400 });
     }
     if (
@@ -51,10 +68,26 @@ export async function POST(request) {
       );
     }
 
+    if (normalizedStatus === "Needs Clarification" && !normalizedNotes) {
+      const existing = await sql`
+        SELECT reviewer_notes
+        FROM list_requests
+        WHERE id = ${id}
+        LIMIT 1
+      `;
+      const existingNotes = String(existing[0]?.reviewer_notes || "").trim();
+      if (!existingNotes) {
+        return Response.json(
+          { error: "Add reviewer notes with the clarification question." },
+          { status: 400 },
+        );
+      }
+    }
+
     const result = await sql`
       UPDATE list_requests
       SET
-        status = COALESCE(${status}, status),
+        status = COALESCE(${normalizedStatus}, status),
         queue_priority = COALESCE(${Number.isInteger(normalizedPriority) ? normalizedPriority : null}, queue_priority),
         reviewer_notes = CASE
           WHEN ${notesProvided} THEN ${normalizedNotes || null}
