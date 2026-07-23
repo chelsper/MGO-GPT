@@ -79,14 +79,14 @@ function formatBlackbaudCurrency(amount) {
 
 function getRequestState(entry) {
   if (entry.needs_contact_info) return "Needs contact info";
-  if (entry.solicitor_requested) return "Solicitor requested";
+  if (entry.solicitor_requested) return "Assignment syncing";
   return "Ready for outreach";
 }
 
 function getStateColors(label) {
   const map = {
     "Needs contact info": { bg: "#FEF3C7", fg: "#92400E" },
-    "Solicitor requested": { bg: "#DBEAFE", fg: "#1D4ED8" },
+    "Assignment syncing": { bg: "#DBEAFE", fg: "#1D4ED8" },
     "Ready for outreach": { bg: "#DCFCE7", fg: "#166534" },
   };
   return map[label] || { bg: "#E5E7EB", fg: "#374151" };
@@ -94,7 +94,7 @@ function getStateColors(label) {
 
 function getQuickRequestLabel(entry) {
   if (entry.needs_contact_info) return "Contact info requested";
-  if (entry.solicitor_requested) return "Solicitor assignment requested";
+  if (entry.solicitor_requested) return "Solicitor assignment syncing automatically";
   return "No open requests";
 }
 
@@ -545,7 +545,6 @@ export default function ProspectPoolPage() {
       return {
         total: 0,
         needsContactInfo: 0,
-        solicitorRequested: 0,
         ready: 0,
       };
     }
@@ -553,14 +552,12 @@ export default function ProspectPoolPage() {
       (acc, entry) => {
         acc.total += 1;
         if (entry.needs_contact_info) acc.needsContactInfo += 1;
-        if (entry.solicitor_requested) acc.solicitorRequested += 1;
-        if (!entry.needs_contact_info && !entry.solicitor_requested) acc.ready += 1;
+        if (!entry.needs_contact_info) acc.ready += 1;
         return acc;
       },
       {
         total: 0,
         needsContactInfo: 0,
-        solicitorRequested: 0,
         ready: 0,
       },
     );
@@ -574,15 +571,12 @@ export default function ProspectPoolPage() {
       return [
         {
           label: "Needs review",
-          value: entries.filter((entry) => entry.needs_contact_info || entry.solicitor_requested)
-            .length,
-          detail: "Entries with active requests",
+          value: entries.filter((entry) => entry.needs_contact_info).length,
+          detail: "Data requests waiting",
         },
         {
           label: "Ready to route",
-          value: entries.filter(
-            (entry) => !entry.needs_contact_info && !entry.solicitor_requested,
-          ).length,
+          value: entries.filter((entry) => !entry.needs_contact_info).length,
           detail: "No follow-up blocking outreach",
         },
         {
@@ -596,15 +590,12 @@ export default function ProspectPoolPage() {
     return [
       {
         label: "Need your action",
-        value: entries.filter((entry) => entry.needs_contact_info || entry.solicitor_requested)
-          .length,
-        detail: "Requests waiting on you",
+        value: entries.filter((entry) => entry.needs_contact_info).length,
+        detail: "Data requests waiting",
       },
       {
         label: "Ready for outreach",
-        value: entries.filter(
-          (entry) => !entry.needs_contact_info && !entry.solicitor_requested,
-        ).length,
+        value: entries.filter((entry) => !entry.needs_contact_info).length,
         detail: "Can move into donor work now",
       },
       {
@@ -635,13 +626,9 @@ export default function ProspectPoolPage() {
         return false;
       }
 
-      if (reviewerFilters.requestState === "solicitor" && !entry.solicitor_requested) {
-        return false;
-      }
-
       if (
         reviewerFilters.requestState === "no-requests" &&
-        (entry.needs_contact_info || entry.solicitor_requested)
+        entry.needs_contact_info
       ) {
         return false;
       }
@@ -668,8 +655,8 @@ export default function ProspectPoolPage() {
     });
 
     const sorted = [...filtered].sort((a, b) => {
-      const aHasRequest = a.needs_contact_info || a.solicitor_requested ? 1 : 0;
-      const bHasRequest = b.needs_contact_info || b.solicitor_requested ? 1 : 0;
+      const aHasRequest = a.needs_contact_info ? 1 : 0;
+      const bHasRequest = b.needs_contact_info ? 1 : 0;
       const aTime = new Date(a.created_at || 0).getTime();
       const bTime = new Date(b.created_at || 0).getTime();
 
@@ -1439,7 +1426,6 @@ export default function ProspectPoolPage() {
             </div>
             <div>Total entries: {summary.total}</div>
             <div>Needs contact info: {summary.needsContactInfo}</div>
-            <div>Solicitor requests: {summary.solicitorRequested}</div>
             <div>Ready now: {summary.ready}</div>
           </div>
         </div>
@@ -1984,7 +1970,6 @@ export default function ProspectPoolPage() {
                 >
                   <option value="all">All entries</option>
                   <option value="contact-info">Needs contact info</option>
-                  <option value="solicitor">Solicitor requested</option>
                   <option value="no-requests">No requests</option>
                 </select>
               </label>
@@ -2812,9 +2797,7 @@ export default function ProspectPoolPage() {
                         </label>
                       </div>
                       <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6, marginBottom: "14px" }}>
-                        MGO requests: contact info {entry.needs_contact_info ? "needed" : "not needed"}
-                        {" · "}
-                        solicitor {entry.solicitor_requested ? "requested" : "not requested"}
+                        Data request: contact info {entry.needs_contact_info ? "needed" : "not requested"}
                       </div>
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                         <button
