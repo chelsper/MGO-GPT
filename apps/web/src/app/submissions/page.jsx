@@ -218,11 +218,13 @@ export default function SubmissionsPage() {
   const [dataRequestDrafts, setDataRequestDrafts] = useState({});
   const [clarificationDrafts, setClarificationDrafts] = useState({});
   const [listRequestDrafts, setListRequestDrafts] = useState({});
+  const [listRequestResponseDrafts, setListRequestResponseDrafts] = useState({});
   const [discussionDrafts, setDiscussionDrafts] = useState({});
   const [expandedSubmissionGroups, setExpandedSubmissionGroups] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
   const [mgoOptions, setMgoOptions] = useState([]);
   const [discussionSavingId, setDiscussionSavingId] = useState(null);
+  const [respondingListRequestId, setRespondingListRequestId] = useState(null);
   const { effectiveRole, isReviewerView } = useWorkspaceView(profile?.role);
   const isReviewer = isReviewerView;
 
@@ -828,6 +830,13 @@ export default function SubmissionsPage() {
     }));
   }
 
+  function setListRequestResponseDraft(id, value) {
+    setListRequestResponseDrafts((current) => ({
+      ...current,
+      [id]: value,
+    }));
+  }
+
   function toggleSubmissionGroup(groupId) {
     setExpandedSubmissionGroups((current) => ({
       ...current,
@@ -1074,6 +1083,50 @@ export default function SubmissionsPage() {
       setError(err.message || "Could not update list request.");
     } finally {
       setUpdatingListRequestId(null);
+    }
+  }
+
+  async function submitListRequestClarification(id) {
+    setRespondingListRequestId(id);
+    setActionMessage("");
+    setError("");
+
+    try {
+      const responseText = String(listRequestResponseDrafts[id] || "").trim();
+      if (!responseText) {
+        setError("Add a response before sending this back to Advancement Services.");
+        setRespondingListRequestId(null);
+        return;
+      }
+
+      const response = await fetch("/api/list-requests/respond", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          clarificationResponse: responseText,
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to send clarification response");
+      }
+
+      setListRequests((current) =>
+        current.map((item) => (item.id === payload.id ? { ...item, ...payload } : item)),
+      );
+      setListRequestResponseDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setActionMessage("Your response was sent to Advancement Services.");
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Could not send clarification response.");
+    } finally {
+      setRespondingListRequestId(null);
     }
   }
 
@@ -2820,10 +2873,12 @@ export default function SubmissionsPage() {
                 const selectedStatus = draft?.status || displayStatus;
                 const reviewerNotes =
                   draft?.reviewerNotes ?? request.reviewer_notes ?? "";
+                const responseDraft = listRequestResponseDrafts[request.id] || "";
                 const queuePriority =
                   draft?.queuePriority || request.queue_priority || 2;
                 const needsClarification = displayStatus === "Needs Clarification";
                 const requestComplete = displayStatus === "Complete";
+                const isResponding = respondingListRequestId === request.id;
 
                 return (
                   <article
@@ -2897,6 +2952,66 @@ export default function SubmissionsPage() {
                               {request.reviewer_notes ||
                                 "Open this request and respond with the missing details."}
                             </div>
+                            <label
+                              style={{
+                                display: "block",
+                                marginTop: "12px",
+                                fontSize: "12px",
+                                fontWeight: 800,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                              }}
+                            >
+                              Your response
+                            </label>
+                            <textarea
+                              value={responseDraft}
+                              disabled={isResponding}
+                              onChange={(event) =>
+                                setListRequestResponseDraft(request.id, event.target.value)
+                              }
+                              rows={3}
+                              placeholder="Answer the question or add the missing detail."
+                              style={{
+                                width: "100%",
+                                marginTop: "8px",
+                                padding: "10px 12px",
+                                borderRadius: "10px",
+                                border: "1px solid #F59E0B",
+                                backgroundColor: "white",
+                                color: "#111827",
+                                fontSize: "14px",
+                                resize: "vertical",
+                                boxSizing: "border-box",
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={isResponding || !responseDraft.trim()}
+                              onClick={() => submitListRequestClarification(request.id)}
+                              style={{
+                                marginTop: "10px",
+                                padding: "9px 12px",
+                                borderRadius: "10px",
+                                border: "none",
+                                backgroundColor:
+                                  isResponding || !responseDraft.trim()
+                                    ? "#FCD34D"
+                                    : "#92400E",
+                                color:
+                                  isResponding || !responseDraft.trim()
+                                    ? "#92400E"
+                                    : "white",
+                                fontSize: "13px",
+                                fontWeight: 800,
+                                cursor:
+                                  isResponding || !responseDraft.trim()
+                                    ? "not-allowed"
+                                    : "pointer",
+                              }}
+                            >
+                              {isResponding ? "Sending..." : "Send response"}
+                            </button>
                           </div>
                         ) : null}
                         {!isReviewer && requestComplete ? (
@@ -3133,6 +3248,16 @@ export default function SubmissionsPage() {
                           </div>
                           <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
                             {request.reviewer_notes}
+                          </div>
+                        </div>
+                      ) : null}
+                      {request.requester_response ? (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                            MGO response
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                            {request.requester_response}
                           </div>
                         </div>
                       ) : null}

@@ -509,6 +509,17 @@ export default function ListRequestsQueuePage() {
                   />
                 </div>
 
+                {request.requester_response ? (
+                  <div style={{ marginTop: "16px", padding: "12px 14px", borderRadius: "12px", backgroundColor: "#FFFBEB", border: "1px solid #FCD34D" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                      MGO response
+                    </div>
+                    <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {request.requester_response}
+                    </div>
+                  </div>
+                ) : null}
+
                 {request.special_instructions ? (
                   <div style={{ marginTop: "16px", padding: "12px 14px", borderRadius: "12px", backgroundColor: "#F9FAFB", border: "1px solid #E5E7EB" }}>
                     <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>

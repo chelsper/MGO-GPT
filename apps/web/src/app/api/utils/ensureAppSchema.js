@@ -290,6 +290,8 @@ export default async function ensureAppSchema() {
         queue_priority INTEGER NOT NULL DEFAULT 3,
         reviewer_notes TEXT,
         reviewer_notes_updated_at TIMESTAMPTZ,
+        requester_response TEXT,
+        requester_response_updated_at TIMESTAMPTZ,
         reviewed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         reviewed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -308,6 +310,14 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE list_requests
       ADD COLUMN IF NOT EXISTS reviewer_notes_updated_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS requester_response TEXT
+    `;
+    await sql`
+      ALTER TABLE list_requests
+      ADD COLUMN IF NOT EXISTS requester_response_updated_at TIMESTAMPTZ
     `;
     await sql`
       ALTER TABLE list_requests
