@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, MessageSquare, Mic, Square } from "lucide-react";
 import useUser from "@/utils/useUser";
-import useUpload from "@/utils/useUpload";
 
 const UPDATE_MODES = [
   {
@@ -251,7 +250,6 @@ function DictationButton({
 
 export default function ActionOpportunityUpdatePage() {
   const { data: user, loading } = useUser();
-  const [upload] = useUpload();
   const [returnPath, setReturnPath] = useState("/");
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
@@ -1085,20 +1083,12 @@ export default function ActionOpportunityUpdatePage() {
         type: safeMimeType,
       });
 
-      setDictationStatus(`Uploading recording for ${targetLabel}...`);
-      const uploadResult = await upload({ file });
-
-      if (uploadResult.error) {
-        const uploadError = new Error(uploadResult.error);
-        uploadError.stage = "upload";
-        throw uploadError;
-      }
-
       setDictationStatus(`Transcribing ${targetLabel}...`);
+      const formData = new FormData();
+      formData.append("file", file);
       const transcriptionResponse = await fetch("/api/transcribe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioUrl: uploadResult.url }),
+        body: formData,
       });
 
       if (!transcriptionResponse.ok) {

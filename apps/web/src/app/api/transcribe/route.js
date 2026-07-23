@@ -1,62 +1,105 @@
-export async function POST(request) {
-  try {
-    const body = await request.json();
-    const { audioUrl } = body;
+export const runtime = "nodejs";
 
-    if (!audioUrl) {
-      return Response.json(
-        { error: "No audio URL provided", stage: "request" },
-        { status: 400 }
-      );
+function getAudioFileName(contentType) {
+  if (contentType.includes("wav")) return "audio.wav";
+  if (contentType.includes("mp3") || contentType.includes("mpeg")) return "audio.mp3";
+  if (contentType.includes("ogg")) return "audio.ogg";
+  if (contentType.includes("webm")) return "audio.webm";
+  if (contentType.includes("mp4")) return "audio.m4a";
+  return "audio.m4a";
+}
+
+async function getAudioFileFromRequest(request) {
+  const contentType = request.headers.get("content-type") || "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    const file = formData.get("file");
+
+    if (!(file instanceof File)) {
+      return {
+        error: Response.json(
+          { error: "No audio file provided", stage: "request" },
+          { status: 400 },
+        ),
+      };
     }
 
-    // Download the audio file from the uploaded URL
-    let audioResponse;
-    try {
-      audioResponse = await fetch(audioUrl);
-    } catch (fetchErr) {
-      console.error("Failed to fetch audio URL:", fetchErr);
-      return Response.json(
+    if (!file.size) {
+      return {
+        error: Response.json(
+          { error: "Audio file was empty", stage: "request" },
+          { status: 400 },
+        ),
+      };
+    }
+
+    return { audioFile: file };
+  }
+
+  const body = await request.json().catch(() => null);
+  const audioUrl = body?.audioUrl;
+
+  if (!audioUrl) {
+    return {
+      error: Response.json(
+        { error: "No audio URL or audio file provided", stage: "request" },
+        { status: 400 },
+      ),
+    };
+  }
+
+  // Download the audio file from the uploaded URL for legacy callers.
+  let audioResponse;
+  try {
+    audioResponse = await fetch(audioUrl);
+  } catch (fetchErr) {
+    console.error("Failed to fetch audio URL:", fetchErr);
+    return {
+      error: Response.json(
         {
           error: "Failed to download audio file",
           stage: "download",
           details: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
         },
         { status: 400 },
-      );
-    }
+      ),
+    };
+  }
 
-    if (!audioResponse.ok) {
-      console.error("Failed to download audio:", audioResponse.status);
-      return Response.json(
+  if (!audioResponse.ok) {
+    console.error("Failed to download audio:", audioResponse.status);
+    return {
+      error: Response.json(
         {
           error: "Failed to download audio file",
           stage: "download",
           details: `Audio URL returned ${audioResponse.status}`,
         },
         { status: 400 },
-      );
-    }
+      ),
+    };
+  }
 
-    const audioArrayBuffer = await audioResponse.arrayBuffer();
-    const audioBuffer = Buffer.from(audioArrayBuffer);
+  const audioArrayBuffer = await audioResponse.arrayBuffer();
+  const audioBuffer = Buffer.from(audioArrayBuffer);
+  const downloadedContentType =
+    audioResponse.headers.get("content-type") || "audio/m4a";
 
-    // Determine a reasonable file extension from the content type or URL
-    const contentType =
-      audioResponse.headers.get("content-type") || "audio/m4a";
-    let fileName = "audio.m4a";
-    if (contentType.includes("wav")) {
-      fileName = "audio.wav";
-    } else if (contentType.includes("mp3") || contentType.includes("mpeg")) {
-      fileName = "audio.mp3";
-    } else if (contentType.includes("ogg")) {
-      fileName = "audio.ogg";
-    } else if (contentType.includes("webm")) {
-      fileName = "audio.webm";
-    }
+  return {
+    audioFile: new File(
+      [audioBuffer],
+      getAudioFileName(downloadedContentType),
+      { type: downloadedContentType },
+    ),
+  };
+}
 
-    // Build FormData with a proper File object from the buffer
-    const audioFile = new File([audioBuffer], fileName, { type: contentType });
+export async function POST(request) {
+  try {
+    const { audioFile, error } = await getAudioFileFromRequest(request);
+    if (error) return error;
+
     const formData = new FormData();
     formData.append("file", audioFile);
 
