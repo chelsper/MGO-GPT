@@ -25,8 +25,8 @@ const UPDATE_MODES = [
 
 const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Task"];
 const SUPPORTED_AUDIO_MIME_TYPES = [
-  "audio/webm;codecs=opus",
   "audio/webm",
+  "audio/webm;codecs=opus",
   "audio/mp4",
   "audio/mpeg",
   "audio/mp3",

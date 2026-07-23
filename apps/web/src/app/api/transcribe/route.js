@@ -1,5 +1,16 @@
 export const runtime = "nodejs";
 
+function normalizeAudioContentType(contentType) {
+  const normalized = String(contentType || "").toLowerCase();
+
+  if (normalized.includes("wav")) return "audio/wav";
+  if (normalized.includes("mp3") || normalized.includes("mpeg")) return "audio/mpeg";
+  if (normalized.includes("ogg")) return "audio/ogg";
+  if (normalized.includes("webm")) return "audio/webm";
+  if (normalized.includes("mp4") || normalized.includes("m4a")) return "audio/mp4";
+  return "audio/m4a";
+}
+
 function getAudioFileName(contentType) {
   if (contentType.includes("wav")) return "audio.wav";
   if (contentType.includes("mp3") || contentType.includes("mpeg")) return "audio.mp3";
@@ -34,7 +45,16 @@ async function getAudioFileFromRequest(request) {
       };
     }
 
-    return { audioFile: file };
+    const arrayBuffer = await file.arrayBuffer();
+    const normalizedContentType = normalizeAudioContentType(file.type || contentType);
+
+    return {
+      audioFile: new File(
+        [Buffer.from(arrayBuffer)],
+        getAudioFileName(normalizedContentType),
+        { type: normalizedContentType },
+      ),
+    };
   }
 
   const body = await request.json().catch(() => null);
@@ -83,8 +103,9 @@ async function getAudioFileFromRequest(request) {
 
   const audioArrayBuffer = await audioResponse.arrayBuffer();
   const audioBuffer = Buffer.from(audioArrayBuffer);
-  const downloadedContentType =
-    audioResponse.headers.get("content-type") || "audio/m4a";
+  const downloadedContentType = normalizeAudioContentType(
+    audioResponse.headers.get("content-type") || "audio/m4a",
+  );
 
   return {
     audioFile: new File(
