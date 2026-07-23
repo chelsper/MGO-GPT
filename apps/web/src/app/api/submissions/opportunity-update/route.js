@@ -126,15 +126,14 @@ export async function POST(request) {
             : null;
         }
       } catch (error) {
-        return Response.json(
-          {
-            error:
-              error instanceof Error && error.message
-                ? `Could not sync NXT opportunity: ${error.message}`
-                : "Could not sync NXT opportunity",
-          },
-          { status: 502 },
-        );
+        const message =
+          error instanceof Error && error.message
+            ? `Could not sync NXT opportunity: ${error.message}`
+            : "Could not sync NXT opportunity";
+        blackbaudSync = {
+          status: "failed",
+          error: message,
+        };
       }
     }
 

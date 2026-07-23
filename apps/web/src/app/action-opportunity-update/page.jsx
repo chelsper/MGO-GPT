@@ -1268,6 +1268,11 @@ export default function ActionOpportunityUpdatePage() {
     },
     onSuccess: async (data) => {
       const actionSyncWarning = data?.action?.blackbaudAction?.syncWarning || "";
+      const opportunitySyncWarning =
+        data?.opportunity?.blackbaudSync?.status === "failed"
+          ? data.opportunity.blackbaudSync.error ||
+            "Could not sync NXT opportunity"
+          : "";
       const successLabel = getSuccessLabel(updateMode);
       const actionEndpointUsed = data?.actionEndpoint || "";
       const actionResolvedProspectId = data?.actionResolvedProspectId || null;
@@ -1277,21 +1282,25 @@ export default function ActionOpportunityUpdatePage() {
           data?.action?.blackbaudAction?.id ||
           data?.action?.blackbaudAction?.action_id,
       );
-      setSuccessMessage(successLabel);
-      setToast({
-        tone: actionSyncWarning ? "error" : "success",
-        message: actionSyncWarning
+      const toastMessage = opportunitySyncWarning
+        ? `${successLabel} Saved in the app, but ${opportunitySyncWarning}`
+        : actionSyncWarning
           ? `Saved, but NXT action metadata is incomplete: ${actionSyncWarning}`
           : actionEndpointUsed === "/api/submissions/donor-update"
             ? actionSyncedToBlackbaud
               ? `${successLabel} Synced to NXT through the constituent action route.`
               : actionResolvedProspectId
-              ? `${successLabel} Saved through local donor update flow.`
-              : `${successLabel} Saved locally only because no tracked prospect matched the selected Blackbaud constituent.`
-            : successLabel,
+                ? `${successLabel} Saved through local donor update flow.`
+                : `${successLabel} Saved locally only because no tracked prospect matched the selected Blackbaud constituent.`
+            : successLabel;
+      setSuccessMessage(successLabel);
+      setToast({
+        tone: actionSyncWarning || opportunitySyncWarning ? "error" : "success",
+        message: toastMessage,
       });
       setError(
-        actionSyncWarning ||
+        opportunitySyncWarning ||
+          actionSyncWarning ||
           (!actionSyncedToBlackbaud && actionEndpointUsed
             ? `Action save route: ${actionEndpointUsed}${
                 actionResolvedProspectId
