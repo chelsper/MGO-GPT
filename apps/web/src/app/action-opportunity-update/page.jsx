@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, MessageSquare, Mic, Square } from "lucide-react";
+import { ArrowLeft, MessageSquare, Mic } from "lucide-react";
 import useUser from "@/utils/useUser";
 
 const UPDATE_MODES = [
@@ -265,8 +265,8 @@ function DictationButton({
           fontWeight: 700,
         }}
       >
-        {active ? <Square size={14} /> : <Mic size={14} />}
-        {active ? `Stop ${label}` : `Dictate ${label}`}
+        <Mic size={14} />
+        {active ? "Stop dictation" : `Dictate ${label}`}
       </button>
     </div>
   );
@@ -359,6 +359,7 @@ export default function ActionOpportunityUpdatePage() {
   const recognitionTranscriptRef = useRef("");
   const recognitionDisplayRef = useRef("");
   const recognitionFinalizedRef = useRef(false);
+  const recognitionBaseValueRef = useRef("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -431,7 +432,7 @@ export default function ActionOpportunityUpdatePage() {
     () => jointMgoOptions.filter((option) => isFundraiserOption(option)),
     [jointMgoOptions],
   );
-  const supportsDictation = supportsMediaRecording || supportsSpeechRecognition;
+  const supportsDictation = supportsSpeechRecognition;
   function getFieldValue(target) {
     switch (target) {
       case "actionNotes":
@@ -1256,13 +1257,14 @@ export default function ActionOpportunityUpdatePage() {
         window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
       recognition.lang = "en-US";
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
       recognitionTranscriptRef.current = "";
       recognitionDisplayRef.current = "";
       recognitionFinalizedRef.current = false;
+      recognitionBaseValueRef.current = getFieldValue(target);
       speechRecognitionRef.current = recognition;
       setDictationTarget(target);
 
@@ -1288,7 +1290,10 @@ export default function ActionOpportunityUpdatePage() {
         const combinedTranscript =
           `${recognitionTranscriptRef.current} ${interimTranscript}`.trim();
         recognitionDisplayRef.current = combinedTranscript;
-        setDictationPreview(combinedTranscript);
+        setFieldValue(
+          target,
+          appendTranscript(recognitionBaseValueRef.current, combinedTranscript),
+        );
       };
 
       recognition.onerror = (event) => {
@@ -1297,7 +1302,11 @@ export default function ActionOpportunityUpdatePage() {
         if (String(capturedTranscript || "").trim()) {
           recognitionFinalizedRef.current = true;
           speechRecognitionRef.current = null;
-          finishDictation(capturedTranscript, target);
+          stopRecordingTimer();
+          setIsRecording(false);
+          setDictationTarget("");
+          setDictationStatus(`Dictation added to ${getDictationTargetLabel(target)}.`);
+          setDictationError("");
           return;
         }
 
@@ -1307,7 +1316,6 @@ export default function ActionOpportunityUpdatePage() {
         setIsRecording(false);
         setDictationTarget("");
         setDictationStatus("");
-        setDictationPreview("");
         setPendingDictation(null);
         setDictationError(getSpeechRecognitionErrorMessage(event.error));
       };
@@ -1316,16 +1324,29 @@ export default function ActionOpportunityUpdatePage() {
         speechRecognitionRef.current = null;
         if (recognitionFinalizedRef.current) return;
         recognitionFinalizedRef.current = true;
-        finishDictation(
-          recognitionDisplayRef.current || recognitionTranscriptRef.current,
-          target,
+        stopRecordingTimer();
+        setIsRecording(false);
+        setDictationTarget("");
+        setPendingDictation(null);
+
+        const capturedTranscript =
+          recognitionDisplayRef.current || recognitionTranscriptRef.current;
+        if (String(capturedTranscript || "").trim()) {
+          setDictationStatus(`Dictation added to ${getDictationTargetLabel(target)}.`);
+          setDictationError("");
+          return;
+        }
+
+        setDictationStatus("");
+        setDictationError(
+          "No speech was detected. Check the selected microphone in Chrome, speak close to it, and try again.",
         );
       };
 
       recognition.start();
       setIsRecording(true);
       setDictationStatus(
-        `Listening for ${getDictationTargetLabel(target)}. Speak naturally; the live transcript will be staged for review when you stop.`,
+        `Dictating into ${getDictationTargetLabel(target)}. Speak naturally; the words will stay in the field when you stop.`,
       );
       startRecordingTimer();
     } catch (dictationStartError) {
@@ -1334,7 +1355,6 @@ export default function ActionOpportunityUpdatePage() {
       stopRecordingTimer();
       setIsRecording(false);
       setDictationTarget("");
-      setDictationPreview("");
       setPendingDictation(null);
       setDictationError(
         "Live dictation could not start in this browser. Check microphone permissions and try again.",
@@ -1359,50 +1379,24 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
-    if (supportsMediaRecording) {
-      await startRecordedDictation(target);
-      return;
-    }
-
-    if (!supportsSpeechRecognition) {
-      setDictationError(
-        "This browser does not support microphone dictation. Use Chrome or Edge, or type the note manually.",
-      );
-      return;
-    }
+    setDictationError(
+      "This browser does not support live microphone dictation. Use Chrome or Edge, or type the note manually.",
+    );
   }
 
   function stopDictation() {
-    if (mediaRecorderRef.current && isRecording) {
-      try {
-        mediaRecorderRef.current.stop();
-        setIsRecording(false);
-        setDictationStatus("Preparing recording for transcription...");
-        stopRecordingTimer();
-      } catch (stopError) {
-        console.error("Stop recording error:", stopError);
-        stopRecordingTimer();
-        stopDictationMediaStream();
-        mediaRecorderRef.current = null;
-        recordedAudioChunksRef.current = [];
-        recordedAudioMimeTypeRef.current = "";
-        recordedAudioTargetRef.current = "";
-        setIsRecording(false);
-        setDictationTarget("");
-        setDictationStatus("");
-        setDictationError("Could not stop the microphone recording. Refresh and try again.");
-      }
-      return;
-    }
-
     if (!speechRecognitionRef.current || !isRecording) return;
     recognitionFinalizedRef.current = true;
     speechRecognitionRef.current.stop();
     speechRecognitionRef.current = null;
-    finishDictation(
-      recognitionDisplayRef.current || recognitionTranscriptRef.current,
-      dictationTarget,
+    stopRecordingTimer();
+    setIsRecording(false);
+    setDictationStatus(
+      recognitionDisplayRef.current || recognitionTranscriptRef.current
+        ? `Dictation added to ${getDictationTargetLabel(dictationTarget)}.`
+        : "",
     );
+    setDictationTarget("");
   }
 
   const addProspectMutation = useMutation({
@@ -2317,7 +2311,7 @@ export default function ActionOpportunityUpdatePage() {
               border: "1px solid #DDD6FE",
             }}
           >
-            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes. You will see words appear as you speak, then review the transcript before adding it so existing notes are not overwritten.
+            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes. Words appear directly in the selected field as you speak and stay there when dictation stops.
           </div>
         ) : speechRecognitionSupportChecked ? (
           <div
@@ -2381,9 +2375,6 @@ export default function ActionOpportunityUpdatePage() {
             }}
           >
             {dictationStatus}
-            {isRecording && dictationTarget
-              ? ` (${formatDuration(recordingDuration)} on ${getDictationTargetLabel(dictationTarget)})`
-              : ""}
           </div>
         ) : null}
 
