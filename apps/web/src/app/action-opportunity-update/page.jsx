@@ -123,6 +123,10 @@ function buildOutlookCalendarUrl({ subject, notes, dueDate }) {
   return `https://outlook.office.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(notes || "")}&startdt=${encodeURIComponent(start.toISOString())}&enddt=${encodeURIComponent(end.toISOString())}`;
 }
 
+function getErrorMessage(error, fallback = "Unknown error") {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function DictationButton({
   target,
   label,
@@ -229,6 +233,7 @@ export default function ActionOpportunityUpdatePage() {
   const [teamDiscussionOpen, setTeamDiscussionOpen] = useState(false);
   const speechRecognitionRef = useRef(null);
   const timerRef = useRef(null);
+  const pendingOutlookWindowRef = useRef(null);
   const recognitionTranscriptRef = useRef("");
   const recognitionDisplayRef = useRef("");
   const recognitionFinalizedRef = useRef(false);
@@ -1252,12 +1257,31 @@ export default function ActionOpportunityUpdatePage() {
       }
 
       if (payload.includeAction && payload.includeOpportunity) {
-        const opportunity = await submitOpportunityUpdate();
+        const opportunity = await submitOpportunityUpdate().catch((error) => {
+          results.opportunityError = getErrorMessage(
+            error,
+            "Failed to submit opportunity update",
+          );
+          return null;
+        });
         const linkedOpportunityId =
           opportunity?.prospect_opportunity_id ||
           opportunity?.prospectOpportunityId ||
           null;
-        await submitActionUpdate({ linkedOpportunityIdOverride: linkedOpportunityId });
+        await submitActionUpdate({ linkedOpportunityIdOverride: linkedOpportunityId }).catch(
+          (error) => {
+            results.actionError = getErrorMessage(
+              error,
+              "Failed to submit action update",
+            );
+          },
+        );
+
+        if (results.opportunityError && results.actionError) {
+          throw new Error(
+            `Opportunity update failed: ${results.opportunityError} Action update failed: ${results.actionError}`,
+          );
+        }
       } else if (payload.includeAction) {
         await submitActionUpdate();
       } else if (payload.includeOpportunity) {
@@ -1266,14 +1290,34 @@ export default function ActionOpportunityUpdatePage() {
 
       return results;
     },
-    onSuccess: async (data) => {
-      const actionSyncWarning = data?.action?.blackbaudAction?.syncWarning || "";
+    onSuccess: async (data, payload) => {
+      const actionSyncWarning =
+        data?.action?.blackbaudAction?.error ||
+        data?.action?.blackbaudAction?.syncWarning ||
+        "";
       const opportunitySyncWarning =
         data?.opportunity?.blackbaudSync?.status === "failed"
           ? data.opportunity.blackbaudSync.error ||
             "Could not sync NXT opportunity"
           : "";
-      const successLabel = getSuccessLabel(updateMode);
+      const submitWarnings = [
+        data?.opportunityError
+          ? `Opportunity update failed: ${data.opportunityError}`
+          : "",
+        data?.actionError ? `Action update failed: ${data.actionError}` : "",
+        opportunitySyncWarning,
+        actionSyncWarning ? `Could not sync NXT action: ${actionSyncWarning}` : "",
+      ].filter(Boolean);
+      const savedAction = Boolean(data?.action && !data?.actionError);
+      const savedOpportunity = Boolean(data?.opportunity && !data?.opportunityError);
+      const successLabel =
+        savedAction && savedOpportunity
+          ? getSuccessLabel(updateMode)
+          : savedAction
+            ? "Action update submitted successfully."
+            : savedOpportunity
+              ? "Opportunity update submitted successfully."
+              : getSuccessLabel(updateMode);
       const actionEndpointUsed = data?.actionEndpoint || "";
       const actionResolvedProspectId = data?.actionResolvedProspectId || null;
       const actionSyncedToBlackbaud = Boolean(
@@ -1282,10 +1326,8 @@ export default function ActionOpportunityUpdatePage() {
           data?.action?.blackbaudAction?.id ||
           data?.action?.blackbaudAction?.action_id,
       );
-      const toastMessage = opportunitySyncWarning
-        ? `${successLabel} Saved in the app, but ${opportunitySyncWarning}`
-        : actionSyncWarning
-          ? `Saved, but NXT action metadata is incomplete: ${actionSyncWarning}`
+      const toastMessage = submitWarnings.length > 0
+        ? `${successLabel} ${submitWarnings.join(" ")}`
           : actionEndpointUsed === "/api/submissions/donor-update"
             ? actionSyncedToBlackbaud
               ? `${successLabel} Synced to NXT through the constituent action route.`
@@ -1295,12 +1337,11 @@ export default function ActionOpportunityUpdatePage() {
             : successLabel;
       setSuccessMessage(successLabel);
       setToast({
-        tone: actionSyncWarning || opportunitySyncWarning ? "error" : "success",
+        tone: submitWarnings.length > 0 ? "error" : "success",
         message: toastMessage,
       });
       setError(
-        opportunitySyncWarning ||
-          actionSyncWarning ||
+        submitWarnings.join(" ") ||
           (!actionSyncedToBlackbaud && actionEndpointUsed
             ? `Action save route: ${actionEndpointUsed}${
                 actionResolvedProspectId
@@ -1320,6 +1361,7 @@ export default function ActionOpportunityUpdatePage() {
         createActionItem && actionItemText.trim() ? actionItemText.trim() : "";
       const submittedActionItemDueDate = nextStepDueDate || null;
       const submittedOutlookReminder = createOutlookReminder;
+      const submittedOutlookUrl = payload?.outlookUrl || null;
       const submittedConstituentId =
         data?.opportunity?.constituent_id || data?.action?.constituent_id || null;
       const alreadyTracked = Boolean(data?.opportunity?.prospect_id);
@@ -1370,6 +1412,17 @@ export default function ActionOpportunityUpdatePage() {
       setDiscussionDueDate("");
       setDiscussionAssignedUserId("");
 
+      if (submittedOutlookReminder && submittedOutlookUrl) {
+        const outlookWindow = pendingOutlookWindowRef.current;
+        pendingOutlookWindowRef.current = null;
+
+        if (outlookWindow && !outlookWindow.closed) {
+          outlookWindow.location.href = submittedOutlookUrl;
+        } else {
+          window.open(submittedOutlookUrl, "_blank", "noopener,noreferrer");
+        }
+      }
+
       try {
         const response = await fetch("/api/prospects");
         if (!response.ok) {
@@ -1391,18 +1444,27 @@ export default function ActionOpportunityUpdatePage() {
         const trackedInList =
           alreadyTracked ||
           Boolean(matchedProspect);
+        const nextStepProspectId =
+          matchedProspect?.id ||
+          data?.opportunity?.prospect_id ||
+          data?.opportunity?.prospectId ||
+          data?.action?.prospect_id ||
+          data?.action?.prospectId ||
+          null;
 
-        setNextStepPrompt(
-          trackedInList && submittedActionItemText
-            ? {
-                prospectId: matchedProspect?.id || null,
-                prospectName: submittedName,
-                nextActionText: submittedActionItemText,
-                nextActionDueDate: submittedActionItemDueDate,
-                shouldOpenOutlook: submittedOutlookReminder,
-              }
-            : null,
-        );
+        if (trackedInList && submittedActionItemText && nextStepProspectId) {
+          try {
+            await saveNextStepMutation.mutateAsync({
+              prospectId: nextStepProspectId,
+              nextActionText: submittedActionItemText,
+              nextActionDueDate: submittedActionItemDueDate || null,
+            });
+          } catch {
+            // The action/opportunity is already saved; show the reminder failure without blocking the rest.
+          }
+        }
+
+        setNextStepPrompt(null);
 
         if (submittedDiscussionItem) {
           const resolvedProspectId =
@@ -1460,6 +1522,10 @@ export default function ActionOpportunityUpdatePage() {
     },
     onError: (err) => {
       console.error(err);
+      if (pendingOutlookWindowRef.current && !pendingOutlookWindowRef.current.closed) {
+        pendingOutlookWindowRef.current.close();
+      }
+      pendingOutlookWindowRef.current = null;
       const message = err?.message || "Failed to submit. Please try again.";
       setError(message);
       setToast({ tone: "error", message });
@@ -1529,6 +1595,11 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
+    if (includeAction && createActionItem && createOutlookReminder && !nextStepDueDate) {
+      setError("Please choose a due date before adding the reminder to Outlook.");
+      return;
+    }
+
     if (createDiscussionItem && !discussionSubject.trim()) {
       setError("Please add a discussion subject before you submit.");
       return;
@@ -1587,10 +1658,28 @@ export default function ActionOpportunityUpdatePage() {
           .trim()
           .toLowerCase()}`
       : null;
+    const pendingOutlookUrl =
+      includeAction && createActionItem && createOutlookReminder
+        ? buildOutlookCalendarUrl({
+            subject: `${donorName.trim()} follow-up`,
+            notes: actionItemText.trim() || nextStep.trim(),
+            dueDate: nextStepDueDate,
+          })
+        : null;
+
+    if (pendingOutlookUrl && typeof window !== "undefined") {
+      pendingOutlookWindowRef.current = window.open(
+        "about:blank",
+        "_blank",
+      );
+    } else {
+      pendingOutlookWindowRef.current = null;
+    }
 
     submitMutation.mutate({
       includeAction,
       includeOpportunity,
+      outlookUrl: pendingOutlookUrl,
       actionBody: includeAction
         ? {
             donorName,
