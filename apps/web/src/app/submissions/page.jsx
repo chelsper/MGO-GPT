@@ -12,6 +12,13 @@ const REVIEW_STATUSES = [
   "Ready for CRM",
 ];
 
+const MANUAL_QUEUE_TAB = "manualRequests";
+const LIST_REQUESTS_TAB = "listRequests";
+const NXT_EXCEPTIONS_TAB = "nxtExceptions";
+const ACTIVITY_LOG_TAB = "activityLog";
+
+const DATA_REQUEST_STATUSES = ["Open", "In Progress", "Completed", "Declined"];
+
 const TYPE_LABELS = {
   donor_update: "Donor Update",
   opportunity_update: "Opportunity Update",
@@ -52,6 +59,10 @@ function getStatusColors(status) {
     Approved: { bg: "#DCFCE7", fg: "#166534" },
     "Needs Clarification": { bg: "#FEE2E2", fg: "#991B1B" },
     "Ready for CRM": { bg: "#DBEAFE", fg: "#1D4ED8" },
+    Open: { bg: "#FEF3C7", fg: "#92400E" },
+    "In Progress": { bg: "#DBEAFE", fg: "#1D4ED8" },
+    Completed: { bg: "#DCFCE7", fg: "#166534" },
+    Declined: { bg: "#FEE2E2", fg: "#991B1B" },
   };
   return map[status] || { bg: "#E5E7EB", fg: "#374151" };
 }
@@ -152,22 +163,48 @@ function getDiscussionDefaultSubject(submission) {
   return `${label}: ${donor}`;
 }
 
+function isNxtExceptionSubmission(submission) {
+  const syncStatus = String(submission?.blackbaud_sync_status || "").trim().toLowerCase();
+  const syncError = String(submission?.blackbaud_sync_error || "").trim();
+  return syncStatus === "failed" || Boolean(syncError);
+}
+
+function formatDataRequestSource(source) {
+  if (!source) return "general request";
+  return String(source).replaceAll("_", " ");
+}
+
+function formatDataRequestDetails(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    if (typeof value.details === "string") return value.details;
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
+}
+
 export default function SubmissionsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("submissions");
+  const [activeTab, setActiveTab] = useState(MANUAL_QUEUE_TAB);
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(true);
+  const [dataRequests, setDataRequests] = useState([]);
+  const [dataRequestsLoading, setDataRequestsLoading] = useState(true);
   const [listRequests, setListRequests] = useState([]);
   const [listRequestsLoading, setListRequestsLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
+  const [updatingDataRequestId, setUpdatingDataRequestId] = useState(null);
   const [updatingListRequestId, setUpdatingListRequestId] = useState(null);
   const [reviewFilter, setReviewFilter] = useState("Pending");
+  const [dataRequestFilter, setDataRequestFilter] = useState("Open");
   const [listRequestFilter, setListRequestFilter] = useState("Pending");
   const [reviewDrafts, setReviewDrafts] = useState({});
+  const [dataRequestDrafts, setDataRequestDrafts] = useState({});
   const [clarificationDrafts, setClarificationDrafts] = useState({});
   const [listRequestDrafts, setListRequestDrafts] = useState({});
   const [discussionDrafts, setDiscussionDrafts] = useState({});
@@ -305,6 +342,55 @@ export default function SubmissionsPage() {
   useEffect(() => {
     if (!profile) return;
 
+    if (isReviewer && activeTab === "submissions") {
+      setActiveTab(MANUAL_QUEUE_TAB);
+      return;
+    }
+
+    if (!isReviewer && [MANUAL_QUEUE_TAB, NXT_EXCEPTIONS_TAB].includes(activeTab)) {
+      setActiveTab(ACTIVITY_LOG_TAB);
+    }
+  }, [activeTab, isReviewer, profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    let active = true;
+
+    async function loadDataRequests() {
+      setDataRequestsLoading(true);
+      setError("");
+      try {
+        const response = await fetch("/api/data-requests");
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || "Failed to load data requests");
+        }
+        const data = await response.json();
+        if (active) {
+          setDataRequests(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        if (active) {
+          console.error(err);
+          setError("Could not load data requests.");
+        }
+      } finally {
+        if (active) {
+          setDataRequestsLoading(false);
+        }
+      }
+    }
+
+    loadDataRequests();
+    return () => {
+      active = false;
+    };
+  }, [isReviewer, profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+
     let active = true;
 
     async function loadListRequests() {
@@ -345,7 +431,7 @@ export default function SubmissionsPage() {
     if (isReviewer) {
       return {
         title: "Advancement Services Queue",
-        subtitle: "Review incoming submissions and move them toward CRM completion.",
+        subtitle: "Work the requests that need Advancement Services, with NXT sync issues separated from automated activity.",
       };
     }
 
@@ -354,6 +440,17 @@ export default function SubmissionsPage() {
       subtitle: "See what you submitted, when it was reviewed, and what needs follow-up.",
     };
   }, [isReviewer]);
+
+  const dataRequestCounts = useMemo(() => {
+    if (!isReviewer) return {};
+
+    return dataRequests.reduce((counts, request) => {
+      const key = request.status || "Open";
+      counts[key] = (counts[key] || 0) + 1;
+      counts.All = (counts.All || 0) + 1;
+      return counts;
+    }, {});
+  }, [dataRequests, isReviewer]);
 
   const reviewerCounts = useMemo(() => {
     if (!isReviewer) return {};
@@ -373,12 +470,45 @@ export default function SubmissionsPage() {
       const key = request.status || "Pending";
       counts[key] = (counts[key] || 0) + 1;
       counts.All = (counts.All || 0) + 1;
-      return counts;
-    }, {});
+    return counts;
+  }, {});
   }, [profile, listRequests]);
 
+  const nxtExceptionSubmissions = useMemo(
+    () => submissions.filter((submission) => isNxtExceptionSubmission(submission)),
+    [submissions],
+  );
+
+  const reviewerExceptionCounts = useMemo(() => {
+    if (!isReviewer) return {};
+
+    return nxtExceptionSubmissions.reduce((counts, submission) => {
+      const key = submission.status || "Pending";
+      counts[key] = (counts[key] || 0) + 1;
+      counts.All = (counts.All || 0) + 1;
+      return counts;
+    }, {});
+  }, [isReviewer, nxtExceptionSubmissions]);
+
+  const visibleDataRequests = useMemo(() => {
+    let next = [...dataRequests];
+
+    if (isReviewer && dataRequestFilter !== "All") {
+      next = next.filter((request) => (request.status || "Open") === dataRequestFilter);
+    }
+
+    return next.sort((a, b) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [dataRequestFilter, dataRequests, isReviewer]);
+
   const visibleSubmissionGroups = useMemo(() => {
-    let next = [...submissions];
+    let next =
+      activeTab === NXT_EXCEPTIONS_TAB
+        ? [...nxtExceptionSubmissions]
+        : [...submissions];
 
     if (isReviewer && reviewFilter !== "All") {
       next = next.filter((submission) => (submission.status || "Pending") === reviewFilter);
@@ -428,7 +558,7 @@ export default function SubmissionsPage() {
       .sort((a, b) => b.latestAt - a.latestAt);
 
     return groups;
-  }, [profile, reviewFilter, submissions]);
+  }, [activeTab, isReviewer, nxtExceptionSubmissions, reviewFilter, submissions]);
 
   useEffect(() => {
     const groupsToLoad = visibleSubmissionGroups.filter(
@@ -505,7 +635,27 @@ export default function SubmissionsPage() {
   }, [isReviewer, listRequests, listRequestFilter]);
 
   const taskCards = useMemo(() => {
-    if (activeTab === "listRequests") {
+    if (activeTab === MANUAL_QUEUE_TAB && isReviewer) {
+      return [
+        {
+          label: "Manual requests",
+          value: (dataRequestCounts.Open || 0) + (dataRequestCounts["In Progress"] || 0),
+          detail: "Bio-demo, contact, research, and record work",
+        },
+        {
+          label: "In progress",
+          value: dataRequestCounts["In Progress"] || 0,
+          detail: "Already being worked by Advancement Services",
+        },
+        {
+          label: "Visible now",
+          value: visibleDataRequests.length,
+          detail: "Requests in the current queue view",
+        },
+      ];
+    }
+
+    if (activeTab === LIST_REQUESTS_TAB) {
       if (isReviewer) {
         return [
           {
@@ -549,24 +699,44 @@ export default function SubmissionsPage() {
       ];
     }
 
-    if (isReviewer) {
+    if (activeTab === NXT_EXCEPTIONS_TAB && isReviewer) {
       return [
         {
-          label: "Needs review now",
-          value:
-            (reviewerCounts.Pending || 0) +
-            (reviewerCounts["Needs Clarification"] || 0),
-          detail: "Submission threads requiring action",
+          label: "NXT exceptions",
+          value: reviewerExceptionCounts.All || 0,
+          detail: "Automated writes that need follow-up",
         },
         {
-          label: "Ready for CRM",
-          value: reviewerCounts["Ready for CRM"] || 0,
-          detail: "Cleared for downstream handling",
+          label: "Needs review",
+          value:
+            (reviewerExceptionCounts.Pending || 0) +
+            (reviewerExceptionCounts["Needs Clarification"] || 0),
+          detail: "Exceptions not yet cleared",
         },
         {
           label: "Visible now",
           value: visibleSubmissionGroups.length,
-          detail: "Threads in the current queue view",
+          detail: "Exception threads in this view",
+        },
+      ];
+    }
+
+    if (isReviewer) {
+      return [
+        {
+          label: "Activity log",
+          value: reviewerCounts.All || 0,
+          detail: "Automated and legacy submission history",
+        },
+        {
+          label: "NXT exceptions",
+          value: reviewerExceptionCounts.All || 0,
+          detail: "Synced activity that failed or needs attention",
+        },
+        {
+          label: "Visible now",
+          value: visibleSubmissionGroups.length,
+          detail: "Threads in the current activity view",
         },
       ];
     }
@@ -594,9 +764,12 @@ export default function SubmissionsPage() {
     ];
   }, [
     activeTab,
+    dataRequestCounts,
     isReviewer,
     reviewerCounts,
+    reviewerExceptionCounts,
     reviewerListRequestCounts,
+    visibleDataRequests,
     visibleListRequests,
     visibleSubmissionGroups,
   ]);
@@ -607,6 +780,19 @@ export default function SubmissionsPage() {
       [id]: {
         status: current[id]?.status || "",
         reviewerNotes: current[id]?.reviewerNotes || "",
+        ...updates,
+      },
+    }));
+  }
+
+  function setDataRequestDraft(id, updates) {
+    const currentRequest = dataRequests.find((item) => item.id === id);
+    setDataRequestDrafts((current) => ({
+      ...current,
+      [id]: {
+        status: current[id]?.status ?? currentRequest?.status ?? "Open",
+        reviewerNotes:
+          current[id]?.reviewerNotes ?? currentRequest?.reviewer_notes ?? "",
         ...updates,
       },
     }));
@@ -636,6 +822,54 @@ export default function SubmissionsPage() {
       ...current,
       [groupId]: !current[groupId],
     }));
+  }
+
+  async function saveDataRequest(item, overrides = {}) {
+    if (!isReviewer) return;
+
+    setUpdatingDataRequestId(item.id);
+    setActionMessage("");
+    setError("");
+
+    try {
+      const draft = dataRequestDrafts[item.id] || {};
+      const response = await fetch(`/api/data-requests/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: overrides.status || draft.status || item.status || "Open",
+          reviewerNotes:
+            overrides.reviewerNotes ??
+            draft.reviewerNotes ??
+            item.reviewer_notes ??
+            "",
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to update data request");
+      }
+
+      setDataRequests((current) =>
+        current.map((request) =>
+          request.id === item.id ? { ...request, ...payload } : request,
+        ),
+      );
+      setDataRequestDrafts((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      setActionMessage(
+        `Data request for ${payload.constituent_name || item.constituent_name || "this constituent"} saved.`,
+      );
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Could not update data request.");
+    } finally {
+      setUpdatingDataRequestId(null);
+    }
   }
 
   async function saveReview(id) {
@@ -1000,10 +1234,37 @@ export default function SubmissionsPage() {
               marginBottom: "18px",
             }}
           >
-            {[
-              { id: "submissions", label: "Submissions", count: submissions.length },
-              { id: "listRequests", label: "List Requests", count: listRequests.length },
-            ].map((tab) => {
+            {(
+              isReviewer
+                ? [
+                    {
+                      id: MANUAL_QUEUE_TAB,
+                      label: "Manual Requests",
+                      count:
+                        (dataRequestCounts.Open || 0) +
+                        (dataRequestCounts["In Progress"] || 0),
+                    },
+                    {
+                      id: LIST_REQUESTS_TAB,
+                      label: "List Requests",
+                      count: listRequests.filter((request) => request.status !== "Approved").length,
+                    },
+                    {
+                      id: NXT_EXCEPTIONS_TAB,
+                      label: "NXT Exceptions",
+                      count: reviewerExceptionCounts.All || 0,
+                    },
+                    {
+                      id: ACTIVITY_LOG_TAB,
+                      label: "Activity Log",
+                      count: submissions.length,
+                    },
+                  ]
+                : [
+                    { id: ACTIVITY_LOG_TAB, label: "Submissions", count: submissions.length },
+                    { id: LIST_REQUESTS_TAB, label: "List Requests", count: listRequests.length },
+                  ]
+            ).map((tab) => {
               const selected = activeTab === tab.id;
               return (
                 <button
@@ -1027,7 +1288,7 @@ export default function SubmissionsPage() {
             })}
           </div>
 
-          {isReviewer && activeTab === "submissions" ? (
+          {isReviewer && activeTab === MANUAL_QUEUE_TAB ? (
             <div
               style={{
                 display: "flex",
@@ -1050,17 +1311,17 @@ export default function SubmissionsPage() {
                     marginBottom: "10px",
                   }}
                 >
-                  Filter queue
+                  Filter manual queue
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {["Pending", "Needs Clarification", "Ready for CRM", "Approved", "All"].map(
+                  {["Open", "In Progress", "Completed", "Declined", "All"].map(
                     (status) => {
-                      const selected = reviewFilter === status;
+                      const selected = dataRequestFilter === status;
                       return (
                         <button
                           key={status}
                           type="button"
-                          onClick={() => setReviewFilter(status)}
+                          onClick={() => setDataRequestFilter(status)}
                           style={{
                             borderRadius: "999px",
                             border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
@@ -1072,7 +1333,7 @@ export default function SubmissionsPage() {
                             cursor: "pointer",
                           }}
                         >
-                          {status} ({reviewerCounts[status] || 0})
+                          {status} ({dataRequestCounts[status] || 0})
                         </button>
                       );
                     },
@@ -1102,16 +1363,124 @@ export default function SubmissionsPage() {
                   Queue snapshot
                 </div>
                 <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
-                  <div>Pending: {reviewerCounts.Pending || 0}</div>
-                  <div>Needs Clarification: {reviewerCounts["Needs Clarification"] || 0}</div>
-                  <div>Ready for CRM: {reviewerCounts["Ready for CRM"] || 0}</div>
-                  <div>Total: {reviewerCounts.All || 0}</div>
+                  <div>Open: {dataRequestCounts.Open || 0}</div>
+                  <div>In Progress: {dataRequestCounts["In Progress"] || 0}</div>
+                  <div>Completed: {dataRequestCounts.Completed || 0}</div>
+                  <div>Total: {dataRequestCounts.All || 0}</div>
                 </div>
               </div>
             </div>
           ) : null}
 
-          {isReviewer && activeTab === "listRequests" ? (
+          {isReviewer && [ACTIVITY_LOG_TAB, NXT_EXCEPTIONS_TAB].includes(activeTab) ? (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "16px",
+                flexWrap: "wrap",
+                padding: "4px 4px 16px",
+                borderBottom: "1px solid #E5E7EB",
+                marginBottom: "18px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  Filter queue
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {["Pending", "Needs Clarification", "Ready for CRM", "Approved", "All"].map(
+                    (status) => {
+                      const selected = reviewFilter === status;
+                      const counts =
+                        activeTab === NXT_EXCEPTIONS_TAB
+                          ? reviewerExceptionCounts
+                          : reviewerCounts;
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setReviewFilter(status)}
+                          style={{
+                            borderRadius: "999px",
+                            border: selected ? "2px solid #6A5BFF" : "1px solid #D1D5DB",
+                            backgroundColor: selected ? "#EDE9FE" : "white",
+                            color: selected ? "#5B21B6" : "#374151",
+                            padding: "8px 12px",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {status} ({counts[status] || 0})
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  minWidth: "220px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Queue snapshot
+                </div>
+                <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
+                  <div>
+                    Pending:{" "}
+                    {(activeTab === NXT_EXCEPTIONS_TAB
+                      ? reviewerExceptionCounts.Pending
+                      : reviewerCounts.Pending) || 0}
+                  </div>
+                  <div>
+                    Needs Clarification:{" "}
+                    {(activeTab === NXT_EXCEPTIONS_TAB
+                      ? reviewerExceptionCounts["Needs Clarification"]
+                      : reviewerCounts["Needs Clarification"]) || 0}
+                  </div>
+                  <div>
+                    Ready for CRM:{" "}
+                    {(activeTab === NXT_EXCEPTIONS_TAB
+                      ? reviewerExceptionCounts["Ready for CRM"]
+                      : reviewerCounts["Ready for CRM"]) || 0}
+                  </div>
+                  <div>
+                    Total:{" "}
+                    {(activeTab === NXT_EXCEPTIONS_TAB
+                      ? reviewerExceptionCounts.All
+                      : reviewerCounts.All) || 0}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {isReviewer && activeTab === LIST_REQUESTS_TAB ? (
             <div
               style={{
                 display: "flex",
@@ -1195,7 +1564,262 @@ export default function SubmissionsPage() {
             </div>
           ) : null}
 
-          {activeTab === "submissions" ? (
+          {activeTab === MANUAL_QUEUE_TAB ? (
+            dataRequestsLoading ? (
+              <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
+                Loading manual requests...
+              </div>
+            ) : visibleDataRequests.length === 0 ? (
+              <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
+                No manual Advancement Services requests match the current filter.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "12px" }}>
+                {visibleDataRequests.map((request) => {
+                  const colors = getStatusColors(request.status);
+                  const draft = dataRequestDrafts[request.id] || {};
+                  const selectedStatus = draft.status ?? request.status ?? "Open";
+                  const reviewerNotes =
+                    draft.reviewerNotes ?? request.reviewer_notes ?? "";
+                  const providedDetails = formatDataRequestDetails(request.provided_data);
+
+                  return (
+                    <article
+                      key={request.id}
+                      style={{
+                        border: "1px solid #E5E7EB",
+                        borderRadius: "16px",
+                        padding: "16px",
+                        backgroundColor: "#FFFFFF",
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                        gap: "16px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              backgroundColor: colors.bg,
+                              color: colors.fg,
+                              padding: "4px 10px",
+                              borderRadius: "999px",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {request.status || "Open"}
+                          </span>
+                          <span
+                            style={{
+                              backgroundColor: "#EEF2FF",
+                              color: "#3730A3",
+                              padding: "4px 10px",
+                              borderRadius: "999px",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {request.request_type || "Record update"}
+                          </span>
+                          {request.source_context ? (
+                            <span
+                              style={{
+                                backgroundColor: "#F3F4F6",
+                                color: "#4B5563",
+                                padding: "4px 10px",
+                                borderRadius: "999px",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {formatDataRequestSource(request.source_context)}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <h2 style={{ margin: "12px 0 0", fontSize: "19px", color: "#111827" }}>
+                          {request.constituent_name || "Unknown constituent"}
+                        </h2>
+                        <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                          Requested by {request.requester_name || request.requester_email || "Unknown"} · {formatDate(request.created_at)}
+                          {request.owner_name ? ` · Portfolio: ${request.owner_name}` : ""}
+                          {request.blackbaud_constituent_id ? ` · NXT ID ${request.blackbaud_constituent_id}` : ""}
+                        </div>
+
+                        <div
+                          style={{
+                            marginTop: "14px",
+                            padding: "12px 14px",
+                            borderRadius: "12px",
+                            backgroundColor: "#F9FAFB",
+                            border: "1px solid #E5E7EB",
+                          }}
+                        >
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                            Request details
+                          </div>
+                          <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                            {request.request_note || "No note provided."}
+                          </div>
+                        </div>
+
+                        {providedDetails ? (
+                          <div
+                            style={{
+                              marginTop: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              backgroundColor: "#EFF6FF",
+                              border: "1px solid #BFDBFE",
+                            }}
+                          >
+                            <div style={{ fontSize: "12px", fontWeight: 700, color: "#1D4ED8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "8px" }}>
+                              Provided information
+                            </div>
+                            <div style={{ fontSize: "14px", color: "#1E3A8A", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                              {providedDetails}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {request.reviewer_notes ? (
+                          <div
+                            style={{
+                              marginTop: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "12px",
+                              backgroundColor: "#ECFDF5",
+                              border: "1px solid #A7F3D0",
+                              color: "#065F46",
+                              fontSize: "14px",
+                              lineHeight: 1.6,
+                            }}
+                          >
+                            <strong>Advancement Services note:</strong> {request.reviewer_notes}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            color: "#6B7280",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Queue status
+                        </label>
+                        <select
+                          value={selectedStatus}
+                          disabled={updatingDataRequestId === request.id}
+                          onChange={(event) =>
+                            setDataRequestDraft(request.id, { status: event.target.value })
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            fontSize: "14px",
+                            boxSizing: "border-box",
+                          }}
+                        >
+                          {DATA_REQUEST_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            color: "#6B7280",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                            margin: "12px 0 8px",
+                          }}
+                        >
+                          Reviewer notes
+                        </label>
+                        <textarea
+                          value={reviewerNotes}
+                          disabled={updatingDataRequestId === request.id}
+                          onChange={(event) =>
+                            setDataRequestDraft(request.id, {
+                              reviewerNotes: event.target.value,
+                            })
+                          }
+                          placeholder="Add how this was resolved or what is still needed."
+                          rows={4}
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid #D1D5DB",
+                            backgroundColor: "white",
+                            fontSize: "14px",
+                            resize: "vertical",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={updatingDataRequestId === request.id}
+                          onClick={() => saveDataRequest(request)}
+                          style={{
+                            marginTop: "10px",
+                            width: "100%",
+                            padding: "10px 12px",
+                            borderRadius: "10px",
+                            border: "none",
+                            backgroundColor: "#6A5BFF",
+                            color: "white",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: updatingDataRequestId === request.id ? "wait" : "pointer",
+                            opacity: updatingDataRequestId === request.id ? 0.7 : 1,
+                          }}
+                        >
+                          {updatingDataRequestId === request.id ? "Saving..." : "Save request"}
+                        </button>
+                        {request.status !== "Completed" ? (
+                          <button
+                            type="button"
+                            disabled={updatingDataRequestId === request.id}
+                            onClick={() => saveDataRequest(request, { status: "Completed" })}
+                            style={{
+                              marginTop: "8px",
+                              width: "100%",
+                              padding: "10px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid #BBF7D0",
+                              backgroundColor: "white",
+                              color: "#166534",
+                              fontSize: "14px",
+                              fontWeight: 700,
+                              cursor: updatingDataRequestId === request.id ? "wait" : "pointer",
+                            }}
+                          >
+                            Mark complete
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )
+          ) : [ACTIVITY_LOG_TAB, NXT_EXCEPTIONS_TAB].includes(activeTab) ? (
           submissionsLoading ? (
             <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
               Loading submissions...

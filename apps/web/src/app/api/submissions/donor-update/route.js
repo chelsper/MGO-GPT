@@ -195,6 +195,18 @@ export async function POST(request) {
       }
     }
 
+    const blackbaudActionId = getBlackbaudActionId(blackbaudAction);
+    const blackbaudSyncError =
+      blackbaudAction?.error || blackbaudAction?.syncWarning || null;
+    const blackbaudSyncStatus = linkedBlackbaudConstituentId
+      ? blackbaudSyncError
+        ? "failed"
+        : blackbaudActionId
+          ? "synced"
+          : "not_requested"
+      : "not_requested";
+    const blackbaudSyncedAt = blackbaudActionId ? new Date().toISOString() : null;
+
     const result = await sql`
       INSERT INTO submissions (
         user_id,
@@ -208,6 +220,10 @@ export async function POST(request) {
         next_step,
         estimated_ask_amount,
         attachments,
+        blackbaud_action_id,
+        blackbaud_sync_status,
+        blackbaud_sync_error,
+        blackbaud_synced_at,
         status
       ) VALUES (
         ${user.id},
@@ -221,21 +237,26 @@ export async function POST(request) {
         ${nextStep || null},
         ${estimatedAmount || null},
         ${attachments ? JSON.stringify(attachments) : null},
+        ${blackbaudActionId ? String(blackbaudActionId) : null},
+        ${blackbaudSyncStatus},
+        ${blackbaudSyncError},
+        ${blackbaudSyncedAt},
         'Pending'
       )
       RETURNING *
     `;
 
-    // Send email notification to advancement services (non-blocking)
-    sendSubmissionEmail(result[0], "donor_update").catch((err) =>
-      console.error("Email notification failed:", err),
-    );
+    if (blackbaudSyncStatus !== "synced") {
+      sendSubmissionEmail(result[0], "donor_update").catch((err) =>
+        console.error("Email notification failed:", err),
+      );
+    }
 
     return Response.json(
       {
         ...result[0],
         blackbaudAction,
-        syncedToBlackbaud: Boolean(getBlackbaudActionId(blackbaudAction)),
+        syncedToBlackbaud: Boolean(blackbaudActionId),
       },
       { status: 201 },
     );

@@ -137,6 +137,11 @@ export async function POST(request) {
       }
     }
 
+    const blackbaudSyncStatus = blackbaudSync?.status || "not_requested";
+    const blackbaudSyncError = blackbaudSync?.error || null;
+    const blackbaudSyncedAt =
+      blackbaudSyncStatus === "synced" ? new Date().toISOString() : null;
+
     const result = await sql`
       INSERT INTO submissions (
         user_id,
@@ -154,6 +159,9 @@ export async function POST(request) {
         notes,
         joint_mgo_user_ids,
         attachments,
+        blackbaud_sync_status,
+        blackbaud_sync_error,
+        blackbaud_synced_at,
         status
       ) VALUES (
         ${user.id},
@@ -171,6 +179,9 @@ export async function POST(request) {
         ${notes || null},
         ${jointMgoUserIds ? JSON.stringify(jointMgoUserIds) : null},
         ${attachments ? JSON.stringify(attachments) : null},
+        ${blackbaudSyncStatus},
+        ${blackbaudSyncError},
+        ${blackbaudSyncedAt},
         'Pending'
       )
       RETURNING *
@@ -236,10 +247,11 @@ export async function POST(request) {
       });
     }
 
-    // Send email notification to advancement services (non-blocking)
-    sendSubmissionEmail(savedSubmission, "opportunity_update").catch((err) =>
-      console.error("Email notification failed:", err),
-    );
+    if (blackbaudSyncStatus !== "synced") {
+      sendSubmissionEmail(savedSubmission, "opportunity_update").catch((err) =>
+        console.error("Email notification failed:", err),
+      );
+    }
 
     return Response.json(
       {
