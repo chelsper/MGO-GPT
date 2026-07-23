@@ -122,7 +122,11 @@ export async function POST(request) {
     if (error) return error;
 
     const formData = new FormData();
-    formData.append("file", audioFile);
+    formData.append(
+      "file",
+      audioFile,
+      audioFile.name || getAudioFileName(audioFile.type || "audio/m4a"),
+    );
 
     const whisperResponse = await fetch(
       "/integrations/transcribe-audio/whisperv3",

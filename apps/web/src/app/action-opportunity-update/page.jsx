@@ -155,6 +155,30 @@ function getAudioFileExtension(mimeType) {
   return "webm";
 }
 
+function getTranscriptionErrorMessage(errorData) {
+  const rawDetails = errorData?.details || errorData?.error || "Transcription failed";
+  const rawText =
+    typeof rawDetails === "string" ? rawDetails : JSON.stringify(rawDetails);
+  let parsedMessage = "";
+
+  try {
+    const parsed = JSON.parse(rawText);
+    parsedMessage =
+      parsed?.message ||
+      parsed?.error ||
+      (Array.isArray(parsed) ? parsed.map((item) => item?.message).filter(Boolean).join("; ") : "");
+  } catch {
+    parsedMessage = "";
+  }
+
+  const message = parsedMessage || rawText;
+  if (/invalid input/i.test(message)) {
+    return "The transcription service rejected this recording. Try one shorter recording close to the microphone; if it repeats, type the note manually and report it.";
+  }
+
+  return message;
+}
+
 function buildDictationTranscriptionMessage(stage, details) {
   const stageLabel = {
     upload: "uploading the recording",
@@ -1093,9 +1117,7 @@ export default function ActionOpportunityUpdatePage() {
 
       if (!transcriptionResponse.ok) {
         const errorData = await transcriptionResponse.json().catch(() => null);
-        const transcriptionError = new Error(
-          errorData?.details || errorData?.error || "Transcription failed",
-        );
+        const transcriptionError = new Error(getTranscriptionErrorMessage(errorData));
         transcriptionError.stage = errorData?.stage || "transcription";
         throw transcriptionError;
       }
@@ -1270,6 +1292,15 @@ export default function ActionOpportunityUpdatePage() {
       };
 
       recognition.onerror = (event) => {
+        const capturedTranscript =
+          recognitionDisplayRef.current || recognitionTranscriptRef.current;
+        if (String(capturedTranscript || "").trim()) {
+          recognitionFinalizedRef.current = true;
+          speechRecognitionRef.current = null;
+          finishDictation(capturedTranscript, target);
+          return;
+        }
+
         recognitionFinalizedRef.current = true;
         speechRecognitionRef.current = null;
         stopRecordingTimer();
@@ -1294,7 +1325,7 @@ export default function ActionOpportunityUpdatePage() {
       recognition.start();
       setIsRecording(true);
       setDictationStatus(
-        `Listening for ${getDictationTargetLabel(target)}. Your existing notes will not be changed until you add the transcript.`,
+        `Listening for ${getDictationTargetLabel(target)}. Speak naturally; the live transcript will be staged for review when you stop.`,
       );
       startRecordingTimer();
     } catch (dictationStartError) {
@@ -1323,6 +1354,11 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
 
+    if (supportsSpeechRecognition) {
+      startLiveDictation(target);
+      return;
+    }
+
     if (supportsMediaRecording) {
       await startRecordedDictation(target);
       return;
@@ -1334,8 +1370,6 @@ export default function ActionOpportunityUpdatePage() {
       );
       return;
     }
-
-    startLiveDictation(target);
   }
 
   function stopDictation() {
@@ -2283,7 +2317,7 @@ export default function ActionOpportunityUpdatePage() {
               border: "1px solid #DDD6FE",
             }}
           >
-            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes. The app records, transcribes, and stages the transcript for review before adding it, so existing notes are not overwritten.
+            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes. You will see words appear as you speak, then review the transcript before adding it so existing notes are not overwritten.
           </div>
         ) : speechRecognitionSupportChecked ? (
           <div
