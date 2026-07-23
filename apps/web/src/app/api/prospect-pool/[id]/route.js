@@ -1020,6 +1020,16 @@ export async function PATCH(request, { params }) {
       ? body.mgogptDispositionComment.trim() || null
       : entry.mgogpt_disposition_comment || null;
 
+    if (solicitorRequested && !mgogptDispositionValue) {
+      return Response.json(
+        {
+          error:
+            "Choose an MGOGPT outcome before assigning yourself as solicitor.",
+        },
+        { status: 400 },
+      );
+    }
+
     if (
       mgogptDispositionValue &&
       !MGOGPT_FOLLOW_UP_VALUES.has(mgogptDispositionValue)

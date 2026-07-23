@@ -1089,6 +1089,13 @@ export default function ProspectPoolPage() {
         draft.solicitorRequested ?? existingEntry?.solicitor_requested ?? false;
       const mgogptDispositionValue =
         draft.mgogptDispositionValue ?? existingEntry?.mgogpt_disposition_value ?? "";
+
+      if (solicitorRequested && !String(mgogptDispositionValue || "").trim()) {
+        throw new Error(
+          "Choose an MGOGPT outcome before assigning yourself as solicitor.",
+        );
+      }
+
       const response = await fetch(`/api/prospect-pool/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2988,11 +2995,12 @@ export default function ProspectPoolPage() {
                           marginBottom: "12px",
                         }}
                       >
-                        MGOGPT outcome
+                        MGOGPT outcome{solicitorRequested ? " *" : ""}
                         <select
                           id={`prospect-pool-entry-mgogpt-outcome-${entry.id}`}
                           name={`mgogptDispositionValue-${entry.id}`}
                           value={mgogptDispositionValue}
+                          required={Boolean(solicitorRequested)}
                           onChange={(event) =>
                             setDraft(entry.id, {
                               mgogptDispositionValue: event.target.value,
@@ -3001,7 +3009,10 @@ export default function ProspectPoolPage() {
                           style={{
                             padding: "12px 14px",
                             borderRadius: "12px",
-                            border: "1px solid #D1D5DB",
+                            border:
+                              solicitorRequested && !mgogptDispositionValue
+                                ? "1px solid #FCA5A5"
+                                : "1px solid #D1D5DB",
                             backgroundColor: "white",
                             fontSize: "14px",
                           }}
@@ -3013,6 +3024,11 @@ export default function ProspectPoolPage() {
                             </option>
                           ))}
                         </select>
+                        {solicitorRequested && !mgogptDispositionValue ? (
+                          <span style={{ fontSize: "12px", color: "#991B1B" }}>
+                            Select an outcome before this prospect moves to your portfolio.
+                          </span>
+                        ) : null}
                       </label>
 
                       <label

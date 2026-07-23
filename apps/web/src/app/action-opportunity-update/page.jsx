@@ -127,6 +127,45 @@ function getErrorMessage(error, fallback = "Unknown error") {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+const DICTATION_TARGET_LABELS = {
+  actionNotes: "Action-specific notes",
+  nextStep: "Next step",
+  opportunityNotes: "Opportunity-specific notes",
+};
+
+function getDictationTargetLabel(target) {
+  return DICTATION_TARGET_LABELS[target] || "this field";
+}
+
+function appendTranscript(existingValue, transcript) {
+  const existingText = String(existingValue || "").trim();
+  const transcriptText = String(transcript || "").trim();
+
+  if (!existingText) return transcriptText;
+  if (!transcriptText) return existingText;
+  return `${existingText}\n\n${transcriptText}`;
+}
+
+function getSpeechRecognitionErrorMessage(errorCode) {
+  switch (errorCode) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "Microphone access was blocked. Allow microphone access for jumgogpt.app, then try again.";
+    case "audio-capture":
+      return "No microphone was found. Check that a microphone is connected and selected in your browser.";
+    case "no-speech":
+      return "No speech was detected. Try again, speak close to the microphone, and pause briefly before stopping.";
+    case "network":
+      return "Dictation could not reach the browser speech service. Check your connection and try again.";
+    case "aborted":
+      return "Dictation was stopped before any transcript was captured.";
+    case "language-not-supported":
+      return "This browser does not support English dictation for this microphone session.";
+    default:
+      return "Live dictation failed. Try again, or type the note manually if the browser keeps blocking the microphone.";
+  }
+}
+
 function DictationButton({
   target,
   label,
@@ -204,6 +243,11 @@ export default function ActionOpportunityUpdatePage() {
   const [dictationTarget, setDictationTarget] = useState("");
   const [dictationStatus, setDictationStatus] = useState("");
   const [dictationError, setDictationError] = useState("");
+  const [dictationPreview, setDictationPreview] = useState("");
+  const [pendingDictation, setPendingDictation] = useState(null);
+  const [supportsSpeechRecognition, setSupportsSpeechRecognition] = useState(false);
+  const [speechRecognitionSupportChecked, setSpeechRecognitionSupportChecked] =
+    useState(false);
   const [toast, setToast] = useState(null);
   const [actionDetailsOpen, setActionDetailsOpen] = useState(true);
   const [opportunityDetailsOpen, setOpportunityDetailsOpen] = useState(false);
@@ -238,7 +282,6 @@ export default function ActionOpportunityUpdatePage() {
   const recognitionTranscriptRef = useRef("");
   const recognitionDisplayRef = useRef("");
   const recognitionFinalizedRef = useRef(false);
-  const dictationBaseValueRef = useRef("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -285,6 +328,16 @@ export default function ActionOpportunityUpdatePage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    setSupportsSpeechRecognition(
+      typeof window.SpeechRecognition !== "undefined" ||
+        typeof window.webkitSpeechRecognition !== "undefined",
+    );
+    setSpeechRecognitionSupportChecked(true);
+  }, []);
+
+  useEffect(() => {
     if (!toast) return undefined;
     const timeoutId = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timeoutId);
@@ -296,11 +349,6 @@ export default function ActionOpportunityUpdatePage() {
     () => jointMgoOptions.filter((option) => isFundraiserOption(option)),
     [jointMgoOptions],
   );
-  const supportsSpeechRecognition =
-    typeof window !== "undefined" &&
-    (typeof window.SpeechRecognition !== "undefined" ||
-      typeof window.webkitSpeechRecognition !== "undefined");
-
   function getFieldValue(target) {
     switch (target) {
       case "actionNotes":
@@ -537,12 +585,38 @@ export default function ActionOpportunityUpdatePage() {
     const transcriptText = String(text || "").trim();
     if (!transcriptText || !target) {
       setDictationStatus("");
+      setDictationPreview("");
+      setPendingDictation(null);
       setDictationError("No speech was detected. Try again.");
       return;
     }
 
-    setFieldValue(target, transcriptText);
-    setDictationStatus("Transcript added.");
+    setDictationPreview(transcriptText);
+    setPendingDictation({ target, text: transcriptText });
+    setDictationStatus(
+      `Transcript ready for ${getDictationTargetLabel(target)}. Review it before adding.`,
+    );
+    setDictationError("");
+  }
+
+  function addPendingDictation() {
+    if (!pendingDictation?.target || !pendingDictation?.text) return;
+
+    const targetLabel = getDictationTargetLabel(pendingDictation.target);
+    setFieldValue(
+      pendingDictation.target,
+      appendTranscript(getFieldValue(pendingDictation.target), pendingDictation.text),
+    );
+    setPendingDictation(null);
+    setDictationPreview("");
+    setDictationError("");
+    setDictationStatus(`Transcript added to ${targetLabel}.`);
+  }
+
+  function discardPendingDictation() {
+    setPendingDictation(null);
+    setDictationPreview("");
+    setDictationStatus("Transcript discarded.");
     setDictationError("");
   }
 
@@ -921,9 +995,18 @@ export default function ActionOpportunityUpdatePage() {
     setError("");
     setDictationError("");
     setDictationStatus("");
+    setDictationPreview("");
+    setPendingDictation(null);
+
+    if (isRecording) {
+      setDictationError("Stop the current dictation before starting another field.");
+      return;
+    }
 
     if (!supportsSpeechRecognition) {
-      setDictationError("This browser does not support live dictation.");
+      setDictationError(
+        "This browser does not support live dictation. Use Chrome or Edge, or type the note manually.",
+      );
       return;
     }
 
@@ -939,7 +1022,6 @@ export default function ActionOpportunityUpdatePage() {
       recognitionTranscriptRef.current = "";
       recognitionDisplayRef.current = "";
       recognitionFinalizedRef.current = false;
-      dictationBaseValueRef.current = getFieldValue(target).trim();
       speechRecognitionRef.current = recognition;
       setDictationTarget(target);
 
@@ -965,11 +1047,7 @@ export default function ActionOpportunityUpdatePage() {
         const combinedTranscript =
           `${recognitionTranscriptRef.current} ${interimTranscript}`.trim();
         recognitionDisplayRef.current = combinedTranscript;
-        const baseValue = dictationBaseValueRef.current;
-        setFieldValue(
-          target,
-          baseValue ? `${baseValue}\n\n${combinedTranscript}` : combinedTranscript,
-        );
+        setDictationPreview(combinedTranscript);
       };
 
       recognition.onerror = (event) => {
@@ -979,20 +1057,9 @@ export default function ActionOpportunityUpdatePage() {
         setIsRecording(false);
         setDictationTarget("");
         setDictationStatus("");
-
-        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-          setDictationError(
-            "Microphone access was blocked by the browser. Allow microphone access for this site.",
-          );
-          return;
-        }
-
-        if (event.error === "no-speech") {
-          setDictationError("No speech was detected. Try again.");
-          return;
-        }
-
-        setDictationError("Live dictation failed. Try again.");
+        setDictationPreview("");
+        setPendingDictation(null);
+        setDictationError(getSpeechRecognitionErrorMessage(event.error));
       };
 
       recognition.onend = () => {
@@ -1007,11 +1074,21 @@ export default function ActionOpportunityUpdatePage() {
 
       recognition.start();
       setIsRecording(true);
-      setDictationStatus("Listening and transcribing as you speak...");
+      setDictationStatus(
+        `Listening for ${getDictationTargetLabel(target)}. Your existing notes will not be changed until you add the transcript.`,
+      );
       startRecordingTimer();
     } catch (dictationStartError) {
       console.error("Speech recognition error:", dictationStartError);
-      setDictationError("Live dictation could not start in this browser.");
+      speechRecognitionRef.current = null;
+      stopRecordingTimer();
+      setIsRecording(false);
+      setDictationTarget("");
+      setDictationPreview("");
+      setPendingDictation(null);
+      setDictationError(
+        "Live dictation could not start in this browser. Check microphone permissions and try again.",
+      );
     }
   }
 
@@ -1938,7 +2015,21 @@ export default function ActionOpportunityUpdatePage() {
               border: "1px solid #DDD6FE",
             }}
           >
-            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes to dictate directly into those fields.
+            Use the microphone buttons beside Action-specific notes, Next step, and Opportunity-specific notes. Dictation is staged for review before it is added, so existing notes are not overwritten.
+          </div>
+        ) : speechRecognitionSupportChecked ? (
+          <div
+            style={{
+              padding: "14px 16px",
+              backgroundColor: "#FFF7ED",
+              color: "#9A3412",
+              borderRadius: "12px",
+              marginBottom: "20px",
+              fontSize: "14px",
+              border: "1px solid #FED7AA",
+            }}
+          >
+            Live dictation is not available in this browser. Use Chrome or Edge for microphone dictation, or type the update manually.
           </div>
         ) : null}
 
@@ -1989,8 +2080,78 @@ export default function ActionOpportunityUpdatePage() {
           >
             {dictationStatus}
             {isRecording && dictationTarget
-              ? ` (${formatDuration(recordingDuration)} on ${dictationTarget})`
+              ? ` (${formatDuration(recordingDuration)} on ${getDictationTargetLabel(dictationTarget)})`
               : ""}
+          </div>
+        ) : null}
+
+        {dictationPreview ? (
+          <div
+            style={{
+              padding: "16px",
+              backgroundColor: pendingDictation ? "#F0FDF4" : "#EFF6FF",
+              color: pendingDictation ? "#14532D" : "#1E3A8A",
+              borderRadius: "12px",
+              border: pendingDictation ? "1px solid #86EFAC" : "1px solid #BFDBFE",
+              marginBottom: "20px",
+              fontSize: "14px",
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontSize: "13px", fontWeight: 800, marginBottom: "8px" }}>
+              {pendingDictation
+                ? `Review transcript for ${getDictationTargetLabel(pendingDictation.target)}`
+                : `Live transcript preview for ${getDictationTargetLabel(dictationTarget)}`}
+            </div>
+            <div
+              style={{
+                padding: "12px",
+                borderRadius: "10px",
+                backgroundColor: "rgba(255,255,255,0.72)",
+                border: "1px solid rgba(148,163,184,0.36)",
+                whiteSpace: "pre-wrap",
+                color: "#111827",
+                fontWeight: 600,
+              }}
+            >
+              {dictationPreview}
+            </div>
+            {pendingDictation ? (
+              <div style={{ display: "flex", gap: "10px", marginTop: "12px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={addPendingDictation}
+                  style={{
+                    padding: "9px 14px",
+                    borderRadius: "999px",
+                    border: "1px solid #22C55E",
+                    backgroundColor: "#DCFCE7",
+                    color: "#166534",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  Add transcript
+                </button>
+                <button
+                  type="button"
+                  onClick={discardPendingDictation}
+                  style={{
+                    padding: "9px 14px",
+                    borderRadius: "999px",
+                    border: "1px solid #CBD5E1",
+                    backgroundColor: "white",
+                    color: "#475569",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  Discard
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

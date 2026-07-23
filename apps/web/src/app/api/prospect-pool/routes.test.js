@@ -346,6 +346,7 @@ describe("prospect pool routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         solicitorRequested: true,
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
@@ -368,6 +369,51 @@ describe("prospect pool routes", () => {
         strings.join(" ").includes("blackbaud_portfolio_cache = NULL"),
       ),
     ).toBe(true);
+  });
+
+  it("requires an MGOGPT outcome before adding the assigned MGO as solicitor", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+
+    getOrCreateUserMock.mockResolvedValue({
+      id: 44,
+      name: "Gretchen Picotte",
+      email: "gretchen@example.com",
+      role: "mgo",
+      blackbaud_constituent_id: "234684",
+    });
+
+    queueSqlResult([
+      {
+        id: 902,
+        assigned_user_id: 44,
+        constituent_id: 88,
+        blackbaud_constituent_id: "555123",
+        prospect_name: "Pat Prospect",
+        needs_contact_info: false,
+        contact_info_request_note: null,
+        solicitor_requested: false,
+        solicitor_assignment_value: null,
+        solicitor_assignment_sync_state: null,
+        mgogpt_disposition_value: null,
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospect-pool/902", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        solicitorRequested: true,
+      }),
+    });
+
+    const response = await PATCH(request, { params: { id: "902" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      "Choose an MGOGPT outcome before assigning yourself as solicitor.",
+    );
+    expect(createBlackbaudFundraiserAssignmentMock).not.toHaveBeenCalled();
   });
 
   it("uses the MGO solicitor sync path when an admin is acting as an MGO workspace", async () => {
@@ -422,6 +468,7 @@ describe("prospect pool routes", () => {
       body: JSON.stringify({
         solicitorRequested: true,
         solicitorAssignmentValue: "10000",
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
@@ -497,6 +544,7 @@ describe("prospect pool routes", () => {
       body: JSON.stringify({
         solicitorRequested: true,
         solicitorAssignmentValue: "900",
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
@@ -576,6 +624,7 @@ describe("prospect pool routes", () => {
       body: JSON.stringify({
         solicitorRequested: true,
         solicitorAssignmentValue: "900",
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
@@ -655,6 +704,7 @@ describe("prospect pool routes", () => {
       body: JSON.stringify({
         solicitorRequested: true,
         solicitorAssignmentValue: "900",
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
@@ -717,6 +767,7 @@ describe("prospect pool routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         solicitorRequested: true,
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
@@ -878,6 +929,7 @@ describe("prospect pool routes", () => {
       body: JSON.stringify({
         solicitorRequested: true,
         solicitorAssignmentValue: "15000",
+        mgogptDispositionValue: "Qualified - Major Gifts",
       }),
     });
 
