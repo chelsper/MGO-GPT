@@ -361,8 +361,6 @@ export default function ProspectPoolPage() {
     prospectName: "",
     assignedUserId: "",
     note: "",
-    email: "",
-    phone: "",
   });
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
@@ -1045,8 +1043,6 @@ export default function ProspectPoolPage() {
         prospectName: "",
         assignedUserId: current.assignedUserId,
         note: "",
-        email: "",
-        phone: "",
       }));
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
@@ -1737,7 +1733,6 @@ export default function ProspectPoolPage() {
                                   setCreateForm((current) => ({
                                     ...current,
                                     prospectName: match.name || current.prospectName,
-                                    email: match.email || current.email,
                                   }));
                                 }}
                                 style={{
@@ -1765,47 +1760,21 @@ export default function ProspectPoolPage() {
                 </div>
               ) : null}
 
-              <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
-                Email
-                <input
-                  id="prospect-pool-create-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  value={createForm.email}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, email: event.target.value }))
-                  }
-                  placeholder="sam@example.com"
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: "12px",
-                    border: "1px solid #D1D5DB",
-                    fontSize: "14px",
-                  }}
-                />
-              </label>
-
-              <label style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#111827" }}>
-                Phone
-                <input
-                  id="prospect-pool-create-phone"
-                  name="phone"
-                  type="text"
-                  autoComplete="tel"
-                  value={createForm.phone}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, phone: event.target.value }))
-                  }
-                  placeholder="(555) 555-5555"
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: "12px",
-                    border: "1px solid #D1D5DB",
-                    fontSize: "14px",
-                  }}
-                />
-              </label>
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: "10px 12px",
+                  borderRadius: "12px",
+                  backgroundColor: "#F9FAFB",
+                  border: "1px solid #E5E7EB",
+                  color: "#4B5563",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                Email and phone are not entered here. When a constituent is linked,
+                MGOs see contact details from the NXT summary.
+              </div>
 
               <label
                 style={{
