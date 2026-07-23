@@ -2158,25 +2158,13 @@ export default function ActionOpportunityUpdatePage() {
         title: "Action needed",
         message: error,
       }
-    : dictationError
+    : successMessage
       ? {
-          tone: "error",
-          title: "Dictation issue",
-          message: dictationError,
+          tone: "success",
+          title: "Saved",
+          message: successMessage,
         }
-      : dictationStatus
-        ? {
-            tone: "info",
-            title: "Dictation",
-            message: dictationStatus,
-          }
-        : successMessage
-          ? {
-              tone: "success",
-              title: "Saved",
-              message: successMessage,
-            }
-          : null;
+      : null;
 
   if (loading) {
     return (
