@@ -282,7 +282,7 @@ function getSolicitorAssignmentPresentation(syncState) {
   const map = {
     success: {
       tone: "success",
-      label: "Added you as Lead Solicitor in Raiser's Edge NXT.",
+      label: "Lead Solicitor added in NXT.",
     },
     failed: {
       tone: "error",
@@ -326,7 +326,7 @@ function getMgogptDispositionPresentation(syncState) {
   const map = {
     success: {
       tone: "success",
-      label: "Added the selected MGOGPT outcome in Raiser's Edge NXT.",
+      label: "MGOGPT outcome saved in NXT.",
     },
     failed: {
       tone: "error",
@@ -1137,7 +1137,7 @@ export default function ProspectPoolPage() {
       const solicitorMessage = solicitorRequested
         ? getSolicitorAssignmentPresentation(updated.solicitor_assignment_sync_state)
         : null;
-      const solicitorDebug = solicitorRequested
+      const solicitorDebug = solicitorRequested && solicitorMessage?.tone !== "success"
         ? formatSolicitorAssignmentDebug(updated.solicitor_assignment_sync_debug)
         : "";
       const mgogptDispositionMessage = mgogptDispositionValue
@@ -1154,7 +1154,7 @@ export default function ProspectPoolPage() {
         messageParts.push("Sent to the Advancement Services data request queue.");
       }
       if (movedToPortfolio) {
-        messageParts.push("This prospect was removed from your pool and should now appear in your portfolio.");
+        messageParts.push("Moved to your portfolio.");
       }
       const message = messageParts.join(" ");
       setActionMessage(message);
