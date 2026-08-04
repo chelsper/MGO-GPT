@@ -840,6 +840,7 @@ export default async function ensureAppSchema() {
         title TEXT NOT NULL,
         details TEXT,
         due_date DATE,
+        category TEXT NOT NULL DEFAULT 'General',
         status TEXT NOT NULL DEFAULT 'Open',
         is_primary BOOLEAN NOT NULL DEFAULT FALSE,
         needs_discussion BOOLEAN NOT NULL DEFAULT FALSE,
@@ -876,6 +877,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE pending_actions
       ADD COLUMN IF NOT EXISTS due_date DATE
+    `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'General'
     `;
     await sql`
       ALTER TABLE pending_actions
@@ -1263,6 +1268,10 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_status_due
       ON pending_actions (owner_user_id, status, due_date, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_category_status_due
+      ON pending_actions (owner_user_id, category, status, due_date, updated_at DESC)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_prospect_primary

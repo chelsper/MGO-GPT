@@ -14,6 +14,7 @@ export async function syncPrimaryPendingAction({
   title,
   details = null,
   dueDate = null,
+  category = "General",
   completedAt = null,
   needsDiscussion = false,
   discussionNote = null,
@@ -25,6 +26,7 @@ export async function syncPrimaryPendingAction({
   const normalizedDiscussionNote = normalizeText(discussionNote);
   const normalizedDueDate = dueDate || null;
   const normalizedCompletedAt = completedAt || null;
+  const normalizedCategory = normalizeText(category) || "General";
 
   const existingRows = await sql`
     SELECT *
@@ -73,6 +75,7 @@ export async function syncPrimaryPendingAction({
         title = ${normalizedTitle},
         details = ${normalizedDetails},
         due_date = ${normalizedDueDate},
+        category = ${normalizedCategory},
         status = ${normalizedCompletedAt ? "Done" : "Open"},
         is_primary = TRUE,
         needs_discussion = ${Boolean(needsDiscussion)},
@@ -95,6 +98,7 @@ export async function syncPrimaryPendingAction({
       title,
       details,
       due_date,
+      category,
       status,
       is_primary,
       needs_discussion,
@@ -108,6 +112,7 @@ export async function syncPrimaryPendingAction({
       ${normalizedTitle},
       ${normalizedDetails},
       ${normalizedDueDate},
+      ${normalizedCategory},
       ${normalizedCompletedAt ? "Done" : "Open"},
       TRUE,
       ${Boolean(needsDiscussion)},

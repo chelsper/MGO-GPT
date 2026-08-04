@@ -35,6 +35,7 @@ export async function PUT(request, { params }) {
         title = COALESCE(${body.title ?? null}, title),
         details = COALESCE(${body.details ?? null}, details),
         due_date = COALESCE(${body.dueDate ?? null}, due_date),
+        category = COALESCE(${body.category ?? null}, category),
         status = COALESCE(${body.status ?? null}, status),
         is_primary = COALESCE(${body.isPrimary ?? null}, is_primary),
         needs_discussion = COALESCE(${body.needsDiscussion ?? null}, needs_discussion),

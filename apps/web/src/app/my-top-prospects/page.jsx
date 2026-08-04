@@ -39,6 +39,7 @@ const ACTION_TYPES = [
   "Solicitation",
   "Stewardship",
 ];
+const STEWARDSHIP_CATEGORY = "Stewardship";
 const OPPORTUNITY_STAGE_OPTIONS = [
   "Identification",
   "Qualification",
@@ -199,6 +200,20 @@ function normalizeDateInputValue(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.toISOString().slice(0, 10);
+}
+
+function getDateOnlyTimestamp(value) {
+  const normalized = normalizeDateInputValue(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day).getTime();
+}
+
+function getTodayDateOnlyTimestamp() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today.getTime();
 }
 
 function formatPortfolioContact(person) {
@@ -1611,6 +1626,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const [opportunityEditData, setOpportunityEditData] = useState({});
   const [opportunityEditError, setOpportunityEditError] = useState("");
   const [opportunityEditFeedback, setOpportunityEditFeedback] = useState("");
+  const [stewardshipDrafts, setStewardshipDrafts] = useState({});
+  const [stewardshipErrors, setStewardshipErrors] = useState({});
+  const [stewardshipFeedback, setStewardshipFeedback] = useState({});
   const [actionError, setActionError] = useState("");
   const [showBlackbaudNarrativeSummary, setShowBlackbaudNarrativeSummary] =
     useState(true);
@@ -1978,6 +1996,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      queryClient.invalidateQueries({ queryKey: ["stewardship-actions"] });
       setEditingOpportunityId(null);
       setOpportunityEditData({});
       setOpportunityEditError("");
@@ -2084,6 +2103,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      queryClient.invalidateQueries({ queryKey: ["stewardship-actions"] });
       setShowNextStepForm(false);
       setActionError("");
     },
@@ -2102,6 +2122,16 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const linkedSubmissions = data?.linkedSubmissions || [];
   const discussionItems = data?.discussionItems || [];
   const pendingActions = data?.pendingActions || [];
+  const stewardshipActionByOpportunityId = new Map(
+    pendingActions
+      .filter(
+        (item) =>
+          item.category === STEWARDSHIP_CATEGORY &&
+          item.status === "Open" &&
+          item.prospect_opportunity_id,
+      )
+      .map((item) => [String(item.prospect_opportunity_id), item]),
+  );
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
     blackbaudSummary?.mapped?.lifetimeGiving || null;
@@ -2559,6 +2589,78 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     });
   };
 
+  const updateStewardshipDraft = (opportunityId, patch) => {
+    setStewardshipDrafts((current) => ({
+      ...current,
+      [opportunityId]: {
+        ...(current[opportunityId] || {}),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveStewardshipPlan = (opportunity) => {
+    if (!opportunity?.id) return;
+
+    const draft = stewardshipDrafts[opportunity.id] || {};
+    const title = String(draft.title || "").trim();
+
+    if (!title) {
+      setStewardshipFeedback((current) => ({
+        ...current,
+        [opportunity.id]: "",
+      }));
+      setStewardshipErrors((current) => ({
+        ...current,
+        [opportunity.id]: "Add the first stewardship next action before saving.",
+      }));
+      return;
+    }
+
+    setStewardshipErrors((current) => ({
+      ...current,
+      [opportunity.id]: "",
+    }));
+    setStewardshipFeedback((current) => ({
+      ...current,
+      [opportunity.id]: "",
+    }));
+
+    const existingStewardshipAction = stewardshipActionByOpportunityId.get(
+      String(opportunity.id),
+    );
+
+    savePendingActionMutation.mutate(
+      {
+        id: existingStewardshipAction?.id || null,
+        body: {
+          prospectId,
+          constituentId: prospect?.constituent_id || null,
+          prospectOpportunityId: opportunity.id,
+          title,
+          details: String(draft.details || "").trim() || null,
+          dueDate: draft.dueDate || null,
+          status: "Open",
+          isPrimary: true,
+          category: STEWARDSHIP_CATEGORY,
+        },
+      },
+      {
+        onSuccess: () => {
+          setStewardshipDrafts((current) => {
+            const next = { ...current };
+            delete next[opportunity.id];
+            return next;
+          });
+          setStewardshipFeedback((current) => ({
+            ...current,
+            [opportunity.id]: "Stewardship next step saved.",
+          }));
+        },
+      },
+    );
+  };
+
   const saveNextStep = () => {
     setActionError("");
     const trimmed = nextStepTextDraft.trim();
@@ -2572,12 +2674,245 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
         dueDate: trimmed ? nextStepDueDateDraft || null : null,
         status: nextStepCompletedDraft ? "Done" : "Open",
         isPrimary: true,
+        category: primaryPendingAction?.category || "General",
         needsDiscussion: nextStepNeedsDiscussionDraft,
         discussionNote: nextStepNeedsDiscussionDraft
           ? nextStepDiscussionNoteDraft.trim() || null
           : null,
       },
     });
+  };
+
+  const renderStewardshipOpportunitySection = (opportunity) => {
+    const isGiftSecured =
+      opportunity.opportunity_status === "Closed – Gift Secured" ||
+      (opportunity.closed_amount != null &&
+        opportunity.opportunity_status !== "Closed – Declined");
+
+    if (!isGiftSecured) return null;
+
+    const existingAction = stewardshipActionByOpportunityId.get(
+      String(opportunity.id),
+    );
+    const draft = stewardshipDrafts[opportunity.id] || {};
+    const error = stewardshipErrors[opportunity.id] || "";
+    const feedback = stewardshipFeedback[opportunity.id] || "";
+    const dueTimestamp = getDateOnlyTimestamp(existingAction?.due_date);
+    const isOverdue =
+      dueTimestamp != null && dueTimestamp < getTodayDateOnlyTimestamp();
+
+    if (existingAction) {
+      return (
+        <div
+          style={{
+            marginTop: "10px",
+            padding: "12px",
+            borderRadius: "12px",
+            border: `1px solid ${isOverdue ? "#FCA5A5" : "#A7F3D0"}`,
+            backgroundColor: isOverdue ? "#FEF2F2" : "#ECFDF5",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  margin: "0 0 4px",
+                  color: isOverdue ? "#991B1B" : "#047857",
+                  fontSize: "11px",
+                  fontWeight: "800",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Stewardship next step
+              </p>
+              <strong style={{ display: "block", color: "#111827", fontSize: "14px" }}>
+                {existingAction.title}
+              </strong>
+              <p style={{ margin: "4px 0 0", color: "#4B5563", fontSize: "12px" }}>
+                {existingAction.due_date
+                  ? `${isOverdue ? "Overdue" : "Due"} ${formatShortDate(existingAction.due_date)}`
+                  : "No due date set"}
+                {existingAction.details ? ` · ${existingAction.details}` : ""}
+              </p>
+            </div>
+            {!readOnly ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNextStepForm(true);
+                  setShowActionForm(false);
+                  setShowOpportunityForm(false);
+                  setShowDiscussionForm(false);
+                  setShowDataRequestForm(false);
+                }}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: "999px",
+                  border: "1px solid #A7F3D0",
+                  backgroundColor: "white",
+                  color: "#047857",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                }}
+              >
+                Edit next step
+              </button>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{
+          marginTop: "10px",
+          padding: "12px",
+          borderRadius: "12px",
+          border: "1px solid #BFDBFE",
+          backgroundColor: "#F8FAFF",
+        }}
+      >
+        <p
+          style={{
+            margin: "0 0 4px",
+            color: "#1D4ED8",
+            fontSize: "11px",
+            fontWeight: "800",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+        >
+          Stewardship plan
+        </p>
+        <p style={{ margin: "0 0 10px", color: "#4B5563", fontSize: "13px", lineHeight: 1.5 }}>
+          This gift is closed. Add the first stewardship next action so the follow-up does not drift.
+        </p>
+        {readOnly ? (
+          <p style={{ margin: 0, color: "#6B7280", fontSize: "13px" }}>
+            No stewardship next step has been set yet.
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: "8px" }}>
+            <input
+              type="text"
+              value={draft.title || ""}
+              onChange={(event) =>
+                updateStewardshipDraft(opportunity.id, { title: event.target.value })
+              }
+              placeholder="First stewardship next action"
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                border: "1px solid #93C5FD",
+                borderRadius: "8px",
+                fontSize: "13px",
+                boxSizing: "border-box",
+              }}
+            />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(160px, 220px) 1fr",
+                gap: "8px",
+              }}
+            >
+              <input
+                type="date"
+                value={draft.dueDate || ""}
+                onChange={(event) =>
+                  updateStewardshipDraft(opportunity.id, { dueDate: event.target.value })
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  boxSizing: "border-box",
+                }}
+              />
+              <input
+                type="text"
+                value={draft.details || ""}
+                onChange={(event) =>
+                  updateStewardshipDraft(opportunity.id, { details: event.target.value })
+                }
+                placeholder="Optional details"
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            {error ? (
+              <div
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid #FECACA",
+                  backgroundColor: "#FEF2F2",
+                  color: "#991B1B",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                }}
+              >
+                {error}
+              </div>
+            ) : null}
+            {feedback ? (
+              <div
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid #A7F3D0",
+                  backgroundColor: "#ECFDF5",
+                  color: "#047857",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                }}
+              >
+                {feedback}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => saveStewardshipPlan(opportunity)}
+              disabled={savePendingActionMutation.isPending}
+              style={{
+                justifySelf: "start",
+                padding: "8px 12px",
+                borderRadius: "999px",
+                border: "none",
+                backgroundColor: "#1D4ED8",
+                color: "white",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: savePendingActionMutation.isPending ? "not-allowed" : "pointer",
+              }}
+            >
+              {savePendingActionMutation.isPending
+                ? "Saving..."
+                : "Create stewardship next step"}
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -3625,6 +3960,21 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                             }}
                           >
                             Primary
+                          </span>
+                        ) : null}
+                        {item.category && item.category !== "General" ? (
+                          <span
+                            style={{
+                              padding: "2px 8px",
+                              borderRadius: "999px",
+                              border: "1px solid #A7F3D0",
+                              backgroundColor: "#ECFDF5",
+                              color: "#047857",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                            }}
+                          >
+                            {item.category}
                           </span>
                         ) : null}
                         {item.needs_discussion ? (
@@ -5652,9 +6002,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                                   day: "numeric",
                                   year: "numeric",
                                 })}`
-                              : ""}
+                            : ""}
                           </div>
                         ) : null}
+                        {renderStewardshipOpportunitySection(opportunity)}
                         {(opportunity.ask_date || opportunity.expected_date) ? (
                           <div
                             style={{
@@ -6351,6 +6702,24 @@ export default function MyTopProspectsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const { data: stewardshipActions = [], isLoading: isStewardshipLoading } = useQuery({
+    queryKey: ["stewardship-actions", activeWorkspaceUserId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/pending-actions?status=Open&category=${encodeURIComponent(STEWARDSHIP_CATEGORY)}`,
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to fetch stewardship follow-up");
+      }
+      return Array.isArray(payload) ? payload : [];
+    },
+    enabled:
+      !!user && !!activeWorkspaceUserId && activeWorkspaceTab === "top-prospects",
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
   const {
     data: blackbaudPortfolio,
     isLoading: isBlackbaudPortfolioLoading,
@@ -6826,6 +7195,12 @@ export default function MyTopProspectsPage() {
     removeSolicitorAssignmentMutation.mutate(person);
   };
 
+  const openStewardshipProspect = (item) => {
+    if (!item?.prospect_id) return;
+    setSelectedProspectId(Number(item.prospect_id));
+    setSelectedProspectPanel("next-step");
+  };
+
   const combinedSummary =
     summary || closedSummary
       ? {
@@ -6838,6 +7213,39 @@ export default function MyTopProspectsPage() {
           closedPriorFY: closedSummary?.closedPriorFY,
         }
       : null;
+
+  const openStewardshipItems = Array.isArray(stewardshipActions)
+    ? stewardshipActions
+    : [];
+  const todayTimestamp = getTodayDateOnlyTimestamp();
+  const dueSoonTimestamp = todayTimestamp + 14 * 24 * 60 * 60 * 1000;
+  const sortedStewardshipItems = [...openStewardshipItems].sort((a, b) => {
+    const aDue = getDateOnlyTimestamp(a.due_date) ?? Number.MAX_SAFE_INTEGER;
+    const bDue = getDateOnlyTimestamp(b.due_date) ?? Number.MAX_SAFE_INTEGER;
+    if (aDue !== bDue) return aDue - bDue;
+    return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime();
+  });
+  const overdueStewardshipItems = sortedStewardshipItems.filter((item) => {
+    const dueTimestamp = getDateOnlyTimestamp(item.due_date);
+    return dueTimestamp != null && dueTimestamp < todayTimestamp;
+  });
+  const dueSoonStewardshipItems = sortedStewardshipItems.filter((item) => {
+    const dueTimestamp = getDateOnlyTimestamp(item.due_date);
+    return (
+      dueTimestamp != null &&
+      dueTimestamp >= todayTimestamp &&
+      dueTimestamp <= dueSoonTimestamp
+    );
+  });
+  const visibleStewardshipItems = [
+    ...overdueStewardshipItems,
+    ...dueSoonStewardshipItems.filter(
+      (item) =>
+        !overdueStewardshipItems.some(
+          (overdueItem) => String(overdueItem.id) === String(item.id),
+        ),
+    ),
+  ].slice(0, 4);
 
   if (loading || !user) {
     return (
@@ -7636,6 +8044,160 @@ export default function MyTopProspectsPage() {
             </div>
           </div>
         )}
+
+        {isStewardshipLoading || openStewardshipItems.length ? (
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "14px",
+              border: overdueStewardshipItems.length
+                ? "1px solid #FCA5A5"
+                : "1px solid #A7F3D0",
+              padding: "16px",
+              marginBottom: "20px",
+              boxShadow: overdueStewardshipItems.length
+                ? "0 12px 28px rgba(185, 28, 28, 0.08)"
+                : "none",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "12px",
+                flexWrap: "wrap",
+                marginBottom: "12px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <Star size={18} color={overdueStewardshipItems.length ? "#B91C1C" : "#047857"} />
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: "15px",
+                      color: "#111827",
+                      fontWeight: "800",
+                    }}
+                  >
+                    Stewardship follow-up
+                  </h2>
+                </div>
+                <p style={{ margin: 0, color: "#6B7280", fontSize: "13px", lineHeight: 1.5 }}>
+                  Gift stewardship next steps created from closed opportunities.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "999px",
+                    backgroundColor: overdueStewardshipItems.length ? "#FEF2F2" : "#F9FAFB",
+                    border: `1px solid ${overdueStewardshipItems.length ? "#FCA5A5" : "#E5E7EB"}`,
+                    color: overdueStewardshipItems.length ? "#991B1B" : "#4B5563",
+                    fontSize: "12px",
+                    fontWeight: "800",
+                  }}
+                >
+                  {overdueStewardshipItems.length} overdue
+                </span>
+                <span
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "999px",
+                    backgroundColor: "#ECFDF5",
+                    border: "1px solid #A7F3D0",
+                    color: "#047857",
+                    fontSize: "12px",
+                    fontWeight: "800",
+                  }}
+                >
+                  {dueSoonStewardshipItems.length} due soon
+                </span>
+              </div>
+            </div>
+            {isStewardshipLoading ? (
+              <p style={{ margin: 0, color: "#6B7280", fontSize: "13px" }}>
+                Loading stewardship follow-up...
+              </p>
+            ) : visibleStewardshipItems.length ? (
+              <div style={{ display: "grid", gap: "8px" }}>
+                {visibleStewardshipItems.map((item) => {
+                  const dueTimestamp = getDateOnlyTimestamp(item.due_date);
+                  const isOverdue =
+                    dueTimestamp != null && dueTimestamp < todayTimestamp;
+
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gap: "12px",
+                        alignItems: "center",
+                        padding: "10px 12px",
+                        borderRadius: "12px",
+                        border: `1px solid ${isOverdue ? "#FCA5A5" : "#D1FAE5"}`,
+                        backgroundColor: isOverdue ? "#FEF2F2" : "#F0FDF4",
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ display: "block", color: "#111827", fontSize: "13px" }}>
+                          {item.title}
+                        </strong>
+                        <p
+                          style={{
+                            margin: "3px 0 0",
+                            color: "#4B5563",
+                            fontSize: "12px",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {item.prospect_name || "Prospect"}
+                          {item.opportunity_title ? ` · ${item.opportunity_title}` : ""}
+                          {item.due_date
+                            ? ` · ${isOverdue ? "Overdue" : "Due"} ${formatShortDate(item.due_date)}`
+                            : " · No due date"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openStewardshipProspect(item)}
+                        disabled={!item.prospect_id}
+                        style={{
+                          padding: "7px 12px",
+                          borderRadius: "999px",
+                          border: "1px solid #A7F3D0",
+                          backgroundColor: "white",
+                          color: "#047857",
+                          fontSize: "12px",
+                          fontWeight: "800",
+                          cursor: item.prospect_id ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        Open
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p style={{ margin: 0, color: "#6B7280", fontSize: "13px" }}>
+                No stewardship next steps are overdue or due in the next 14 days.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div
           style={{

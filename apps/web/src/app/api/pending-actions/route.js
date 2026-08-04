@@ -18,7 +18,9 @@ export async function GET(request) {
 
     const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
     const url = new URL(request.url);
-    const status = url.searchParams.get("status") || "Open";
+    const requestedStatus = url.searchParams.get("status");
+    const status = requestedStatus === "all" ? null : requestedStatus || "Open";
+    const category = url.searchParams.get("category");
     const prospectId = url.searchParams.get("prospectId");
 
     const rows = await sql`
@@ -31,6 +33,7 @@ export async function GET(request) {
       LEFT JOIN prospect_opportunities po ON po.id = pa.prospect_opportunity_id
       WHERE pa.owner_user_id = ${user.id}
         AND (${status}::TEXT IS NULL OR pa.status = ${status})
+        AND (${category || null}::TEXT IS NULL OR pa.category = ${category || null})
         AND (${prospectId || null}::BIGINT IS NULL OR pa.prospect_id = ${prospectId || null})
       ORDER BY
         CASE WHEN pa.status = 'Open' THEN 0 ELSE 1 END,
@@ -76,6 +79,7 @@ export async function POST(request) {
       title: body.title,
       details: body.details || null,
       dueDate: body.dueDate || null,
+      category: body.category || "General",
       completedAt: body.status === "Done" ? new Date().toISOString() : null,
       needsDiscussion: Boolean(body.needsDiscussion),
       discussionNote: body.discussionNote || null,
