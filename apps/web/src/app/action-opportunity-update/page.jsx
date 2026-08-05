@@ -55,7 +55,11 @@ const STAGES = [
   "Solicitation",
   "Solicitation - Verbal",
   "Stewardship",
+  "Funded",
+  "Declined",
 ];
+const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
+const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
 
 const TEAMMATE_ROLES = new Set(["mgo", "reviewer", "executive_admin", "admin"]);
 
@@ -100,6 +104,26 @@ function getSafeInternalReturnPath(value) {
     return "";
   }
   return path;
+}
+
+function getOpportunityDisplayStatus(opportunity = {}) {
+  const stage = opportunity?.current_stage || "";
+  const status = opportunity?.opportunity_status || "Active";
+
+  if (
+    stage === "Funded" ||
+    status === FUNDED_OPPORTUNITY_STATUS ||
+    (Number(opportunity?.closed_amount || 0) > 0 &&
+      status !== DECLINED_OPPORTUNITY_STATUS)
+  ) {
+    return "Funded";
+  }
+
+  if (stage === "Declined" || status === DECLINED_OPPORTUNITY_STATUS) {
+    return "Declined";
+  }
+
+  return stage || "Identification";
 }
 
 function getSameOriginReferrerPath() {
@@ -1069,7 +1093,7 @@ export default function ActionOpportunityUpdatePage() {
       if (selectedOpportunity) {
         setOpportunityTitle(selectedOpportunity.title || "");
         setOpportunityPurpose(selectedOpportunity.purpose || DEFAULT_OPPORTUNITY_PURPOSE);
-        setOpportunityStage(selectedOpportunity.current_stage || "Identification");
+        setOpportunityStage(getOpportunityDisplayStatus(selectedOpportunity));
         setAskAmount(
           selectedOpportunity.estimated_amount != null
             ? String(selectedOpportunity.estimated_amount)

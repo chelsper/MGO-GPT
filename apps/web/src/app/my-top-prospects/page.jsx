@@ -47,7 +47,11 @@ const OPPORTUNITY_STAGE_OPTIONS = [
   "Solicitation",
   "Solicitation - Verbal",
   "Stewardship",
+  "Funded",
+  "Declined",
 ];
+const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
+const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
 
 const STATUS_COLORS = {
   Active: { bg: "#D1FAE5", text: "#065F46", border: "#A7F3D0" },
@@ -62,8 +66,16 @@ const STATUS_COLORS = {
 
 const OPPORTUNITY_STATUS_COLORS = {
   Active: { bg: "#DCFCE7", text: "#166534", border: "#BBF7D0" },
-  "Closed – Gift Secured": { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
-  "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
+  Identification: { bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE" },
+  Qualification: { bg: "#F5F3FF", text: "#5B21B6", border: "#DDD6FE" },
+  Cultivation: { bg: "#ECFDF5", text: "#047857", border: "#A7F3D0" },
+  Solicitation: { bg: "#FEF3C7", text: "#92400E", border: "#FDE68A" },
+  "Solicitation - Verbal": { bg: "#FFEFD5", text: "#9A3412", border: "#FED7AA" },
+  Stewardship: { bg: "#F0FDFA", text: "#0F766E", border: "#99F6E4" },
+  Funded: { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
+  Declined: { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
+  [FUNDED_OPPORTUNITY_STATUS]: { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
+  [DECLINED_OPPORTUNITY_STATUS]: { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
 };
 const nxtProfileLinkStyle = {
   display: "inline-flex",
@@ -136,6 +148,34 @@ function formatBlackbaudCurrency(amount) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function getOpportunityDisplayStatus(opportunity = {}) {
+  const stage = opportunity?.current_stage || "";
+  const status = opportunity?.opportunity_status || "Active";
+
+  if (
+    stage === "Funded" ||
+    status === FUNDED_OPPORTUNITY_STATUS ||
+    (Number(opportunity?.closed_amount || 0) > 0 &&
+      status !== DECLINED_OPPORTUNITY_STATUS)
+  ) {
+    return "Funded";
+  }
+
+  if (stage === "Declined" || status === DECLINED_OPPORTUNITY_STATUS) {
+    return "Declined";
+  }
+
+  return stage || "Identification";
+}
+
+function isFundedOpportunity(opportunity = {}) {
+  return getOpportunityDisplayStatus(opportunity) === "Funded";
+}
+
+function isDeclinedOpportunity(opportunity = {}) {
+  return getOpportunityDisplayStatus(opportunity) === "Declined";
 }
 
 function formatLongDate(value) {
@@ -957,11 +997,11 @@ function getDiscussionBadge(prospect) {
 }
 
 function getOpportunityDisplayAmount(opportunity) {
-  if (opportunity.opportunity_status === "Closed – Gift Secured") {
+  if (isFundedOpportunity(opportunity)) {
     return opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
   }
 
-  if (opportunity.opportunity_status === "Closed – Declined") {
+  if (isDeclinedOpportunity(opportunity)) {
     return 0;
   }
 
@@ -2287,20 +2327,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   };
 
   const startEditingOpportunity = (opportunity) => {
-    const inferredOpportunityStatus =
-      opportunity.opportunity_status === "Closed – Gift Secured" ||
-      opportunity.closed_amount != null ||
-      opportunity.close_date
-        ? "Closed – Gift Secured"
-        : opportunity.opportunity_status || "Active";
-
     setEditingOpportunityId(opportunity.id);
     setOpportunityEditError("");
     setOpportunityEditFeedback("");
     setOpportunityEditData({
       title: opportunity.title || "",
-      currentStage: opportunity.current_stage || "Identification",
-      opportunityStatus: inferredOpportunityStatus,
+      currentStage: getOpportunityDisplayStatus(opportunity),
       estimatedAmount:
         opportunity.estimated_amount != null
           ? String(opportunity.estimated_amount)
@@ -2323,7 +2355,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       body: {
         title: opportunityEditData.title,
         currentStage: opportunityEditData.currentStage,
-        opportunityStatus: opportunityEditData.opportunityStatus,
         estimatedAmount: opportunityEditData.estimatedAmount
           ? parseFloat(opportunityEditData.estimatedAmount)
           : null,
@@ -2457,8 +2488,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       title: `${opportunity.title}`,
       description:
         opportunity.latest_notes ||
-        `${opportunity.current_stage} · ${opportunity.opportunity_status || "Active"}`,
-      meta: `${opportunity.current_stage} · ${opportunity.opportunity_status || "Active"} · ${formatLongDate(
+        getOpportunityDisplayStatus(opportunity),
+      meta: `${getOpportunityDisplayStatus(opportunity)} · ${formatLongDate(
         opportunity.updated_at || opportunity.created_at,
       )}`,
       accent: "#1D4ED8",
@@ -2684,12 +2715,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   };
 
   const renderStewardshipOpportunitySection = (opportunity) => {
-    const isGiftSecured =
-      opportunity.opportunity_status === "Closed – Gift Secured" ||
-      (opportunity.closed_amount != null &&
-        opportunity.opportunity_status !== "Closed – Declined");
-
-    if (!isGiftSecured) return null;
+    if (!isFundedOpportunity(opportunity)) return null;
 
     const existingAction = stewardshipActionByOpportunityId.get(
       String(opportunity.id),
@@ -5501,10 +5527,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                           {opportunity.title}
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                          <div style={{ fontSize: "12px", color: "#1D4ED8" }}>
-                            {opportunity.current_stage}
-                          </div>
-                          <OpportunityStatusBadge status={opportunity.opportunity_status || "Active"} />
+                          <OpportunityStatusBadge status={getOpportunityDisplayStatus(opportunity)} />
                         </div>
                       </div>
                       <div
@@ -5595,43 +5618,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                                   </option>
                                 ),
                               )}
-                            </select>
-                          </div>
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                color: "#1D4ED8",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Opportunity status
-                            </label>
-                            <select
-                              value={opportunityEditData.opportunityStatus || "Active"}
-                              onChange={(e) =>
-                                setOpportunityEditData((prev) => ({
-                                  ...prev,
-                                  opportunityStatus: e.target.value,
-                                }))
-                              }
-                              style={{
-                                width: "100%",
-                                padding: "8px 12px",
-                                border: "1px solid #93C5FD",
-                                borderRadius: "8px",
-                                fontSize: "14px",
-                                boxSizing: "border-box",
-                                backgroundColor: "white",
-                              }}
-                            >
-                              {["Active", "Closed – Gift Secured", "Closed – Declined"].map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
                             </select>
                           </div>
                           <div>
@@ -5737,7 +5723,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                             />
                           </div>
                         </div>
-                        {opportunityEditData.opportunityStatus === "Closed – Gift Secured" ? (
+                        {opportunityEditData.currentStage === "Funded" ? (
                           <div
                             style={{
                               display: "grid",
@@ -5810,7 +5796,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                             </div>
                           </div>
                         ) : null}
-                        {opportunityEditData.opportunityStatus === "Closed – Declined" ? (
+                        {opportunityEditData.currentStage === "Declined" ? (
                           <div style={{ marginBottom: "10px" }}>
                             <label
                               style={{
@@ -5963,7 +5949,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                             {opportunity.latest_notes}
                           </p>
                         ) : null}
-                        {(opportunity.closed_amount != null || opportunity.close_date) ? (
+                        {isFundedOpportunity(opportunity) &&
+                        (opportunity.closed_amount != null || opportunity.close_date) ? (
                           <div
                             style={{
                               fontSize: "12px",
@@ -5985,7 +5972,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                               : null}
                           </div>
                         ) : null}
-                        {opportunity.opportunity_status === "Closed – Declined" &&
+                        {isDeclinedOpportunity(opportunity) &&
                         (opportunity.decline_reason || opportunity.close_date) ? (
                           <div
                             style={{
@@ -6496,8 +6483,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                                 <div>
                                   <p style={detailLabelStyle}>Status</p>
                                   <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    {event.raw?.current_stage || "Unavailable"} ·{" "}
-                                    {event.raw?.opportunity_status || "Active"}
+                                    {getOpportunityDisplayStatus(event.raw)}
                                   </p>
                                 </div>
                                 <div>

@@ -95,7 +95,7 @@ export async function POST(request) {
 
 Extract the following fields:
 - donorName: The name of the donor or prospect
-- opportunityStage: One of: "Identification", "Qualification", "Cultivation", "Solicitation", or "Stewardship"
+- opportunityStage: One of: "Identification", "Qualification", "Cultivation", "Solicitation", "Solicitation - Verbal", "Stewardship", "Funded", or "Declined"
 - estimatedAmount: Any dollar amount mentioned (as a number, no currency symbols)
 - notes: A brief summary of the opportunity update (2-3 sentences)
 
@@ -118,7 +118,7 @@ If a field cannot be determined from the transcript, return null for that field.
                 opportunityStage: {
                   type: ["string", "null"],
                   description:
-                    "Stage: Identification, Qualification, Cultivation, Solicitation, or Stewardship",
+                    "Stage: Identification, Qualification, Cultivation, Solicitation, Solicitation - Verbal, Stewardship, Funded, or Declined",
                 },
                 estimatedAmount: {
                   type: ["number", "null"],

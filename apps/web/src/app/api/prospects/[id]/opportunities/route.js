@@ -1,7 +1,13 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { saveProspectOpportunity } from "@/app/api/utils/prospectOpportunities";
+import {
+  DECLINED_OPPORTUNITY_STATUS,
+  FUNDED_OPPORTUNITY_STATUS,
+  getOpportunityStageForStatus,
+  getOpportunityStatusForStage,
+  saveProspectOpportunity,
+} from "@/app/api/utils/prospectOpportunities";
 import {
   buildBlackbaudOpportunityPayload,
   createBlackbaudOpportunity,
@@ -9,6 +15,7 @@ import {
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
+const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
 
 export async function POST(request, { params }) {
   try {
@@ -56,8 +63,23 @@ export async function POST(request, { params }) {
       prospect.linked_blackbaud_constituent_id ||
       prospect.blackbaud_constituent_id ||
       null;
-    const opportunityPurpose =
-      String(purpose || "").trim() || DEFAULT_OPPORTUNITY_PURPOSE;
+    const resolvedOpportunityStage = getOpportunityStageForStatus(
+      currentStage,
+      currentStage || "Identification",
+    );
+    const resolvedOpportunityStatus =
+      getOpportunityStatusForStage(resolvedOpportunityStage);
+    const isFundedOpportunity =
+      resolvedOpportunityStatus === FUNDED_OPPORTUNITY_STATUS;
+    const isDeclinedOpportunity =
+      resolvedOpportunityStatus === DECLINED_OPPORTUNITY_STATUS;
+    const opportunityPurpose = isDeclinedOpportunity
+      ? DECLINED_OPPORTUNITY_PURPOSE
+      : String(purpose || "").trim() || DEFAULT_OPPORTUNITY_PURPOSE;
+    const closeDate =
+      isFundedOpportunity || isDeclinedOpportunity
+        ? new Date().toISOString().slice(0, 10)
+        : null;
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
@@ -69,10 +91,18 @@ export async function POST(request, { params }) {
           blackbaudConstituentId: linkedBlackbaudConstituentId,
           title,
           purpose: opportunityPurpose,
-          currentStage: currentStage || "Identification",
+          currentStage: resolvedOpportunityStage,
           estimatedAmount: estimatedAmount ?? null,
           askDate: askDate || null,
           expectedDate: expectedDate || null,
+          opportunityStatus: resolvedOpportunityStatus,
+          closedAmount:
+            isFundedOpportunity
+              ? estimatedAmount ?? null
+              : isDeclinedOpportunity
+                ? 0
+                : null,
+          closeDate,
         }),
       });
     }
@@ -87,7 +117,8 @@ export async function POST(request, { params }) {
         : null,
       title,
       purpose: opportunityPurpose,
-      currentStage: currentStage || "Identification",
+      currentStage: resolvedOpportunityStage,
+      opportunityStatus: resolvedOpportunityStatus,
       askAmount: estimatedAmount ?? null,
       askDate: askDate || null,
       expectedDate: expectedDate || null,

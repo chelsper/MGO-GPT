@@ -1,7 +1,14 @@
 import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { syncProspectAskAmount } from "@/app/api/utils/prospectOpportunities";
+import {
+  ACTIVE_OPPORTUNITY_STATUS,
+  DECLINED_OPPORTUNITY_STATUS,
+  FUNDED_OPPORTUNITY_STATUS,
+  getOpportunityStageForStatus,
+  getOpportunityStatusForStage,
+  syncProspectAskAmount,
+} from "@/app/api/utils/prospectOpportunities";
 import {
   buildBlackbaudOpportunityPayload,
   updateBlackbaudOpportunity,
@@ -9,20 +16,7 @@ import {
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
-const DECLINED_OPPORTUNITY_STATUS = "Declined";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
-
-function normalizeOpportunityStatusLabel(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\s*[–—-]\s*/g, " - ")
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
-function isClosedDeclinedOpportunityStatus(value) {
-  return normalizeOpportunityStatusLabel(value) === "closed - declined";
-}
 
 export async function PUT(request, { params }) {
   try {
@@ -74,41 +68,44 @@ export async function PUT(request, { params }) {
 
     const nextEstimatedAmount =
       estimatedAmount !== undefined ? estimatedAmount : existing.estimated_amount;
-    const nextOpportunityStatus =
-      opportunityStatus || existing.opportunity_status || "Active";
-    const isClosedDeclined = isClosedDeclinedOpportunityStatus(nextOpportunityStatus);
+    const stageSource =
+      opportunityStatus ?? currentStage ?? existing.opportunity_status;
+    const nextStage = getOpportunityStageForStatus(
+      stageSource,
+      currentStage || existing.current_stage || "Identification",
+    );
+    const nextOpportunityStatus = getOpportunityStatusForStage(nextStage);
+    const isFunded = nextOpportunityStatus === FUNDED_OPPORTUNITY_STATUS;
+    const isDeclined = nextOpportunityStatus === DECLINED_OPPORTUNITY_STATUS;
     const nextLatestNotes =
       latestNotes?.trim() ? latestNotes.trim() : existing.latest_notes;
     const nextTitle = title?.trim() || existing.title;
     const nextPurpose =
-      isClosedDeclined
+      isDeclined
         ? DECLINED_OPPORTUNITY_PURPOSE
         : purpose?.trim() || existing.purpose || DEFAULT_OPPORTUNITY_PURPOSE;
-    const nextStage = isClosedDeclined
-      ? DECLINED_OPPORTUNITY_STATUS
-      : currentStage || existing.current_stage;
     const nextClosedAmount =
-      nextOpportunityStatus === "Closed – Gift Secured"
+      isFunded
         ? (closedAmount ?? nextEstimatedAmount ?? existing.closed_amount ?? 0)
-        : isClosedDeclined
+        : isDeclined
           ? 0
-          : nextOpportunityStatus === "Active"
+          : nextOpportunityStatus === ACTIVE_OPPORTUNITY_STATUS
             ? null
             : existing.closed_amount;
     const normalizedCloseDate =
-      closeDate || (nextOpportunityStatus !== "Active"
-        ? new Date().toISOString().slice(0, 10)
+      closeDate || ((isFunded || isDeclined)
+        ? existing.close_date || new Date().toISOString().slice(0, 10)
         : existing.close_date || null);
     const nextCloseDate =
-      nextOpportunityStatus === "Active"
+      nextOpportunityStatus === ACTIVE_OPPORTUNITY_STATUS
         ? null
-        : nextOpportunityStatus === "Closed – Gift Secured" || isClosedDeclined
+        : isFunded || isDeclined
           ? normalizedCloseDate
           : existing.close_date;
     const nextDeclineReason =
-      isClosedDeclined
+      isDeclined
         ? declineReason?.trim() || existing.decline_reason || null
-        : nextOpportunityStatus === "Active"
+        : nextOpportunityStatus === ACTIVE_OPPORTUNITY_STATUS
           ? null
           : existing.decline_reason;
 

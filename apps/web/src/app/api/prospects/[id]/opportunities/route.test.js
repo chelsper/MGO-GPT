@@ -6,6 +6,39 @@ const getWorkspaceUserMock = vi.fn();
 const saveProspectOpportunityMock = vi.fn();
 const buildBlackbaudOpportunityPayloadMock = vi.fn();
 const createBlackbaudOpportunityMock = vi.fn();
+const ACTIVE_OPPORTUNITY_STATUS = "Active";
+const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
+const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
+
+function normalizeOpportunityLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s*[–—-]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function getOpportunityStageForStatus(status, fallbackStage = "Identification") {
+  const normalized = normalizeOpportunityLabel(status);
+  if (normalized === "funded" || normalized === "closed - gift secured") {
+    return "Funded";
+  }
+  if (normalized === "declined" || normalized === "closed - declined") {
+    return "Declined";
+  }
+  return fallbackStage || "Identification";
+}
+
+function getOpportunityStatusForStage(stage) {
+  const normalized = normalizeOpportunityLabel(stage);
+  if (normalized === "funded" || normalized === "closed - gift secured") {
+    return FUNDED_OPPORTUNITY_STATUS;
+  }
+  if (normalized === "declined" || normalized === "closed - declined") {
+    return DECLINED_OPPORTUNITY_STATUS;
+  }
+  return ACTIVE_OPPORTUNITY_STATUS;
+}
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -29,6 +62,11 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 }));
 
 vi.mock("@/app/api/utils/prospectOpportunities", () => ({
+  ACTIVE_OPPORTUNITY_STATUS,
+  FUNDED_OPPORTUNITY_STATUS,
+  DECLINED_OPPORTUNITY_STATUS,
+  getOpportunityStageForStatus,
+  getOpportunityStatusForStage,
   saveProspectOpportunity: saveProspectOpportunityMock,
 }));
 

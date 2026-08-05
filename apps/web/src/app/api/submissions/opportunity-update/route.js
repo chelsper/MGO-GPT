@@ -4,6 +4,10 @@ import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import {
+  DECLINED_OPPORTUNITY_STATUS,
+  FUNDED_OPPORTUNITY_STATUS,
+  getOpportunityStageForStatus,
+  getOpportunityStatusForStage,
   saveProspectOpportunity,
   syncJointSolicitationOpportunities,
 } from "@/app/api/utils/prospectOpportunities";
@@ -14,6 +18,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
+const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
 
 export async function POST(request) {
   try {
@@ -81,18 +86,42 @@ export async function POST(request) {
 
     let blackbaudOpportunity = null;
     let blackbaudSync = null;
-    const opportunityPurpose =
-      String(purpose || "").trim() || DEFAULT_OPPORTUNITY_PURPOSE;
+    const resolvedOpportunityStage = getOpportunityStageForStatus(
+      opportunityStage,
+      opportunityStage || "Identification",
+    );
+    const resolvedOpportunityStatus =
+      getOpportunityStatusForStage(resolvedOpportunityStage);
+    const isFundedOpportunity =
+      resolvedOpportunityStatus === FUNDED_OPPORTUNITY_STATUS;
+    const isDeclinedOpportunity =
+      resolvedOpportunityStatus === DECLINED_OPPORTUNITY_STATUS;
+    const opportunityPurpose = isDeclinedOpportunity
+      ? DECLINED_OPPORTUNITY_PURPOSE
+      : String(purpose || "").trim() || DEFAULT_OPPORTUNITY_PURPOSE;
+    const closedAmount =
+      isFundedOpportunity
+        ? askAmount ?? null
+        : isDeclinedOpportunity
+          ? 0
+          : null;
+    const closeDate =
+      isFundedOpportunity || isDeclinedOpportunity
+        ? new Date().toISOString().slice(0, 10)
+        : null;
 
     if (linkedBlackbaudConstituentId) {
       const blackbaudPayload = buildBlackbaudOpportunityPayload({
         blackbaudConstituentId: linkedBlackbaudConstituentId,
         title: opportunityTitle,
         purpose: opportunityPurpose,
-        currentStage: opportunityStage,
+        currentStage: resolvedOpportunityStage,
         estimatedAmount: askAmount ?? null,
         askDate: askDate || null,
         expectedDate: expectedDate || null,
+        opportunityStatus: resolvedOpportunityStatus,
+        closedAmount,
+        closeDate,
       });
 
       try {
@@ -172,7 +201,7 @@ export async function POST(request) {
         'opportunity_update',
         ${donorName},
         ${opportunityTitle || null},
-        ${opportunityStage},
+        ${resolvedOpportunityStage},
         ${askDate || null},
         ${expectedDate || null},
         ${askAmount || null},
@@ -202,7 +231,8 @@ export async function POST(request) {
           blackbaudOpportunity?.id ? String(blackbaudOpportunity.id) : null,
         title: opportunityTitle,
         purpose: opportunityPurpose,
-        currentStage: opportunityStage,
+        currentStage: resolvedOpportunityStage,
+        opportunityStatus: resolvedOpportunityStatus,
         askAmount: askAmount ?? null,
         askDate: askDate || null,
         expectedDate: expectedDate || null,
@@ -235,7 +265,8 @@ export async function POST(request) {
         blackbaudConstituentId,
         title: opportunityTitle,
         purpose: opportunityPurpose,
-        currentStage: opportunityStage,
+        currentStage: resolvedOpportunityStage,
+        opportunityStatus: resolvedOpportunityStatus,
         askAmount: askAmount ?? null,
         askDate: askDate || null,
         expectedDate: expectedDate || null,

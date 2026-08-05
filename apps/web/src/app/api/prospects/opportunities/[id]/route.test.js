@@ -6,6 +6,39 @@ const getWorkspaceUserMock = vi.fn();
 const syncProspectAskAmountMock = vi.fn();
 const buildBlackbaudOpportunityPayloadMock = vi.fn();
 const updateBlackbaudOpportunityMock = vi.fn();
+const ACTIVE_OPPORTUNITY_STATUS = "Active";
+const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
+const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
+
+function normalizeOpportunityLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s*[–—-]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function getOpportunityStageForStatus(status, fallbackStage = "Identification") {
+  const normalized = normalizeOpportunityLabel(status);
+  if (normalized === "funded" || normalized === "closed - gift secured") {
+    return "Funded";
+  }
+  if (normalized === "declined" || normalized === "closed - declined") {
+    return "Declined";
+  }
+  return fallbackStage || "Identification";
+}
+
+function getOpportunityStatusForStage(stage) {
+  const normalized = normalizeOpportunityLabel(stage);
+  if (normalized === "funded" || normalized === "closed - gift secured") {
+    return FUNDED_OPPORTUNITY_STATUS;
+  }
+  if (normalized === "declined" || normalized === "closed - declined") {
+    return DECLINED_OPPORTUNITY_STATUS;
+  }
+  return ACTIVE_OPPORTUNITY_STATUS;
+}
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -29,6 +62,11 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 }));
 
 vi.mock("@/app/api/utils/prospectOpportunities", () => ({
+  ACTIVE_OPPORTUNITY_STATUS,
+  FUNDED_OPPORTUNITY_STATUS,
+  DECLINED_OPPORTUNITY_STATUS,
+  getOpportunityStageForStatus,
+  getOpportunityStatusForStage,
   syncProspectAskAmount: syncProspectAskAmountMock,
 }));
 
@@ -122,6 +160,56 @@ describe("prospect opportunity update route", () => {
     expect(updateBlackbaudOpportunityMock).not.toHaveBeenCalled();
   });
 
+  it("preserves an existing funded status when editing non-status fields", async () => {
+    const { PUT } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 303,
+        prospect_id: 7,
+        title: "Funded Ask",
+        purpose: "Future. Made. Campaign",
+        current_stage: "Solicitation",
+        estimated_amount: 50000,
+        ask_date: null,
+        expected_date: null,
+        latest_notes: "Initial note",
+        opportunity_status: "Closed – Gift Secured",
+        closed_amount: 50000,
+        close_date: "2026-07-01",
+        decline_reason: null,
+        blackbaud_opportunity_id: null,
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 303,
+        prospect_id: 7,
+        title: "Funded Ask Revised",
+        current_stage: "Funded",
+        opportunity_status: "Closed – Gift Secured",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospects/opportunities/303", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Funded Ask Revised",
+      }),
+    });
+
+    const response = await PUT(request, { params: { id: "303" } });
+
+    expect(response.status).toBe(200);
+    const updateCall = sqlMockImpl.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE prospect_opportunities"),
+    );
+    expect(updateCall).toBeTruthy();
+    expect(updateCall.slice(1)).toContain("Funded");
+    expect(updateCall.slice(1)).toContain("Closed – Gift Secured");
+  });
+
   it("returns 502 when NXT opportunity update fails", async () => {
     const { PUT } = await import("./route.js");
 
@@ -163,7 +251,7 @@ describe("prospect opportunity update route", () => {
     expect(syncProspectAskAmountMock).not.toHaveBeenCalled();
   });
 
-  it("maps a closed declined app status to the NXT declined status and purpose", async () => {
+  it("maps the declined status to the NXT declined status and purpose", async () => {
     const { PUT } = await import("./route.js");
 
     queueSqlResult([
@@ -205,9 +293,8 @@ describe("prospect opportunity update route", () => {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        opportunityStatus: "Closed – Declined",
         purpose: "Future. Made. Campaign",
-        currentStage: "Solicitation",
+        currentStage: "Declined",
       }),
     });
 
@@ -233,6 +320,82 @@ describe("prospect opportunity update route", () => {
         payload: {
           status: "Declined",
           purpose: "Completed -- Not Fulfilled",
+        },
+      }),
+    );
+    expect(syncProspectAskAmountMock).toHaveBeenCalledWith(7);
+  });
+
+  it("maps the funded status to the NXT funded status and funded fields", async () => {
+    const { PUT } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 302,
+        prospect_id: 7,
+        title: "Scholarship Ask",
+        purpose: "Future. Made. Campaign",
+        current_stage: "Solicitation",
+        estimated_amount: 75000,
+        ask_date: "2026-07-01",
+        expected_date: "2026-12-31",
+        latest_notes: "Initial note",
+        opportunity_status: "Active",
+        closed_amount: null,
+        close_date: null,
+        decline_reason: null,
+        blackbaud_opportunity_id: "bb-opp-2",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 302,
+        prospect_id: 7,
+        title: "Scholarship Ask",
+        current_stage: "Funded",
+        opportunity_status: "Closed – Gift Secured",
+        closed_amount: 80000,
+      },
+    ]);
+
+    buildBlackbaudOpportunityPayloadMock.mockReturnValue({
+      status: "Funded",
+      funded_amount: { value: 80000 },
+    });
+    updateBlackbaudOpportunityMock.mockResolvedValue({});
+
+    const request = new Request("https://example.com/api/prospects/opportunities/302", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentStage: "Funded",
+        closedAmount: 80000,
+        closeDate: "2026-08-05",
+      }),
+    });
+
+    const response = await PUT(request, { params: { id: "302" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.blackbaudSync).toEqual({
+      status: "synced",
+      opportunityId: "bb-opp-2",
+    });
+    expect(buildBlackbaudOpportunityPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        opportunityStatus: "Closed – Gift Secured",
+        currentStage: "Funded",
+        closedAmount: 80000,
+        closeDate: "2026-08-05",
+      }),
+    );
+    expect(updateBlackbaudOpportunityMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        opportunityId: "bb-opp-2",
+        payload: {
+          status: "Funded",
+          funded_amount: { value: 80000 },
         },
       }),
     );

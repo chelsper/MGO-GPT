@@ -1276,8 +1276,14 @@ function normalizeOpportunityStatusLabel(value) {
     .toLowerCase();
 }
 
-function isClosedDeclinedOpportunityStatus(value) {
-  return normalizeOpportunityStatusLabel(value) === "closed - declined";
+function isDeclinedOpportunityStatus(value) {
+  const normalized = normalizeOpportunityStatusLabel(value);
+  return normalized === "closed - declined" || normalized === "declined";
+}
+
+function isFundedOpportunityStatus(value) {
+  const normalized = normalizeOpportunityStatusLabel(value);
+  return normalized === "closed - gift secured" || normalized === "funded";
 }
 
 export function buildBlackbaudOpportunityPayload({
@@ -1303,7 +1309,12 @@ export function buildBlackbaudOpportunityPayload({
     payload.name = normalizedTitle;
   }
 
-  const isDeclined = isClosedDeclinedOpportunityStatus(opportunityStatus);
+  const isDeclined =
+    isDeclinedOpportunityStatus(opportunityStatus) ||
+    isDeclinedOpportunityStatus(currentStage);
+  const isFunded =
+    isFundedOpportunityStatus(opportunityStatus) ||
+    isFundedOpportunityStatus(currentStage);
   const normalizedPurpose = String(
     isDeclined ? DECLINED_OPPORTUNITY_PURPOSE : purpose || "",
   ).trim();
@@ -1312,7 +1323,11 @@ export function buildBlackbaudOpportunityPayload({
   }
 
   const normalizedStage = String(
-    isDeclined ? DECLINED_OPPORTUNITY_STATUS : currentStage || "",
+    isDeclined
+      ? DECLINED_OPPORTUNITY_STATUS
+      : isFunded
+        ? "Funded"
+        : currentStage || "",
   ).trim();
   if (normalizedStage) {
     payload.status = normalizedStage;
@@ -1339,7 +1354,7 @@ export function buildBlackbaudOpportunityPayload({
     payload.expected_date = normalizedExpectedDate;
   }
 
-  if (opportunityStatus === "Closed – Gift Secured") {
+  if (isFunded) {
     const numericFundedAmount = Number(
       closedAmount ?? estimatedAmount ?? null,
     );

@@ -5,6 +5,50 @@ import {
   resolveConstituent,
 } from "@/app/api/utils/constituents";
 
+export const FUNDED_OPPORTUNITY_STAGE = "Funded";
+export const DECLINED_OPPORTUNITY_STAGE = "Declined";
+export const ACTIVE_OPPORTUNITY_STATUS = "Active";
+export const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
+export const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
+
+export function normalizeOpportunityStatusLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s*[–—-]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+export function isFundedOpportunityStage(value) {
+  const normalized = normalizeOpportunityStatusLabel(value);
+  return normalized === "funded" || normalized === "closed - gift secured";
+}
+
+export function isDeclinedOpportunityStage(value) {
+  const normalized = normalizeOpportunityStatusLabel(value);
+  return normalized === "declined" || normalized === "closed - declined";
+}
+
+export function getOpportunityStatusForStage(stage) {
+  if (isFundedOpportunityStage(stage)) {
+    return FUNDED_OPPORTUNITY_STATUS;
+  }
+  if (isDeclinedOpportunityStage(stage)) {
+    return DECLINED_OPPORTUNITY_STATUS;
+  }
+  return ACTIVE_OPPORTUNITY_STATUS;
+}
+
+export function getOpportunityStageForStatus(status, fallbackStage = "Identification") {
+  if (isFundedOpportunityStage(status)) {
+    return FUNDED_OPPORTUNITY_STAGE;
+  }
+  if (isDeclinedOpportunityStage(status)) {
+    return DECLINED_OPPORTUNITY_STAGE;
+  }
+  return fallbackStage || "Identification";
+}
+
 export async function findLinkedProspectForUser({
   userId,
   constituentId,
@@ -230,6 +274,7 @@ export async function saveProspectOpportunity({
   title,
   purpose,
   currentStage,
+  opportunityStatus,
   askAmount,
   askDate,
   expectedDate,
@@ -267,6 +312,23 @@ export async function saveProspectOpportunity({
     if (!existing) {
       throw new Error("Linked opportunity could not be found.");
     }
+    const stageSource =
+      opportunityStatus ?? currentStage ?? existing.opportunity_status;
+    const nextStage = getOpportunityStageForStatus(
+      stageSource,
+      currentStage || existing.current_stage,
+    );
+    const nextOpportunityStatus = getOpportunityStatusForStage(nextStage);
+    const nextCloseDate =
+      nextOpportunityStatus === ACTIVE_OPPORTUNITY_STATUS
+        ? null
+        : existing.close_date || new Date().toISOString().slice(0, 10);
+    const nextClosedAmount =
+      nextOpportunityStatus === FUNDED_OPPORTUNITY_STATUS
+        ? askAmount ?? existing.closed_amount ?? existing.estimated_amount ?? 0
+        : nextOpportunityStatus === DECLINED_OPPORTUNITY_STATUS
+          ? 0
+          : null;
 
     const updatedRows = await sql`
       UPDATE prospect_opportunities
@@ -274,7 +336,8 @@ export async function saveProspectOpportunity({
         blackbaud_opportunity_id = COALESCE(${blackbaudOpportunityId}, blackbaud_opportunity_id),
         title = ${title || existing.title},
         purpose = ${purpose || existing.purpose},
-        current_stage = ${currentStage || existing.current_stage},
+        current_stage = ${nextStage},
+        opportunity_status = ${nextOpportunityStatus},
         estimated_amount = ${askAmount ?? existing.estimated_amount},
         ask_date = ${askDate || existing.ask_date},
         expected_date = ${expectedDate || existing.expected_date},
@@ -287,12 +350,34 @@ export async function saveProspectOpportunity({
         shared_opportunity_key = ${sharedOpportunityKey || existing.shared_opportunity_key},
         last_submission_id = ${submissionId || existing.last_submission_id},
         constituent_id = ${constituentId || existing.constituent_id},
+        closed_amount = ${nextClosedAmount},
+        close_date = ${nextCloseDate},
+        decline_reason = CASE
+          WHEN ${nextOpportunityStatus} = ${DECLINED_OPPORTUNITY_STATUS}
+            THEN COALESCE(decline_reason, 'Declined')
+          ELSE NULL
+        END,
         updated_at = NOW()
       WHERE id = ${existing.id}
       RETURNING *
     `;
     opportunity = updatedRows[0] || null;
   } else {
+    const nextStage = getOpportunityStageForStatus(
+      opportunityStatus,
+      currentStage || "Identification",
+    );
+    const nextOpportunityStatus = getOpportunityStatusForStage(nextStage);
+    const nextCloseDate =
+      nextOpportunityStatus === ACTIVE_OPPORTUNITY_STATUS
+        ? null
+        : new Date().toISOString().slice(0, 10);
+    const nextClosedAmount =
+      nextOpportunityStatus === FUNDED_OPPORTUNITY_STATUS
+        ? askAmount ?? 0
+        : nextOpportunityStatus === DECLINED_OPPORTUNITY_STATUS
+          ? 0
+          : null;
     const defaultTitle =
       title?.trim() ||
       `${prospect.prospect_name} opportunity ${new Date().toLocaleDateString("en-US", {
@@ -322,8 +407,8 @@ export async function saveProspectOpportunity({
         ${blackbaudOpportunityId},
         ${defaultTitle},
         ${purpose?.trim() || null},
-        ${currentStage},
-        'Active',
+        ${nextStage},
+        ${nextOpportunityStatus},
         ${askAmount ?? null},
         ${askDate || null},
         ${expectedDate || null},
@@ -334,7 +419,25 @@ export async function saveProspectOpportunity({
       )
       RETURNING *
     `;
-    opportunity = insertedRows[0] || null;
+    if (nextCloseDate || nextClosedAmount != null) {
+      const closedRows = await sql`
+        UPDATE prospect_opportunities
+        SET
+          closed_amount = ${nextClosedAmount},
+          close_date = ${nextCloseDate},
+          decline_reason = CASE
+            WHEN ${nextOpportunityStatus} = ${DECLINED_OPPORTUNITY_STATUS}
+              THEN 'Declined'
+            ELSE NULL
+          END,
+          updated_at = NOW()
+        WHERE id = ${insertedRows[0]?.id || null}
+        RETURNING *
+      `;
+      opportunity = closedRows[0] || insertedRows[0] || null;
+    } else {
+      opportunity = insertedRows[0] || null;
+    }
   }
 
   await syncProspectAskAmount(prospect.id);
@@ -353,6 +456,7 @@ export async function syncJointSolicitationOpportunities({
   title,
   purpose,
   currentStage,
+  opportunityStatus,
   askAmount,
   askDate,
   expectedDate,
@@ -409,6 +513,7 @@ export async function syncJointSolicitationOpportunities({
       title,
       purpose,
       currentStage,
+      opportunityStatus,
       askAmount,
       askDate,
       expectedDate,

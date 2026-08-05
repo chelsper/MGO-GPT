@@ -9,6 +9,39 @@ const syncJointSolicitationOpportunitiesMock = vi.fn();
 const buildBlackbaudOpportunityPayloadMock = vi.fn();
 const createBlackbaudOpportunityMock = vi.fn();
 const updateBlackbaudOpportunityMock = vi.fn();
+const ACTIVE_OPPORTUNITY_STATUS = "Active";
+const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
+const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
+
+function normalizeOpportunityLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s*[–—-]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function getOpportunityStageForStatus(status, fallbackStage = "Identification") {
+  const normalized = normalizeOpportunityLabel(status);
+  if (normalized === "funded" || normalized === "closed - gift secured") {
+    return "Funded";
+  }
+  if (normalized === "declined" || normalized === "closed - declined") {
+    return "Declined";
+  }
+  return fallbackStage || "Identification";
+}
+
+function getOpportunityStatusForStage(stage) {
+  const normalized = normalizeOpportunityLabel(stage);
+  if (normalized === "funded" || normalized === "closed - gift secured") {
+    return FUNDED_OPPORTUNITY_STATUS;
+  }
+  if (normalized === "declined" || normalized === "closed - declined") {
+    return DECLINED_OPPORTUNITY_STATUS;
+  }
+  return ACTIVE_OPPORTUNITY_STATUS;
+}
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -36,6 +69,11 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 }));
 
 vi.mock("@/app/api/utils/prospectOpportunities", () => ({
+  ACTIVE_OPPORTUNITY_STATUS,
+  FUNDED_OPPORTUNITY_STATUS,
+  DECLINED_OPPORTUNITY_STATUS,
+  getOpportunityStageForStatus,
+  getOpportunityStatusForStage,
   saveProspectOpportunity: saveProspectOpportunityMock,
   syncJointSolicitationOpportunities: syncJointSolicitationOpportunitiesMock,
 }));
@@ -150,5 +188,58 @@ describe("opportunity update route", () => {
       }),
     );
     expect(sendSubmissionEmailMock).toHaveBeenCalled();
+  });
+
+  it("maps a funded opportunity update to NXT funded fields", async () => {
+    const { POST } = await import("./route.js");
+
+    createBlackbaudOpportunityMock.mockResolvedValue({ id: "bb-opp-900" });
+
+    queueSqlResult([
+      {
+        id: 1002,
+        donor_name: "Pat Prospect",
+        submission_type: "opportunity_update",
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 1002,
+        prospect_id: 901,
+        prospect_opportunity_id: 7002,
+      },
+    ]);
+
+    const response = await POST(
+      new Request("https://example.com/api/submissions/opportunity-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          donorName: "Pat Prospect",
+          opportunityTitle: "Leadership gift",
+          opportunityStage: "Funded",
+          askAmount: 25000,
+          blackbaudConstituentId: "227949",
+          linkedProspectId: 901,
+          createNewOpportunity: true,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(buildBlackbaudOpportunityPayloadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentStage: "Funded",
+        opportunityStatus: "Closed – Gift Secured",
+        closedAmount: 25000,
+      }),
+    );
+    expect(saveProspectOpportunityMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentStage: "Funded",
+        opportunityStatus: "Closed – Gift Secured",
+        askAmount: 25000,
+      }),
+    );
   });
 });

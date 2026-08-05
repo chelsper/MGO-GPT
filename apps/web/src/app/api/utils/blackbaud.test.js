@@ -84,4 +84,27 @@ describe("blackbaud action payload helpers", () => {
       expected_amount: { value: 50000 },
     });
   });
+
+  it("maps funded opportunities to NXT funded status and funded fields", () => {
+    const opportunityPayload = buildBlackbaudOpportunityPayload({
+      blackbaudConstituentId: "227949",
+      title: "Leadership Ask",
+      purpose: "Future. Made. Campaign",
+      currentStage: "Funded",
+      opportunityStatus: "Closed – Gift Secured",
+      estimatedAmount: 50000,
+      closedAmount: 55000,
+      closeDate: "2026-07-22",
+    });
+
+    expect(opportunityPayload).toMatchObject({
+      constituent_id: "227949",
+      name: "Leadership Ask",
+      purpose: "Future. Made. Campaign",
+      status: "Funded",
+      expected_amount: { value: 50000 },
+      funded_amount: { value: 55000 },
+      funded_date: "2026-07-22T00:00:00Z",
+    });
+  });
 });
