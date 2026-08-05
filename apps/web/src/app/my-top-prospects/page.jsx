@@ -18,6 +18,7 @@ import {
 import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -1666,6 +1667,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const [opportunityEditData, setOpportunityEditData] = useState({});
   const [opportunityEditError, setOpportunityEditError] = useState("");
   const [opportunityEditFeedback, setOpportunityEditFeedback] = useState("");
+  const [giftLinkPrompt, setGiftLinkPrompt] = useState(null);
   const [stewardshipDrafts, setStewardshipDrafts] = useState({});
   const [stewardshipErrors, setStewardshipErrors] = useState({});
   const [stewardshipFeedback, setStewardshipFeedback] = useState({});
@@ -1902,11 +1904,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       }
       return payload;
     },
-    onSuccess: () => {
+    onSuccess: (payload) => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      promptGiftLinkIfFunded(payload);
       setNewOpportunityData({
         title: "",
         currentStage: "Identification",
@@ -2031,7 +2034,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       }
       return payload;
     },
-    onSuccess: (payload) => {
+    onSuccess: (payload, variables) => {
       queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
@@ -2045,6 +2048,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
           ? "Saved and updated in NXT."
           : "Saved locally.",
       );
+      promptGiftLinkIfFunded(payload, variables?.previousStatus);
     },
     onError: (error) => {
       setOpportunityEditError(
@@ -2185,6 +2189,35 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     mgoUsers.find((option) => String(option.id) === String(prospect?.user_id || ""))?.name ||
     blackbaudAssignments[0]?.fundraiserName ||
     "Current dashboard owner";
+
+  function getProspectBlackbaudConstituentId() {
+    return (
+      prospect?.linked_blackbaud_constituent_id ||
+      prospect?.blackbaud_constituent_id ||
+      blackbaudConstituent?.id ||
+      null
+    );
+  }
+
+  function promptGiftLinkIfFunded(opportunity, previousStatus = null) {
+    if (!opportunity?.id) return false;
+    const nextStatus = getOpportunityDisplayStatus(opportunity);
+    if (nextStatus !== "Funded" || previousStatus === "Funded") {
+      return false;
+    }
+
+    const blackbaudConstituentId = getProspectBlackbaudConstituentId();
+    if (!blackbaudConstituentId) {
+      return false;
+    }
+
+    setGiftLinkPrompt({
+      opportunityId: opportunity.id,
+      constituentId: blackbaudConstituentId,
+      opportunityTitle: opportunity.title || "this funded opportunity",
+    });
+    return true;
+  }
 
   const primaryPendingAction =
     pendingActions.find((item) => item.status === "Open" && item.is_primary) ||
@@ -2349,9 +2382,15 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
 
   const saveOpportunityEdit = () => {
     if (!editingOpportunityId) return;
+    const existingOpportunity = opportunities.find(
+      (opportunity) => String(opportunity.id) === String(editingOpportunityId),
+    );
     setOpportunityEditError("");
     updateOpportunityMutation.mutate({
       opportunityId: editingOpportunityId,
+      previousStatus: existingOpportunity
+        ? getOpportunityDisplayStatus(existingOpportunity)
+        : null,
       body: {
         title: opportunityEditData.title,
         currentStage: opportunityEditData.currentStage,
@@ -2942,6 +2981,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   };
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -5972,6 +6012,65 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                               : null}
                           </div>
                         ) : null}
+                        {Array.isArray(opportunity.linked_gifts) &&
+                        opportunity.linked_gifts.length > 0 ? (
+                          <div
+                            style={{
+                              margin: "8px 0",
+                              padding: "10px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid #A7F3D0",
+                              backgroundColor: "#F0FDF4",
+                              color: "#166534",
+                              fontSize: "12px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            <div style={{ fontWeight: "800", marginBottom: "4px" }}>
+                              Linked gifts in JUMGOGPT
+                            </div>
+                            {opportunity.linked_gifts.map((giftLink) => (
+                              <div key={giftLink.id || giftLink.blackbaud_gift_id}>
+                                {formatLongDate(giftLink.gift_date) || "Gift date unavailable"}
+                                {" · "}
+                                {formatCurrency(giftLink.gift_amount)}
+                                {giftLink.gift_type ? ` · ${giftLink.gift_type}` : ""}
+                                {giftLink.gift_fund ? ` · ${giftLink.gift_fund}` : ""}
+                                {giftLink.nxt_sync_state === "manual_required"
+                                  ? " · NXT link needs manual review"
+                                  : ""}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        {isFundedOpportunity(opportunity) &&
+                        !readOnly &&
+                        getProspectBlackbaudConstituentId() ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGiftLinkPrompt({
+                                opportunityId: opportunity.id,
+                                constituentId: getProspectBlackbaudConstituentId(),
+                                opportunityTitle:
+                                  opportunity.title || "this funded opportunity",
+                              })
+                            }
+                            style={{
+                              marginBottom: "8px",
+                              padding: "7px 12px",
+                              borderRadius: "999px",
+                              border: "1px solid #86EFAC",
+                              backgroundColor: "white",
+                              color: "#166534",
+                              fontSize: "12px",
+                              fontWeight: "800",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Link recent gift
+                          </button>
+                        ) : null}
                         {isDeclinedOpportunity(opportunity) &&
                         (opportunity.decline_reason || opportunity.close_date) ? (
                           <div
@@ -6582,6 +6681,22 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
         </div>
       </div>
     </div>
+    {giftLinkPrompt ? (
+      <OpportunityGiftLinkModal
+        opportunityId={giftLinkPrompt.opportunityId}
+        constituentId={giftLinkPrompt.constituentId}
+        opportunityTitle={giftLinkPrompt.opportunityTitle}
+        onClose={() => setGiftLinkPrompt(null)}
+        onSaved={() => {
+          setGiftLinkPrompt(null);
+          setOpportunityEditFeedback(
+            "Gift link saved in JUMGOGPT. NXT linking still requires manual review.",
+          );
+          queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 

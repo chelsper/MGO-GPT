@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, MessageSquare, Mic } from "lucide-react";
 import useUser from "@/utils/useUser";
+import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 
 const UPDATE_MODES = [
   {
@@ -372,6 +373,7 @@ export default function ActionOpportunityUpdatePage() {
   const [discussionAssignedUserId, setDiscussionAssignedUserId] = useState("");
   const [discussionFeedback, setDiscussionFeedback] = useState(null);
   const [teamDiscussionOpen, setTeamDiscussionOpen] = useState(false);
+  const [giftLinkPrompt, setGiftLinkPrompt] = useState(null);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const recordedAudioChunksRef = useRef([]);
@@ -1547,6 +1549,45 @@ export default function ActionOpportunityUpdatePage() {
     }, 650);
   }
 
+  function buildFundedGiftLinkPrompt(data, payload) {
+    if (!payload?.includeOpportunity || !data?.opportunity || data?.opportunityError) {
+      return null;
+    }
+
+    const savedOpportunityId =
+      data.opportunity.prospectOpportunityId ||
+      data.opportunity.prospect_opportunity_id ||
+      null;
+    const blackbaudConstituentId =
+      data.opportunity.blackbaudConstituentId ||
+      payload.opportunityBody?.blackbaudConstituentId ||
+      null;
+    const opportunityForStatus = {
+      current_stage:
+        data.opportunity.currentStage || payload.opportunityBody?.opportunityStage,
+      opportunity_status:
+        data.opportunity.opportunityStatus || data.opportunity.opportunity_status,
+      closed_amount: data.opportunity.closed_amount ?? null,
+    };
+
+    if (
+      !savedOpportunityId ||
+      !blackbaudConstituentId ||
+      getOpportunityDisplayStatus(opportunityForStatus) !== "Funded"
+    ) {
+      return null;
+    }
+
+    return {
+      opportunityId: savedOpportunityId,
+      constituentId: blackbaudConstituentId,
+      opportunityTitle:
+        data.opportunity.title ||
+        payload.opportunityBody?.opportunityTitle ||
+        "this funded opportunity",
+    };
+  }
+
   const submitMutation = useMutation({
     mutationFn: async (payload) => {
       const results = {};
@@ -1733,6 +1774,14 @@ export default function ActionOpportunityUpdatePage() {
       ].filter(Boolean);
       const savedAction = Boolean(data?.action && !data?.actionError);
       const savedOpportunity = Boolean(data?.opportunity && !data?.opportunityError);
+      const fundedGiftLinkPrompt = buildFundedGiftLinkPrompt(data, payload);
+      const finishSuccessfulSubmit = () => {
+        if (fundedGiftLinkPrompt) {
+          setGiftLinkPrompt(fundedGiftLinkPrompt);
+        } else {
+          navigateAfterSuccessfulSubmit();
+        }
+      };
       const successLabel =
         savedAction && savedOpportunity
           ? getSuccessLabel(updateMode)
@@ -1859,7 +1908,7 @@ export default function ActionOpportunityUpdatePage() {
         if (!response.ok) {
           setNextStepPrompt(null);
           if (!shouldHoldForOutlookFallback) {
-            navigateAfterSuccessfulSubmit();
+            finishSuccessfulSubmit();
           }
           return;
         }
@@ -1925,7 +1974,7 @@ export default function ActionOpportunityUpdatePage() {
           }
         }
         if (!shouldHoldForOutlookFallback) {
-          navigateAfterSuccessfulSubmit();
+          finishSuccessfulSubmit();
         }
       } catch (prospectLookupError) {
         console.error("Prospect lookup error:", prospectLookupError);
@@ -1953,7 +2002,7 @@ export default function ActionOpportunityUpdatePage() {
           }
         }
         if (!shouldHoldForOutlookFallback) {
-          navigateAfterSuccessfulSubmit();
+          finishSuccessfulSubmit();
         }
       }
     },
@@ -2010,6 +2059,7 @@ export default function ActionOpportunityUpdatePage() {
     setNextStepError("");
     setDiscussionFeedback(null);
     setOutlookFallbackUrl("");
+    setGiftLinkPrompt(null);
 
     if (!donorName.trim()) {
       setError("Please enter a donor name.");
@@ -4609,6 +4659,26 @@ export default function ActionOpportunityUpdatePage() {
           </div>
         </form>
       </main>
+      {giftLinkPrompt ? (
+        <OpportunityGiftLinkModal
+          opportunityId={giftLinkPrompt.opportunityId}
+          constituentId={giftLinkPrompt.constituentId}
+          opportunityTitle={giftLinkPrompt.opportunityTitle}
+          onClose={() => {
+            setGiftLinkPrompt(null);
+            navigateAfterSuccessfulSubmit();
+          }}
+          onSaved={() => {
+            setGiftLinkPrompt(null);
+            setToast({
+              tone: "success",
+              message:
+                "Gift link saved in JUMGOGPT. NXT linking still requires manual review.",
+            });
+            navigateAfterSuccessfulSubmit();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

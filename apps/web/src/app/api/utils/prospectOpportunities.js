@@ -84,13 +84,35 @@ export async function getProspectOpportunities(prospectId) {
   await ensureAppSchema();
 
   return sql`
-    SELECT *
-    FROM prospect_opportunities
-    WHERE prospect_id = ${prospectId}
+    SELECT
+      po.*,
+      COALESCE(gift_links.linked_gifts, '[]'::json) AS linked_gifts
+    FROM prospect_opportunities po
+    LEFT JOIN LATERAL (
+      SELECT json_agg(
+        json_build_object(
+          'id', pogl.id,
+          'blackbaud_gift_id', pogl.blackbaud_gift_id,
+          'gift_date', pogl.gift_date,
+          'gift_amount', pogl.gift_amount,
+          'gift_type', pogl.gift_type,
+          'gift_fund', pogl.gift_fund,
+          'applied_amount', pogl.applied_amount,
+          'nxt_sync_state', pogl.nxt_sync_state,
+          'nxt_sync_error', pogl.nxt_sync_error,
+          'created_at', pogl.created_at,
+          'updated_at', pogl.updated_at
+        )
+        ORDER BY pogl.gift_date DESC NULLS LAST, pogl.created_at DESC
+      ) AS linked_gifts
+      FROM prospect_opportunity_gift_links pogl
+      WHERE pogl.prospect_opportunity_id = po.id
+    ) gift_links ON true
+    WHERE po.prospect_id = ${prospectId}
     ORDER BY
-      CASE WHEN opportunity_status = 'Active' THEN 0 ELSE 1 END,
-      updated_at DESC,
-      created_at DESC
+      CASE WHEN po.opportunity_status = 'Active' THEN 0 ELSE 1 END,
+      po.updated_at DESC,
+      po.created_at DESC
   `;
 }
 

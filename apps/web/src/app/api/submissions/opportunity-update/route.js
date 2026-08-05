@@ -287,6 +287,11 @@ export async function POST(request) {
     return Response.json(
       {
         ...savedSubmission,
+        prospectOpportunityId: savedSubmission.prospect_opportunity_id || null,
+        blackbaudConstituentId: linkedBlackbaudConstituentId || null,
+        currentStage: resolvedOpportunityStage,
+        opportunityStatus: resolvedOpportunityStatus,
+        title: opportunityTitle || null,
         blackbaudSync: blackbaudSync || { status: "local-only" },
       },
       { status: 201 },

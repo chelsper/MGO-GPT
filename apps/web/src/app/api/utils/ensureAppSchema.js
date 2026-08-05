@@ -988,6 +988,67 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS prospect_opportunity_gift_links (
+        id BIGSERIAL PRIMARY KEY,
+        prospect_opportunity_id BIGINT NOT NULL REFERENCES prospect_opportunities(id) ON DELETE CASCADE,
+        blackbaud_opportunity_id TEXT,
+        constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL,
+        blackbaud_gift_id TEXT NOT NULL,
+        gift_date DATE,
+        gift_amount NUMERIC,
+        gift_type TEXT,
+        gift_fund TEXT,
+        applied_amount NUMERIC,
+        nxt_sync_state TEXT NOT NULL DEFAULT 'manual_required',
+        nxt_sync_error TEXT,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (prospect_opportunity_id, blackbaud_gift_id)
+      )
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS blackbaud_opportunity_id TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS constituent_id BIGINT REFERENCES constituents(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS gift_date DATE
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS gift_amount NUMERIC
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS gift_type TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS gift_fund TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS applied_amount NUMERIC
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS nxt_sync_state TEXT NOT NULL DEFAULT 'manual_required'
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS nxt_sync_error TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunity_gift_links
+      ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+
+    await sql`
       UPDATE prospect_opportunities
       SET title = COALESCE(NULLIF(title, ''), 'Untitled opportunity')
       WHERE title IS NULL OR title = ''
@@ -1240,6 +1301,14 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_prospect_close
       ON prospect_opportunities (prospect_id, close_date)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_opportunity_gift_links_opportunity
+      ON prospect_opportunity_gift_links (prospect_opportunity_id, gift_date DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_opportunity_gift_links_gift
+      ON prospect_opportunity_gift_links (blackbaud_gift_id)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_prospect_updates_prospect_created
