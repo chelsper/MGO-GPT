@@ -999,7 +999,7 @@ function getDiscussionBadge(prospect) {
 
 function getOpportunityDisplayAmount(opportunity) {
   if (isFundedOpportunity(opportunity)) {
-    return opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
+    return getOpportunityFundedDisplayAmount(opportunity);
   }
 
   if (isDeclinedOpportunity(opportunity)) {
@@ -1007,6 +1007,31 @@ function getOpportunityDisplayAmount(opportunity) {
   }
 
   return opportunity.estimated_amount ?? 0;
+}
+
+function getLinkedGiftTotal(opportunity = {}) {
+  if (!Array.isArray(opportunity.linked_gifts) || opportunity.linked_gifts.length === 0) {
+    return null;
+  }
+
+  let hasGiftAmount = false;
+  const total = opportunity.linked_gifts.reduce((sum, giftLink) => {
+    const amount = Number(giftLink?.gift_amount);
+    if (!Number.isFinite(amount)) return sum;
+    hasGiftAmount = true;
+    return sum + amount;
+  }, 0);
+
+  return hasGiftAmount ? total : null;
+}
+
+function hasOpportunityFundedAmount(opportunity = {}) {
+  return getLinkedGiftTotal(opportunity) != null || opportunity.closed_amount != null;
+}
+
+function getOpportunityFundedDisplayAmount(opportunity = {}) {
+  const linkedGiftTotal = getLinkedGiftTotal(opportunity);
+  return linkedGiftTotal ?? opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
 }
 
 function AddProspectModal({ onClose, onSubmit, isPending, errorMessage = "", initialData = null }) {
@@ -5990,7 +6015,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                           </p>
                         ) : null}
                         {isFundedOpportunity(opportunity) &&
-                        (opportunity.closed_amount != null || opportunity.close_date) ? (
+                        (hasOpportunityFundedAmount(opportunity) || opportunity.close_date) ? (
                           <div
                             style={{
                               fontSize: "12px",
@@ -5999,10 +6024,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                               lineHeight: 1.5,
                             }}
                           >
-                            {opportunity.closed_amount != null
-                              ? `Amount Funded ${formatCurrency(opportunity.closed_amount)}`
+                            {hasOpportunityFundedAmount(opportunity)
+                              ? `Amount Funded ${formatCurrency(getOpportunityFundedDisplayAmount(opportunity))}`
                               : null}
-                            {opportunity.closed_amount != null && opportunity.close_date ? " · " : ""}
+                            {hasOpportunityFundedAmount(opportunity) && opportunity.close_date ? " · " : ""}
                             {opportunity.close_date
                               ? `Funded ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
                                   month: "long",
