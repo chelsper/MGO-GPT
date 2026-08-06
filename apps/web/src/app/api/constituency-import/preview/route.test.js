@@ -171,6 +171,45 @@ describe("constituency import preview route", () => {
     ]);
   });
 
+  it("can add a constituency without applying hierarchy order", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "235",
+      lookupId: "A235",
+      name: "Jordan Dolphin",
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [{ description: "Friend" }],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            Name: "Jordan Dolphin",
+            "NXT ID": "235",
+            "New Constituency": "Alumni - Bachelor's Degree",
+          },
+        ],
+        mappings: {
+          constituentName: "Name",
+          blackbaudConstituentId: "NXT ID",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add", useHierarchy: false },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].proposedCodes).toEqual([
+      "Friend",
+      "Alumni - Bachelor's Degree",
+    ]);
+    expect(payload.rows[0].reasons.join(" ")).toContain("without re-sorting");
+  });
+
   it("keeps email and name matches in review", async () => {
     const { POST } = await import("./route.js");
     searchBlackbaudConstituentsMock.mockResolvedValue([

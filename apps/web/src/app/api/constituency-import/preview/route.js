@@ -155,7 +155,7 @@ function makeCode(label, input) {
     id: null,
     label,
     startDate: input.startDate || null,
-    endDate: null,
+    endDate: input.endDate || null,
     raw: null,
   };
 }
@@ -165,10 +165,11 @@ function sameLabelOrder(left, right) {
   return left.every((item, index) => labelsMatch(item.label, right[index]?.label));
 }
 
-export function previewConstituencyChange(input, currentCodes) {
+export function previewConstituencyChange(input, currentCodes, options = {}) {
   const source = cleanText(input.sourceConstituency);
   const target = cleanText(input.targetConstituency);
   const action = normalizeAction(input.action);
+  const useHierarchy = options.useHierarchy !== false;
   const reasons = [];
   const labels = currentCodes.map((code) => code.label).filter(Boolean);
 
@@ -187,12 +188,13 @@ export function previewConstituencyChange(input, currentCodes) {
         proposedCodes: labels,
       };
     }
+    const proposed = [...currentCodes, makeCode(target, input)];
     return {
       status: STATUS.ready,
-      reasons,
-      proposedCodes: sortByHierarchy([...currentCodes, makeCode(target, input)]).map(
-        (code) => code.label,
-      ),
+      reasons: useHierarchy
+        ? reasons
+        : ["Would append the new constituency without re-sorting by hierarchy."],
+      proposedCodes: (useHierarchy ? sortByHierarchy(proposed) : proposed).map((code) => code.label),
     };
   }
 
@@ -469,6 +471,7 @@ export async function POST(request) {
     const rowsToPreview = inputRows.slice(0, MAX_PREVIEW_ROWS);
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
+    const useHierarchy = defaults.useHierarchy !== false;
     const origin = new URL(request.url).origin;
     const authUserId = isActing ? sessionUser?.id : user.id;
 
@@ -511,7 +514,7 @@ export async function POST(request) {
         }
       }
 
-      const changePreview = previewConstituencyChange(input, currentCodes);
+      const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
       const reasons = [
         ...matchResult.notes,
         ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),

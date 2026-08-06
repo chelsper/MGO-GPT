@@ -66,29 +66,22 @@ const IMPORT_FIELDS = [
     header: "New Constituent Code",
     label: "New Constituent Code",
     group: "Constituent code fields",
-    description: "The constituent code to add or replace with.",
+    description: "The constituent code to add or replace with. Choose the behavior below this field.",
     recommended: true,
   },
   {
-    key: "action",
-    header: "Constituent Code Action",
-    label: "Constituent Code Action",
-    group: "Constituent code fields",
-    description: "Optional row-level override: add, replace, end-date, or reorder.",
-  },
-  {
     key: "startDate",
-    header: "Constituent Code Start Date",
-    label: "Constituent Code Start Date",
+    header: "New Constituent Code Start Date",
+    label: "New Constituent Code Start Date",
     group: "Date fields",
-    description: "Optional start date for the new constituent code.",
+    description: "Optional start date for the new constituent code. This can be blank.",
   },
   {
     key: "endDate",
-    header: "Constituent Code End Date",
-    label: "Constituent Code End Date",
+    header: "New Constituent Code End Date",
+    label: "New Constituent Code End Date",
     group: "Date fields",
-    description: "Optional end date for end-date actions.",
+    description: "Optional end date for the new constituent code. This can be blank.",
   },
 ];
 
@@ -101,7 +94,6 @@ const DEFAULT_ACTIVE_FIELDS = {
   email: true,
   sourceConstituency: false,
   targetConstituency: true,
-  action: false,
   startDate: true,
   endDate: false,
 };
@@ -113,26 +105,16 @@ const FIELD_GROUP_ORDER = [
   "Date fields",
 ];
 
-const CONSTITUENCY_BEHAVIORS = [
+const CONSTITUENCY_ACTIONS = [
   {
     value: "add",
-    label: "Add additional constituent code",
-    description: "Use this for imports where the person may not already have the code.",
+    label: "Add Additional",
+    description: "Add the new code while keeping any existing constituent codes.",
   },
   {
     value: "replace",
-    label: "Update/replace existing constituent code",
+    label: "Replace Existing",
     description: "Requires Current Constituent Code so the preview knows what would be replaced.",
-  },
-  {
-    value: "end-date",
-    label: "End-date existing constituent code",
-    description: "Requires Current Constituent Code; End Date is strongly recommended.",
-  },
-  {
-    value: "reorder",
-    label: "Reorder constituent codes by hierarchy only",
-    description: "No new code is required; this previews hierarchy cleanup.",
   },
 ];
 
@@ -156,8 +138,6 @@ function makeTemplateRows(fields) {
         return "Student";
       case "targetConstituency":
         return "Alumni - Bachelor's Degree";
-      case "action":
-        return "replace";
       case "startDate":
         return "2026-05-01";
       case "endDate":
@@ -184,8 +164,6 @@ function makeTemplateRows(fields) {
         return "";
       case "targetConstituency":
         return "Alumni - Graduate Degree";
-      case "action":
-        return "add";
       case "startDate":
         return "2026-05-01";
       case "endDate":
@@ -284,7 +262,8 @@ export default function ConstituencyImportPage() {
   const [profile, setProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
-  const [defaultAction, setDefaultAction] = useState("add");
+  const [constituencyAction, setConstituencyAction] = useState("add");
+  const [useHierarchy, setUseHierarchy] = useState(true);
   const [rawCsv, setRawCsv] = useState(() =>
     makeTemplateRows(IMPORT_FIELDS.filter((field) => DEFAULT_ACTIVE_FIELDS[field.key])),
   );
@@ -324,7 +303,7 @@ export default function ConstituencyImportPage() {
     rows.length > 0 &&
     mappedIdentityField &&
     missingHeaders.length === 0 &&
-    (activeFields.targetConstituency || defaultAction === "reorder");
+    activeFields.targetConstituency;
 
   useEffect(() => {
     if (loading) return;
@@ -377,6 +356,19 @@ export default function ConstituencyImportPage() {
     setPreview(null);
   }
 
+  function selectConstituencyAction(nextAction) {
+    setConstituencyAction(nextAction);
+    setActiveFields((current) => ({
+      ...current,
+      targetConstituency: true,
+      sourceConstituency: nextAction === "replace" ? true : current.sourceConstituency,
+    }));
+    if (nextAction !== "add") {
+      setUseHierarchy(true);
+    }
+    setPreview(null);
+  }
+
   function useTemplateCsv() {
     setRawCsv(makeTemplateRows(selectedFields));
   }
@@ -411,7 +403,7 @@ export default function ConstituencyImportPage() {
         body: JSON.stringify({
           rows,
           mappings,
-          defaults: { defaultAction },
+          defaults: { defaultAction: constituencyAction, useHierarchy },
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -446,7 +438,7 @@ export default function ConstituencyImportPage() {
         matchedName: row.match?.name || "",
         matchedLookupId: row.match?.lookupId || "",
         matchedSystemId: row.match?.blackbaudConstituentId || "",
-        action: row.input?.action || "",
+        action: row.input?.action || constituencyAction,
         sourceConstituency: row.input?.sourceConstituency || "",
         targetConstituency: row.input?.targetConstituency || "",
         currentCodes: renderList(row.currentCodes),
@@ -589,75 +581,11 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  1. Choose import fields and behavior
+                  1. Choose import fields
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                   Turn on only the NXT fields represented in your import. The CSV must use the
                   exact column headers shown on each active field.
-                </p>
-              </div>
-
-              <div
-                style={{
-                  border: "1px solid #C7D2FE",
-                  borderRadius: "16px",
-                  backgroundColor: "#EEF2FF",
-                  padding: "16px",
-                  display: "grid",
-                  gap: "10px",
-                }}
-              >
-                <label
-                  style={{
-                    display: "grid",
-                    gap: "6px",
-                    fontSize: "13px",
-                    fontWeight: 900,
-                    color: "#312E81",
-                  }}
-                >
-                  If the row matches an existing NXT record
-                  <select
-                    name="constituencyBehavior"
-                    value={defaultAction}
-                    onChange={(event) => {
-                      const nextAction = event.target.value;
-                      setDefaultAction(nextAction);
-                      setActiveFields((current) => ({
-                        ...current,
-                        sourceConstituency:
-                          nextAction === "replace" || nextAction === "end-date"
-                            ? true
-                            : current.sourceConstituency,
-                        targetConstituency:
-                          nextAction === "add" || nextAction === "replace"
-                            ? true
-                            : current.targetConstituency,
-                        endDate: nextAction === "end-date" ? true : current.endDate,
-                      }));
-                      setPreview(null);
-                    }}
-                    style={{
-                      border: "1px solid #A5B4FC",
-                      borderRadius: "12px",
-                      padding: "11px 12px",
-                      backgroundColor: "white",
-                      color: "#111827",
-                      fontWeight: 800,
-                    }}
-                  >
-                    {CONSTITUENCY_BEHAVIORS.map((behavior) => (
-                      <option key={behavior.value} value={behavior.value}>
-                        {behavior.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p style={{ margin: 0, color: "#4338CA", lineHeight: 1.45 }}>
-                  {
-                    CONSTITUENCY_BEHAVIORS.find((behavior) => behavior.value === defaultAction)
-                      ?.description
-                  }
                 </p>
               </div>
 
@@ -672,68 +600,195 @@ export default function ConstituencyImportPage() {
                       {groupFields.map((field) => {
                         const active = Boolean(activeFields[field.key]);
                         return (
-                          <button
-                            key={field.key}
-                            type="button"
-                            onClick={() => toggleField(field.key)}
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "auto 1fr",
-                              gap: "12px",
-                              textAlign: "left",
-                              border: active ? "2px solid #6D5DFB" : "1px solid #E5E7EB",
-                              borderRadius: "14px",
-                              padding: "13px",
-                              backgroundColor: active ? "#F5F3FF" : "white",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <span
-                              aria-hidden="true"
+                          <div key={field.key} style={{ display: "grid", gap: "8px" }}>
+                            <button
+                              type="button"
+                              onClick={() => toggleField(field.key)}
                               style={{
-                                width: "22px",
-                                height: "22px",
-                                borderRadius: "7px",
-                                border: active ? "2px solid #6D5DFB" : "2px solid #CBD5E1",
-                                backgroundColor: active ? "#6D5DFB" : "white",
-                                color: "white",
-                                display: "grid",
-                                placeItems: "center",
-                                fontSize: "14px",
-                                fontWeight: 900,
+                              display: "grid",
+                                gridTemplateColumns: "auto 1fr",
+                                gap: "12px",
+                                textAlign: "left",
+                                border: active ? "2px solid #6D5DFB" : "1px solid #E5E7EB",
+                                borderRadius: "14px",
+                                padding: "13px",
+                                backgroundColor: active ? "#F5F3FF" : "white",
+                                cursor: "pointer",
                               }}
                             >
-                              {active ? "✓" : ""}
-                            </span>
-                            <span>
                               <span
+                                aria-hidden="true"
                                 style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "8px",
-                                  flexWrap: "wrap",
-                                  color: "#111827",
+                                  width: "22px",
+                                  height: "22px",
+                                  borderRadius: "7px",
+                                  border: active ? "2px solid #6D5DFB" : "2px solid #CBD5E1",
+                                  backgroundColor: active ? "#6D5DFB" : "white",
+                                  color: "white",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  fontSize: "14px",
                                   fontWeight: 900,
                                 }}
                               >
-                                {field.label}
-                                {field.recommended ? <Pill tone="green">Recommended</Pill> : null}
+                                {active ? "✓" : ""}
                               </span>
-                              <span style={{ display: "block", marginTop: "6px" }}>
-                                CSV header: <HeaderCode>{field.header}</HeaderCode>
+                              <span>
+                                <span
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                    flexWrap: "wrap",
+                                    color: "#111827",
+                                    fontWeight: 900,
+                                  }}
+                                >
+                                  {field.label}
+                                  {field.recommended ? <Pill tone="green">Recommended</Pill> : null}
+                                </span>
+                                <span style={{ display: "block", marginTop: "6px" }}>
+                                  CSV header: <HeaderCode>{field.header}</HeaderCode>
+                                </span>
+                                <span
+                                  style={{
+                                    display: "block",
+                                    marginTop: "6px",
+                                    color: "#6B7280",
+                                    lineHeight: 1.45,
+                                  }}
+                                >
+                                  {field.description}
+                                </span>
                               </span>
-                              <span
+                            </button>
+                            {field.key === "targetConstituency" && active ? (
+                              <div
                                 style={{
-                                  display: "block",
-                                  marginTop: "6px",
-                                  color: "#6B7280",
-                                  lineHeight: 1.45,
+                                  border: "1px solid #C7D2FE",
+                                  borderRadius: "16px",
+                                  backgroundColor: "#EEF2FF",
+                                  padding: "14px",
+                                  display: "grid",
+                                  gap: "12px",
                                 }}
                               >
-                                {field.description}
-                              </span>
-                            </span>
-                          </button>
+                                <div>
+                                  <div
+                                    style={{
+                                      color: "#312E81",
+                                      fontSize: "13px",
+                                      fontWeight: 900,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.05em",
+                                    }}
+                                  >
+                                    New Constituent Code behavior
+                                  </div>
+                                  <p
+                                    style={{
+                                      margin: "5px 0 0",
+                                      color: "#4338CA",
+                                      lineHeight: 1.45,
+                                    }}
+                                  >
+                                    Choose what should happen when this row matches an existing NXT
+                                    record.
+                                  </p>
+                                </div>
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                                    gap: "10px",
+                                  }}
+                                >
+                                  {CONSTITUENCY_ACTIONS.map((action) => {
+                                    const selected = constituencyAction === action.value;
+                                    return (
+                                      <button
+                                        key={action.value}
+                                        type="button"
+                                        onClick={() => selectConstituencyAction(action.value)}
+                                        style={{
+                                          border: selected
+                                            ? "2px solid #6D5DFB"
+                                            : "1px solid #C7D2FE",
+                                          borderRadius: "14px",
+                                          backgroundColor: selected ? "white" : "#F8FAFC",
+                                          color: selected ? "#312E81" : "#475569",
+                                          padding: "12px",
+                                          textAlign: "left",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        <span style={{ display: "block", fontWeight: 900 }}>
+                                          {action.label}
+                                        </span>
+                                        <span
+                                          style={{
+                                            display: "block",
+                                            marginTop: "5px",
+                                            lineHeight: 1.4,
+                                          }}
+                                        >
+                                          {action.description}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {constituencyAction === "add" ? (
+                                  <label
+                                    style={{
+                                      display: "flex",
+                                      gap: "10px",
+                                      alignItems: "flex-start",
+                                      color: "#111827",
+                                      fontWeight: 800,
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      name="useConstituencyHierarchy"
+                                      checked={useHierarchy}
+                                      onChange={(event) => {
+                                        setUseHierarchy(event.target.checked);
+                                        setPreview(null);
+                                      }}
+                                      style={{ marginTop: "4px" }}
+                                    />
+                                    <span>
+                                      Use hierarchy?
+                                      <span
+                                        style={{
+                                          display: "block",
+                                          marginTop: "3px",
+                                          color: "#6B7280",
+                                          fontWeight: 600,
+                                          lineHeight: 1.4,
+                                        }}
+                                      >
+                                        When enabled, the preview places the new code according to
+                                        the configured constituency hierarchy.
+                                      </span>
+                                    </span>
+                                  </label>
+                                ) : (
+                                  <p
+                                    style={{
+                                      margin: 0,
+                                      color: "#6B7280",
+                                      lineHeight: 1.45,
+                                    }}
+                                  >
+                                    Replace Existing automatically requires the Current Constituent
+                                    Code field so the preview can identify the code to replace.
+                                  </p>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
                         );
                       })}
                     </div>
@@ -827,9 +882,9 @@ export default function ConstituencyImportPage() {
                   ? "Identity fields active"
                   : "Activate ID, lookup, email, or first/last name"}
               </Pill>
-              <Pill tone={activeFields.targetConstituency || defaultAction === "reorder" ? "green" : "amber"}>
-                {activeFields.targetConstituency || defaultAction === "reorder"
-                  ? "Constituent code behavior set"
+              <Pill tone={activeFields.targetConstituency ? "green" : "amber"}>
+                {activeFields.targetConstituency
+                  ? `${constituencyAction === "add" ? "Add Additional" : "Replace Existing"} behavior set`
                   : "Activate New Constituent Code"}
               </Pill>
               <Pill tone={rows.length ? "green" : "amber"}>
@@ -1119,7 +1174,7 @@ export default function ConstituencyImportPage() {
                           Requested change
                         </div>
                         <div style={{ marginTop: "6px", color: "#111827", fontWeight: 800 }}>
-                          {row.input?.action || defaultAction}: {row.input?.sourceConstituency || "None"} to{" "}
+                          {row.input?.action || constituencyAction}: {row.input?.sourceConstituency || "None"} to{" "}
                           {row.input?.targetConstituency || "None"}
                         </div>
                       </div>
