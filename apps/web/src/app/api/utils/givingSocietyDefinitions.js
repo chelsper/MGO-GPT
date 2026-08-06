@@ -21,6 +21,11 @@ export const GIVING_SOCIETY_COUNT_SOURCE_OPTIONS = [
     label: "Committed giving",
     description: "Lifetime committed giving from Blackbaud's giving summary.",
   },
+  {
+    key: "planned_gift",
+    label: "Planned gift on record",
+    description: "Qualifies when the constituent has a Planned Gift as hard credit or recognition/soft credit.",
+  },
 ];
 
 export const DEFAULT_GIVING_SOCIETY_CONFIGURATIONS = [
@@ -60,6 +65,10 @@ const COUNT_SOURCE_ALIASES = {
   received_revenue: "received_revenue",
   revenue: "received_revenue",
   committed: "committed",
+  planned: "planned_gift",
+  planned_gift: "planned_gift",
+  planned_giving: "planned_gift",
+  plannedgift: "planned_gift",
 };
 
 function toFiniteAmount(value, fallback = null) {

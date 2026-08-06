@@ -20,6 +20,11 @@ const RECEIVED_REVENUE_GIFT_TYPE_TOKENS = new Set([
   "stock",
 ]);
 
+const PLANNED_GIFT_TYPE_TOKENS = new Set([
+  "plannedgift",
+  "plannedgiving",
+]);
+
 const EXCLUDED_GIFT_TYPE_TOKENS = new Set([
   "adjustment",
   "eventregistrationfee",
@@ -38,12 +43,14 @@ export const ANNUAL_GIVING_SOCIETY_TIERS =
 const ANNUAL_SUPPORTED_COUNT_SOURCES = new Set([
   "received_revenue",
   "recognition_credit",
+  "planned_gift",
 ]);
 
 const LIFETIME_SUPPORTED_COUNT_SOURCES = new Set([
   "received_revenue",
   "recognition_credit",
   "committed",
+  "planned_gift",
 ]);
 
 function getNestedValue(source, path) {
@@ -140,6 +147,15 @@ function getEarliestAnnualStartDate(definitions, now) {
     .sort();
 
   return startDates[0] || `${now.getUTCFullYear()}-01-01`;
+}
+
+function needsFullGiftHistory(definitions) {
+  return definitions.some(
+    (definition) =>
+      definition.active !== false &&
+      definition.basis === "lifetime" &&
+      definition.countSources.includes("planned_gift"),
+  );
 }
 
 function getGiftDate(gift) {
@@ -269,6 +285,10 @@ function isReceivedRevenueGift(gift) {
   return amount != null && amount > 0;
 }
 
+function isPlannedGift(gift) {
+  return PLANNED_GIFT_TYPE_TOKENS.has(getGiftTypeToken(gift));
+}
+
 function getGiftConstituentId(gift) {
   return firstDefined(gift, [
     "constituent_id",
@@ -330,6 +350,25 @@ function constituentIdsMatch(left, right) {
   return String(left || "").trim() && String(left || "").trim() === String(right || "").trim();
 }
 
+function getGiftConstituentContext(gift, constituentId) {
+  const recognitionCredits = getRecognitionCreditRows(gift).filter((credit) =>
+    constituentIdsMatch(getRecognitionCreditConstituentId(credit), constituentId),
+  );
+  const directConstituentId = getGiftConstituentId(gift);
+  const directMatches = directConstituentId
+    ? constituentIdsMatch(directConstituentId, constituentId)
+    : recognitionCredits.length === 0;
+
+  return { recognitionCredits, directMatches };
+}
+
+function isPlannedGiftForConstituent(gift, constituentId, context = null) {
+  if (!isPlannedGift(gift)) return false;
+  const { recognitionCredits, directMatches } =
+    context || getGiftConstituentContext(gift, constituentId);
+  return directMatches || recognitionCredits.length > 0;
+}
+
 function sourceIsSupported(source, basis = "annual") {
   return basis === "lifetime"
     ? LIFETIME_SUPPORTED_COUNT_SOURCES.has(source)
@@ -340,6 +379,20 @@ function definitionMatchesTotal(definition, total) {
   if (total < definition.minimumAmount) return false;
   if (definition.maximumAmount == null) return true;
   return total <= definition.maximumAmount;
+}
+
+function definitionQualifies({ definition, supportedCountSources, qualifyingAmount, plannedGiftCount }) {
+  const amountSources = supportedCountSources.filter((source) => source !== "planned_gift");
+  const amountQualified =
+    amountSources.length > 0 && definitionMatchesTotal(definition, qualifyingAmount);
+  const plannedGiftQualified =
+    supportedCountSources.includes("planned_gift") && plannedGiftCount > 0;
+
+  return {
+    qualifies: amountQualified || plannedGiftQualified,
+    qualificationMode:
+      plannedGiftQualified && !amountQualified ? "planned_gift" : "amount",
+  };
 }
 
 function getDisplaySocietyResults(societyResults) {
@@ -363,24 +416,29 @@ function calculateGivingTotalsForWindow({
   let recognitionCreditTotal = 0;
   let receivedRevenueGiftCount = 0;
   let recognitionCreditGiftCount = 0;
+  let plannedGiftCount = 0;
   const countedGiftIds = new Set();
+  const countedPlannedGiftIds = new Set();
 
   for (const gift of gifts) {
-    if (!isReceivedRevenueGift(gift)) continue;
-
     const giftDate = getGiftDate(gift);
     const giftTime = giftDate ? new Date(giftDate).getTime() : Number.NaN;
     if (!Number.isFinite(giftTime) || giftTime < startTime || giftTime > endTime) {
       continue;
     }
 
-    const recognitionCredits = getRecognitionCreditRows(gift).filter((credit) =>
-      constituentIdsMatch(getRecognitionCreditConstituentId(credit), constituentId),
-    );
-    const directConstituentId = getGiftConstituentId(gift);
-    const directMatches = directConstituentId
-      ? constituentIdsMatch(directConstituentId, constituentId)
-      : recognitionCredits.length === 0;
+    const context = getGiftConstituentContext(gift, constituentId);
+    const { recognitionCredits, directMatches } = context;
+
+    if (isPlannedGiftForConstituent(gift, constituentId, context)) {
+      plannedGiftCount += 1;
+      if (gift?.id) {
+        countedGiftIds.add(String(gift.id));
+        countedPlannedGiftIds.add(String(gift.id));
+      }
+    }
+
+    if (!isReceivedRevenueGift(gift)) continue;
 
     if (directMatches) {
       const amount = toFiniteAmount(getGiftAmount(gift));
@@ -409,9 +467,29 @@ function calculateGivingTotalsForWindow({
   return {
     receivedRevenueTotal: Number(receivedRevenueTotal.toFixed(2)),
     recognitionCreditTotal: Number(recognitionCreditTotal.toFixed(2)),
-    qualifyingGiftCount: countedGiftIds.size || receivedRevenueGiftCount + recognitionCreditGiftCount,
+    qualifyingGiftCount:
+      countedGiftIds.size ||
+      receivedRevenueGiftCount + recognitionCreditGiftCount + plannedGiftCount,
     receivedRevenueGiftCount,
     recognitionCreditGiftCount,
+    plannedGiftCount,
+    plannedGiftIds: Array.from(countedPlannedGiftIds),
+  };
+}
+
+function calculatePlannedGiftPresence({ constituentId, gifts = [] } = {}) {
+  const plannedGiftIds = new Set();
+  let plannedGiftCount = 0;
+
+  for (const gift of gifts) {
+    if (!isPlannedGiftForConstituent(gift, constituentId)) continue;
+    plannedGiftCount += 1;
+    if (gift?.id) plannedGiftIds.add(String(gift.id));
+  }
+
+  return {
+    plannedGiftCount,
+    plannedGiftIds: Array.from(plannedGiftIds),
   };
 }
 
@@ -458,10 +536,13 @@ function calculateLifetimeGivingTotals(lifetimeGiving) {
 function calculateLifetimeGivingSocieties({
   societyDefinitions,
   lifetimeGiving,
+  gifts = [],
+  constituentId,
 } = {}) {
   const definitions = normalizeGivingSocietyConfigurations(societyDefinitions)
     .filter((definition) => definition.active !== false && definition.basis === "lifetime");
   const totals = calculateLifetimeGivingTotals(lifetimeGiving);
+  const plannedGiftPresence = calculatePlannedGiftPresence({ constituentId, gifts });
 
   const societyResults = definitions
     .map((definition) => {
@@ -483,7 +564,14 @@ function calculateLifetimeGivingSocieties({
         ).toFixed(2),
       );
 
-      if (!definitionMatchesTotal(definition, qualifyingAmount)) return null;
+      const { qualifies, qualificationMode } = definitionQualifies({
+        definition,
+        supportedCountSources,
+        qualifyingAmount,
+        plannedGiftCount: plannedGiftPresence.plannedGiftCount,
+      });
+
+      if (!qualifies) return null;
 
       return {
         key: definition.key,
@@ -504,6 +592,9 @@ function calculateLifetimeGivingSocieties({
         supportedCountSources,
         unsupportedCountSources,
         qualifyingAmount,
+        qualificationMode,
+        plannedGiftCount: plannedGiftPresence.plannedGiftCount,
+        plannedGiftIds: plannedGiftPresence.plannedGiftIds,
       };
     })
     .filter(Boolean)
@@ -544,6 +635,8 @@ export function calculateAnnualGivingSocieties({
   const lifetimeSummary = calculateLifetimeGivingSocieties({
     societyDefinitions: definitions,
     lifetimeGiving,
+    gifts,
+    constituentId,
   });
   const totalsByWindow = new Map();
 
@@ -579,7 +672,14 @@ export function calculateAnnualGivingSocieties({
         ).toFixed(2),
       );
 
-      if (!definitionMatchesTotal(definition, qualifyingAmount)) return null;
+      const { qualifies, qualificationMode } = definitionQualifies({
+        definition,
+        supportedCountSources,
+        qualifyingAmount,
+        plannedGiftCount: totals.plannedGiftCount,
+      });
+
+      if (!qualifies) return null;
 
       return {
         key: definition.key,
@@ -600,6 +700,9 @@ export function calculateAnnualGivingSocieties({
         supportedCountSources,
         unsupportedCountSources,
         qualifyingAmount,
+        qualificationMode,
+        plannedGiftCount: totals.plannedGiftCount,
+        plannedGiftIds: totals.plannedGiftIds,
       };
     })
     .filter(Boolean)
@@ -657,6 +760,8 @@ export function calculateAnnualGivingSocieties({
     qualifyingGiftCount: primaryTotals.qualifyingGiftCount,
     receivedRevenueGiftCount: primaryTotals.receivedRevenueGiftCount,
     recognitionCreditGiftCount: primaryTotals.recognitionCreditGiftCount,
+    plannedGiftCount: primaryTotals.plannedGiftCount,
+    plannedGiftIds: primaryTotals.plannedGiftIds,
     primarySociety,
     primaryAnnualSociety: primarySociety,
     primaryLifetimeSociety: lifetimeSummary.primarySociety,
@@ -695,16 +800,21 @@ export async function fetchAnnualGivingSocieties({
 
   const definitions = normalizeGivingSocietyConfigurations(societyDefinitions);
   const startGiftDate = getEarliestAnnualStartDate(definitions, now);
+  const giftSearchParams = {
+    constituent_id: String(constituentId),
+    ...(needsFullGiftHistory(definitions)
+      ? {}
+      : {
+          start_gift_date: startGiftDate,
+          end_gift_date: formatDateOnly(now),
+        }),
+  };
   const [gifts, resolvedLifetimeGiving] = await Promise.all([
     listGifts({
       userId,
       authUserId,
       origin,
-      searchParams: {
-        constituent_id: String(constituentId),
-        start_gift_date: startGiftDate,
-        end_gift_date: formatDateOnly(now),
-      },
+      searchParams: giftSearchParams,
       pageLimit: 500,
       maxPages: 20,
     }),

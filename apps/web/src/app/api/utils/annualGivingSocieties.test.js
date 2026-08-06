@@ -235,6 +235,97 @@ describe("annual giving societies", () => {
     expect(summary.lifetimeGiving.committedTotal).toBe(1000000);
   });
 
+  it("qualifies planned gift societies from hard or recognition credit without using amount", () => {
+    const summary = calculateAnnualGivingSocieties({
+      constituentId: "123",
+      now: NOW,
+      societyDefinitions: [
+        {
+          key: "legacy_society",
+          name: "Legacy Society",
+          basis: "lifetime",
+          periodBasis: "lifetime",
+          minimumAmount: 0,
+          maximumAmount: null,
+          countSources: ["planned_gift"],
+          active: true,
+          displayOrder: 1,
+        },
+      ],
+      gifts: [
+        gift({
+          id: "planned-hard",
+          gift_type: "Planned Gift",
+          amount: 0,
+          date: "2020-01-01T00:00:00.000Z",
+        }),
+        gift({
+          id: "planned-soft",
+          constituent_id: "999",
+          gift_type: "Planned Gift",
+          amount: 0,
+          date: "2019-01-01T00:00:00.000Z",
+          soft_credits: [
+            {
+              constituent_id: "123",
+              amount: { value: 0 },
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(summary.primaryLifetimeSociety?.label).toBe("Legacy Society");
+    expect(summary.primaryLifetimeSociety?.qualificationMode).toBe("planned_gift");
+    expect(summary.primaryLifetimeSociety?.plannedGiftCount).toBe(2);
+    expect(summary.primaryLifetimeSociety?.plannedGiftIds).toEqual([
+      "planned-hard",
+      "planned-soft",
+    ]);
+  });
+
+  it("fetches full gift history when a lifetime planned gift society is configured", async () => {
+    const listGifts = vi.fn(async () => [
+      gift({
+        id: "old-planned",
+        gift_type: "Planned Gift",
+        amount: 0,
+        date: "2018-01-01T00:00:00.000Z",
+      }),
+    ]);
+
+    const summary = await fetchAnnualGivingSocieties({
+      listGifts,
+      userId: "user-1",
+      authUserId: "auth-1",
+      origin: "https://www.jumgogpt.app",
+      constituentId: "123",
+      now: NOW,
+      societyDefinitions: [
+        {
+          key: "legacy_society",
+          name: "Legacy Society",
+          basis: "lifetime",
+          periodBasis: "lifetime",
+          minimumAmount: 0,
+          maximumAmount: null,
+          countSources: ["planned_gift"],
+          active: true,
+          displayOrder: 1,
+        },
+      ],
+    });
+
+    expect(listGifts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        searchParams: {
+          constituent_id: "123",
+        },
+      }),
+    );
+    expect(summary.primaryLifetimeSociety?.label).toBe("Legacy Society");
+  });
+
   it("keeps lower annual societies hidden unless they are configured to display alongside", () => {
     const gifts = [gift({ amount: 12000 })];
     const baseDefinitions = [

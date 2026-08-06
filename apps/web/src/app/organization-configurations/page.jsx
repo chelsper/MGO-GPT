@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, GripVertical, Plus } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
@@ -142,6 +142,8 @@ export default function OrganizationConfigurationsPage() {
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [draggedSocietyKey, setDraggedSocietyKey] = useState("");
+  const [recentlyAddedSocietyKey, setRecentlyAddedSocietyKey] = useState("");
+  const societyRefs = useRef({});
 
   async function loadConfigurations() {
     const [profileResponse, configResponse] = await Promise.all([
@@ -227,6 +229,13 @@ export default function OrganizationConfigurationsPage() {
     [societies],
   );
 
+  useEffect(() => {
+    if (!recentlyAddedSocietyKey) return;
+    const node = societyRefs.current[recentlyAddedSocietyKey];
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [recentlyAddedSocietyKey, societiesByBasis]);
+
   function orderSocietiesForDisplay(items) {
     const basisOrder = { annual: 0, lifetime: 1 };
     return [...items]
@@ -309,24 +318,55 @@ export default function OrganizationConfigurationsPage() {
     setDraggedSocietyKey("");
   }
 
-  function addSociety() {
-    setSocieties((current) => [
-      ...current,
-      normalizeSocietyForForm(
-        {
-          key: `giving_society_${Date.now()}`,
-          name: "New Giving Society",
-          basis: "annual",
-          periodBasis: "calendar_year",
-          minimumAmount: 0,
-          maximumAmount: "",
-          active: true,
-          displayAlongside: false,
-          countSources: ["received_revenue", "recognition_credit"],
-        },
-        current.length,
+  function addSociety(basis = "annual") {
+    const key = `giving_society_${Date.now()}`;
+    const periodBasis = basis === "lifetime" ? "lifetime" : "calendar_year";
+    const label = basis === "lifetime" ? "lifetime" : "annual";
+    setSocieties((current) =>
+      orderSocietiesForDisplay([
+        ...current,
+        normalizeSocietyForForm(
+          {
+            key,
+            name: "New Giving Society",
+            basis,
+            periodBasis,
+            minimumAmount: 0,
+            maximumAmount: "",
+            active: true,
+            displayAlongside: false,
+            countSources:
+              basis === "lifetime"
+                ? ["committed"]
+                : ["received_revenue", "recognition_credit"],
+          },
+          current.length,
+        ),
+      ]),
+    );
+    setRecentlyAddedSocietyKey(key);
+    setStatusMessage(
+      `New ${label} society added below. Configure it, then save changes.`,
+    );
+  }
+
+  function deleteSociety(index) {
+    const society = societies[index];
+    if (!society || societies.length <= 1) return;
+    const confirmed = window.confirm(
+      `Delete ${society.name}? This removes the configuration after you save changes.`,
+    );
+    if (!confirmed) return;
+
+    setSocieties((current) =>
+      orderSocietiesForDisplay(
+        current.filter((_, societyIndex) => societyIndex !== index),
       ),
-    ]);
+    );
+    if (recentlyAddedSocietyKey === society.key) {
+      setRecentlyAddedSocietyKey("");
+    }
+    setStatusMessage(`${society.name} removed. Save configurations to make this permanent.`);
   }
 
   function toggleCountSource(index, sourceKey) {
@@ -380,6 +420,7 @@ export default function OrganizationConfigurationsPage() {
       }
 
       setSocieties((data.societies || []).map(normalizeSocietyForForm));
+      setRecentlyAddedSocietyKey("");
       setStatusMessage("Giving society configuration saved.");
     } catch (err) {
       console.error(err);
@@ -505,25 +546,46 @@ export default function OrganizationConfigurationsPage() {
                 recognition in the same category.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={addSociety}
-              style={{
-                display: "inline-flex",
-                gap: "8px",
-                alignItems: "center",
-                border: "1px solid #C7D2FE",
-                background: "#EEF2FF",
-                color: "#4338CA",
-                borderRadius: "999px",
-                padding: "12px 16px",
-                fontWeight: 900,
-                cursor: "pointer",
-              }}
-            >
-              <Plus size={18} />
-              Add Society
-            </button>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => addSociety("annual")}
+                style={{
+                  display: "inline-flex",
+                  gap: "8px",
+                  alignItems: "center",
+                  border: "1px solid #C7D2FE",
+                  background: "#EEF2FF",
+                  color: "#4338CA",
+                  borderRadius: "999px",
+                  padding: "12px 16px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={18} />
+                Add annual society
+              </button>
+              <button
+                type="button"
+                onClick={() => addSociety("lifetime")}
+                style={{
+                  display: "inline-flex",
+                  gap: "8px",
+                  alignItems: "center",
+                  border: "1px solid #93C5FD",
+                  background: "#EFF6FF",
+                  color: "#1D4ED8",
+                  borderRadius: "999px",
+                  padding: "12px 16px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={18} />
+                Add lifetime society
+              </button>
+            </div>
           </div>
 
           <div style={{ display: "grid", gap: "26px" }}>
@@ -569,9 +631,15 @@ export default function OrganizationConfigurationsPage() {
                     <div style={{ display: "grid", gap: "14px" }}>
                       {groupedSocieties.map(({ society, index }, groupIndex) => {
                         const isDragged = draggedSocietyKey === society.key;
+                        const isRecentlyAdded = recentlyAddedSocietyKey === society.key;
                         return (
                           <article
                             key={society.key || index}
+                            ref={(node) => {
+                              if (node && society.key) {
+                                societyRefs.current[society.key] = node;
+                              }
+                            }}
                             draggable
                             onDragStart={() => setDraggedSocietyKey(society.key)}
                             onDragEnd={() => setDraggedSocietyKey("")}
@@ -580,10 +648,19 @@ export default function OrganizationConfigurationsPage() {
                             style={{
                               border: isDragged
                                 ? "2px solid #6D5DFB"
-                                : "1px solid #E5E7EB",
+                                : isRecentlyAdded
+                                  ? "2px solid #22C55E"
+                                  : "1px solid #E5E7EB",
                               borderRadius: "18px",
                               padding: "22px",
-                              background: society.active ? "#FFFFFF" : "#F9FAFB",
+                              background: isRecentlyAdded
+                                ? "#F0FDF4"
+                                : society.active
+                                  ? "#FFFFFF"
+                                  : "#F9FAFB",
+                              boxShadow: isRecentlyAdded
+                                ? "0 0 0 4px rgba(34, 197, 94, 0.12)"
+                                : "none",
                               opacity: isDragged ? 0.72 : 1,
                             }}
                           >
@@ -613,9 +690,33 @@ export default function OrganizationConfigurationsPage() {
                                     {group.key === "annual" ? "Annual" : "Lifetime"}{" "}
                                     Hierarchy {groupIndex + 1}
                                   </div>
-                                  <strong style={{ fontSize: "22px" }}>
-                                    {society.name}
-                                  </strong>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: "10px",
+                                      alignItems: "center",
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
+                                    <strong style={{ fontSize: "22px" }}>
+                                      {society.name}
+                                    </strong>
+                                    {isRecentlyAdded ? (
+                                      <span
+                                        style={{
+                                          border: "1px solid #86EFAC",
+                                          borderRadius: "999px",
+                                          background: "#DCFCE7",
+                                          color: "#166534",
+                                          fontSize: "12px",
+                                          fontWeight: 900,
+                                          padding: "5px 9px",
+                                        }}
+                                      >
+                                        New unsaved
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                               <div
@@ -684,6 +785,26 @@ export default function OrganizationConfigurationsPage() {
                                   }}
                                 >
                                   {society.active ? "Deactivate" : "Reactivate"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteSociety(index)}
+                                  disabled={societies.length <= 1}
+                                  style={{
+                                    border: "1px solid #FCA5A5",
+                                    borderRadius: "999px",
+                                    background: "#FFFFFF",
+                                    color: "#B91C1C",
+                                    padding: "9px 12px",
+                                    fontWeight: 900,
+                                    opacity: societies.length <= 1 ? 0.45 : 1,
+                                    cursor:
+                                      societies.length <= 1
+                                        ? "not-allowed"
+                                        : "pointer",
+                                  }}
+                                >
+                                  Delete
                                 </button>
                               </div>
                             </div>

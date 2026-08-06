@@ -74,6 +74,7 @@ export async function saveGivingSocietyConfigurations({
       displayOrder: index + 1,
     }),
   );
+  const retainedKeys = normalized.map((definition) => definition.key);
 
   for (const definition of normalized) {
     await sqlClient`
@@ -124,6 +125,11 @@ export async function saveGivingSocietyConfigurations({
         updated_at = NOW()
     `;
   }
+
+  await sqlClient`
+    DELETE FROM giving_society_configurations
+    WHERE NOT (key = ANY(${retainedKeys}))
+  `;
 
   return normalized;
 }

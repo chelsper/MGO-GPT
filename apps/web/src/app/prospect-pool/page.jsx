@@ -82,6 +82,7 @@ function formatSocietySource(source) {
     committed: "committed giving",
     received_revenue: "received revenue",
     recognition_credit: "recognition credit",
+    planned_gift: "planned gift on record",
   };
   return labels[source] || String(source || "").replace(/_/g, " ");
 }
@@ -100,11 +101,12 @@ function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
       {societies.map((society) => {
         const isLifetime = society.basis === "lifetime";
         const year = society.year || annualGivingSocieties?.year;
+        const sourceKeys = society.supportedCountSources || society.countSources || [];
+        const isPresenceBased = society.qualificationMode === "planned_gift";
         const total = society.qualifyingAmount ?? annualGivingSocieties?.combinedAnnualGiving;
-        const displayTotal = total == null ? "" : formatBlackbaudCurrency(total);
-        const sourceLabel = (society.supportedCountSources || society.countSources || [])
-          .map(formatSocietySource)
-          .join(" + ");
+        const displayTotal =
+          isPresenceBased || total == null ? "" : formatBlackbaudCurrency(total);
+        const sourceLabel = sourceKeys.map(formatSocietySource).join(" + ");
 
         return (
           <span
