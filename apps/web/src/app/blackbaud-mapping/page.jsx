@@ -109,6 +109,42 @@ function getMappingSurfaces(mapping) {
   }
 }
 
+function FloatingFeedback({ error, statusMessage }) {
+  const message = error || statusMessage;
+  if (!message) return null;
+
+  const isError = Boolean(error);
+  return (
+    <div
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      style={{
+        position: "fixed",
+        right: "24px",
+        bottom: "24px",
+        zIndex: 40,
+        width: "min(420px, calc(100vw - 48px))",
+        borderRadius: "18px",
+        border: isError ? "1px solid #FCA5A5" : "1px solid #86EFAC",
+        backgroundColor: isError
+          ? "rgba(254, 242, 242, 0.98)"
+          : "rgba(236, 253, 245, 0.98)",
+        color: isError ? "#991B1B" : "#166534",
+        boxShadow: "0 18px 46px rgba(15, 23, 42, 0.16)",
+        padding: "16px 18px",
+        fontSize: "14px",
+        fontWeight: 750,
+        lineHeight: 1.45,
+      }}
+    >
+      <div style={{ fontSize: "15px", fontWeight: 900, marginBottom: "4px" }}>
+        {isError ? "Action needed" : "Saved"}
+      </div>
+      {message}
+    </div>
+  );
+}
+
 export default function BlackbaudMappingPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -380,6 +416,7 @@ export default function BlackbaudMappingPage() {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+      <FloatingFeedback error={error} statusMessage={statusMessage} />
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "24px 18px 48px" }}>
         <a
           href="/"
@@ -532,33 +569,6 @@ export default function BlackbaudMappingPage() {
             </div>
           </div>
         </div>
-
-        {statusMessage ? (
-          <div
-            style={{
-              ...cardStyle,
-              marginTop: "-8px",
-              backgroundColor: "#ECFDF5",
-              borderColor: "#A7F3D0",
-              color: "#065F46",
-            }}
-          >
-            {statusMessage}
-          </div>
-        ) : null}
-        {error ? (
-          <div
-            style={{
-              ...cardStyle,
-              marginTop: "-8px",
-              backgroundColor: "#FEF2F2",
-              borderColor: "#FECACA",
-              color: "#991B1B",
-            }}
-          >
-            {error}
-          </div>
-        ) : null}
 
         <div style={cardStyle}>
           <div style={{ marginBottom: "14px" }}>

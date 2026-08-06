@@ -102,6 +102,35 @@ function formatMoneyInput(value) {
   return Number.isFinite(amount) ? String(amount) : "";
 }
 
+function SaveFeedback({ error, statusMessage }) {
+  const message = error || statusMessage;
+  if (!message) return null;
+
+  const isError = Boolean(error);
+  return (
+    <div
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      style={{
+        flex: "1 1 320px",
+        minWidth: 0,
+        borderRadius: "16px",
+        border: isError ? "1px solid #FCA5A5" : "1px solid #86EFAC",
+        background: isError ? "#FEF2F2" : "#F0FDF4",
+        color: isError ? "#991B1B" : "#166534",
+        padding: "14px 16px",
+        fontWeight: 850,
+        lineHeight: 1.45,
+      }}
+    >
+      <div style={{ fontSize: "14px", fontWeight: 950, marginBottom: "2px" }}>
+        {isError ? "Action needed" : "Saved"}
+      </div>
+      {message}
+    </div>
+  );
+}
+
 export default function OrganizationConfigurationsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -344,7 +373,7 @@ export default function OrganizationConfigurationsPage() {
           </div>
         </header>
 
-        {error ? (
+        {error && societies.length === 0 ? (
           <div
             style={{
               ...cardStyle,
@@ -357,22 +386,6 @@ export default function OrganizationConfigurationsPage() {
             }}
           >
             {error}
-          </div>
-        ) : null}
-
-        {statusMessage ? (
-          <div
-            style={{
-              ...cardStyle,
-              borderColor: "#86EFAC",
-              background: "#F0FDF4",
-              color: "#166534",
-              padding: "18px 22px",
-              marginBottom: "20px",
-              fontWeight: 800,
-            }}
-          >
-            {statusMessage}
           </div>
         ) : null}
 
@@ -692,9 +705,13 @@ export default function OrganizationConfigurationsPage() {
             style={{
               display: "flex",
               justifyContent: "flex-end",
+              alignItems: "center",
+              gap: "16px",
+              flexWrap: "wrap",
               marginTop: "24px",
             }}
           >
+            <SaveFeedback error={error} statusMessage={statusMessage} />
             <button
               type="button"
               onClick={saveConfigurations}
