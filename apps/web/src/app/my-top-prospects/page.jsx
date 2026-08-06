@@ -1048,7 +1048,11 @@ function getProspectFundedDisplayAmount(prospect = {}) {
 }
 
 function getProspectAskedDisplayAmount(prospect = {}) {
-  return prospect.ask_amount ?? prospect.closed_amount ?? null;
+  const askedAmount = Number(prospect.ask_amount);
+  if (!Number.isFinite(askedAmount) || askedAmount <= 0) {
+    return null;
+  }
+  return askedAmount;
 }
 
 function shouldShowProspectAskedAmount(prospect = {}) {
