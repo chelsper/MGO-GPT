@@ -144,4 +144,107 @@ describe("opportunity gift links route", () => {
     expect(payload.error).toMatch(/select at least one gift/i);
     expect(sqlMockImpl).not.toHaveBeenCalled();
   });
+
+  it("saves multiple selected gifts for one opportunity", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 301,
+        prospect_id: 7,
+        blackbaud_opportunity_id: "bb-opp-1",
+        constituent_id: 88,
+        user_id: 44,
+      },
+    ]);
+    queueSqlResult([]);
+    queueSqlResult([]);
+    queueSqlResult([
+      {
+        id: 1,
+        prospect_opportunity_id: 301,
+        blackbaud_gift_id: "gift-1",
+        gift_amount: "125.50",
+        nxt_sync_state: "manual_required",
+      },
+      {
+        id: 2,
+        prospect_opportunity_id: 301,
+        blackbaud_gift_id: "gift-2",
+        gift_amount: "875.00",
+        nxt_sync_state: "manual_required",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospects/opportunities/301/gift-links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        gifts: [
+          {
+            id: "gift-1",
+            date: "2026-07-20",
+            amount: 125.5,
+            type: "Donation",
+            fund: "Scholarship",
+          },
+          {
+            id: "gift-2",
+            date: "2026-07-21",
+            amount: 875,
+            type: "Donation",
+            fund: "Annual Fund",
+          },
+        ],
+      }),
+    });
+
+    const response = await POST(request, { params: { id: "301" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.giftLinks).toHaveLength(2);
+
+    const insertCalls = sqlMockImpl.mock.calls.filter(([strings]) =>
+      strings.join("").includes("INSERT INTO prospect_opportunity_gift_links"),
+    );
+    expect(insertCalls).toHaveLength(2);
+    expect(insertCalls[0].slice(1)).toContain("gift-1");
+    expect(insertCalls[1].slice(1)).toContain("gift-2");
+  });
+
+  it("unlinks a selected gift from an opportunity", async () => {
+    const { DELETE } = await import("./route.js");
+
+    queueSqlResult([{ id: 301 }]);
+    queueSqlResult([{ id: 9 }]);
+    queueSqlResult([
+      {
+        id: 10,
+        prospect_opportunity_id: 301,
+        blackbaud_gift_id: "gift-2",
+        gift_amount: "875.00",
+        nxt_sync_state: "manual_required",
+      },
+    ]);
+
+    const request = new Request("https://example.com/api/prospects/opportunities/301/gift-links", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ giftLinkId: 9 }),
+    });
+
+    const response = await DELETE(request, { params: { id: "301" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.giftLinks).toHaveLength(1);
+    expect(payload.message).toMatch(/unlinked in jumgogpt/i);
+
+    const deleteCall = sqlMockImpl.mock.calls.find(([strings]) =>
+      strings.join("").includes("DELETE FROM prospect_opportunity_gift_links"),
+    );
+    expect(deleteCall).toBeTruthy();
+    expect(deleteCall.slice(1)).toEqual(expect.arrayContaining([9, 301]));
+  });
 });

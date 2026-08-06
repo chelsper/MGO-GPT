@@ -1693,6 +1693,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const [opportunityEditError, setOpportunityEditError] = useState("");
   const [opportunityEditFeedback, setOpportunityEditFeedback] = useState("");
   const [giftLinkPrompt, setGiftLinkPrompt] = useState(null);
+  const [unlinkingGiftLinkId, setUnlinkingGiftLinkId] = useState("");
   const [stewardshipDrafts, setStewardshipDrafts] = useState({});
   const [stewardshipErrors, setStewardshipErrors] = useState({});
   const [stewardshipFeedback, setStewardshipFeedback] = useState({});
@@ -2079,6 +2080,42 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       setOpportunityEditError(
         error instanceof Error ? error.message : "Failed to update linked opportunity",
       );
+    },
+  });
+
+  const unlinkOpportunityGiftMutation = useMutation({
+    mutationFn: async ({ opportunityId, giftLinkId, blackbaudGiftId }) => {
+      const response = await fetch(
+        `/api/prospects/opportunities/${encodeURIComponent(opportunityId)}/gift-links`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ giftLinkId, blackbaudGiftId }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to unlink gift");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+      queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
+      queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
+      setOpportunityEditFeedback(
+        "Gift unlinked in JUMGOGPT. NXT gift linking still requires manual review.",
+      );
+      setActionError("");
+    },
+    onError: (mutationError) => {
+      setActionError(
+        mutationError instanceof Error ? mutationError.message : "Failed to unlink gift",
+      );
+    },
+    onSettled: () => {
+      setUnlinkingGiftLinkId("");
     },
   });
 
@@ -6054,18 +6091,67 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                             <div style={{ fontWeight: "800", marginBottom: "4px" }}>
                               Linked gifts in JUMGOGPT
                             </div>
-                            {opportunity.linked_gifts.map((giftLink) => (
-                              <div key={giftLink.id || giftLink.blackbaud_gift_id}>
-                                {formatLongDate(giftLink.gift_date) || "Gift date unavailable"}
-                                {" · "}
-                                {formatCurrency(giftLink.gift_amount)}
-                                {giftLink.gift_type ? ` · ${giftLink.gift_type}` : ""}
-                                {giftLink.gift_fund ? ` · ${giftLink.gift_fund}` : ""}
-                                {giftLink.nxt_sync_state === "manual_required"
-                                  ? " · NXT link needs manual review"
-                                  : ""}
-                              </div>
-                            ))}
+                            {opportunity.linked_gifts.map((giftLink) => {
+                              const giftLinkKey =
+                                giftLink.id || giftLink.blackbaud_gift_id;
+                              const isUnlinking =
+                                String(unlinkingGiftLinkId) === String(giftLinkKey);
+
+                              return (
+                                <div
+                                  key={giftLinkKey}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "10px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <span>
+                                    {formatLongDate(giftLink.gift_date) ||
+                                      "Gift date unavailable"}
+                                    {" · "}
+                                    {formatCurrency(giftLink.gift_amount)}
+                                    {giftLink.gift_type ? ` · ${giftLink.gift_type}` : ""}
+                                    {giftLink.gift_fund ? ` · ${giftLink.gift_fund}` : ""}
+                                    {giftLink.nxt_sync_state === "manual_required"
+                                      ? " · NXT link needs manual review"
+                                      : ""}
+                                  </span>
+                                  {!readOnly ? (
+                                    <button
+                                      type="button"
+                                      disabled={isUnlinking}
+                                      onClick={() => {
+                                        const confirmed = window.confirm(
+                                          "Unlink this gift from the opportunity in JUMGOGPT? This will not delete the gift record in NXT.",
+                                        );
+                                        if (!confirmed) return;
+                                        setUnlinkingGiftLinkId(String(giftLinkKey));
+                                        unlinkOpportunityGiftMutation.mutate({
+                                          opportunityId: opportunity.id,
+                                          giftLinkId: giftLink.id,
+                                          blackbaudGiftId: giftLink.blackbaud_gift_id,
+                                        });
+                                      }}
+                                      style={{
+                                        padding: "4px 8px",
+                                        borderRadius: "999px",
+                                        border: "1px solid #BBF7D0",
+                                        backgroundColor: "white",
+                                        color: "#166534",
+                                        fontSize: "11px",
+                                        fontWeight: "800",
+                                        cursor: isUnlinking ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      {isUnlinking ? "Unlinking..." : "Unlink gift"}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : null}
                         {isFundedOpportunity(opportunity) &&

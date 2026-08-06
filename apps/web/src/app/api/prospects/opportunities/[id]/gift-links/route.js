@@ -203,3 +203,81 @@ export async function POST(request, { params }) {
     );
   }
 }
+
+export async function DELETE(request, { params }) {
+  try {
+    await ensureAppSchema();
+
+    const session = await auth();
+    if (!session?.user?.email) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    if (!user) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const giftLinkId =
+      body?.giftLinkId || body?.gift_link_id || body?.id || null;
+    const blackbaudGiftId = String(
+      body?.blackbaudGiftId || body?.blackbaud_gift_id || body?.giftId || "",
+    ).trim();
+
+    if (!giftLinkId && !blackbaudGiftId) {
+      return Response.json(
+        { error: "A gift link ID or Blackbaud gift ID is required" },
+        { status: 400 },
+      );
+    }
+
+    const opportunityRows = await sql`
+      SELECT po.id
+      FROM prospect_opportunities po
+      INNER JOIN prospects p ON p.id = po.prospect_id
+      WHERE po.id = ${params.id} AND p.user_id = ${user.id}
+      LIMIT 1
+    `;
+
+    const opportunity = opportunityRows[0] || null;
+    if (!opportunity) {
+      return Response.json({ error: "Opportunity not found" }, { status: 404 });
+    }
+
+    const deletedRows = giftLinkId
+      ? await sql`
+          DELETE FROM prospect_opportunity_gift_links
+          WHERE id = ${giftLinkId}
+            AND prospect_opportunity_id = ${opportunity.id}
+          RETURNING id
+        `
+      : await sql`
+          DELETE FROM prospect_opportunity_gift_links
+          WHERE blackbaud_gift_id = ${blackbaudGiftId}
+            AND prospect_opportunity_id = ${opportunity.id}
+          RETURNING id
+        `;
+
+    if (!deletedRows.length) {
+      return Response.json({ error: "Gift link not found" }, { status: 404 });
+    }
+
+    return Response.json({
+      giftLinks: await getGiftLinks(opportunity.id),
+      message:
+        "Gift unlinked in JUMGOGPT. If this relationship was also added in NXT, remove it there manually.",
+    });
+  } catch (error) {
+    console.error("Error unlinking opportunity gift:", error);
+    return Response.json(
+      {
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : "Failed to unlink opportunity gift",
+      },
+      { status: 500 },
+    );
+  }
+}

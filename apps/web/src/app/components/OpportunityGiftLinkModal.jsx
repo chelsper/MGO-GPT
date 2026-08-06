@@ -144,7 +144,9 @@ export default function OpportunityGiftLinkModal({
       }
 
       setFeedback(
-        "Gift link saved in the app. NXT linking still requires manual review.",
+        selectedGifts.length === 1
+          ? "Gift link saved in the app. NXT linking still requires manual review."
+          : "Gift links saved in the app. NXT linking still requires manual review.",
       );
       onSaved?.(payload);
     } catch (saveError) {
