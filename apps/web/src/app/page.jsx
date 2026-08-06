@@ -80,6 +80,12 @@ const REVIEWER_ACTIONS = [
     section: "requestsReview",
   },
   {
+    title: "Constituency Import Preview",
+    href: "/constituency-import",
+    description: "Preview bulk constituency imports and hierarchy changes before NXT writes.",
+    section: "requestsReview",
+  },
+  {
     title: "Prospect Pool",
     href: "/prospect-pool",
     description: "Assign new prospects to MGOs and track contact info requests.",
@@ -144,6 +150,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
   { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
   { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
+  { label: "Import Preview", href: "/constituency-import", section: "Requests & Review" },
 ];
 
 const ADMIN_WORKSPACE_ITEMS = [
