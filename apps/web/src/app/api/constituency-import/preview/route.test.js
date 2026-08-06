@@ -37,6 +37,9 @@ function makeRequest(body) {
 
 const mappings = {
   constituentName: "Name",
+  firstName: "First Name",
+  lastName: "Last Name",
+  preferredName: "Preferred Name",
   blackbaudConstituentId: "NXT ID",
   lookupId: "Lookup ID",
   email: "Email",
@@ -207,5 +210,51 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].status).toBe("Needs Review");
     expect(payload.rows[0].matchStatus).toBe("needs_review");
     expect(payload.rows[0].reasons.join(" ")).toContain("human review");
+  });
+
+  it("derives the preview name from first, last, and preferred name fields", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "456",
+      lookupId: "A456",
+      name: "Elizabeth Dolphin",
+      email: "elizabeth@example.com",
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [{ description: "Friend" }],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "First Name": "Elizabeth",
+            "Preferred Name": "Liz",
+            "Last Name": "Dolphin",
+            "Lookup ID": "A456",
+            "New Constituency": "Alumni - Bachelor's Degree",
+          },
+        ],
+        mappings: {
+          firstName: "First Name",
+          preferredName: "Preferred Name",
+          lastName: "Last Name",
+          lookupId: "Lookup ID",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].input.constituentName).toBe("Liz Dolphin");
+    expect(payload.rows[0].input.firstName).toBe("Elizabeth");
+    expect(payload.rows[0].input.preferredName).toBe("Liz");
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].proposedCodes).toEqual([
+      "Alumni - Bachelor's Degree",
+      "Friend",
+    ]);
   });
 });

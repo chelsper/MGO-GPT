@@ -7,86 +7,194 @@ import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
-const SAMPLE_CSV = `Constituent Name,NXT Lookup ID,Current Constituency,New Constituency,Action,Start Date,End Date
-Jane Dolphin,123456,Student,Alumni - Bachelor's Degree,replace,2026-05-01,
-Sam Dolphin,234567,Alumni - Bachelor's Degree,Alumni - Graduate Degree,add,2026-05-01,`;
-
-const FIELD_LABELS = {
-  constituentName: "Constituent name",
-  blackbaudConstituentId: "NXT system ID",
-  lookupId: "NXT lookup ID",
-  email: "Email address",
-  sourceConstituency: "Current/source constituency",
-  targetConstituency: "New/target constituency",
-  action: "Action",
-  startDate: "Start date",
-  endDate: "End date",
-};
-
-const FIELD_ORDER = [
-  "constituentName",
-  "blackbaudConstituentId",
-  "lookupId",
-  "email",
-  "sourceConstituency",
-  "targetConstituency",
-  "action",
-  "startDate",
-  "endDate",
+const IMPORT_FIELDS = [
+  {
+    key: "blackbaudConstituentId",
+    header: "NXT System ID",
+    label: "NXT System ID",
+    group: "Match fields",
+    description: "Best match key when available. This is the internal Blackbaud record ID.",
+    recommended: true,
+  },
+  {
+    key: "lookupId",
+    header: "NXT Lookup ID",
+    label: "NXT Lookup ID",
+    group: "Match fields",
+    description: "Strong match key commonly visible on the NXT constituent profile.",
+    recommended: true,
+  },
+  {
+    key: "firstName",
+    header: "First Name",
+    label: "First Name",
+    group: "Name fields",
+    description: "Used for matching and for eventual new-record import work.",
+    recommended: true,
+  },
+  {
+    key: "lastName",
+    header: "Last Name",
+    label: "Last Name",
+    group: "Name fields",
+    description: "Used with First Name or Preferred Name for matching.",
+    recommended: true,
+  },
+  {
+    key: "preferredName",
+    header: "Preferred Name",
+    label: "Preferred Name",
+    group: "Name fields",
+    description: "Optional, but useful when the name used by MGOs differs from legal first name.",
+  },
+  {
+    key: "email",
+    header: "Email Address",
+    label: "Email Address",
+    group: "Match fields",
+    description: "Useful supporting match data. Email-only matches still require human review.",
+  },
+  {
+    key: "sourceConstituency",
+    header: "Current Constituent Code",
+    label: "Current Constituent Code",
+    group: "Constituent code fields",
+    description: "Use when replacing or end-dating an existing constituent code.",
+  },
+  {
+    key: "targetConstituency",
+    header: "New Constituent Code",
+    label: "New Constituent Code",
+    group: "Constituent code fields",
+    description: "The constituent code to add or replace with.",
+    recommended: true,
+  },
+  {
+    key: "action",
+    header: "Constituent Code Action",
+    label: "Constituent Code Action",
+    group: "Constituent code fields",
+    description: "Optional row-level override: add, replace, end-date, or reorder.",
+  },
+  {
+    key: "startDate",
+    header: "Constituent Code Start Date",
+    label: "Constituent Code Start Date",
+    group: "Date fields",
+    description: "Optional start date for the new constituent code.",
+  },
+  {
+    key: "endDate",
+    header: "Constituent Code End Date",
+    label: "Constituent Code End Date",
+    group: "Date fields",
+    description: "Optional end date for end-date actions.",
+  },
 ];
 
-const DETECTORS = {
-  constituentName: ["constituent name", "name", "full name", "donor name"],
-  blackbaudConstituentId: [
-    "nxt system id",
-    "system id",
-    "blackbaud constituent id",
-    "record id",
-    "constituent id",
-  ],
-  lookupId: ["nxt lookup id", "lookup id", "lookup"],
-  email: ["email", "email address", "preferred email"],
-  sourceConstituency: [
-    "current constituency",
-    "source constituency",
-    "old constituency",
-    "from constituency",
-    "constituency",
-  ],
-  targetConstituency: [
-    "new constituency",
-    "target constituency",
-    "to constituency",
-    "add constituency",
-    "replacement constituency",
-  ],
-  action: ["action", "operation", "update action"],
-  startDate: ["start date", "date from", "begin date"],
-  endDate: ["end date", "date to", "stop date"],
+const DEFAULT_ACTIVE_FIELDS = {
+  blackbaudConstituentId: false,
+  lookupId: true,
+  firstName: true,
+  lastName: true,
+  preferredName: false,
+  email: true,
+  sourceConstituency: false,
+  targetConstituency: true,
+  action: false,
+  startDate: true,
+  endDate: false,
 };
 
-function normalizeHeader(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+const FIELD_GROUP_ORDER = [
+  "Match fields",
+  "Name fields",
+  "Constituent code fields",
+  "Date fields",
+];
 
-function detectMappings(headers) {
-  const normalizedHeaders = headers.map((header) => ({
-    header,
-    normalized: normalizeHeader(header),
-  }));
+const CONSTITUENCY_BEHAVIORS = [
+  {
+    value: "add",
+    label: "Add additional constituent code",
+    description: "Use this for imports where the person may not already have the code.",
+  },
+  {
+    value: "replace",
+    label: "Update/replace existing constituent code",
+    description: "Requires Current Constituent Code so the preview knows what would be replaced.",
+  },
+  {
+    value: "end-date",
+    label: "End-date existing constituent code",
+    description: "Requires Current Constituent Code; End Date is strongly recommended.",
+  },
+  {
+    value: "reorder",
+    label: "Reorder constituent codes by hierarchy only",
+    description: "No new code is required; this previews hierarchy cleanup.",
+  },
+];
 
-  return FIELD_ORDER.reduce((acc, field) => {
-    const candidates = DETECTORS[field] || [];
-    const exact = normalizedHeaders.find((item) => candidates.includes(item.normalized));
-    const partial = normalizedHeaders.find((item) =>
-      candidates.some((candidate) => item.normalized.includes(candidate)),
-    );
-    acc[field] = (exact || partial)?.header || "";
-    return acc;
-  }, {});
+function makeTemplateRows(fields) {
+  const headers = fields.map((field) => field.header);
+  const rowOne = fields.map((field) => {
+    switch (field.key) {
+      case "blackbaudConstituentId":
+        return "";
+      case "lookupId":
+        return "123456";
+      case "firstName":
+        return "Jane";
+      case "lastName":
+        return "Dolphin";
+      case "preferredName":
+        return "Jane";
+      case "email":
+        return "jane@example.com";
+      case "sourceConstituency":
+        return "Student";
+      case "targetConstituency":
+        return "Alumni - Bachelor's Degree";
+      case "action":
+        return "replace";
+      case "startDate":
+        return "2026-05-01";
+      case "endDate":
+        return "";
+      default:
+        return "";
+    }
+  });
+  const rowTwo = fields.map((field) => {
+    switch (field.key) {
+      case "blackbaudConstituentId":
+        return "";
+      case "lookupId":
+        return "234567";
+      case "firstName":
+        return "Sam";
+      case "lastName":
+        return "Dolphin";
+      case "preferredName":
+        return "";
+      case "email":
+        return "sam@example.com";
+      case "sourceConstituency":
+        return "";
+      case "targetConstituency":
+        return "Alumni - Graduate Degree";
+      case "action":
+        return "add";
+      case "startDate":
+        return "2026-05-01";
+      case "endDate":
+        return "";
+      default:
+        return "";
+    }
+  });
+  return Papa.unparse([headers, rowOne, rowTwo]);
 }
 
 function parseCsv(text) {
@@ -148,55 +256,40 @@ function Pill({ children, tone = "neutral" }) {
   );
 }
 
-function FieldSelect({ field, headers, value, onChange }) {
-  return (
-    <label
-      style={{
-        display: "grid",
-        gap: "6px",
-        fontSize: "13px",
-        fontWeight: 800,
-        color: "#374151",
-      }}
-    >
-      {FIELD_LABELS[field]}
-      <select
-        name={`mapping-${field}`}
-        value={value || ""}
-        onChange={(event) => onChange(field, event.target.value)}
-        style={{
-          border: "1px solid #D1D5DB",
-          borderRadius: "10px",
-          padding: "10px 12px",
-          backgroundColor: "white",
-          color: "#111827",
-        }}
-      >
-        <option value="">Not mapped</option>
-        {headers.map((header) => (
-          <option key={header} value={header}>
-            {header}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function renderList(values) {
   if (!Array.isArray(values) || values.length === 0) return "None found";
   return values.join(" -> ");
+}
+
+function HeaderCode({ children }) {
+  return (
+    <code
+      style={{
+        display: "inline-flex",
+        borderRadius: "8px",
+        border: "1px solid #CBD5E1",
+        backgroundColor: "#F8FAFC",
+        padding: "4px 7px",
+        color: "#0F172A",
+        fontWeight: 800,
+      }}
+    >
+      {children}
+    </code>
+  );
 }
 
 export default function ConstituencyImportPage() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [rawCsv, setRawCsv] = useState(SAMPLE_CSV);
+  const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
+  const [defaultAction, setDefaultAction] = useState("add");
+  const [rawCsv, setRawCsv] = useState(() =>
+    makeTemplateRows(IMPORT_FIELDS.filter((field) => DEFAULT_ACTIVE_FIELDS[field.key])),
+  );
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
-  const [mappings, setMappings] = useState({});
-  const [defaultAction, setDefaultAction] = useState("replace");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
@@ -206,16 +299,32 @@ export default function ConstituencyImportPage() {
   const { effectiveRole } = useWorkspaceView(profileRole);
   const isReviewer = isReviewerRole(effectiveRole);
 
+  const selectedFields = useMemo(
+    () => IMPORT_FIELDS.filter((field) => activeFields[field.key]),
+    [activeFields],
+  );
+  const expectedHeaders = selectedFields.map((field) => field.header);
+  const mappings = useMemo(
+    () =>
+      selectedFields.reduce((acc, field) => {
+        acc[field.key] = field.header;
+        return acc;
+      }, {}),
+    [selectedFields],
+  );
+  const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
+  const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
   const mappedIdentityField = Boolean(
-    mappings.blackbaudConstituentId ||
-      mappings.lookupId ||
-      mappings.email ||
-      mappings.constituentName,
+    activeFields.blackbaudConstituentId ||
+      activeFields.lookupId ||
+      activeFields.email ||
+      (activeFields.firstName && activeFields.lastName),
   );
   const canPreview =
     rows.length > 0 &&
     mappedIdentityField &&
-    (mappings.targetConstituency || defaultAction === "reorder");
+    missingHeaders.length === 0 &&
+    (activeFields.targetConstituency || defaultAction === "reorder");
 
   useEffect(() => {
     if (loading) return;
@@ -244,15 +353,6 @@ export default function ConstituencyImportPage() {
     const parsed = parseCsv(rawCsv);
     setRows(parsed.rows);
     setHeaders(parsed.headers);
-    setMappings((current) => {
-      const detected = detectMappings(parsed.headers);
-      return FIELD_ORDER.reduce((acc, field) => {
-        acc[field] = current[field] && parsed.headers.includes(current[field])
-          ? current[field]
-          : detected[field] || "";
-        return acc;
-      }, {});
-    });
     setPreview(null);
     if (parsed.errors.length > 0) {
       setParseMessage(`Parsed ${parsed.rows.length} rows with ${parsed.errors.length} CSV warning(s).`);
@@ -272,9 +372,24 @@ export default function ConstituencyImportPage() {
     ];
   }, [preview, rows.length]);
 
-  function updateMapping(field, value) {
-    setMappings((current) => ({ ...current, [field]: value }));
+  function toggleField(key) {
+    setActiveFields((current) => ({ ...current, [key]: !current[key] }));
     setPreview(null);
+  }
+
+  function useTemplateCsv() {
+    setRawCsv(makeTemplateRows(selectedFields));
+  }
+
+  function downloadTemplateCsv() {
+    const csv = makeTemplateRows(selectedFields);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "constituency-import-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   function handleFileUpload(event) {
@@ -323,7 +438,9 @@ export default function ConstituencyImportPage() {
         status: row.status,
         confidence: row.confidence,
         matchMethod: row.matchMethod,
-        inputName: row.input?.constituentName || "",
+        firstName: row.input?.firstName || "",
+        lastName: row.input?.lastName || "",
+        preferredName: row.input?.preferredName || "",
         inputLookupId: row.input?.lookupId || "",
         inputSystemId: row.input?.blackbaudConstituentId || "",
         matchedName: row.match?.name || "",
@@ -428,7 +545,7 @@ export default function ConstituencyImportPage() {
                 Constituency Import Preview
               </h1>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Match rows to NXT and preview constituency hierarchy changes before any import.
+                Configure exact CSV headers, preview matches, and review constituent-code changes.
               </p>
             </div>
           </div>
@@ -446,9 +563,9 @@ export default function ConstituencyImportPage() {
             lineHeight: 1.5,
           }}
         >
-          Start here with a small file. Strong ID matches can become ready for import later; name
-          and email matches are intentionally held for review so Advancement Services can avoid bad
-          merges, duplicates, and accidental constituency changes.
+          This version is template-first: choose the fields you are importing, use the exact CSV
+          headers shown here, then upload the file. Strong ID matches can be ready later; name and
+          email matches stay in human review.
         </section>
 
         <section
@@ -467,67 +584,162 @@ export default function ConstituencyImportPage() {
                 borderRadius: "20px",
                 padding: "20px",
                 display: "grid",
-                gap: "14px",
+                gap: "16px",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                    1. Add rows
-                  </h2>
-                  <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                    Paste CSV content or upload a file exported from a data append.
-                  </p>
-                </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
+                  1. Choose import fields and behavior
+                </h2>
+                <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
+                  Turn on only the NXT fields represented in your import. The CSV must use the
+                  exact column headers shown on each active field.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid #C7D2FE",
+                  borderRadius: "16px",
+                  backgroundColor: "#EEF2FF",
+                  padding: "16px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
                 <label
                   style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    alignSelf: "start",
-                    border: "1px solid #C7D2FE",
-                    borderRadius: "999px",
-                    color: "#4338CA",
-                    padding: "10px 14px",
-                    cursor: "pointer",
-                    fontWeight: 800,
+                    display: "grid",
+                    gap: "6px",
+                    fontSize: "13px",
+                    fontWeight: 900,
+                    color: "#312E81",
                   }}
                 >
-                  <Upload size={16} /> Upload CSV
-                  <input
-                    id="constituency-import-file"
-                    name="constituency-import-file"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={handleFileUpload}
-                    style={{ display: "none" }}
-                  />
+                  If the row matches an existing NXT record
+                  <select
+                    name="constituencyBehavior"
+                    value={defaultAction}
+                    onChange={(event) => {
+                      const nextAction = event.target.value;
+                      setDefaultAction(nextAction);
+                      setActiveFields((current) => ({
+                        ...current,
+                        sourceConstituency:
+                          nextAction === "replace" || nextAction === "end-date"
+                            ? true
+                            : current.sourceConstituency,
+                        targetConstituency:
+                          nextAction === "add" || nextAction === "replace"
+                            ? true
+                            : current.targetConstituency,
+                        endDate: nextAction === "end-date" ? true : current.endDate,
+                      }));
+                      setPreview(null);
+                    }}
+                    style={{
+                      border: "1px solid #A5B4FC",
+                      borderRadius: "12px",
+                      padding: "11px 12px",
+                      backgroundColor: "white",
+                      color: "#111827",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {CONSTITUENCY_BEHAVIORS.map((behavior) => (
+                      <option key={behavior.value} value={behavior.value}>
+                        {behavior.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
+                <p style={{ margin: 0, color: "#4338CA", lineHeight: 1.45 }}>
+                  {
+                    CONSTITUENCY_BEHAVIORS.find((behavior) => behavior.value === defaultAction)
+                      ?.description
+                  }
+                </p>
               </div>
-              <textarea
-                name="constituency-import-csv"
-                value={rawCsv}
-                onChange={(event) => setRawCsv(event.target.value)}
-                rows={8}
-                spellCheck={false}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "14px",
-                  padding: "14px",
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                  fontSize: "13px",
-                  color: "#111827",
-                  backgroundColor: "#F9FAFB",
-                }}
-              />
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
-                <Pill tone={rows.length ? "green" : "neutral"}>
-                  {rows.length ? `${rows.length} rows parsed` : "No rows parsed"}
-                </Pill>
-                {parseMessage ? <span style={{ color: "#6B7280" }}>{parseMessage}</span> : null}
-              </div>
+
+              {FIELD_GROUP_ORDER.map((group) => {
+                const groupFields = IMPORT_FIELDS.filter((field) => field.group === group);
+                return (
+                  <div key={group} style={{ display: "grid", gap: "10px" }}>
+                    <h3 style={{ margin: "4px 0 0", color: "#111827", fontSize: "16px" }}>
+                      {group}
+                    </h3>
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      {groupFields.map((field) => {
+                        const active = Boolean(activeFields[field.key]);
+                        return (
+                          <button
+                            key={field.key}
+                            type="button"
+                            onClick={() => toggleField(field.key)}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "auto 1fr",
+                              gap: "12px",
+                              textAlign: "left",
+                              border: active ? "2px solid #6D5DFB" : "1px solid #E5E7EB",
+                              borderRadius: "14px",
+                              padding: "13px",
+                              backgroundColor: active ? "#F5F3FF" : "white",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                width: "22px",
+                                height: "22px",
+                                borderRadius: "7px",
+                                border: active ? "2px solid #6D5DFB" : "2px solid #CBD5E1",
+                                backgroundColor: active ? "#6D5DFB" : "white",
+                                color: "white",
+                                display: "grid",
+                                placeItems: "center",
+                                fontSize: "14px",
+                                fontWeight: 900,
+                              }}
+                            >
+                              {active ? "✓" : ""}
+                            </span>
+                            <span>
+                              <span
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  flexWrap: "wrap",
+                                  color: "#111827",
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {field.label}
+                                {field.recommended ? <Pill tone="green">Recommended</Pill> : null}
+                              </span>
+                              <span style={{ display: "block", marginTop: "6px" }}>
+                                CSV header: <HeaderCode>{field.header}</HeaderCode>
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "6px",
+                                  color: "#6B7280",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                {field.description}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </section>
 
             <section
@@ -542,61 +754,50 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  2. Map columns
+                  2. Prepare exact CSV headers
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                  Use NXT system ID or lookup ID when possible. Email/name matching is useful for
-                  triage, but not enough to treat a row as import-ready.
+                  Your file should include these active headers. Extra columns are ignored in the
+                  preview; missing active headers block preview.
                 </p>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: "12px",
-                }}
-              >
-                {FIELD_ORDER.map((field) => (
-                  <FieldSelect
-                    key={field}
-                    field={field}
-                    headers={headers}
-                    value={mappings[field] || ""}
-                    onChange={updateMapping}
-                  />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {expectedHeaders.map((header) => (
+                  <HeaderCode key={header}>{header}</HeaderCode>
                 ))}
               </div>
-              <label
-                style={{
-                  display: "grid",
-                  gap: "6px",
-                  maxWidth: "280px",
-                  fontSize: "13px",
-                  fontWeight: 800,
-                  color: "#374151",
-                }}
-              >
-                Default action when no action column is mapped
-                <select
-                  name="defaultAction"
-                  value={defaultAction}
-                  onChange={(event) => {
-                    setDefaultAction(event.target.value);
-                    setPreview(null);
-                  }}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                <button
+                  type="button"
+                  onClick={useTemplateCsv}
                   style={{
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "10px",
-                    padding: "10px 12px",
+                    border: "1px solid #C7D2FE",
+                    borderRadius: "999px",
                     backgroundColor: "white",
+                    color: "#4338CA",
+                    padding: "10px 14px",
+                    fontWeight: 900,
+                    cursor: "pointer",
                   }}
                 >
-                  <option value="replace">Replace current with new</option>
-                  <option value="add">Add new constituency</option>
-                  <option value="end-date">End-date current constituency</option>
-                  <option value="reorder">Reorder by hierarchy only</option>
-                </select>
-              </label>
+                  Put template in upload box
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadTemplateCsv}
+                  style={{
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "999px",
+                    backgroundColor: "white",
+                    color: "#374151",
+                    padding: "10px 14px",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  Download template CSV
+                </button>
+              </div>
             </section>
           </div>
 
@@ -622,15 +823,22 @@ export default function ConstituencyImportPage() {
             </div>
             <div style={{ display: "grid", gap: "8px" }}>
               <Pill tone={mappedIdentityField ? "green" : "amber"}>
-                {mappedIdentityField ? "Identity mapped" : "Map an identity field"}
+                {mappedIdentityField
+                  ? "Identity fields active"
+                  : "Activate ID, lookup, email, or first/last name"}
               </Pill>
-              <Pill tone={mappings.targetConstituency || defaultAction === "reorder" ? "green" : "amber"}>
-                {mappings.targetConstituency || defaultAction === "reorder"
-                  ? "Change data mapped"
-                  : "Map a new constituency"}
+              <Pill tone={activeFields.targetConstituency || defaultAction === "reorder" ? "green" : "amber"}>
+                {activeFields.targetConstituency || defaultAction === "reorder"
+                  ? "Constituent code behavior set"
+                  : "Activate New Constituent Code"}
               </Pill>
               <Pill tone={rows.length ? "green" : "amber"}>
-                {rows.length ? `${rows.length} rows ready to preview` : "Add rows"}
+                {rows.length ? `${rows.length} rows parsed` : "Upload CSV rows"}
+              </Pill>
+              <Pill tone={missingHeaders.length === 0 ? "green" : "red"}>
+                {missingHeaders.length === 0
+                  ? "All active headers present"
+                  : `${missingHeaders.length} active header(s) missing`}
               </Pill>
             </div>
             {error ? (
@@ -702,15 +910,90 @@ export default function ConstituencyImportPage() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                3. Review preview
+                3. Upload CSV and review preview
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Ready rows can become candidates for a future import step. Needs Review and
-                Conflict rows should be cleaned up first.
+                Paste CSV content or upload a file exported from a data append.
               </p>
             </div>
-            {preview?.previewOnly ? <Pill tone="blue">Preview-only result</Pill> : null}
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                alignSelf: "start",
+                border: "1px solid #C7D2FE",
+                borderRadius: "999px",
+                color: "#4338CA",
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontWeight: 800,
+              }}
+            >
+              <Upload size={16} /> Upload CSV
+              <input
+                id="constituency-import-file"
+                name="constituency-import-file"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileUpload}
+                style={{ display: "none" }}
+              />
+            </label>
           </div>
+
+          <textarea
+            name="constituency-import-csv"
+            value={rawCsv}
+            onChange={(event) => setRawCsv(event.target.value)}
+            rows={8}
+            spellCheck={false}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              border: "1px solid #D1D5DB",
+              borderRadius: "14px",
+              padding: "14px",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: "13px",
+              color: "#111827",
+              backgroundColor: "#F9FAFB",
+            }}
+          />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+            <Pill tone={rows.length ? "green" : "neutral"}>
+              {rows.length ? `${rows.length} rows parsed` : "No rows parsed"}
+            </Pill>
+            {parseMessage ? <span style={{ color: "#6B7280" }}>{parseMessage}</span> : null}
+          </div>
+          {missingHeaders.length ? (
+            <div
+              style={{
+                border: "1px solid #FECACA",
+                borderRadius: "14px",
+                backgroundColor: "#FEF2F2",
+                color: "#991B1B",
+                padding: "12px",
+                fontWeight: 800,
+              }}
+            >
+              Missing active CSV headers: {missingHeaders.join(", ")}
+            </div>
+          ) : null}
+          {extraHeaders.length ? (
+            <div
+              style={{
+                border: "1px solid #FDE68A",
+                borderRadius: "14px",
+                backgroundColor: "#FFFBEB",
+                color: "#92400E",
+                padding: "12px",
+                fontWeight: 800,
+              }}
+            >
+              Extra CSV headers will be ignored in this preview: {extraHeaders.join(", ")}
+            </div>
+          ) : null}
 
           <div
             style={{
@@ -794,7 +1077,10 @@ export default function ConstituencyImportPage() {
                           ROW {row.rowNumber}
                         </div>
                         <h3 style={{ margin: "4px 0 0", color: "#111827" }}>
-                          {row.input?.constituentName || row.input?.lookupId || row.input?.blackbaudConstituentId || "Unnamed row"}
+                          {row.input?.constituentName ||
+                            row.input?.lookupId ||
+                            row.input?.blackbaudConstituentId ||
+                            "Unnamed row"}
                         </h3>
                         <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
                           {row.match?.name
@@ -882,7 +1168,7 @@ export default function ConstituencyImportPage() {
                 color: "#64748B",
               }}
             >
-              Preview results will appear here after you map columns and run the preview.
+              Preview results will appear here after you upload matching headers and run the preview.
             </div>
           )}
         </section>

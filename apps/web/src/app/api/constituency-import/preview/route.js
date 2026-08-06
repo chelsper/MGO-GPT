@@ -74,8 +74,20 @@ function getMappedValue(row, mappings, key) {
 
 function getRowInput(row, mappings, defaults = {}) {
   const defaultAction = cleanText(defaults.defaultAction) || "replace";
+  const firstName = getMappedValue(row, mappings, "firstName");
+  const lastName = getMappedValue(row, mappings, "lastName");
+  const preferredName = getMappedValue(row, mappings, "preferredName");
+  const legacyConstituentName = getMappedValue(row, mappings, "constituentName");
+  const derivedName =
+    legacyConstituentName ||
+    [preferredName || firstName, lastName].filter(Boolean).join(" ").trim() ||
+    [firstName, lastName].filter(Boolean).join(" ").trim();
+
   return {
-    constituentName: getMappedValue(row, mappings, "constituentName"),
+    firstName,
+    lastName,
+    preferredName,
+    constituentName: derivedName,
     blackbaudConstituentId: getMappedValue(row, mappings, "blackbaudConstituentId"),
     lookupId: getMappedValue(row, mappings, "lookupId"),
     email: getMappedValue(row, mappings, "email"),
