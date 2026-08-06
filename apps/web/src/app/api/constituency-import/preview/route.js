@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import sql from "@/app/api/utils/sql";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   blackbaudApiFetch,
@@ -431,6 +432,126 @@ function summarize(rows, warnings) {
   );
 }
 
+function serializeRun(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    status: row.status,
+    sourceFilename: row.source_filename || "",
+    rowCount: Number(row.row_count || 0),
+    readyCount: Number(row.ready_count || 0),
+    needsReviewCount: Number(row.needs_review_count || 0),
+    conflictCount: Number(row.conflict_count || 0),
+    skippedCount: Number(row.skipped_count || 0),
+    appliedCount: Number(row.applied_count || 0),
+    failedCount: Number(row.failed_count || 0),
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+    appliedAt: row.applied_at || null,
+  };
+}
+
+async function savePreviewRun({
+  sessionUser,
+  workspaceUser,
+  sourceFilename,
+  mappings,
+  defaults,
+  warnings,
+  summary,
+  previewRows,
+  rawRows,
+}) {
+  const cleanSourceFilename = cleanText(sourceFilename).slice(0, 255) || null;
+  const createdRows = await sql`
+    INSERT INTO constituency_import_runs (
+      created_by_user_id,
+      workspace_user_id,
+      status,
+      source_filename,
+      mappings,
+      defaults,
+      warnings,
+      summary,
+      row_count,
+      ready_count,
+      needs_review_count,
+      conflict_count,
+      skipped_count,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${sessionUser?.id || workspaceUser.id},
+      ${workspaceUser.id},
+      'previewed',
+      ${cleanSourceFilename},
+      ${JSON.stringify(mappings)}::jsonb,
+      ${JSON.stringify(defaults)}::jsonb,
+      ${JSON.stringify(warnings)}::jsonb,
+      ${JSON.stringify(summary)}::jsonb,
+      ${Number(summary.total || previewRows.length || 0)},
+      ${Number(summary.ready || 0)},
+      ${Number(summary.needsReview || 0)},
+      ${Number(summary.conflict || 0)},
+      ${Number(summary.skipped || 0)},
+      NOW(),
+      NOW()
+    )
+    RETURNING *
+  `;
+  const run = createdRows[0];
+
+  for (const row of previewRows) {
+    const rawRow = rawRows[row.rowNumber - 1] || {};
+    const input = row.input || {};
+    await sql`
+      INSERT INTO constituency_import_rows (
+        run_id,
+        row_number,
+        status,
+        match_status,
+        match_method,
+        confidence,
+        matched_blackbaud_constituent_id,
+        matched_lookup_id,
+        constituent_name,
+        action,
+        source_constituency,
+        target_constituency,
+        start_date,
+        end_date,
+        raw_row,
+        preview,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${run.id},
+        ${row.rowNumber},
+        ${row.status},
+        ${row.matchStatus || null},
+        ${row.matchMethod || null},
+        ${Number(row.confidence || 0)},
+        ${row.match?.blackbaudConstituentId || null},
+        ${row.match?.lookupId || null},
+        ${input.constituentName || row.match?.name || null},
+        ${input.action || null},
+        ${input.sourceConstituency || null},
+        ${input.targetConstituency || null},
+        ${input.startDate || null},
+        ${input.endDate || null},
+        ${JSON.stringify(rawRow)}::jsonb,
+        ${JSON.stringify(row)}::jsonb,
+        NOW(),
+        NOW()
+      )
+    `;
+  }
+
+  return serializeRun(run);
+}
+
 export async function POST(request) {
   try {
     await ensureAppSchema();
@@ -472,6 +593,7 @@ export async function POST(request) {
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
     const useHierarchy = defaults.useHierarchy !== false;
+    const saveRun = Boolean(body?.saveRun);
     const origin = new URL(request.url).origin;
     const authUserId = isActing ? sessionUser?.id : user.id;
 
@@ -542,10 +664,26 @@ export async function POST(request) {
       });
     }
 
+    const summary = summarize(previewRows, warnings);
+    const savedRun = saveRun
+      ? await savePreviewRun({
+          sessionUser,
+          workspaceUser: user,
+          sourceFilename: body?.sourceFilename,
+          mappings,
+          defaults,
+          warnings,
+          summary,
+          previewRows,
+          rawRows: rowsToPreview,
+        })
+      : null;
+
     return Response.json({
       previewOnly: true,
+      savedRun,
       warnings,
-      summary: summarize(previewRows, warnings),
+      summary,
       rows: previewRows,
     });
   } catch (error) {

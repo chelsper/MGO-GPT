@@ -641,6 +641,19 @@ function renderList(values) {
   return values.join(" -> ");
 }
 
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function HeaderCode({ children }) {
   return (
     <code
@@ -672,10 +685,16 @@ export default function ConstituencyImportPage() {
   );
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
+  const [sourceFilename, setSourceFilename] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
+  const [savingRun, setSavingRun] = useState(false);
+  const [savedRuns, setSavedRuns] = useState([]);
+  const [loadingSavedRuns, setLoadingSavedRuns] = useState(false);
+  const [loadingRunId, setLoadingRunId] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -736,12 +755,18 @@ export default function ConstituencyImportPage() {
     setRows(parsed.rows);
     setHeaders(parsed.headers);
     setPreview(null);
+    setSaveMessage("");
     if (parsed.errors.length > 0) {
       setParseMessage(`Parsed ${parsed.rows.length} rows with ${parsed.errors.length} CSV warning(s).`);
     } else {
       setParseMessage(parsed.rows.length ? `Parsed ${parsed.rows.length} rows.` : "");
     }
   }, [rawCsv]);
+
+  useEffect(() => {
+    if (!isReviewer) return;
+    fetchSavedRuns();
+  }, [isReviewer]);
 
   const summaryCards = useMemo(() => {
     const summary = preview?.summary || {};
@@ -791,6 +816,7 @@ export default function ConstituencyImportPage() {
 
   function useTemplateCsv() {
     setRawCsv(makeTemplateRows(selectedFields));
+    setSourceFilename("Template CSV");
   }
 
   function downloadTemplateCsv() {
@@ -807,15 +833,64 @@ export default function ConstituencyImportPage() {
   function handleFileUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    setSourceFilename(file.name || "");
     const reader = new FileReader();
     reader.onload = () => setRawCsv(String(reader.result || ""));
     reader.readAsText(file);
   }
 
-  async function requestPreview() {
-    setPreviewing(true);
+  async function fetchSavedRuns() {
+    setLoadingSavedRuns(true);
+    try {
+      const response = await fetch("/api/constituency-import/runs?limit=8");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load saved import previews");
+      }
+      setSavedRuns(Array.isArray(payload?.runs) ? payload.runs : []);
+    } catch (savedRunError) {
+      setError(
+        savedRunError instanceof Error
+          ? savedRunError.message
+          : "Failed to load saved import previews",
+      );
+    } finally {
+      setLoadingSavedRuns(false);
+    }
+  }
+
+  async function loadSavedRun(runId) {
+    setLoadingRunId(String(runId));
     setError("");
-    setPreview(null);
+    setSaveMessage("");
+    try {
+      const response = await fetch(`/api/constituency-import/runs?id=${encodeURIComponent(runId)}`);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load saved import preview");
+      }
+      setPreview(payload);
+      setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error ? loadError.message : "Failed to load saved import preview",
+      );
+    } finally {
+      setLoadingRunId("");
+    }
+  }
+
+  async function requestPreview({ saveRun = false } = {}) {
+    if (saveRun) {
+      setSavingRun(true);
+    } else {
+      setPreviewing(true);
+    }
+    setError("");
+    setSaveMessage("");
+    if (!saveRun) {
+      setPreview(null);
+    }
     try {
       const response = await fetch("/api/constituency-import/preview", {
         method: "POST",
@@ -824,6 +899,8 @@ export default function ConstituencyImportPage() {
           rows,
           mappings,
           defaults: { defaultAction: constituencyAction, useHierarchy },
+          sourceFilename,
+          saveRun,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -831,6 +908,10 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to preview constituency import");
       }
       setPreview(payload);
+      if (saveRun && payload?.savedRun?.id) {
+        setSaveMessage(`Saved import run #${payload.savedRun.id}. No NXT records were changed.`);
+        fetchSavedRuns();
+      }
     } catch (previewError) {
       setError(
         previewError instanceof Error
@@ -839,6 +920,7 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setPreviewing(false);
+      setSavingRun(false);
     }
   }
 
@@ -976,8 +1058,8 @@ export default function ConstituencyImportPage() {
           }}
         >
           This version is template-first: choose the fields you are importing, use the exact CSV
-          headers shown here, then upload the file. Strong ID matches can be ready later; name and
-          email matches stay in human review.
+          headers shown here, then upload the file. You can now save preview runs for review, but
+          this still does not write to NXT.
         </section>
 
         <section
@@ -1432,7 +1514,7 @@ export default function ConstituencyImportPage() {
             ) : null}
             <button
               type="button"
-              onClick={requestPreview}
+              onClick={() => requestPreview()}
               disabled={!canPreview || previewing}
               style={{
                 border: "none",
@@ -1448,26 +1530,117 @@ export default function ConstituencyImportPage() {
               {previewing ? "Previewing..." : "Preview import"}
             </button>
             {preview?.rows?.length ? (
-              <button
-                type="button"
-                onClick={downloadPreviewCsv}
+              <>
+                <button
+                  type="button"
+                  onClick={() => requestPreview({ saveRun: true })}
+                  disabled={savingRun}
+                  style={{
+                    border: "1px solid #A7F3D0",
+                    borderRadius: "14px",
+                    backgroundColor: savingRun ? "#E5E7EB" : "#ECFDF5",
+                    color: savingRun ? "#64748B" : "#047857",
+                    padding: "12px 16px",
+                    fontWeight: 900,
+                    cursor: savingRun ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {savingRun ? "Saving preview..." : "Save preview run"}
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadPreviewCsv}
+                  style={{
+                    display: "inline-flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "8px",
+                    border: "1px solid #D1D5DB",
+                    borderRadius: "14px",
+                    backgroundColor: "white",
+                    color: "#374151",
+                    padding: "12px 16px",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  <FileText size={16} /> Export preview CSV
+                </button>
+              </>
+            ) : null}
+            {saveMessage ? (
+              <div
                 style={{
-                  display: "inline-flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  gap: "8px",
-                  border: "1px solid #D1D5DB",
+                  border: "1px solid #A7F3D0",
                   borderRadius: "14px",
-                  backgroundColor: "white",
-                  color: "#374151",
-                  padding: "12px 16px",
-                  fontWeight: 900,
-                  cursor: "pointer",
+                  backgroundColor: "#ECFDF5",
+                  color: "#065F46",
+                  padding: "12px",
+                  fontWeight: 800,
+                  lineHeight: 1.4,
                 }}
               >
-                <FileText size={16} /> Export preview CSV
-              </button>
+                {saveMessage}
+              </div>
             ) : null}
+            <div
+              style={{
+                borderTop: "1px solid #E5E7EB",
+                paddingTop: "14px",
+                display: "grid",
+                gap: "10px",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", color: "#111827" }}>
+                  Saved preview runs
+                </h3>
+                <p style={{ margin: "4px 0 0", color: "#6B7280", lineHeight: 1.4 }}>
+                  Reopen a prior preview without rechecking NXT.
+                </p>
+              </div>
+              {loadingSavedRuns ? (
+                <span style={{ color: "#6B7280" }}>Loading saved previews...</span>
+              ) : savedRuns.length ? (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {savedRuns.map((run) => (
+                    <button
+                      key={run.id}
+                      type="button"
+                      onClick={() => loadSavedRun(run.id)}
+                      disabled={loadingRunId === run.id}
+                      style={{
+                        border: "1px solid #E5E7EB",
+                        borderRadius: "14px",
+                        backgroundColor: "white",
+                        color: "#111827",
+                        padding: "11px 12px",
+                        textAlign: "left",
+                        cursor: loadingRunId === run.id ? "wait" : "pointer",
+                      }}
+                    >
+                      <span style={{ display: "block", fontWeight: 900 }}>
+                        Run #{run.id} · {run.sourceFilename || "CSV preview"}
+                      </span>
+                      <span
+                        style={{
+                          display: "block",
+                          marginTop: "4px",
+                          color: "#6B7280",
+                          fontSize: "13px",
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        {run.readyCount} ready · {run.needsReviewCount} review ·{" "}
+                        {run.conflictCount} conflict · {formatDateTime(run.createdAt)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span style={{ color: "#6B7280" }}>No saved import previews yet.</span>
+              )}
+            </div>
           </aside>
         </section>
 
@@ -1490,6 +1663,11 @@ export default function ConstituencyImportPage() {
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
                 Paste CSV content or upload a file exported from a data append.
               </p>
+              {sourceFilename ? (
+                <p style={{ margin: "6px 0 0", color: "#64748B", fontWeight: 800 }}>
+                  Source: {sourceFilename}
+                </p>
+              ) : null}
             </div>
             <label
               style={{
@@ -1619,6 +1797,23 @@ export default function ConstituencyImportPage() {
               }}
             >
               {preview.warnings.join(" ")}
+            </div>
+          ) : null}
+
+          {preview?.savedRun ? (
+            <div
+              style={{
+                border: "1px solid #A7F3D0",
+                borderRadius: "14px",
+                backgroundColor: "#ECFDF5",
+                color: "#065F46",
+                padding: "12px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              Saved import run #{preview.savedRun.id}. This is ready for review and future apply
+              workflow work; no NXT records were changed.
             </div>
           ) : null}
 

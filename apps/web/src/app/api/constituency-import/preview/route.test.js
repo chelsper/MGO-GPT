@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
+const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 const findBlackbaudConstituentByLookupIdMock = vi.fn();
 const getBlackbaudConstituentByIdMock = vi.fn();
@@ -18,6 +19,10 @@ vi.mock("@/app/api/utils/ensureAppSchema", () => ({
 
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
   default: getWorkspaceUserMock,
+}));
+
+vi.mock("@/app/api/utils/sql", () => ({
+  default: sqlMock,
 }));
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
@@ -53,6 +58,7 @@ describe("constituency import preview route", () => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();
     getWorkspaceUserMock.mockReset();
+    sqlMock.mockReset();
     blackbaudApiFetchMock.mockReset();
     findBlackbaudConstituentByLookupIdMock.mockReset();
     getBlackbaudConstituentByIdMock.mockReset();
@@ -295,5 +301,63 @@ describe("constituency import preview route", () => {
       "Alumni - Bachelor's Degree",
       "Friend",
     ]);
+  });
+
+  it("saves preview runs and row-level preview results when requested", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "567",
+      lookupId: "A567",
+      name: "Morgan Dolphin",
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [{ description: "Friend" }],
+    });
+    sqlMock
+      .mockResolvedValueOnce([
+        {
+          id: "42",
+          status: "previewed",
+          source_filename: "alumni-import.csv",
+          row_count: 1,
+          ready_count: 1,
+          needs_review_count: 0,
+          conflict_count: 0,
+          skipped_count: 0,
+          applied_count: 0,
+          failed_count: 0,
+          created_at: "2026-08-06T14:00:00.000Z",
+          updated_at: "2026-08-06T14:00:00.000Z",
+          applied_at: null,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            Name: "Morgan Dolphin",
+            "NXT ID": "567",
+            "New Constituency": "Alumni - Graduate Degree",
+          },
+        ],
+        mappings: {
+          constituentName: "Name",
+          blackbaudConstituentId: "NXT ID",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add" },
+        sourceFilename: "alumni-import.csv",
+        saveRun: true,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.savedRun.id).toBe("42");
+    expect(payload.savedRun.sourceFilename).toBe("alumni-import.csv");
+    expect(payload.summary.ready).toBe(1);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
   });
 });

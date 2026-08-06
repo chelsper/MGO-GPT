@@ -1503,6 +1503,229 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS constituency_import_runs (
+        id BIGSERIAL PRIMARY KEY,
+        created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        workspace_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'previewed',
+        source_filename TEXT,
+        mappings JSONB,
+        defaults JSONB,
+        warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+        summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        ready_count INTEGER NOT NULL DEFAULT 0,
+        needs_review_count INTEGER NOT NULL DEFAULT 0,
+        conflict_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        applied_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        applied_at TIMESTAMPTZ
+      )
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS workspace_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'previewed'
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS source_filename TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS mappings JSONB
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS defaults JSONB
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS warnings JSONB NOT NULL DEFAULT '[]'::jsonb
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS summary JSONB NOT NULL DEFAULT '{}'::jsonb
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS row_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS ready_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS needs_review_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS conflict_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS skipped_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS applied_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE constituency_import_runs
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_constituency_import_runs_created
+      ON constituency_import_runs (created_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_constituency_import_runs_status
+      ON constituency_import_runs (status, created_at DESC)
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS constituency_import_rows (
+        id BIGSERIAL PRIMARY KEY,
+        run_id BIGINT NOT NULL REFERENCES constituency_import_runs(id) ON DELETE CASCADE,
+        row_number INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        match_status TEXT,
+        match_method TEXT,
+        confidence INTEGER,
+        matched_blackbaud_constituent_id TEXT,
+        matched_lookup_id TEXT,
+        constituent_name TEXT,
+        action TEXT,
+        source_constituency TEXT,
+        target_constituency TEXT,
+        start_date TEXT,
+        end_date TEXT,
+        raw_row JSONB NOT NULL DEFAULT '{}'::jsonb,
+        preview JSONB NOT NULL DEFAULT '{}'::jsonb,
+        blackbaud_result JSONB,
+        blackbaud_error TEXT,
+        applied_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS run_id BIGINT REFERENCES constituency_import_runs(id) ON DELETE CASCADE
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS row_number INTEGER
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS status TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS match_status TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS match_method TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS confidence INTEGER
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS matched_blackbaud_constituent_id TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS matched_lookup_id TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS constituent_name TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS action TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS source_constituency TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS target_constituency TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS start_date TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS end_date TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS raw_row JSONB NOT NULL DEFAULT '{}'::jsonb
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS preview JSONB NOT NULL DEFAULT '{}'::jsonb
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS blackbaud_result JSONB
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS blackbaud_error TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_constituency_import_rows_run_row
+      ON constituency_import_rows (run_id, row_number)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_constituency_import_rows_status
+      ON constituency_import_rows (run_id, status)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
         article_id TEXT PRIMARY KEY,
         category_id TEXT,
