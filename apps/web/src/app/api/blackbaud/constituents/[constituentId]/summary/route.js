@@ -5,7 +5,9 @@ import sql from "@/app/api/utils/sql";
 import {
   blackbaudApiFetch,
   getBlackbaudConfigIssues,
+  listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
+import { fetchAnnualGivingSocieties } from "../../../../utils/annualGivingSocieties.js";
 
 const CONSTITUENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -24,7 +26,7 @@ function buildSummaryCacheKey({
   includeInactive,
 }) {
   return [
-    "constituent-summary-v2",
+    "constituent-summary-v3",
     String(constituentId || "").trim(),
     String(lookupId || "").trim(),
     String(recordId || "").trim(),
@@ -1281,6 +1283,7 @@ export async function GET(request, { params }) {
       fundraiserAssignmentsResult,
       relationshipsResult,
       educationResult,
+      annualGivingSocietiesResult,
     ] =
       await Promise.all([
         loadBlackbaudSection("lifetimeGiving", () =>
@@ -1330,6 +1333,15 @@ export async function GET(request, { params }) {
             },
           ),
         ),
+        loadOptionalSection("annualGivingSocieties", () =>
+          fetchAnnualGivingSocieties({
+            listGifts: listBlackbaudGifts,
+            userId: user.id,
+            authUserId,
+            origin,
+            constituentId: resolvedConstituentId,
+          }),
+        ),
       ]);
 
     const constituent = constituentPayload;
@@ -1341,6 +1353,9 @@ export async function GET(request, { params }) {
       : null;
     const relationships = relationshipsResult.ok ? relationshipsResult.payload : null;
     const education = educationResult.ok ? educationResult.payload : null;
+    const annualGivingSocieties = annualGivingSocietiesResult.ok
+      ? annualGivingSocietiesResult.payload
+      : null;
 
     const assignments = Array.isArray(fundraiserAssignments?.value)
       ? fundraiserAssignments.value
@@ -1399,6 +1414,7 @@ export async function GET(request, { params }) {
         constituent: mappedConstituent,
         lifetimeGiving: mappedLifetimeGiving,
         fundraiserAssignments: mappedAssignments,
+        annualGivingSocieties,
         primaryBusinessRelationship: mappedPrimaryBusinessRelationship,
         jacksonvilleUniversityEducation: educationRecords,
         proposalSummary,
@@ -1413,6 +1429,9 @@ export async function GET(request, { params }) {
           : fundraiserAssignmentsResult.error,
         relationships: relationshipsResult.ok ? null : relationshipsResult.error,
         education: educationResult.ok ? null : educationResult.error,
+        annualGivingSocieties: annualGivingSocietiesResult.ok
+          ? null
+          : annualGivingSocietiesResult.error,
         proposalSummary: proposalSummaryResult.ok ? null : proposalSummaryResult.error,
         familySummary: familySummaryResult.ok ? null : familySummaryResult.error,
       },

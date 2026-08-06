@@ -151,6 +151,44 @@ function formatBlackbaudCurrency(amount) {
   });
 }
 
+function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
+  const society = annualGivingSocieties?.primarySociety;
+  if (!society) return null;
+
+  const year = annualGivingSocieties?.year;
+  const total = annualGivingSocieties?.combinedAnnualGiving;
+  const displayTotal = total == null ? "" : formatBlackbaudCurrency(total);
+
+  return (
+    <span
+      title={[
+        year ? `${year} annual giving society` : "Annual giving society",
+        displayTotal
+          ? `${displayTotal} received revenue + recognition credit`
+          : "Based on received revenue + recognition credit",
+      ]
+        .filter(Boolean)
+        .join(": ")}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        border: "1px solid #FCD34D",
+        borderRadius: "999px",
+        backgroundColor: "#FFFBEB",
+        color: "#92400E",
+        fontSize: "12px",
+        fontWeight: 800,
+        padding: "6px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Trophy size={14} />
+      {society.label}
+    </span>
+  );
+}
+
 function getOpportunityDisplayStatus(opportunity = {}) {
   const stage = opportunity?.current_stage || "";
   const status = opportunity?.opportunity_status || "Active";
@@ -505,6 +543,8 @@ function PortfolioTier({
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
+                const annualGivingSocieties =
+                  summaryState?.payload?.mapped?.annualGivingSocieties || null;
                 const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
                   person.constituentId,
                 );
@@ -548,6 +588,7 @@ function PortfolioTier({
                       Top Prospect
                     </span>
                   ) : null}
+                  <AnnualGivingSocietyBadge annualGivingSocieties={annualGivingSocieties} />
                 </div>
                 {person.lookupId ? (
                   <div
@@ -2271,6 +2312,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
     blackbaudSummary?.mapped?.lifetimeGiving || null;
   const blackbaudAssignments =
     blackbaudSummary?.mapped?.fundraiserAssignments || [];
+  const annualGivingSocieties =
+    blackbaudSummary?.mapped?.annualGivingSocieties || null;
   const blackbaudNarrativeSummary =
     blackbaudSummary?.mapped?.prospectSummaryNarrative || "";
   const blackbaudProposalSummary =
@@ -5271,8 +5314,8 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                     </div>
                   ) : null}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                  <div
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <div
                     style={{
                       fontSize: "12px",
                       fontWeight: "700",
@@ -5282,11 +5325,12 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       borderRadius: "999px",
                       padding: "4px 10px",
                     }}
-                  >
-                    Read-only NXT data
-                  </div>
-                  {linkedBlackbaudConstituentProfileUrl ? (
-                    <a
+                    >
+                      Read-only NXT data
+                    </div>
+                    <AnnualGivingSocietyBadge annualGivingSocieties={annualGivingSocieties} />
+                    {linkedBlackbaudConstituentProfileUrl ? (
+                      <a
                       href={linkedBlackbaudConstituentProfileUrl}
                       target="_blank"
                       rel="noreferrer"

@@ -19,6 +19,7 @@ vi.mock("@/app/api/utils/sql", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: vi.fn(),
   getBlackbaudConfigIssues: vi.fn(() => []),
+  listBlackbaudGifts: vi.fn(),
 }));
 
 const baseArgs = {

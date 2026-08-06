@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
@@ -75,6 +75,44 @@ function formatBlackbaudCurrency(amount) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
+  const society = annualGivingSocieties?.primarySociety;
+  if (!society) return null;
+
+  const year = annualGivingSocieties?.year;
+  const total = annualGivingSocieties?.combinedAnnualGiving;
+  const displayTotal = total == null ? "" : formatBlackbaudCurrency(total);
+
+  return (
+    <span
+      title={[
+        year ? `${year} annual giving society` : "Annual giving society",
+        displayTotal
+          ? `${displayTotal} received revenue + recognition credit`
+          : "Based on received revenue + recognition credit",
+      ]
+        .filter(Boolean)
+        .join(": ")}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        border: "1px solid #FCD34D",
+        borderRadius: "999px",
+        backgroundColor: "#FFFBEB",
+        color: "#92400E",
+        fontSize: "12px",
+        fontWeight: 800,
+        padding: "6px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Trophy size={14} />
+      {society.label}
+    </span>
+  );
 }
 
 function getRequestState(entry) {
@@ -2055,6 +2093,8 @@ export default function ProspectPoolPage() {
               blackbaudSummaryState?.payload?.mapped?.lifetimeGiving || null;
             const blackbaudAssignments =
               blackbaudSummaryState?.payload?.mapped?.fundraiserAssignments || [];
+            const annualGivingSocieties =
+              blackbaudSummaryState?.payload?.mapped?.annualGivingSocieties || null;
             const blackbaudNarrativeSummary =
               blackbaudSummaryState?.payload?.mapped?.prospectSummaryNarrative || "";
             const primaryBusinessRelationship =
@@ -2252,6 +2292,7 @@ export default function ProspectPoolPage() {
                             ) : null}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <AnnualGivingSocietyBadge annualGivingSocieties={annualGivingSocieties} />
                             <div
                               style={{
                                 fontSize: "12px",

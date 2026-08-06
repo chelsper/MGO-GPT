@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, MessageSquare, Mic } from "lucide-react";
+import { ArrowLeft, MessageSquare, Mic, Trophy } from "lucide-react";
 import useUser from "@/utils/useUser";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 
@@ -77,6 +77,52 @@ function getRoleLabel(role) {
     default:
       return "Team";
   }
+}
+
+function formatBlackbaudCurrency(amount) {
+  if (amount == null) return "Unavailable";
+  return "$" + Number(amount).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
+  const society = annualGivingSocieties?.primarySociety;
+  if (!society) return null;
+
+  const year = annualGivingSocieties?.year;
+  const total = annualGivingSocieties?.combinedAnnualGiving;
+  const displayTotal = total == null ? "" : formatBlackbaudCurrency(total);
+
+  return (
+    <span
+      title={[
+        year ? `${year} annual giving society` : "Annual giving society",
+        displayTotal
+          ? `${displayTotal} received revenue + recognition credit`
+          : "Based on received revenue + recognition credit",
+      ]
+        .filter(Boolean)
+        .join(": ")}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        border: "1px solid #FCD34D",
+        borderRadius: "999px",
+        backgroundColor: "#FFFBEB",
+        color: "#92400E",
+        fontSize: "12px",
+        fontWeight: 800,
+        padding: "6px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Trophy size={14} />
+      {society.label}
+    </span>
+  );
 }
 
 function isFundraiserOption(option) {
@@ -950,6 +996,8 @@ export default function ActionOpportunityUpdatePage() {
     selectedBlackbaudSummary?.mapped?.constituent || null;
   const blackbaudLifetimeGiving =
     selectedBlackbaudSummary?.mapped?.lifetimeGiving || null;
+  const blackbaudAnnualGivingSocieties =
+    selectedBlackbaudSummary?.mapped?.annualGivingSocieties || null;
   const blackbaudFundraiserAssignments =
     selectedBlackbaudSummary?.mapped?.fundraiserAssignments || [];
 
@@ -3056,6 +3104,11 @@ export default function ActionOpportunityUpdatePage() {
                         <div>
                           Lookup ID: <strong>{blackbaudConstituent.lookupId}</strong>
                         </div>
+                      ) : null}
+                      {blackbaudAnnualGivingSocieties?.primarySociety ? (
+                        <AnnualGivingSocietyBadge
+                          annualGivingSocieties={blackbaudAnnualGivingSocieties}
+                        />
                       ) : null}
                       {blackbaudConstituent.email ? (
                         <div>Email: {blackbaudConstituent.email}</div>
