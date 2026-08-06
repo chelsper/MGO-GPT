@@ -342,6 +342,15 @@ function definitionMatchesTotal(definition, total) {
   return total <= definition.maximumAmount;
 }
 
+function getDisplaySocietyResults(societyResults) {
+  if (!societyResults.length) return [];
+  const [primarySociety, ...additionalSocieties] = societyResults;
+  return [
+    primarySociety,
+    ...additionalSocieties.filter((society) => society.displayAlongside),
+  ];
+}
+
 function calculateGivingTotalsForWindow({
   constituentId,
   gifts = [],
@@ -483,6 +492,7 @@ function calculateLifetimeGivingSocieties({
         minimum: definition.minimumAmount,
         maximum: definition.maximumAmount,
         hierarchy: definition.displayOrder,
+        displayAlongside: definition.displayAlongside,
         basis: definition.basis,
         periodBasis: definition.periodBasis,
         year: null,
@@ -578,6 +588,7 @@ export function calculateAnnualGivingSocieties({
         minimum: definition.minimumAmount,
         maximum: definition.maximumAmount,
         hierarchy: definition.displayOrder,
+        displayAlongside: definition.displayAlongside,
         basis: definition.basis,
         periodBasis: definition.periodBasis,
         year: window.year,
@@ -598,6 +609,7 @@ export function calculateAnnualGivingSocieties({
     });
 
   const primarySociety = societyResults[0] || null;
+  const displayedAnnualSocieties = getDisplaySocietyResults(societyResults);
   const primaryWindow = primarySociety
     ? {
         startDate: primarySociety.startDate,
@@ -624,7 +636,8 @@ export function calculateAnnualGivingSocieties({
       ).toFixed(2),
     );
 
-  const combinedSocieties = [...societyResults, ...lifetimeSummary.societies]
+  const displayedLifetimeSocieties = getDisplaySocietyResults(lifetimeSummary.societies);
+  const combinedSocieties = [...displayedAnnualSocieties, ...displayedLifetimeSocieties]
     .sort((left, right) => {
       if (left.hierarchy !== right.hierarchy) return left.hierarchy - right.hierarchy;
       if (left.basis !== right.basis) return left.basis === "annual" ? -1 : 1;
@@ -647,8 +660,10 @@ export function calculateAnnualGivingSocieties({
     primarySociety,
     primaryAnnualSociety: primarySociety,
     primaryLifetimeSociety: lifetimeSummary.primarySociety,
-    annualSocieties: societyResults,
-    lifetimeSocieties: lifetimeSummary.societies,
+    annualSocieties: displayedAnnualSocieties,
+    lifetimeSocieties: displayedLifetimeSocieties,
+    allQualifiedAnnualSocieties: societyResults,
+    allQualifiedLifetimeSocieties: lifetimeSummary.societies,
     societies: combinedSocieties,
     lifetimeGiving: {
       committedTotal: lifetimeSummary.committedTotal,

@@ -234,4 +234,65 @@ describe("annual giving societies", () => {
     ]);
     expect(summary.lifetimeGiving.committedTotal).toBe(1000000);
   });
+
+  it("keeps lower annual societies hidden unless they are configured to display alongside", () => {
+    const gifts = [gift({ amount: 12000 })];
+    const baseDefinitions = [
+      {
+        key: "presidents_society",
+        name: "President's Society",
+        basis: "annual",
+        periodBasis: "calendar_year",
+        minimumAmount: 10000,
+        maximumAmount: null,
+        countSources: ["received_revenue", "recognition_credit"],
+        active: true,
+        displayOrder: 1,
+      },
+      {
+        key: "order_of_the_dolphin",
+        name: "Order of the Dolphin",
+        basis: "annual",
+        periodBasis: "calendar_year",
+        minimumAmount: 1000,
+        maximumAmount: null,
+        countSources: ["received_revenue", "recognition_credit"],
+        active: true,
+        displayOrder: 2,
+      },
+    ];
+
+    const primaryOnlySummary = calculateAnnualGivingSocieties({
+      constituentId: "123",
+      now: NOW,
+      gifts,
+      societyDefinitions: baseDefinitions,
+    });
+
+    expect(
+      primaryOnlySummary.allQualifiedAnnualSocieties.map((society) => society.label),
+    ).toEqual(["President's Society", "Order of the Dolphin"]);
+    expect(primaryOnlySummary.annualSocieties.map((society) => society.label)).toEqual([
+      "President's Society",
+    ]);
+    expect(primaryOnlySummary.societies.map((society) => society.label)).toEqual([
+      "President's Society",
+    ]);
+
+    const alongsideSummary = calculateAnnualGivingSocieties({
+      constituentId: "123",
+      now: NOW,
+      gifts,
+      societyDefinitions: baseDefinitions.map((definition) =>
+        definition.key === "order_of_the_dolphin"
+          ? { ...definition, displayAlongside: true }
+          : definition,
+      ),
+    });
+
+    expect(alongsideSummary.annualSocieties.map((society) => society.label)).toEqual([
+      "President's Society",
+      "Order of the Dolphin",
+    ]);
+  });
 });

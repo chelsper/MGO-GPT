@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, GripVertical, Plus } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
@@ -91,6 +91,7 @@ function normalizeSocietyForForm(society, index = 0) {
         : Array.isArray(society?.count_sources)
           ? society.count_sources
           : ["received_revenue", "recognition_credit"],
+    displayAlongside: society?.displayAlongside ?? society?.display_alongside ?? false,
     active: society?.active !== false,
     displayOrder: society?.displayOrder || society?.display_order || index + 1,
   };
@@ -140,6 +141,7 @@ export default function OrganizationConfigurationsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [draggedSocietyKey, setDraggedSocietyKey] = useState("");
 
   async function loadConfigurations() {
     const [profileResponse, configResponse] = await Promise.all([
@@ -213,6 +215,33 @@ export default function OrganizationConfigurationsPage() {
     [societies],
   );
 
+  const societiesByBasis = useMemo(
+    () => ({
+      annual: societies
+        .map((society, index) => ({ society, index }))
+        .filter(({ society }) => society.basis === "annual"),
+      lifetime: societies
+        .map((society, index) => ({ society, index }))
+        .filter(({ society }) => society.basis === "lifetime"),
+    }),
+    [societies],
+  );
+
+  function orderSocietiesForDisplay(items) {
+    const basisOrder = { annual: 0, lifetime: 1 };
+    return [...items]
+      .sort((left, right) => {
+        const leftBasis = basisOrder[left.basis] ?? 99;
+        const rightBasis = basisOrder[right.basis] ?? 99;
+        if (leftBasis !== rightBasis) return leftBasis - rightBasis;
+        if (Number(left.displayOrder) !== Number(right.displayOrder)) {
+          return Number(left.displayOrder) - Number(right.displayOrder);
+        }
+        return left.name.localeCompare(right.name);
+      })
+      .map((society, index) => ({ ...society, displayOrder: index + 1 }));
+  }
+
   function updateSociety(index, updates) {
     setSocieties((current) =>
       current.map((society, societyIndex) => {
@@ -233,16 +262,51 @@ export default function OrganizationConfigurationsPage() {
 
   function moveSociety(index, direction) {
     setSocieties((current) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      const [item] = next.splice(index, 1);
-      next.splice(nextIndex, 0, item);
-      return next.map((society, societyIndex) => ({
-        ...society,
-        displayOrder: societyIndex + 1,
-      }));
+      const currentSociety = current[index];
+      if (!currentSociety) return current;
+      const sameBasisIndexes = current
+        .map((society, societyIndex) => ({ society, societyIndex }))
+        .filter(({ society }) => society.basis === currentSociety.basis)
+        .map(({ societyIndex }) => societyIndex);
+      const basisPosition = sameBasisIndexes.indexOf(index);
+      const targetIndex = sameBasisIndexes[basisPosition + direction];
+      if (targetIndex == null) return current;
+      return reorderSocietiesWithinBasis(current, index, targetIndex);
     });
+  }
+
+  function reorderSocietiesWithinBasis(current, fromIndex, toIndex) {
+    const source = current[fromIndex];
+    const target = current[toIndex];
+    if (!source || !target || source.basis !== target.basis) return current;
+
+    const basisSocieties = current.filter((society) => society.basis === source.basis);
+    const sourcePosition = basisSocieties.findIndex((society) => society.key === source.key);
+    const targetPosition = basisSocieties.findIndex((society) => society.key === target.key);
+    if (sourcePosition < 0 || targetPosition < 0 || sourcePosition === targetPosition) {
+      return current;
+    }
+
+    const nextBasisSocieties = [...basisSocieties];
+    const [movedSociety] = nextBasisSocieties.splice(sourcePosition, 1);
+    nextBasisSocieties.splice(targetPosition, 0, movedSociety);
+
+    const byBasis = {
+      annual: current.filter((society) => society.basis === "annual"),
+      lifetime: current.filter((society) => society.basis === "lifetime"),
+    };
+    byBasis[source.basis] = nextBasisSocieties;
+
+    return orderSocietiesForDisplay([...byBasis.annual, ...byBasis.lifetime]);
+  }
+
+  function dropSocietyOnTarget(targetIndex) {
+    if (!draggedSocietyKey) return;
+    setSocieties((current) => {
+      const fromIndex = current.findIndex((society) => society.key === draggedSocietyKey);
+      return reorderSocietiesWithinBasis(current, fromIndex, targetIndex);
+    });
+    setDraggedSocietyKey("");
   }
 
   function addSociety() {
@@ -257,6 +321,7 @@ export default function OrganizationConfigurationsPage() {
           minimumAmount: 0,
           maximumAmount: "",
           active: true,
+          displayAlongside: false,
           countSources: ["received_revenue", "recognition_credit"],
         },
         current.length,
@@ -292,7 +357,7 @@ export default function OrganizationConfigurationsPage() {
 
     try {
       const payload = {
-        societies: societies.map((society, index) => ({
+        societies: orderSocietiesForDisplay(societies).map((society, index) => ({
           ...society,
           key: society.key || slugify(society.name, `giving_society_${index + 1}`),
           displayOrder: index + 1,
@@ -435,9 +500,9 @@ export default function OrganizationConfigurationsPage() {
             <div>
               <h2 style={{ margin: 0, fontSize: "28px" }}>Giving Societies</h2>
               <p style={{ margin: "8px 0 0", color: "#6B7280", fontSize: "16px" }}>
-                Annual society badges currently calculate received revenue and
-                recognition credit. Committed giving can be stored here for
-                future organization policies.
+                Configure annual and lifetime badges, what counts toward them,
+                and whether lower-level societies can display alongside higher
+                recognition in the same category.
               </p>
             </div>
             <button
@@ -461,244 +526,409 @@ export default function OrganizationConfigurationsPage() {
             </button>
           </div>
 
-          <div style={{ display: "grid", gap: "18px" }}>
-            {societies.map((society, index) => (
-              <article
-                key={society.key || index}
-                style={{
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "18px",
-                  padding: "22px",
-                  background: society.active ? "#FFFFFF" : "#F9FAFB",
-                }}
-              >
-                <div
+          <div style={{ display: "grid", gap: "26px" }}>
+            {[
+              {
+                key: "annual",
+                title: "Annual Societies",
+                description:
+                  "Drag to set the annual hierarchy. The highest qualifying annual badge displays by default.",
+              },
+              {
+                key: "lifetime",
+                title: "Lifetime Societies",
+                description:
+                  "Drag to set the lifetime hierarchy. Lifetime badges can display separately from annual badges.",
+              },
+            ].map((group) => {
+              const groupedSocieties = societiesByBasis[group.key] || [];
+              return (
+                <section
+                  key={group.key}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "16px",
-                    alignItems: "center",
-                    marginBottom: "18px",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "20px",
+                    padding: "18px",
+                    background: "#F9FAFB",
                   }}
                 >
-                  <div>
-                    <div style={labelStyle}>Display Order {index + 1}</div>
-                    <strong style={{ fontSize: "22px" }}>{society.name}</strong>
+                  <div style={{ marginBottom: "16px" }}>
+                    <h3 style={{ margin: 0, fontSize: "22px" }}>{group.title}</h3>
+                    <p
+                      style={{
+                        margin: "6px 0 0",
+                        color: "#6B7280",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {group.description}
+                    </p>
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => moveSociety(index, -1)}
-                      disabled={index === 0}
-                      style={{
-                        border: "1px solid #D1D5DB",
-                        borderRadius: "999px",
-                        background: "white",
-                        padding: "9px 12px",
-                        fontWeight: 800,
-                        opacity: index === 0 ? 0.45 : 1,
-                        cursor: index === 0 ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      Move up
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveSociety(index, 1)}
-                      disabled={index === societies.length - 1}
-                      style={{
-                        border: "1px solid #D1D5DB",
-                        borderRadius: "999px",
-                        background: "white",
-                        padding: "9px 12px",
-                        fontWeight: 800,
-                        opacity: index === societies.length - 1 ? 0.45 : 1,
-                        cursor:
-                          index === societies.length - 1 ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      Move down
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateSociety(index, { active: !society.active })
-                      }
-                      style={{
-                        border: "1px solid #D1D5DB",
-                        borderRadius: "999px",
-                        background: society.active ? "#FEF2F2" : "#F0FDF4",
-                        color: society.active ? "#991B1B" : "#166534",
-                        padding: "9px 12px",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {society.active ? "Deactivate" : "Reactivate"}
-                    </button>
-                  </div>
-                </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                    gap: "16px",
-                  }}
-                >
-                  <label>
-                    <span style={labelStyle}>Society Name</span>
-                    <input
-                      value={society.name}
-                      onChange={(event) =>
-                        updateSociety(index, { name: event.target.value })
-                      }
-                      style={inputStyle}
-                    />
-                  </label>
-
-                  <label>
-                    <span style={labelStyle}>Basis</span>
-                    <select
-                      value={society.basis}
-                      onChange={(event) =>
-                        updateSociety(index, { basis: event.target.value })
-                      }
-                      style={inputStyle}
-                    >
-                      <option value="annual">Annual</option>
-                      <option value="lifetime">Lifetime</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span style={labelStyle}>Period</span>
-                    <select
-                      value={society.periodBasis}
-                      onChange={(event) =>
-                        updateSociety(index, { periodBasis: event.target.value })
-                      }
-                      disabled={society.basis === "lifetime"}
-                      style={{
-                        ...inputStyle,
-                        background:
-                          society.basis === "lifetime" ? "#F3F4F6" : "white",
-                      }}
-                    >
-                      <option value="calendar_year">Calendar Year</option>
-                      <option value="fiscal_year">Fiscal Year</option>
-                      <option value="lifetime">Lifetime</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span style={labelStyle}>Fiscal Year Starts</span>
-                    <select
-                      value={String(society.fiscalYearStartMonth)}
-                      onChange={(event) =>
-                        updateSociety(index, {
-                          fiscalYearStartMonth: Number(event.target.value),
-                        })
-                      }
-                      disabled={society.periodBasis !== "fiscal_year"}
-                      style={{
-                        ...inputStyle,
-                        background:
-                          society.periodBasis !== "fiscal_year"
-                            ? "#F3F4F6"
-                            : "white",
-                      }}
-                    >
-                      {MONTH_OPTIONS.map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    <span style={labelStyle}>Minimum Amount</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formatMoneyInput(society.minimumAmount)}
-                      onChange={(event) =>
-                        updateSociety(index, {
-                          minimumAmount: event.target.value,
-                        })
-                      }
-                      style={inputStyle}
-                    />
-                  </label>
-
-                  <label>
-                    <span style={labelStyle}>Maximum Amount</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formatMoneyInput(society.maximumAmount)}
-                      onChange={(event) =>
-                        updateSociety(index, {
-                          maximumAmount: event.target.value,
-                        })
-                      }
-                      placeholder="No cap"
-                      style={inputStyle}
-                    />
-                  </label>
-                </div>
-
-                <div style={{ marginTop: "18px" }}>
-                  <div style={labelStyle}>What Counts</div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-                      gap: "12px",
-                    }}
-                  >
-                    {countSourceOptions.map((option) => (
-                      <label
-                        key={option.key}
-                        style={{
-                          display: "flex",
-                          gap: "10px",
-                          alignItems: "flex-start",
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "14px",
-                          padding: "14px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={(society.countSources || []).includes(option.key)}
-                          onChange={() => toggleCountSource(index, option.key)}
-                          style={{ marginTop: "3px" }}
-                        />
-                        <span>
-                          <strong>{option.label}</strong>
-                          <span
+                  {groupedSocieties.length ? (
+                    <div style={{ display: "grid", gap: "14px" }}>
+                      {groupedSocieties.map(({ society, index }, groupIndex) => {
+                        const isDragged = draggedSocietyKey === society.key;
+                        return (
+                          <article
+                            key={society.key || index}
+                            draggable
+                            onDragStart={() => setDraggedSocietyKey(society.key)}
+                            onDragEnd={() => setDraggedSocietyKey("")}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={() => dropSocietyOnTarget(index)}
                             style={{
-                              display: "block",
-                              color: "#6B7280",
-                              fontSize: "13px",
-                              lineHeight: 1.35,
-                              marginTop: "4px",
+                              border: isDragged
+                                ? "2px solid #6D5DFB"
+                                : "1px solid #E5E7EB",
+                              borderRadius: "18px",
+                              padding: "22px",
+                              background: society.active ? "#FFFFFF" : "#F9FAFB",
+                              opacity: isDragged ? 0.72 : 1,
                             }}
                           >
-                            {option.description}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </article>
-            ))}
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: "16px",
+                                alignItems: "center",
+                                marginBottom: "18px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "12px",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <GripVertical
+                                  size={22}
+                                  aria-hidden="true"
+                                  style={{ color: "#9CA3AF", flex: "0 0 auto" }}
+                                />
+                                <div>
+                                  <div style={labelStyle}>
+                                    {group.key === "annual" ? "Annual" : "Lifetime"}{" "}
+                                    Hierarchy {groupIndex + 1}
+                                  </div>
+                                  <strong style={{ fontSize: "22px" }}>
+                                    {society.name}
+                                  </strong>
+                                </div>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "8px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => moveSociety(index, -1)}
+                                  disabled={groupIndex === 0}
+                                  style={{
+                                    border: "1px solid #D1D5DB",
+                                    borderRadius: "999px",
+                                    background: "white",
+                                    padding: "9px 12px",
+                                    fontWeight: 800,
+                                    opacity: groupIndex === 0 ? 0.45 : 1,
+                                    cursor:
+                                      groupIndex === 0 ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  Move up
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveSociety(index, 1)}
+                                  disabled={groupIndex === groupedSocieties.length - 1}
+                                  style={{
+                                    border: "1px solid #D1D5DB",
+                                    borderRadius: "999px",
+                                    background: "white",
+                                    padding: "9px 12px",
+                                    fontWeight: 800,
+                                    opacity:
+                                      groupIndex === groupedSocieties.length - 1
+                                        ? 0.45
+                                        : 1,
+                                    cursor:
+                                      groupIndex === groupedSocieties.length - 1
+                                        ? "not-allowed"
+                                        : "pointer",
+                                  }}
+                                >
+                                  Move down
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateSociety(index, {
+                                      active: !society.active,
+                                    })
+                                  }
+                                  style={{
+                                    border: "1px solid #D1D5DB",
+                                    borderRadius: "999px",
+                                    background: society.active
+                                      ? "#FEF2F2"
+                                      : "#F0FDF4",
+                                    color: society.active ? "#991B1B" : "#166534",
+                                    padding: "9px 12px",
+                                    fontWeight: 900,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {society.active ? "Deactivate" : "Reactivate"}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns:
+                                  "repeat(auto-fit, minmax(220px, 1fr))",
+                                gap: "16px",
+                              }}
+                            >
+                              <label>
+                                <span style={labelStyle}>Society Name</span>
+                                <input
+                                  value={society.name}
+                                  onChange={(event) =>
+                                    updateSociety(index, {
+                                      name: event.target.value,
+                                    })
+                                  }
+                                  style={inputStyle}
+                                />
+                              </label>
+
+                              <label>
+                                <span style={labelStyle}>Basis</span>
+                                <select
+                                  value={society.basis}
+                                  onChange={(event) =>
+                                    updateSociety(index, {
+                                      basis: event.target.value,
+                                    })
+                                  }
+                                  style={inputStyle}
+                                >
+                                  <option value="annual">Annual</option>
+                                  <option value="lifetime">Lifetime</option>
+                                </select>
+                              </label>
+
+                              <label>
+                                <span style={labelStyle}>Period</span>
+                                <select
+                                  value={society.periodBasis}
+                                  onChange={(event) =>
+                                    updateSociety(index, {
+                                      periodBasis: event.target.value,
+                                    })
+                                  }
+                                  disabled={society.basis === "lifetime"}
+                                  style={{
+                                    ...inputStyle,
+                                    background:
+                                      society.basis === "lifetime"
+                                        ? "#F3F4F6"
+                                        : "white",
+                                  }}
+                                >
+                                  <option value="calendar_year">
+                                    Calendar Year
+                                  </option>
+                                  <option value="fiscal_year">Fiscal Year</option>
+                                  <option value="lifetime">Lifetime</option>
+                                </select>
+                              </label>
+
+                              <label>
+                                <span style={labelStyle}>Fiscal Year Starts</span>
+                                <select
+                                  value={String(society.fiscalYearStartMonth)}
+                                  onChange={(event) =>
+                                    updateSociety(index, {
+                                      fiscalYearStartMonth: Number(
+                                        event.target.value,
+                                      ),
+                                    })
+                                  }
+                                  disabled={society.periodBasis !== "fiscal_year"}
+                                  style={{
+                                    ...inputStyle,
+                                    background:
+                                      society.periodBasis !== "fiscal_year"
+                                        ? "#F3F4F6"
+                                        : "white",
+                                  }}
+                                >
+                                  {MONTH_OPTIONS.map(([value, label]) => (
+                                    <option key={value} value={value}>
+                                      {label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label>
+                                <span style={labelStyle}>Minimum Amount</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={formatMoneyInput(society.minimumAmount)}
+                                  onChange={(event) =>
+                                    updateSociety(index, {
+                                      minimumAmount: event.target.value,
+                                    })
+                                  }
+                                  style={inputStyle}
+                                />
+                              </label>
+
+                              <label>
+                                <span style={labelStyle}>Maximum Amount</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={formatMoneyInput(society.maximumAmount)}
+                                  onChange={(event) =>
+                                    updateSociety(index, {
+                                      maximumAmount: event.target.value,
+                                    })
+                                  }
+                                  placeholder="No cap"
+                                  style={inputStyle}
+                                />
+                              </label>
+                            </div>
+
+                            <label
+                              style={{
+                                display: "flex",
+                                gap: "12px",
+                                alignItems: "flex-start",
+                                border: "1px solid #BFDBFE",
+                                borderRadius: "14px",
+                                background: "#EFF6FF",
+                                padding: "14px",
+                                marginTop: "18px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={Boolean(society.displayAlongside)}
+                                onChange={(event) =>
+                                  updateSociety(index, {
+                                    displayAlongside: event.target.checked,
+                                  })
+                                }
+                                style={{ marginTop: "3px" }}
+                              />
+                              <span>
+                                <strong>
+                                  Display this badge alongside higher-ranking{" "}
+                                  {society.basis} societies
+                                </strong>
+                                <span
+                                  style={{
+                                    display: "block",
+                                    color: "#1D4ED8",
+                                    fontSize: "13px",
+                                    lineHeight: 1.35,
+                                    marginTop: "4px",
+                                  }}
+                                >
+                                  The highest qualifying {society.basis} badge
+                                  always displays. Turn this on when this society
+                                  should also appear if someone qualifies for a
+                                  higher badge in the same category.
+                                </span>
+                              </span>
+                            </label>
+
+                            <div style={{ marginTop: "18px" }}>
+                              <div style={labelStyle}>What Counts</div>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns:
+                                    "repeat(auto-fit, minmax(250px, 1fr))",
+                                  gap: "12px",
+                                }}
+                              >
+                                {countSourceOptions.map((option) => (
+                                  <label
+                                    key={option.key}
+                                    style={{
+                                      display: "flex",
+                                      gap: "10px",
+                                      alignItems: "flex-start",
+                                      border: "1px solid #E5E7EB",
+                                      borderRadius: "14px",
+                                      padding: "14px",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={(society.countSources || []).includes(
+                                        option.key,
+                                      )}
+                                      onChange={() =>
+                                        toggleCountSource(index, option.key)
+                                      }
+                                      style={{ marginTop: "3px" }}
+                                    />
+                                    <span>
+                                      <strong>{option.label}</strong>
+                                      <span
+                                        style={{
+                                          display: "block",
+                                          color: "#6B7280",
+                                          fontSize: "13px",
+                                          lineHeight: 1.35,
+                                          marginTop: "4px",
+                                        }}
+                                      >
+                                        {option.description}
+                                      </span>
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        border: "1px dashed #D1D5DB",
+                        borderRadius: "16px",
+                        padding: "18px",
+                        color: "#6B7280",
+                        background: "white",
+                      }}
+                    >
+                      No {group.key} societies configured yet.
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
 
           <div

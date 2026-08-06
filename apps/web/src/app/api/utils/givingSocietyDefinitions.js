@@ -33,6 +33,7 @@ export const DEFAULT_GIVING_SOCIETY_CONFIGURATIONS = [
     minimumAmount: 10000,
     maximumAmount: null,
     countSources: ["received_revenue", "recognition_credit"],
+    displayAlongside: false,
     active: true,
     displayOrder: 1,
   },
@@ -45,6 +46,7 @@ export const DEFAULT_GIVING_SOCIETY_CONFIGURATIONS = [
     minimumAmount: 1000,
     maximumAmount: 9999.99,
     countSources: ["received_revenue", "recognition_credit"],
+    displayAlongside: false,
     active: true,
     displayOrder: 2,
   },
@@ -63,6 +65,17 @@ const COUNT_SOURCE_ALIASES = {
 function toFiniteAmount(value, fallback = null) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function toBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+  if (typeof value === "number") return value !== 0;
+  return fallback;
 }
 
 function normalizeTextKey(value) {
@@ -147,6 +160,8 @@ export function normalizeGivingSocietyConfiguration(raw = {}, index = 0) {
     maximum_amount: maximumAmount,
     countSources: normalizeCountSources(raw.countSources || raw.count_sources),
     count_sources: normalizeCountSources(raw.countSources || raw.count_sources),
+    displayAlongside: toBoolean(raw.displayAlongside ?? raw.display_alongside),
+    display_alongside: toBoolean(raw.displayAlongside ?? raw.display_alongside),
     active: raw.active !== false,
     displayOrder,
     display_order: displayOrder,
@@ -187,6 +202,7 @@ export function getGivingSocietyConfigurationSignature(definitions) {
         definition.minimumAmount,
         definition.maximumAmount ?? "",
         definition.countSources.join("+"),
+        definition.displayAlongside ? "alongside" : "primary-only",
         definition.active ? "active" : "inactive",
       ].join(":"),
     )

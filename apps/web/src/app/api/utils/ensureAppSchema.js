@@ -1436,6 +1436,7 @@ export default async function ensureAppSchema() {
         minimum_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
         maximum_amount NUMERIC(14, 2),
         count_sources JSONB NOT NULL DEFAULT '["received_revenue","recognition_credit"]'::jsonb,
+        display_alongside BOOLEAN NOT NULL DEFAULT FALSE,
         active BOOLEAN NOT NULL DEFAULT TRUE,
         display_order INTEGER NOT NULL DEFAULT 1,
         created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -1467,6 +1468,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE giving_society_configurations
       ADD COLUMN IF NOT EXISTS count_sources JSONB NOT NULL DEFAULT '["received_revenue","recognition_credit"]'::jsonb
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS display_alongside BOOLEAN NOT NULL DEFAULT FALSE
     `;
     await sql`
       ALTER TABLE giving_society_configurations
