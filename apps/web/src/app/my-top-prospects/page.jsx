@@ -1034,6 +1034,30 @@ function getOpportunityFundedDisplayAmount(opportunity = {}) {
   return linkedGiftTotal ?? opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
 }
 
+function getProspectFundedDisplayAmount(prospect = {}) {
+  const linkedGiftAmount = Number(prospect.secured_linked_gift_amount);
+  if (
+    Number.isFinite(linkedGiftAmount) &&
+    linkedGiftAmount > 0 &&
+    Number(prospect.secured_linked_gift_count || 0) > 0
+  ) {
+    return linkedGiftAmount;
+  }
+
+  return prospect.closed_amount ?? prospect.ask_amount ?? 0;
+}
+
+function getProspectAskedDisplayAmount(prospect = {}) {
+  return prospect.ask_amount ?? prospect.closed_amount ?? null;
+}
+
+function shouldShowProspectAskedAmount(prospect = {}) {
+  const askedAmount = getProspectAskedDisplayAmount(prospect);
+  if (askedAmount == null) return false;
+  const fundedAmount = getProspectFundedDisplayAmount(prospect);
+  return Number(askedAmount) !== Number(fundedAmount);
+}
+
 function AddProspectModal({ onClose, onSubmit, isPending, errorMessage = "", initialData = null }) {
   const [name, setName] = useState(initialData?.prospectName || "");
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
@@ -9062,9 +9086,32 @@ export default function MyTopProspectsPage() {
                       >
                         <span>{p.expected_close_fy}</span>
                         <span>·</span>
-                        <span style={{ fontWeight: "600", color: "#059669" }}>
-                          {formatCurrency(p.closed_amount)}
+                        <span
+                          style={{
+                            fontWeight: "800",
+                            color: "#047857",
+                            fontSize: "14px",
+                          }}
+                        >
+                          Funded {formatCurrency(getProspectFundedDisplayAmount(p))}
                         </span>
+                        {shouldShowProspectAskedAmount(p) ? (
+                          <>
+                            <span>·</span>
+                            <span style={{ color: "#9CA3AF" }}>
+                              Asked {formatCurrency(getProspectAskedDisplayAmount(p))}
+                            </span>
+                          </>
+                        ) : null}
+                        {Number(p.secured_linked_gift_count || 0) > 0 ? (
+                          <>
+                            <span>·</span>
+                            <span style={{ color: "#6B7280" }}>
+                              {p.secured_linked_gift_count} linked gift
+                              {Number(p.secured_linked_gift_count) === 1 ? "" : "s"}
+                            </span>
+                          </>
+                        ) : null}
                         {p.close_date && (
                           <>
                             <span>·</span>

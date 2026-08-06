@@ -226,6 +226,24 @@ export async function GET(request) {
         INNER JOIN user_prospects up ON up.id = po.prospect_id
         GROUP BY po.prospect_id
       ),
+      opportunity_gift_summary AS (
+        SELECT
+          po.prospect_id,
+          COALESCE(
+            SUM(COALESCE(pogl.gift_amount, 0)) FILTER (
+              WHERE po.opportunity_status = 'Closed – Gift Secured'
+            ),
+            0
+          ) AS secured_linked_gift_amount,
+          COUNT(pogl.id) FILTER (
+            WHERE po.opportunity_status = 'Closed – Gift Secured'
+          ) AS secured_linked_gift_count
+        FROM prospect_opportunities po
+        INNER JOIN user_prospects up ON up.id = po.prospect_id
+        LEFT JOIN prospect_opportunity_gift_links pogl
+          ON pogl.prospect_opportunity_id = po.id
+        GROUP BY po.prospect_id
+      ),
       submission_matches AS (
         SELECT
           up.id AS prospect_id,
@@ -324,6 +342,8 @@ export async function GET(request) {
         COALESCE(os.secured_opportunity_count, 0) AS secured_opportunity_count,
         COALESCE(os.declined_opportunity_count, 0) AS declined_opportunity_count,
         COALESCE(os.active_pipeline_amount, 0) AS active_pipeline_amount,
+        COALESCE(ogs.secured_linked_gift_amount, 0) AS secured_linked_gift_amount,
+        COALESCE(ogs.secured_linked_gift_count, 0) AS secured_linked_gift_count,
         up.created_at AS prospect_created_activity_at,
         la.latest_activity_at,
         COALESCE(ds.open_discussion_count, 0) AS open_discussion_count,
@@ -337,6 +357,7 @@ export async function GET(request) {
       FROM user_prospects up
       LEFT JOIN constituents c ON c.id = up.constituent_id
       LEFT JOIN opportunity_summary os ON os.prospect_id = up.id
+      LEFT JOIN opportunity_gift_summary ogs ON ogs.prospect_id = up.id
       LEFT JOIN latest_activity la ON la.prospect_id = up.id
       LEFT JOIN discussion_summary ds ON ds.prospect_id = up.id
       LEFT JOIN pending_action_summary pas ON pas.prospect_id = up.id
