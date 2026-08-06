@@ -610,11 +610,15 @@ function statusTone(status) {
   switch (status) {
     case "Ready":
       return { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" };
+    case "Applied":
+      return { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE" };
     case "Needs Review":
       return { bg: "#FEF3C7", fg: "#92400E", border: "#FDE68A" };
     case "Skipped":
       return { bg: "#E0F2FE", fg: "#075985", border: "#BAE6FD" };
     case "Conflict":
+      return { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" };
+    case "Failed":
       return { bg: "#FEE2E2", fg: "#991B1B", border: "#FECACA" };
     default:
       return { bg: "#F3F4F6", fg: "#374151", border: "#E5E7EB" };
@@ -685,6 +689,20 @@ function renderWritePlan(values) {
   return values.map(formatWritePlanItem).filter(Boolean).join(" | ");
 }
 
+function formatApplyResultItem(result) {
+  if (!result || typeof result !== "object") return "";
+  if (result.status === "applied") {
+    if (result.type === "constituent_code") {
+      return `Applied constituent code: ${result.targetConstituency || "selected code"}`;
+    }
+    return "Applied staged write.";
+  }
+  if (result.status === "manual_required") {
+    return `Manual review: ${result.message || "This staged write is not automated yet."}`;
+  }
+  return result.message || result.status || "Apply result recorded.";
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -740,6 +758,7 @@ export default function ConstituencyImportPage() {
   const [loadingSavedRuns, setLoadingSavedRuns] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [applyingRun, setApplyingRun] = useState(false);
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -787,6 +806,10 @@ export default function ConstituencyImportPage() {
     mappedIdentityField &&
     missingHeaders.length === 0 &&
     hasImportOperation;
+  const readySavedRows =
+    preview?.savedRun && Array.isArray(preview?.rows)
+      ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt).length
+      : 0;
 
   useEffect(() => {
     if (loading) return;
@@ -938,6 +961,39 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setLoadingRunId("");
+    }
+  }
+
+  async function applySavedRun() {
+    const runId = preview?.savedRun?.id;
+    if (!runId || applyingRun) return;
+
+    const shouldApply = window.confirm(
+      "Apply ready additive constituent-code rows to NXT now? Relationship rows, replacements, and end-date changes will stay staged for manual review.",
+    );
+    if (!shouldApply) return;
+
+    setApplyingRun(true);
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/apply`, {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to apply saved import run");
+      }
+
+      setPreview(payload);
+      setSaveMessage(payload?.applySummary?.message || `Applied import run #${runId}.`);
+      fetchSavedRuns();
+    } catch (applyError) {
+      setError(
+        applyError instanceof Error ? applyError.message : "Failed to apply saved import run",
+      );
+    } finally {
+      setApplyingRun(false);
     }
   }
 
@@ -1105,7 +1161,9 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
-          <Pill tone="blue">Preview only: no NXT writes</Pill>
+          <Pill tone={preview?.savedRun ? "green" : "blue"}>
+            {preview?.savedRun ? "Saved run: guarded NXT apply" : "Preview only: no NXT writes"}
+          </Pill>
         </header>
 
         <section
@@ -1791,8 +1849,9 @@ export default function ConstituencyImportPage() {
                           lineHeight: 1.35,
                         }}
                       >
-                        {run.readyCount} ready · {run.needsReviewCount} review ·{" "}
-                        {run.conflictCount} conflict · {formatDateTime(run.createdAt)}
+                        {run.readyCount} ready · {run.appliedCount} applied ·{" "}
+                        {run.needsReviewCount} review · {run.failedCount} failed ·{" "}
+                        {formatDateTime(run.createdAt)}
                       </span>
                     </button>
                   ))}
@@ -1970,10 +2029,33 @@ export default function ConstituencyImportPage() {
                 padding: "12px",
                 fontWeight: 800,
                 lineHeight: 1.45,
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "center",
+                flexWrap: "wrap",
               }}
             >
-              Saved import run #{preview.savedRun.id}. This is ready for review and future apply
-              workflow work; no NXT records were changed.
+              <span>
+                Saved import run #{preview.savedRun.id}. {readySavedRows} ready unapplied row
+                {readySavedRows === 1 ? "" : "s"} can be applied to NXT.
+              </span>
+              <button
+                type="button"
+                onClick={applySavedRun}
+                disabled={!readySavedRows || applyingRun}
+                style={{
+                  border: "1px solid #047857",
+                  borderRadius: "999px",
+                  backgroundColor: !readySavedRows || applyingRun ? "#D1FAE5" : "#047857",
+                  color: !readySavedRows || applyingRun ? "#047857" : "white",
+                  padding: "9px 14px",
+                  fontWeight: 900,
+                  cursor: !readySavedRows || applyingRun ? "not-allowed" : "pointer",
+                }}
+              >
+                {applyingRun ? "Applying..." : "Apply ready rows"}
+              </button>
             </div>
           ) : null}
 
@@ -2103,6 +2185,54 @@ export default function ConstituencyImportPage() {
                             </div>
                           ))}
                         </div>
+                      </div>
+                    ) : null}
+
+                    {row.blackbaudError ? (
+                      <div
+                        style={{
+                          border: "1px solid #FECACA",
+                          borderRadius: "12px",
+                          backgroundColor: "#FEF2F2",
+                          padding: "11px 12px",
+                          color: "#991B1B",
+                          fontWeight: 800,
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        NXT apply failed: {row.blackbaudError}
+                      </div>
+                    ) : Array.isArray(row.blackbaudResult?.results) &&
+                      row.blackbaudResult.results.length ? (
+                      <div
+                        style={{
+                          border: "1px solid #BAE6FD",
+                          borderRadius: "12px",
+                          backgroundColor: "#F0F9FF",
+                          padding: "11px 12px",
+                          display: "grid",
+                          gap: "6px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: "#075985",
+                            fontSize: "12px",
+                            fontWeight: 900,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          Apply result
+                        </div>
+                        {row.blackbaudResult.results.map((result, resultIndex) => (
+                          <div
+                            key={`${result.type || "result"}-${resultIndex}`}
+                            style={{ color: "#0C4A6E", fontWeight: 800, lineHeight: 1.4 }}
+                          >
+                            {formatApplyResultItem(result)}
+                          </div>
+                        ))}
                       </div>
                     ) : null}
 
