@@ -8,6 +8,10 @@ import {
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import { fetchAnnualGivingSocieties } from "../../../../utils/annualGivingSocieties.js";
+import {
+  getGivingSocietyConfigurationSignature,
+  listGivingSocietyConfigurations,
+} from "../../../../utils/givingSocietyConfigurations.js";
 
 const CONSTITUENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -24,14 +28,16 @@ function buildSummaryCacheKey({
   recordId,
   name,
   includeInactive,
+  givingSocietySignature,
 }) {
   return [
-    "constituent-summary-v3",
+    "constituent-summary-v4",
     String(constituentId || "").trim(),
     String(lookupId || "").trim(),
     String(recordId || "").trim(),
     String(name || "").trim().toLowerCase(),
     includeInactive ? "include-inactive" : "active-only",
+    String(givingSocietySignature || "").trim(),
   ].join("|");
 }
 
@@ -1248,12 +1254,17 @@ export async function GET(request, { params }) {
     const { workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request);
     const user = workspaceUser;
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
+    const givingSocietyConfigurations = await listGivingSocietyConfigurations();
+    const givingSocietySignature = getGivingSocietyConfigurationSignature(
+      givingSocietyConfigurations,
+    );
     const cacheKey = buildSummaryCacheKey({
       constituentId,
       lookupId,
       recordId,
       name,
       includeInactive,
+      givingSocietySignature,
     });
 
     if (!includeRaw && !forceRefresh) {
@@ -1340,6 +1351,7 @@ export async function GET(request, { params }) {
             authUserId,
             origin,
             constituentId: resolvedConstituentId,
+            societyDefinitions: givingSocietyConfigurations,
           }),
         ),
       ]);

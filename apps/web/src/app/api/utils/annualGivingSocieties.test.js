@@ -110,4 +110,81 @@ describe("annual giving societies", () => {
     );
     expect(summary.primarySociety?.label).toBe("Order of the Dolphin");
   });
+
+  it("supports configurable fiscal-year annual societies", async () => {
+    const listGifts = vi.fn(async () => [gift({ amount: 1200 })]);
+
+    const summary = await fetchAnnualGivingSocieties({
+      listGifts,
+      userId: "user-1",
+      authUserId: "auth-1",
+      origin: "https://www.jumgogpt.app",
+      constituentId: "123",
+      now: NOW,
+      societyDefinitions: [
+        {
+          key: "fy_society",
+          name: "FY Society",
+          basis: "annual",
+          periodBasis: "fiscal_year",
+          fiscalYearStartMonth: 7,
+          minimumAmount: 1000,
+          maximumAmount: null,
+          countSources: ["received_revenue", "recognition_credit"],
+          active: true,
+          displayOrder: 1,
+        },
+      ],
+    });
+
+    expect(listGifts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        searchParams: {
+          constituent_id: "123",
+          start_gift_date: "2026-07-01",
+          end_gift_date: "2026-08-06",
+        },
+      }),
+    );
+    expect(summary.yearLabel).toBe("FY27");
+    expect(summary.primarySociety?.label).toBe("FY Society");
+  });
+
+  it("honors configured count sources when qualifying a society", () => {
+    const summary = calculateAnnualGivingSocieties({
+      constituentId: "123",
+      now: NOW,
+      societyDefinitions: [
+        {
+          key: "received_only",
+          name: "Received Only",
+          basis: "annual",
+          periodBasis: "calendar_year",
+          minimumAmount: 1000,
+          maximumAmount: null,
+          countSources: ["received_revenue"],
+          active: true,
+          displayOrder: 1,
+        },
+      ],
+      gifts: [
+        gift({ id: "small-direct", amount: 500 }),
+        gift({
+          id: "large-soft",
+          constituent_id: "999",
+          amount: 5000,
+          soft_credits: [
+            {
+              constituent_id: "123",
+              amount: { value: 5000 },
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(summary.receivedRevenueTotal).toBe(500);
+    expect(summary.recognitionCreditTotal).toBe(5000);
+    expect(summary.primarySociety).toBeNull();
+  });
 });

@@ -1427,6 +1427,77 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS giving_society_configurations (
+        key TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        basis TEXT NOT NULL DEFAULT 'annual',
+        period_basis TEXT NOT NULL DEFAULT 'calendar_year',
+        fiscal_year_start_month INTEGER NOT NULL DEFAULT 7,
+        minimum_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+        maximum_amount NUMERIC(14, 2),
+        count_sources JSONB NOT NULL DEFAULT '["received_revenue","recognition_credit"]'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        display_order INTEGER NOT NULL DEFAULT 1,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS basis TEXT NOT NULL DEFAULT 'annual'
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS period_basis TEXT NOT NULL DEFAULT 'calendar_year'
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS fiscal_year_start_month INTEGER NOT NULL DEFAULT 7
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS minimum_amount NUMERIC(14, 2) NOT NULL DEFAULT 0
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS maximum_amount NUMERIC(14, 2)
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS count_sources JSONB NOT NULL DEFAULT '["received_revenue","recognition_credit"]'::jsonb
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 1
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE giving_society_configurations
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_giving_society_configurations_active_order
+      ON giving_society_configurations (active, display_order ASC)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
         article_id TEXT PRIMARY KEY,
         category_id TEXT,

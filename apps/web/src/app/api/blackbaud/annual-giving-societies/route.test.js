@@ -5,6 +5,7 @@ const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const getBlackbaudConfigIssuesMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
+const listGivingSocietyConfigurationsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -23,6 +24,15 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   listBlackbaudGifts: listBlackbaudGiftsMock,
 }));
 
+vi.mock("../../utils/givingSocietyConfigurations.js", async () => {
+  const definitions = await vi.importActual("../../utils/givingSocietyDefinitions.js");
+  return {
+    getGivingSocietyConfigurationSignature:
+      definitions.getGivingSocietyConfigurationSignature,
+    listGivingSocietyConfigurations: listGivingSocietyConfigurationsMock,
+  };
+});
+
 describe("annual giving societies batch route", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -33,6 +43,7 @@ describe("annual giving societies batch route", () => {
     getWorkspaceUserMock.mockReset();
     getBlackbaudConfigIssuesMock.mockReset();
     listBlackbaudGiftsMock.mockReset();
+    listGivingSocietyConfigurationsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -42,6 +53,32 @@ describe("annual giving societies batch route", () => {
       workspaceUser: { id: 9, email: "mgo@example.com" },
       isActing: false,
     });
+    listGivingSocietyConfigurationsMock.mockResolvedValue([
+      {
+        key: "presidents_society",
+        name: "President's Society",
+        basis: "annual",
+        periodBasis: "calendar_year",
+        fiscalYearStartMonth: 7,
+        minimumAmount: 10000,
+        maximumAmount: null,
+        countSources: ["received_revenue", "recognition_credit"],
+        active: true,
+        displayOrder: 1,
+      },
+      {
+        key: "order_of_the_dolphin",
+        name: "Order of the Dolphin",
+        basis: "annual",
+        periodBasis: "calendar_year",
+        fiscalYearStartMonth: 7,
+        minimumAmount: 1000,
+        maximumAmount: 9999.99,
+        countSources: ["received_revenue", "recognition_credit"],
+        active: true,
+        displayOrder: 2,
+      },
+    ]);
   });
 
   afterEach(() => {

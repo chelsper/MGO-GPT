@@ -117,6 +117,11 @@ const ADMIN_ACTIONS = [
     href: "/access-management",
     description: "Invite JU users and manage workspace roles.",
   },
+  {
+    title: "Organization Configurations",
+    href: "/organization-configurations",
+    description: "Configure giving societies and portable organization rules.",
+  },
 ];
 
 const MGO_NAV_ITEMS = [
@@ -159,6 +164,12 @@ const ADMIN_WORKSPACE_ITEMS = [
     href: "/settings",
     section: "Admin & Workspace",
     description: "Review account settings and workspace-level admin controls.",
+  },
+  {
+    label: "Giving Societies",
+    href: "/organization-configurations",
+    section: "Admin & Workspace",
+    description: "Manage annual and lifetime giving society definitions.",
   },
   {
     label: "Knowledge Base Admin",

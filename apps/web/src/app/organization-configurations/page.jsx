@@ -1,0 +1,721 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Plus } from "lucide-react";
+import useUser from "@/utils/useUser";
+import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
+
+const MONTH_OPTIONS = [
+  ["1", "January"],
+  ["2", "February"],
+  ["3", "March"],
+  ["4", "April"],
+  ["5", "May"],
+  ["6", "June"],
+  ["7", "July"],
+  ["8", "August"],
+  ["9", "September"],
+  ["10", "October"],
+  ["11", "November"],
+  ["12", "December"],
+];
+
+const pageStyle = {
+  minHeight: "100vh",
+  background: "#F9FAFB",
+  color: "#111827",
+  fontFamily:
+    'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+};
+
+const shellStyle = {
+  maxWidth: "1180px",
+  margin: "0 auto",
+  padding: "36px 24px 72px",
+};
+
+const cardStyle = {
+  background: "white",
+  border: "1px solid #E5E7EB",
+  borderRadius: "22px",
+  boxShadow: "0 14px 40px rgba(15, 23, 42, 0.04)",
+};
+
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  border: "1px solid #D1D5DB",
+  borderRadius: "12px",
+  padding: "12px 14px",
+  fontSize: "16px",
+  fontFamily: "inherit",
+};
+
+const labelStyle = {
+  display: "block",
+  color: "#374151",
+  fontSize: "13px",
+  fontWeight: 900,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  marginBottom: "8px",
+};
+
+function slugify(value) {
+  return String(value || "giving society")
+    .trim()
+    .toLowerCase()
+    .replace(/['\u2019]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeSocietyForForm(society, index = 0) {
+  return {
+    key: society?.key || `giving_society_${Date.now()}_${index}`,
+    name: society?.name || "New Giving Society",
+    basis: society?.basis || "annual",
+    periodBasis:
+      society?.basis === "lifetime"
+        ? "lifetime"
+        : society?.periodBasis || society?.period_basis || "calendar_year",
+    fiscalYearStartMonth:
+      society?.fiscalYearStartMonth || society?.fiscal_year_start_month || 7,
+    minimumAmount:
+      society?.minimumAmount ?? society?.minimum_amount ?? society?.minimum ?? 0,
+    maximumAmount:
+      society?.maximumAmount ?? society?.maximum_amount ?? society?.maximum ?? "",
+    countSources:
+      Array.isArray(society?.countSources)
+        ? society.countSources
+        : Array.isArray(society?.count_sources)
+          ? society.count_sources
+          : ["received_revenue", "recognition_credit"],
+    active: society?.active !== false,
+    displayOrder: society?.displayOrder || society?.display_order || index + 1,
+  };
+}
+
+function formatMoneyInput(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const amount = Number(value);
+  return Number.isFinite(amount) ? String(amount) : "";
+}
+
+export default function OrganizationConfigurationsPage() {
+  const { data: sessionUser, loading } = useUser();
+  const [profile, setProfile] = useState(null);
+  const [societies, setSocieties] = useState([]);
+  const [countSourceOptions, setCountSourceOptions] = useState([]);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+
+  async function loadConfigurations() {
+    const [profileResponse, configResponse] = await Promise.all([
+      fetch("/api/users/profile"),
+      fetch("/api/admin/giving-societies"),
+    ]);
+
+    const profileData = await profileResponse.json().catch(() => null);
+    if (!profileResponse.ok || !canManageWorkspaceRole(profileData?.user?.role)) {
+      throw new Error("Forbidden - workspace administrators only");
+    }
+
+    const configData = await configResponse.json().catch(() => null);
+    if (!configResponse.ok) {
+      throw new Error(
+        configData?.error || "Failed to load giving society configuration",
+      );
+    }
+
+    setProfile(profileData.user || null);
+    setSocieties((configData.societies || []).map(normalizeSocietyForForm));
+    setCountSourceOptions(configData.countSourceOptions || []);
+  }
+
+  useEffect(() => {
+    if (!loading && !sessionUser) {
+      window.location.href = "/account/signin";
+    }
+  }, [loading, sessionUser]);
+
+  useEffect(() => {
+    if (!sessionUser) return;
+
+    let active = true;
+    (async () => {
+      setPageLoading(true);
+      setError("");
+      try {
+        await loadConfigurations();
+      } catch (err) {
+        if (!active) return;
+        console.error(err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load organization configurations",
+        );
+      } finally {
+        if (active) setPageLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [sessionUser]);
+
+  const activeAnnualCount = useMemo(
+    () =>
+      societies.filter(
+        (society) => society.active && society.basis === "annual",
+      ).length,
+    [societies],
+  );
+
+  const activeLifetimeCount = useMemo(
+    () =>
+      societies.filter(
+        (society) => society.active && society.basis === "lifetime",
+      ).length,
+    [societies],
+  );
+
+  function updateSociety(index, updates) {
+    setSocieties((current) =>
+      current.map((society, societyIndex) => {
+        if (societyIndex !== index) return society;
+        const next = { ...society, ...updates };
+        if (updates.name && (!next.key || next.key.startsWith("giving_society_"))) {
+          next.key = slugify(updates.name) || next.key;
+        }
+        if (next.basis === "lifetime") {
+          next.periodBasis = "lifetime";
+        } else if (next.periodBasis === "lifetime") {
+          next.periodBasis = "calendar_year";
+        }
+        return next;
+      }),
+    );
+  }
+
+  function moveSociety(index, direction) {
+    setSocieties((current) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next.map((society, societyIndex) => ({
+        ...society,
+        displayOrder: societyIndex + 1,
+      }));
+    });
+  }
+
+  function addSociety() {
+    setSocieties((current) => [
+      ...current,
+      normalizeSocietyForForm(
+        {
+          key: `giving_society_${Date.now()}`,
+          name: "New Giving Society",
+          basis: "annual",
+          periodBasis: "calendar_year",
+          minimumAmount: 0,
+          maximumAmount: "",
+          active: true,
+          countSources: ["received_revenue", "recognition_credit"],
+        },
+        current.length,
+      ),
+    ]);
+  }
+
+  function toggleCountSource(index, sourceKey) {
+    setSocieties((current) =>
+      current.map((society, societyIndex) => {
+        if (societyIndex !== index) return society;
+        const existing = new Set(society.countSources || []);
+        if (existing.has(sourceKey)) {
+          existing.delete(sourceKey);
+        } else {
+          existing.add(sourceKey);
+        }
+        const countSources = Array.from(existing);
+        return {
+          ...society,
+          countSources: countSources.length
+            ? countSources
+            : ["received_revenue", "recognition_credit"],
+        };
+      }),
+    );
+  }
+
+  async function saveConfigurations() {
+    setSaving(true);
+    setError("");
+    setStatusMessage("");
+
+    try {
+      const payload = {
+        societies: societies.map((society, index) => ({
+          ...society,
+          key: society.key || slugify(society.name, `giving_society_${index + 1}`),
+          displayOrder: index + 1,
+          minimumAmount: Number(society.minimumAmount || 0),
+          maximumAmount:
+            society.maximumAmount === "" || society.maximumAmount == null
+              ? null
+              : Number(society.maximumAmount),
+        })),
+      };
+
+      const response = await fetch("/api/admin/giving-societies", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to save giving societies");
+      }
+
+      setSocieties((data.societies || []).map(normalizeSocietyForForm));
+      setStatusMessage("Giving society configuration saved.");
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error ? err.message : "Failed to save giving societies",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading || pageLoading) {
+    return (
+      <main style={pageStyle}>
+        <div style={shellStyle}>Loading organization configurations...</div>
+      </main>
+    );
+  }
+
+  return (
+    <main style={pageStyle}>
+      <div style={shellStyle}>
+        <header
+          style={{
+            display: "flex",
+            gap: "18px",
+            alignItems: "center",
+            marginBottom: "28px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => (window.location.href = "/")}
+            aria-label="Return to home"
+            style={{
+              width: "54px",
+              height: "54px",
+              borderRadius: "14px",
+              border: "1px solid #E5E7EB",
+              background: "white",
+              color: "#374151",
+              display: "inline-grid",
+              placeItems: "center",
+              cursor: "pointer",
+            }}
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <div>
+            <h1 style={{ margin: 0, fontSize: "40px", lineHeight: 1 }}>
+              Organization Configurations
+            </h1>
+            <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "18px" }}>
+              Configure portable rules for giving societies and organizational recognition.
+            </p>
+          </div>
+        </header>
+
+        {error ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#FCA5A5",
+              background: "#FEF2F2",
+              color: "#991B1B",
+              padding: "18px 22px",
+              marginBottom: "20px",
+              fontWeight: 800,
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
+
+        {statusMessage ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#86EFAC",
+              background: "#F0FDF4",
+              color: "#166534",
+              padding: "18px 22px",
+              marginBottom: "20px",
+              fontWeight: 800,
+            }}
+          >
+            {statusMessage}
+          </div>
+        ) : null}
+
+        <section
+          style={{
+            ...cardStyle,
+            padding: "28px",
+            marginBottom: "24px",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "18px",
+          }}
+        >
+          <div>
+            <div style={labelStyle}>Signed In As</div>
+            <div style={{ fontSize: "22px", fontWeight: 900 }}>
+              {profile?.name || sessionUser?.name || "Workspace admin"}
+            </div>
+            <div style={{ color: "#6B7280", marginTop: "4px" }}>
+              {profile?.email || sessionUser?.email}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Active Annual Societies</div>
+            <div style={{ fontSize: "36px", fontWeight: 950 }}>
+              {activeAnnualCount}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Active Lifetime Societies</div>
+            <div style={{ fontSize: "36px", fontWeight: 950 }}>
+              {activeLifetimeCount}
+            </div>
+          </div>
+        </section>
+
+        <section style={{ ...cardStyle, padding: "28px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "16px",
+              alignItems: "flex-start",
+              marginBottom: "22px",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, fontSize: "28px" }}>Giving Societies</h2>
+              <p style={{ margin: "8px 0 0", color: "#6B7280", fontSize: "16px" }}>
+                Annual society badges currently calculate received revenue and
+                recognition credit. Committed giving can be stored here for
+                future organization policies.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={addSociety}
+              style={{
+                display: "inline-flex",
+                gap: "8px",
+                alignItems: "center",
+                border: "1px solid #C7D2FE",
+                background: "#EEF2FF",
+                color: "#4338CA",
+                borderRadius: "999px",
+                padding: "12px 16px",
+                fontWeight: 900,
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={18} />
+              Add Society
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gap: "18px" }}>
+            {societies.map((society, index) => (
+              <article
+                key={society.key || index}
+                style={{
+                  border: "1px solid #E5E7EB",
+                  borderRadius: "18px",
+                  padding: "22px",
+                  background: society.active ? "#FFFFFF" : "#F9FAFB",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                    alignItems: "center",
+                    marginBottom: "18px",
+                  }}
+                >
+                  <div>
+                    <div style={labelStyle}>Display Order {index + 1}</div>
+                    <strong style={{ fontSize: "22px" }}>{society.name}</strong>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => moveSociety(index, -1)}
+                      disabled={index === 0}
+                      style={{
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "999px",
+                        background: "white",
+                        padding: "9px 12px",
+                        fontWeight: 800,
+                        opacity: index === 0 ? 0.45 : 1,
+                        cursor: index === 0 ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      Move up
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveSociety(index, 1)}
+                      disabled={index === societies.length - 1}
+                      style={{
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "999px",
+                        background: "white",
+                        padding: "9px 12px",
+                        fontWeight: 800,
+                        opacity: index === societies.length - 1 ? 0.45 : 1,
+                        cursor:
+                          index === societies.length - 1 ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      Move down
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateSociety(index, { active: !society.active })
+                      }
+                      style={{
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "999px",
+                        background: society.active ? "#FEF2F2" : "#F0FDF4",
+                        color: society.active ? "#991B1B" : "#166534",
+                        padding: "9px 12px",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {society.active ? "Deactivate" : "Reactivate"}
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "16px",
+                  }}
+                >
+                  <label>
+                    <span style={labelStyle}>Society Name</span>
+                    <input
+                      value={society.name}
+                      onChange={(event) =>
+                        updateSociety(index, { name: event.target.value })
+                      }
+                      style={inputStyle}
+                    />
+                  </label>
+
+                  <label>
+                    <span style={labelStyle}>Basis</span>
+                    <select
+                      value={society.basis}
+                      onChange={(event) =>
+                        updateSociety(index, { basis: event.target.value })
+                      }
+                      style={inputStyle}
+                    >
+                      <option value="annual">Annual</option>
+                      <option value="lifetime">Lifetime</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span style={labelStyle}>Period</span>
+                    <select
+                      value={society.periodBasis}
+                      onChange={(event) =>
+                        updateSociety(index, { periodBasis: event.target.value })
+                      }
+                      disabled={society.basis === "lifetime"}
+                      style={{
+                        ...inputStyle,
+                        background:
+                          society.basis === "lifetime" ? "#F3F4F6" : "white",
+                      }}
+                    >
+                      <option value="calendar_year">Calendar Year</option>
+                      <option value="fiscal_year">Fiscal Year</option>
+                      <option value="lifetime">Lifetime</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span style={labelStyle}>Fiscal Year Starts</span>
+                    <select
+                      value={String(society.fiscalYearStartMonth)}
+                      onChange={(event) =>
+                        updateSociety(index, {
+                          fiscalYearStartMonth: Number(event.target.value),
+                        })
+                      }
+                      disabled={society.periodBasis !== "fiscal_year"}
+                      style={{
+                        ...inputStyle,
+                        background:
+                          society.periodBasis !== "fiscal_year"
+                            ? "#F3F4F6"
+                            : "white",
+                      }}
+                    >
+                      {MONTH_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span style={labelStyle}>Minimum Amount</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formatMoneyInput(society.minimumAmount)}
+                      onChange={(event) =>
+                        updateSociety(index, {
+                          minimumAmount: event.target.value,
+                        })
+                      }
+                      style={inputStyle}
+                    />
+                  </label>
+
+                  <label>
+                    <span style={labelStyle}>Maximum Amount</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formatMoneyInput(society.maximumAmount)}
+                      onChange={(event) =>
+                        updateSociety(index, {
+                          maximumAmount: event.target.value,
+                        })
+                      }
+                      placeholder="No cap"
+                      style={inputStyle}
+                    />
+                  </label>
+                </div>
+
+                <div style={{ marginTop: "18px" }}>
+                  <div style={labelStyle}>What Counts</div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                      gap: "12px",
+                    }}
+                  >
+                    {countSourceOptions.map((option) => (
+                      <label
+                        key={option.key}
+                        style={{
+                          display: "flex",
+                          gap: "10px",
+                          alignItems: "flex-start",
+                          border: "1px solid #E5E7EB",
+                          borderRadius: "14px",
+                          padding: "14px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={(society.countSources || []).includes(option.key)}
+                          onChange={() => toggleCountSource(index, option.key)}
+                          style={{ marginTop: "3px" }}
+                        />
+                        <span>
+                          <strong>{option.label}</strong>
+                          <span
+                            style={{
+                              display: "block",
+                              color: "#6B7280",
+                              fontSize: "13px",
+                              lineHeight: 1.35,
+                              marginTop: "4px",
+                            }}
+                          >
+                            {option.description}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginTop: "24px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={saveConfigurations}
+              disabled={saving}
+              style={{
+                border: 0,
+                borderRadius: "999px",
+                background: "#111827",
+                color: "white",
+                padding: "14px 24px",
+                fontWeight: 950,
+                fontSize: "16px",
+                cursor: saving ? "wait" : "pointer",
+                opacity: saving ? 0.7 : 1,
+              }}
+            >
+              {saving ? "Saving..." : "Save Configurations"}
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}

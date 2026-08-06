@@ -6,6 +6,10 @@ import {
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import { fetchAnnualGivingSocieties } from "../../utils/annualGivingSocieties.js";
+import {
+  getGivingSocietyConfigurationSignature,
+  listGivingSocietyConfigurations,
+} from "../../utils/givingSocietyConfigurations.js";
 
 const MAX_CONSTITUENT_IDS = 50;
 const CONCURRENT_REQUESTS = 4;
@@ -88,6 +92,10 @@ export async function GET(request) {
     }
 
     const authUserId = isActing ? sessionUser?.id || user.id : user.id;
+    const givingSocietyConfigurations = await listGivingSocietyConfigurations();
+    const givingSocietySignature = getGivingSocietyConfigurationSignature(
+      givingSocietyConfigurations,
+    );
     const byConstituentId = {};
     const warnings = {};
 
@@ -102,6 +110,7 @@ export async function GET(request) {
             authUserId,
             origin,
             constituentId,
+            societyDefinitions: givingSocietyConfigurations,
           });
         } catch (error) {
           byConstituentId[constituentId] = null;
@@ -114,7 +123,7 @@ export async function GET(request) {
     );
 
     return Response.json(
-      { byConstituentId, warnings },
+      { byConstituentId, warnings, givingSocietySignature },
       { headers: { "Cache-Control": "private, max-age=300" } },
     );
   } catch (error) {
