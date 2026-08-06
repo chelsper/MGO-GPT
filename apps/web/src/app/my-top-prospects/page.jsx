@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6962,6 +6962,52 @@ export default function MyTopProspectsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const topProspectAnnualConstituentIds = useMemo(() => {
+    const seen = new Set();
+    const ids = [];
+    for (const prospect of prospects) {
+      if (prospect?.status !== "Active") continue;
+      const constituentId = getProspectBlackbaudConstituentId(prospect);
+      if (!constituentId || seen.has(constituentId)) continue;
+      seen.add(constituentId);
+      ids.push(constituentId);
+    }
+    return ids;
+  }, [prospects]);
+  const topProspectAnnualConstituentIdParam =
+    topProspectAnnualConstituentIds.join(",");
+
+  const {
+    data: topProspectAnnualGivingSocietiesByConstituentId = {},
+  } = useQuery({
+    queryKey: [
+      "top-prospect-annual-giving-societies",
+      activeWorkspaceUserId,
+      topProspectAnnualConstituentIdParam,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("constituentIds", topProspectAnnualConstituentIdParam);
+      const res = await fetch(
+        `/api/blackbaud/annual-giving-societies?${params.toString()}`,
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          payload?.error || "Failed to fetch annual giving societies",
+        );
+      }
+      return payload?.byConstituentId || {};
+    },
+    enabled:
+      !!user &&
+      !!activeWorkspaceUserId &&
+      activeWorkspaceTab === "top-prospects" &&
+      topProspectAnnualConstituentIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
   const { data: summary } = useQuery({
     queryKey: ["prospect-summary-base", activeWorkspaceUserId],
     queryFn: async () => {
@@ -8668,8 +8714,14 @@ export default function MyTopProspectsPage() {
                 const nextAction = getProspectNextAction(p);
                 const nextStepBadge = getNextStepBadge(p);
                 const discussionBadge = getDiscussionBadge(p);
+                const prospectBlackbaudConstituentId =
+                  getProspectBlackbaudConstituentId(p);
+                const annualGivingSocieties =
+                  topProspectAnnualGivingSocietiesByConstituentId[
+                    prospectBlackbaudConstituentId
+                  ] || null;
                 const prospectNxtProfileUrl = buildBlackbaudConstituentProfileUrl(
-                  p.linked_blackbaud_constituent_id || p.blackbaud_constituent_id,
+                  prospectBlackbaudConstituentId,
                 );
 
                 return (
@@ -8737,6 +8789,9 @@ export default function MyTopProspectsPage() {
                               {p.prospect_name}
                             </span>
                             <StatusBadge status={p.status} />
+                            <AnnualGivingSocietyBadge
+                              annualGivingSocieties={annualGivingSocieties}
+                            />
                             <span
                               style={{
                                 backgroundColor: nextAction.tone.soft,
