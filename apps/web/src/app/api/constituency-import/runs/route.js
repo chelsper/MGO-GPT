@@ -35,6 +35,7 @@ function serializeRun(row) {
 
 function serializeImportRow(row) {
   const preview = row.preview && typeof row.preview === "object" ? row.preview : {};
+  const requestedWrites = Array.isArray(row.requested_writes) ? row.requested_writes : [];
   return {
     ...preview,
     id: String(row.id),
@@ -46,6 +47,7 @@ function serializeImportRow(row) {
     confidence: Number(row.confidence || preview.confidence || 0),
     blackbaudResult: row.blackbaud_result || null,
     blackbaudError: row.blackbaud_error || "",
+    writePlan: Array.isArray(preview.writePlan) ? preview.writePlan : requestedWrites,
     appliedAt: row.applied_at || null,
   };
 }

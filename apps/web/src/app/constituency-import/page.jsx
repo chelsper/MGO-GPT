@@ -362,8 +362,8 @@ const FIELD_GROUP_HELP = {
   "Phone fields": "Phone columns, including the optional primary flag.",
   "Address fields": "Address columns, including the optional primary flag.",
   "Constituent code fields": "Constituent-code add/replace options and optional dates.",
-  "Education relationship fields": "Education relationship columns for school and degree data.",
-  "Organization relationship fields": "Organization relationship columns for employer or affiliation data.",
+  "Education relationship fields": "Education columns can add a new relationship or update an existing one, such as Student to Alumni.",
+  "Organization relationship fields": "Organization columns are staged as additional relationships so existing affiliations are not replaced.",
 };
 
 const DEFAULT_OPEN_FIELD_GROUPS = {
@@ -397,6 +397,19 @@ const CONSTITUENCY_ACTIONS = [
     value: "replace",
     label: "Replace Existing",
     description: "Requires Current Constituent Code so the preview knows what would be replaced.",
+  },
+];
+
+const EDUCATION_RELATIONSHIP_ACTIONS = [
+  {
+    value: "add",
+    label: "Add New Education Relationship",
+    description: "Create an additional education relationship and leave existing education rows intact.",
+  },
+  {
+    value: "update",
+    label: "Update Existing Education Relationship",
+    description: "Use when the row should revise an existing education relationship, such as Student to Alumni.",
   },
 ];
 
@@ -641,6 +654,37 @@ function renderList(values) {
   return values.join(" -> ");
 }
 
+function formatWritePlanItem(write) {
+  if (!write || typeof write !== "object") return "";
+
+  if (write.type === "constituent_code") {
+    const action = write.action === "replace" ? "Replace" : "Add";
+    const from = write.sourceConstituency ? `${write.sourceConstituency} to ` : "";
+    return `${action} constituent code: ${from}${write.targetConstituency || "unspecified"}`;
+  }
+
+  if (write.type === "education_relationship") {
+    const action =
+      write.action === "update" ? "Update existing education relationship" : "Add education relationship";
+    const details = [write.institution, write.degree, write.major, write.classYear && `Class ${write.classYear}`]
+      .filter(Boolean)
+      .join(" / ");
+    return `${action}: ${details || "details supplied in row"}`;
+  }
+
+  if (write.type === "organization_relationship") {
+    const details = [write.name, write.relationshipType, write.title].filter(Boolean).join(" / ");
+    return `Add organization relationship: ${details || "details supplied in row"}`;
+  }
+
+  return write.type || "Requested write";
+}
+
+function renderWritePlan(values) {
+  if (!Array.isArray(values) || values.length === 0) return "No writes staged";
+  return values.map(formatWritePlanItem).filter(Boolean).join(" | ");
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -679,6 +723,7 @@ export default function ConstituencyImportPage() {
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
   const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
   const [constituencyAction, setConstituencyAction] = useState("add");
+  const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
   const [rawCsv, setRawCsv] = useState(() =>
     makeTemplateRows(IMPORT_FIELDS.filter((field) => DEFAULT_ACTIVE_FIELDS[field.key])),
@@ -715,6 +760,22 @@ export default function ConstituencyImportPage() {
   );
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
   const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
+  const educationRelationshipFieldsActive = Boolean(
+    activeFields.educationInstitution ||
+      activeFields.educationDegree ||
+      activeFields.educationMajor ||
+      activeFields.educationClassYear,
+  );
+  const organizationRelationshipFieldsActive = Boolean(
+    activeFields.organizationName ||
+      activeFields.organizationRelationshipType ||
+      activeFields.organizationTitle,
+  );
+  const hasImportOperation = Boolean(
+    activeFields.targetConstituency ||
+      educationRelationshipFieldsActive ||
+      organizationRelationshipFieldsActive,
+  );
   const mappedIdentityField = Boolean(
     activeFields.blackbaudConstituentId ||
       activeFields.lookupId ||
@@ -725,7 +786,7 @@ export default function ConstituencyImportPage() {
     rows.length > 0 &&
     mappedIdentityField &&
     missingHeaders.length === 0 &&
-    activeFields.targetConstituency;
+    hasImportOperation;
 
   useEffect(() => {
     if (loading) return;
@@ -898,7 +959,7 @@ export default function ConstituencyImportPage() {
         body: JSON.stringify({
           rows,
           mappings,
-          defaults: { defaultAction: constituencyAction, useHierarchy },
+          defaults: { defaultAction: constituencyAction, educationRelationshipAction, useHierarchy },
           sourceFilename,
           saveRun,
         }),
@@ -945,6 +1006,7 @@ export default function ConstituencyImportPage() {
         targetConstituency: row.input?.targetConstituency || "",
         currentCodes: renderList(row.currentCodes),
         proposedCodes: renderList(row.proposedCodes),
+        writePlan: renderWritePlan(row.writePlan),
         reasons: (row.reasons || []).join(" | "),
       })),
     );
@@ -1358,6 +1420,89 @@ export default function ConstituencyImportPage() {
                           </div>
                         );
                       })}
+                      {group === "Education relationship fields" &&
+                      educationRelationshipFieldsActive ? (
+                        <div
+                          style={{
+                            border: "1px solid #C7D2FE",
+                            borderRadius: "16px",
+                            backgroundColor: "#EEF2FF",
+                            padding: "14px",
+                            display: "grid",
+                            gap: "12px",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                color: "#312E81",
+                                fontSize: "13px",
+                                fontWeight: 900,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.05em",
+                              }}
+                            >
+                              Education relationship behavior
+                            </div>
+                            <p
+                              style={{
+                                margin: "5px 0 0",
+                                color: "#4338CA",
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              Choose whether these education columns should create a new education
+                              relationship or update an existing one already on the matched NXT
+                              record.
+                            </p>
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                              gap: "10px",
+                            }}
+                          >
+                            {EDUCATION_RELATIONSHIP_ACTIONS.map((action) => {
+                              const selected = educationRelationshipAction === action.value;
+                              return (
+                                <button
+                                  key={action.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setEducationRelationshipAction(action.value);
+                                    setPreview(null);
+                                  }}
+                                  style={{
+                                    border: selected
+                                      ? "2px solid #6D5DFB"
+                                      : "1px solid #C7D2FE",
+                                    borderRadius: "14px",
+                                    backgroundColor: selected ? "white" : "#F8FAFC",
+                                    color: selected ? "#312E81" : "#475569",
+                                    padding: "12px",
+                                    textAlign: "left",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <span style={{ display: "block", fontWeight: 900 }}>
+                                    {action.label}
+                                  </span>
+                                  <span
+                                    style={{
+                                      display: "block",
+                                      marginTop: "5px",
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    {action.description}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
                       {contactSet ? (
                         <div
                           style={{
@@ -1484,11 +1629,26 @@ export default function ConstituencyImportPage() {
                   ? "Identity fields active"
                   : "Activate ID, lookup, email, or first/last name"}
               </Pill>
-              <Pill tone={activeFields.targetConstituency ? "green" : "amber"}>
-                {activeFields.targetConstituency
-                  ? `${constituencyAction === "add" ? "Add Additional" : "Replace Existing"} behavior set`
-                  : "Activate New Constituent Code"}
+              <Pill tone={hasImportOperation ? "green" : "amber"}>
+                {hasImportOperation
+                  ? "Import operation selected"
+                  : "Activate a constituent code or relationship field"}
               </Pill>
+              {activeFields.targetConstituency ? (
+                <Pill tone="blue">
+                  Constituent code:{" "}
+                  {constituencyAction === "add" ? "Add Additional" : "Replace Existing"}
+                </Pill>
+              ) : null}
+              {educationRelationshipFieldsActive ? (
+                <Pill tone="blue">
+                  Education:{" "}
+                  {educationRelationshipAction === "update" ? "Update Existing" : "Add New"}
+                </Pill>
+              ) : null}
+              {organizationRelationshipFieldsActive ? (
+                <Pill tone="blue">Organization: Add Additional</Pill>
+              ) : null}
               <Pill tone={rows.length ? "green" : "amber"}>
                 {rows.length ? `${rows.length} rows parsed` : "Upload CSV rows"}
               </Pill>
@@ -1910,6 +2070,41 @@ export default function ConstituencyImportPage() {
                         </div>
                       </div>
                     </div>
+
+                    {row.writePlan?.length ? (
+                      <div
+                        style={{
+                          border: "1px solid #C7D2FE",
+                          borderRadius: "12px",
+                          backgroundColor: "#EEF2FF",
+                          padding: "11px 12px",
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: "#312E81",
+                            fontSize: "12px",
+                            fontWeight: 900,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          Staged writes
+                        </div>
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          {row.writePlan.map((write, writeIndex) => (
+                            <div
+                              key={`${write.type || "write"}-${writeIndex}`}
+                              style={{ color: "#1E1B4B", fontWeight: 800, lineHeight: 1.4 }}
+                            >
+                              {formatWritePlanItem(write)}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {row.reasons?.length ? (
                       <div

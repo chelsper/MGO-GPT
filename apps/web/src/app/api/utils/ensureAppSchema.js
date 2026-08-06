@@ -1625,6 +1625,7 @@ export default async function ensureAppSchema() {
         end_date TEXT,
         raw_row JSONB NOT NULL DEFAULT '{}'::jsonb,
         preview JSONB NOT NULL DEFAULT '{}'::jsonb,
+        requested_writes JSONB NOT NULL DEFAULT '[]'::jsonb,
         blackbaud_result JSONB,
         blackbaud_error TEXT,
         applied_at TIMESTAMPTZ,
@@ -1695,6 +1696,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE constituency_import_rows
       ADD COLUMN IF NOT EXISTS preview JSONB NOT NULL DEFAULT '{}'::jsonb
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS requested_writes JSONB NOT NULL DEFAULT '[]'::jsonb
     `;
     await sql`
       ALTER TABLE constituency_import_rows

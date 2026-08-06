@@ -303,6 +303,86 @@ describe("constituency import preview route", () => {
     ]);
   });
 
+  it("stages education updates and organization additions as relationship writes", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "789",
+      lookupId: "A789",
+      name: "Student Dolphin",
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            Name: "Student Dolphin",
+            "NXT ID": "789",
+            "Education Institution": "Jacksonville University",
+            "Education Degree": "Bachelor of Science",
+            "Education Major": "Nursing",
+            "Education Class Year": "2026",
+            "Education Relationship Make Primary?": "Yes",
+            "Organization Name": "Dolphin Health System",
+            "Organization Relationship Type": "Employee",
+            "Organization Title": "Nurse",
+          },
+        ],
+        mappings: {
+          constituentName: "Name",
+          blackbaudConstituentId: "NXT ID",
+          educationInstitution: "Education Institution",
+          educationDegree: "Education Degree",
+          educationMajor: "Education Major",
+          educationClassYear: "Education Class Year",
+          educationRelationshipMakePrimary: "Education Relationship Make Primary?",
+          organizationName: "Organization Name",
+          organizationRelationshipType: "Organization Relationship Type",
+          organizationTitle: "Organization Title",
+        },
+        defaults: { educationRelationshipAction: "update" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].input.educationRelationship).toMatchObject({
+      action: "update",
+      duplicatePolicy: "match_existing_before_update",
+      institution: "Jacksonville University",
+      degree: "Bachelor of Science",
+      major: "Nursing",
+      classYear: "2026",
+      makePrimary: "Yes",
+    });
+    expect(payload.rows[0].input.organizationRelationship).toMatchObject({
+      action: "add",
+      duplicatePolicy: "add_additional",
+      name: "Dolphin Health System",
+      relationshipType: "Employee",
+      title: "Nurse",
+    });
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "education_relationship",
+        action: "update",
+        duplicatePolicy: "match_existing_before_update",
+      }),
+      expect.objectContaining({
+        type: "organization_relationship",
+        action: "add",
+        duplicatePolicy: "add_additional",
+      }),
+    ]);
+    expect(payload.rows[0].reasons.join(" ")).toContain(
+      "update an existing education relationship",
+    );
+    expect(payload.rows[0].reasons.join(" ")).toContain(
+      "additional organization relationship",
+    );
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("saves preview runs and row-level preview results when requested", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({

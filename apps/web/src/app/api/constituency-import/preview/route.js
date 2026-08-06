@@ -34,6 +34,17 @@ const ACTION_ALIASES = new Map([
   ["sort", "reorder"],
 ]);
 
+const RELATIONSHIP_ACTION_ALIASES = new Map([
+  ["add", "add"],
+  ["new", "add"],
+  ["add new", "add"],
+  ["add additional", "add"],
+  ["update", "update"],
+  ["edit", "update"],
+  ["update existing", "update"],
+  ["edit existing", "update"],
+]);
+
 const CONSTITUENCY_HIERARCHY = [
   "Trustee",
   "Former Trustee",
@@ -65,6 +76,15 @@ function normalizeAction(value, fallback = "replace") {
   return ACTION_ALIASES.get(normalized) || ACTION_ALIASES.get(normalizeText(fallback)) || "replace";
 }
 
+function normalizeRelationshipAction(value, fallback = "add") {
+  const normalized = normalizeText(value || fallback);
+  return (
+    RELATIONSHIP_ACTION_ALIASES.get(normalized) ||
+    RELATIONSHIP_ACTION_ALIASES.get(normalizeText(fallback)) ||
+    "add"
+  );
+}
+
 function getMappedValue(row, mappings, key) {
   const mappedColumn = cleanText(mappings?.[key]);
   if (mappedColumn && Object.prototype.hasOwnProperty.call(row, mappedColumn)) {
@@ -73,8 +93,26 @@ function getMappedValue(row, mappings, key) {
   return "";
 }
 
+function hasAnyValue(values, keys = null) {
+  const entries = keys
+    ? keys.map((key) => [key, values?.[key]])
+    : Object.entries(values || {});
+  return entries.some(
+    ([key, value]) =>
+      !["action", "duplicatePolicy"].includes(key) && cleanText(value),
+  );
+}
+
+function hasConstituencyChange(input) {
+  return Boolean(cleanText(input.sourceConstituency) || cleanText(input.targetConstituency));
+}
+
 function getRowInput(row, mappings, defaults = {}) {
   const defaultAction = cleanText(defaults.defaultAction) || "replace";
+  const defaultEducationAction = normalizeRelationshipAction(
+    defaults.educationRelationshipAction,
+    "add",
+  );
   const firstName = getMappedValue(row, mappings, "firstName");
   const lastName = getMappedValue(row, mappings, "lastName");
   const preferredName = getMappedValue(row, mappings, "preferredName");
@@ -84,7 +122,7 @@ function getRowInput(row, mappings, defaults = {}) {
     [preferredName || firstName, lastName].filter(Boolean).join(" ").trim() ||
     [firstName, lastName].filter(Boolean).join(" ").trim();
 
-  return {
+  const input = {
     firstName,
     lastName,
     preferredName,
@@ -98,6 +136,86 @@ function getRowInput(row, mappings, defaults = {}) {
     startDate: getMappedValue(row, mappings, "startDate") || cleanText(defaults.startDate),
     endDate: getMappedValue(row, mappings, "endDate") || cleanText(defaults.endDate),
   };
+
+  const educationRelationship = {
+    action: defaultEducationAction,
+    duplicatePolicy:
+      defaultEducationAction === "update"
+        ? "match_existing_before_update"
+        : "add_additional",
+    institution: getMappedValue(row, mappings, "educationInstitution"),
+    degree: getMappedValue(row, mappings, "educationDegree"),
+    major: getMappedValue(row, mappings, "educationMajor"),
+    classYear: getMappedValue(row, mappings, "educationClassYear"),
+    makePrimary: getMappedValue(row, mappings, "educationRelationshipMakePrimary"),
+  };
+  const organizationRelationship = {
+    action: "add",
+    duplicatePolicy: "add_additional",
+    name: getMappedValue(row, mappings, "organizationName"),
+    relationshipType: getMappedValue(row, mappings, "organizationRelationshipType"),
+    title: getMappedValue(row, mappings, "organizationTitle"),
+    startDate: getMappedValue(row, mappings, "organizationStartDate"),
+    endDate: getMappedValue(row, mappings, "organizationEndDate"),
+    makePrimary: getMappedValue(row, mappings, "organizationRelationshipMakePrimary"),
+  };
+
+  if (hasAnyValue(educationRelationship, ["institution", "degree", "major", "classYear"])) {
+    input.educationRelationship = educationRelationship;
+  }
+  if (hasAnyValue(organizationRelationship, ["name", "relationshipType", "title"])) {
+    input.organizationRelationship = organizationRelationship;
+  }
+
+  return input;
+}
+
+function buildWritePlan(input, changePreview) {
+  const writes = [];
+
+  if (changePreview.status === STATUS.ready && cleanText(input.targetConstituency)) {
+    writes.push({
+      type: "constituent_code",
+      action: input.action,
+      duplicatePolicy: input.action === "add" ? "skip_if_present" : "review_before_apply",
+      sourceConstituency: input.sourceConstituency || "",
+      targetConstituency: input.targetConstituency || "",
+      startDate: input.startDate || "",
+      endDate: input.endDate || "",
+    });
+  }
+
+  if (input.educationRelationship) {
+    writes.push({
+      type: "education_relationship",
+      action: input.educationRelationship.action || "add",
+      duplicatePolicy:
+        input.educationRelationship.action === "update"
+          ? "match_existing_before_update"
+          : "add_additional",
+      institution: input.educationRelationship.institution || "",
+      degree: input.educationRelationship.degree || "",
+      major: input.educationRelationship.major || "",
+      classYear: input.educationRelationship.classYear || "",
+      makePrimary: input.educationRelationship.makePrimary || "",
+    });
+  }
+
+  if (input.organizationRelationship) {
+    writes.push({
+      type: "organization_relationship",
+      action: "add",
+      duplicatePolicy: "add_additional",
+      name: input.organizationRelationship.name || "",
+      relationshipType: input.organizationRelationship.relationshipType || "",
+      title: input.organizationRelationship.title || "",
+      startDate: input.organizationRelationship.startDate || "",
+      endDate: input.organizationRelationship.endDate || "",
+      makePrimary: input.organizationRelationship.makePrimary || "",
+    });
+  }
+
+  return writes;
 }
 
 function getConstituencyLabel(value) {
@@ -173,6 +291,14 @@ export function previewConstituencyChange(input, currentCodes, options = {}) {
   const useHierarchy = options.useHierarchy !== false;
   const reasons = [];
   const labels = currentCodes.map((code) => code.label).filter(Boolean);
+
+  if (!source && !target) {
+    return {
+      status: STATUS.skipped,
+      reasons: ["No constituent-code change requested."],
+      proposedCodes: labels,
+    };
+  }
 
   if (action === "add") {
     if (!target) {
@@ -403,11 +529,15 @@ async function fetchConstituencyCodes({ userId, authUserId, origin, constituentI
   return rows.map(mapConstituencyCode).filter((code) => code.label);
 }
 
-function deriveStatus(matchResult, codeFetchError, changePreview) {
+function deriveStatus(matchResult, codeFetchError, changePreview, writePlan = []) {
+  const hasWritePlan = Array.isArray(writePlan) && writePlan.length > 0;
+  const hasConstituentCodeWrite = writePlan.some((write) => write.type === "constituent_code");
+
   if (changePreview.status === STATUS.conflict) return STATUS.conflict;
-  if (changePreview.status === STATUS.skipped) return STATUS.skipped;
   if (matchResult.status !== "matched") return STATUS.needsReview;
-  if (codeFetchError) return STATUS.needsReview;
+  if (codeFetchError && hasConstituentCodeWrite) return STATUS.needsReview;
+  if (hasWritePlan) return STATUS.ready;
+  if (changePreview.status === STATUS.skipped) return STATUS.skipped;
   return changePreview.status;
 }
 
@@ -523,6 +653,7 @@ async function savePreviewRun({
         end_date,
         raw_row,
         preview,
+        requested_writes,
         created_at,
         updated_at
       )
@@ -543,6 +674,7 @@ async function savePreviewRun({
         ${input.endDate || null},
         ${JSON.stringify(rawRow)}::jsonb,
         ${JSON.stringify(row)}::jsonb,
+        ${JSON.stringify(row.writePlan || [])}::jsonb,
         NOW(),
         NOW()
       )
@@ -622,7 +754,7 @@ export async function POST(request) {
         };
       }
 
-      if (matchResult.match?.blackbaudConstituentId) {
+      if (matchResult.match?.blackbaudConstituentId && hasConstituencyChange(input)) {
         try {
           currentCodes = await fetchConstituencyCodes({
             userId: user.id,
@@ -637,15 +769,26 @@ export async function POST(request) {
       }
 
       const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
+      const writePlan = buildWritePlan(input, changePreview);
       const reasons = [
         ...matchResult.notes,
         ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
         ...changePreview.reasons,
+        ...(input.educationRelationship
+          ? [
+              input.educationRelationship.action === "update"
+                ? "Education relationship data is staged to update an existing education relationship; the matching relationship should be reviewed before applying."
+                : "Education relationship data is staged as an additional education relationship; it will not replace existing education relationships.",
+            ]
+          : []),
+        ...(input.organizationRelationship
+          ? ["Organization relationship data is staged as an additional organization relationship; it will not replace existing organization relationships."]
+          : []),
       ].filter(Boolean);
 
       previewRows.push({
         rowNumber: index + 1,
-        status: deriveStatus(matchResult, codeFetchError, changePreview),
+        status: deriveStatus(matchResult, codeFetchError, changePreview, writePlan),
         matchStatus: matchResult.status,
         matchMethod: matchResult.method,
         confidence: matchResult.confidence,
@@ -660,6 +803,7 @@ export async function POST(request) {
           : null,
         currentCodes: currentCodes.map((code) => code.label),
         proposedCodes: changePreview.proposedCodes,
+        writePlan,
         reasons,
       });
     }
