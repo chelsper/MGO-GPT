@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import {
+  blackbaudApiFetch,
   getBlackbaudConfigIssues,
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
@@ -111,6 +112,17 @@ export async function GET(request) {
             origin,
             constituentId,
             societyDefinitions: givingSocietyConfigurations,
+            loadLifetimeGiving: () =>
+              blackbaudApiFetch(
+                `/constituent/v1/constituents/${encodeURIComponent(
+                  constituentId,
+                )}/givingsummary/lifetimegiving`,
+                {
+                  userId: user.id,
+                  authUserId,
+                  origin,
+                },
+              ),
           });
         } catch (error) {
           byConstituentId[constituentId] = null;

@@ -187,4 +187,51 @@ describe("annual giving societies", () => {
     expect(summary.recognitionCreditTotal).toBe(5000);
     expect(summary.primarySociety).toBeNull();
   });
+
+  it("allows annual and lifetime giving society badges to coexist", () => {
+    const summary = calculateAnnualGivingSocieties({
+      constituentId: "123",
+      now: NOW,
+      societyDefinitions: [
+        {
+          key: "presidents_society",
+          name: "President's Society",
+          basis: "annual",
+          periodBasis: "calendar_year",
+          minimumAmount: 10000,
+          maximumAmount: null,
+          countSources: ["received_revenue", "recognition_credit"],
+          active: true,
+          displayOrder: 1,
+        },
+        {
+          key: "frances_bartlett_kinne_society",
+          name: "Frances Bartlett Kinne Society",
+          basis: "lifetime",
+          periodBasis: "lifetime",
+          minimumAmount: 1000000,
+          maximumAmount: null,
+          countSources: ["committed"],
+          active: true,
+          displayOrder: 2,
+        },
+      ],
+      gifts: [gift({ amount: 12500 })],
+      lifetimeGiving: {
+        total_giving: { value: 1000000 },
+        total_received_giving: { value: 750000 },
+        total_soft_credits: { value: 250000 },
+      },
+    });
+
+    expect(summary.primarySociety?.label).toBe("President's Society");
+    expect(summary.primaryLifetimeSociety?.label).toBe(
+      "Frances Bartlett Kinne Society",
+    );
+    expect(summary.societies.map((society) => society.label)).toEqual([
+      "President's Society",
+      "Frances Bartlett Kinne Society",
+    ]);
+    expect(summary.lifetimeGiving.committedTotal).toBe(1000000);
+  });
 });

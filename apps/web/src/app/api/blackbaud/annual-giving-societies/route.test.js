@@ -5,6 +5,7 @@ const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const getBlackbaudConfigIssuesMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
+const blackbaudApiFetchMock = vi.fn();
 const listGivingSocietyConfigurationsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 }));
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
+  blackbaudApiFetch: blackbaudApiFetchMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   listBlackbaudGifts: listBlackbaudGiftsMock,
 }));
@@ -43,6 +45,7 @@ describe("annual giving societies batch route", () => {
     getWorkspaceUserMock.mockReset();
     getBlackbaudConfigIssuesMock.mockReset();
     listBlackbaudGiftsMock.mockReset();
+    blackbaudApiFetchMock.mockReset();
     listGivingSocietyConfigurationsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
@@ -52,6 +55,11 @@ describe("annual giving societies batch route", () => {
       sessionUser: { id: 9, email: "mgo@example.com" },
       workspaceUser: { id: 9, email: "mgo@example.com" },
       isActing: false,
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      total_giving: { value: 0 },
+      total_received_giving: { value: 0 },
+      total_soft_credits: { value: 0 },
     });
     listGivingSocietyConfigurationsMock.mockResolvedValue([
       {
@@ -149,5 +157,68 @@ describe("annual giving societies batch route", () => {
     );
     expect(payload.byConstituentId["456"]).toBe(null);
     expect(payload.warnings["456"]).toBe("Blackbaud gift lookup failed");
+  });
+
+  it("returns annual and lifetime giving societies from configured definitions", async () => {
+    const { GET } = await import("./route.js");
+
+    listGivingSocietyConfigurationsMock.mockResolvedValue([
+      {
+        key: "presidents_society",
+        name: "President's Society",
+        basis: "annual",
+        periodBasis: "calendar_year",
+        fiscalYearStartMonth: 7,
+        minimumAmount: 10000,
+        maximumAmount: null,
+        countSources: ["received_revenue", "recognition_credit"],
+        active: true,
+        displayOrder: 1,
+      },
+      {
+        key: "frances_bartlett_kinne_society",
+        name: "Frances Bartlett Kinne Society",
+        basis: "lifetime",
+        periodBasis: "lifetime",
+        fiscalYearStartMonth: 7,
+        minimumAmount: 1000000,
+        maximumAmount: null,
+        countSources: ["committed"],
+        active: true,
+        displayOrder: 2,
+      },
+    ]);
+    listBlackbaudGiftsMock.mockResolvedValue([
+      {
+        id: "gift-1",
+        constituent_id: "123",
+        gift_type: "Donation",
+        date: "2026-07-01T00:00:00.000Z",
+        amount: { value: 12500 },
+      },
+    ]);
+    blackbaudApiFetchMock.mockResolvedValue({
+      total_giving: { value: 1000000 },
+      total_received_giving: { value: 750000 },
+      total_soft_credits: { value: 250000 },
+    });
+
+    const response = await GET(
+      new Request(
+        "https://example.com/api/blackbaud/annual-giving-societies?constituentIds=123",
+      ),
+    );
+    const payload = await response.json();
+    const summary = payload.byConstituentId["123"];
+
+    expect(response.status).toBe(200);
+    expect(summary.primarySociety.label).toBe("President's Society");
+    expect(summary.primaryLifetimeSociety.label).toBe(
+      "Frances Bartlett Kinne Society",
+    );
+    expect(summary.societies.map((society) => society.label)).toEqual([
+      "President's Society",
+      "Frances Bartlett Kinne Society",
+    ]);
   });
 });

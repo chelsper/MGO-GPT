@@ -19,7 +19,7 @@ export const GIVING_SOCIETY_COUNT_SOURCE_OPTIONS = [
   {
     key: "committed",
     label: "Committed giving",
-    description: "Stored for organization policy; current badges do not calculate commitments yet.",
+    description: "Lifetime committed giving from Blackbaud's giving summary.",
   },
 ];
 

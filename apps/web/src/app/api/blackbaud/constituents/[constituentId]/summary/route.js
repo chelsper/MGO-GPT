@@ -1294,7 +1294,6 @@ export async function GET(request, { params }) {
       fundraiserAssignmentsResult,
       relationshipsResult,
       educationResult,
-      annualGivingSocietiesResult,
     ] =
       await Promise.all([
         loadBlackbaudSection("lifetimeGiving", () =>
@@ -1344,16 +1343,6 @@ export async function GET(request, { params }) {
             },
           ),
         ),
-        loadOptionalSection("annualGivingSocieties", () =>
-          fetchAnnualGivingSocieties({
-            listGifts: listBlackbaudGifts,
-            userId: user.id,
-            authUserId,
-            origin,
-            constituentId: resolvedConstituentId,
-            societyDefinitions: givingSocietyConfigurations,
-          }),
-        ),
       ]);
 
     const constituent = constituentPayload;
@@ -1365,6 +1354,19 @@ export async function GET(request, { params }) {
       : null;
     const relationships = relationshipsResult.ok ? relationshipsResult.payload : null;
     const education = educationResult.ok ? educationResult.payload : null;
+    const annualGivingSocietiesResult = await loadOptionalSection(
+      "annualGivingSocieties",
+      () =>
+        fetchAnnualGivingSocieties({
+          listGifts: listBlackbaudGifts,
+          userId: user.id,
+          authUserId,
+          origin,
+          constituentId: resolvedConstituentId,
+          societyDefinitions: givingSocietyConfigurations,
+          lifetimeGiving,
+        }),
+    );
     const annualGivingSocieties = annualGivingSocietiesResult.ok
       ? annualGivingSocietiesResult.payload
       : null;

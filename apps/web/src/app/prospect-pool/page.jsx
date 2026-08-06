@@ -77,41 +77,70 @@ function formatBlackbaudCurrency(amount) {
   });
 }
 
-function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
-  const society = annualGivingSocieties?.primarySociety;
-  if (!society) return null;
+function formatSocietySource(source) {
+  const labels = {
+    committed: "committed giving",
+    received_revenue: "received revenue",
+    recognition_credit: "recognition credit",
+  };
+  return labels[source] || String(source || "").replace(/_/g, " ");
+}
 
-  const year = annualGivingSocieties?.year;
-  const total = annualGivingSocieties?.combinedAnnualGiving;
-  const displayTotal = total == null ? "" : formatBlackbaudCurrency(total);
+function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
+  const societies = Array.isArray(annualGivingSocieties?.societies)
+    ? annualGivingSocieties.societies
+    : annualGivingSocieties?.primarySociety
+      ? [annualGivingSocieties.primarySociety]
+      : [];
+
+  if (!societies.length) return null;
 
   return (
-    <span
-      title={[
-        year ? `${year} annual giving society` : "Annual giving society",
-        displayTotal
-          ? `${displayTotal} received revenue + recognition credit`
-          : "Based on received revenue + recognition credit",
-      ]
-        .filter(Boolean)
-        .join(": ")}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        border: "1px solid #FCD34D",
-        borderRadius: "999px",
-        backgroundColor: "#FFFBEB",
-        color: "#92400E",
-        fontSize: "12px",
-        fontWeight: 800,
-        padding: "6px 10px",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <Trophy size={14} />
-      {society.label}
-    </span>
+    <>
+      {societies.map((society) => {
+        const isLifetime = society.basis === "lifetime";
+        const year = society.year || annualGivingSocieties?.year;
+        const total = society.qualifyingAmount ?? annualGivingSocieties?.combinedAnnualGiving;
+        const displayTotal = total == null ? "" : formatBlackbaudCurrency(total);
+        const sourceLabel = (society.supportedCountSources || society.countSources || [])
+          .map(formatSocietySource)
+          .join(" + ");
+
+        return (
+          <span
+            key={`${society.basis || "annual"}-${society.key || society.label}`}
+            title={[
+              isLifetime
+                ? "Lifetime giving society"
+                : year
+                  ? `${year} annual giving society`
+                  : "Annual giving society",
+              displayTotal && sourceLabel
+                ? `${displayTotal} ${sourceLabel}`
+                : displayTotal || sourceLabel,
+            ]
+              .filter(Boolean)
+              .join(": ")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              border: isLifetime ? "1px solid #93C5FD" : "1px solid #FCD34D",
+              borderRadius: "999px",
+              backgroundColor: isLifetime ? "#EFF6FF" : "#FFFBEB",
+              color: isLifetime ? "#1D4ED8" : "#92400E",
+              fontSize: "12px",
+              fontWeight: 800,
+              padding: "6px 10px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Trophy size={14} />
+            {society.label}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

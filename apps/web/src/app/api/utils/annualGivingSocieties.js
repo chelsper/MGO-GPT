@@ -35,9 +35,15 @@ const EXCLUDED_GIFT_TYPE_TOKENS = new Set([
 export const ANNUAL_GIVING_SOCIETY_TIERS =
   getDefaultGivingSocietyConfigurations();
 
-const SUPPORTED_COUNT_SOURCES = new Set([
+const ANNUAL_SUPPORTED_COUNT_SOURCES = new Set([
   "received_revenue",
   "recognition_credit",
+]);
+
+const LIFETIME_SUPPORTED_COUNT_SOURCES = new Set([
+  "received_revenue",
+  "recognition_credit",
+  "committed",
 ]);
 
 function getNestedValue(source, path) {
@@ -324,8 +330,10 @@ function constituentIdsMatch(left, right) {
   return String(left || "").trim() && String(left || "").trim() === String(right || "").trim();
 }
 
-function sourceIsSupported(source) {
-  return SUPPORTED_COUNT_SOURCES.has(source);
+function sourceIsSupported(source, basis = "annual") {
+  return basis === "lifetime"
+    ? LIFETIME_SUPPORTED_COUNT_SOURCES.has(source)
+    : ANNUAL_SUPPORTED_COUNT_SOURCES.has(source);
 }
 
 function definitionMatchesTotal(definition, total) {
@@ -398,20 +406,138 @@ function calculateGivingTotalsForWindow({
   };
 }
 
+function getLifetimeGivingAmount(lifetimeGiving, source) {
+  if (!lifetimeGiving) return 0;
+
+  const value = (() => {
+    if (source === "committed") {
+      return firstDefined(lifetimeGiving, [
+        "totalGiving",
+        "total_giving.value",
+        "total_giving",
+      ]);
+    }
+    if (source === "received_revenue") {
+      return firstDefined(lifetimeGiving, [
+        "totalReceivedGiving",
+        "total_received_giving.value",
+        "total_received_giving",
+      ]);
+    }
+    if (source === "recognition_credit") {
+      return firstDefined(lifetimeGiving, [
+        "totalSoftCredits",
+        "total_soft_credits.value",
+        "total_soft_credits",
+      ]);
+    }
+    return null;
+  })();
+
+  const amount = toFiniteAmount(value);
+  return amount != null && amount > 0 ? amount : 0;
+}
+
+function calculateLifetimeGivingTotals(lifetimeGiving) {
+  return {
+    committedTotal: Number(getLifetimeGivingAmount(lifetimeGiving, "committed").toFixed(2)),
+    receivedRevenueTotal: Number(getLifetimeGivingAmount(lifetimeGiving, "received_revenue").toFixed(2)),
+    recognitionCreditTotal: Number(getLifetimeGivingAmount(lifetimeGiving, "recognition_credit").toFixed(2)),
+  };
+}
+
+function calculateLifetimeGivingSocieties({
+  societyDefinitions,
+  lifetimeGiving,
+} = {}) {
+  const definitions = normalizeGivingSocietyConfigurations(societyDefinitions)
+    .filter((definition) => definition.active !== false && definition.basis === "lifetime");
+  const totals = calculateLifetimeGivingTotals(lifetimeGiving);
+
+  const societyResults = definitions
+    .map((definition) => {
+      const supportedCountSources =
+        definition.countSources.filter((source) => sourceIsSupported(source, "lifetime"));
+      const unsupportedCountSources =
+        definition.countSources.filter((source) => !sourceIsSupported(source, "lifetime"));
+      const qualifyingAmount = Number(
+        (
+          (supportedCountSources.includes("committed")
+            ? totals.committedTotal
+            : 0) +
+          (supportedCountSources.includes("received_revenue")
+            ? totals.receivedRevenueTotal
+            : 0) +
+          (supportedCountSources.includes("recognition_credit")
+            ? totals.recognitionCreditTotal
+            : 0)
+        ).toFixed(2),
+      );
+
+      if (!definitionMatchesTotal(definition, qualifyingAmount)) return null;
+
+      return {
+        key: definition.key,
+        label: definition.name,
+        name: definition.name,
+        minimum: definition.minimumAmount,
+        maximum: definition.maximumAmount,
+        hierarchy: definition.displayOrder,
+        basis: definition.basis,
+        periodBasis: definition.periodBasis,
+        year: null,
+        yearLabel: "Lifetime",
+        yearBasis: "lifetime",
+        startDate: null,
+        endDate: null,
+        countSources: definition.countSources,
+        supportedCountSources,
+        unsupportedCountSources,
+        qualifyingAmount,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      if (left.hierarchy !== right.hierarchy) return left.hierarchy - right.hierarchy;
+      return right.qualifyingAmount - left.qualifyingAmount;
+    });
+
+  return {
+    committedTotal: totals.committedTotal,
+    receivedRevenueTotal: totals.receivedRevenueTotal,
+    recognitionCreditTotal: totals.recognitionCreditTotal,
+    combinedLifetimeGiving: societyResults[0]?.qualifyingAmount ?? Number(
+      (
+        totals.committedTotal +
+        totals.receivedRevenueTotal +
+        totals.recognitionCreditTotal
+      ).toFixed(2),
+    ),
+    primarySociety: societyResults[0] || null,
+    societies: societyResults,
+  };
+}
+
 export function calculateAnnualGivingSocieties({
   constituentId,
   gifts = [],
   now = new Date(),
   societyDefinitions,
+  lifetimeGiving = null,
 } = {}) {
-  const definitions = normalizeGivingSocietyConfigurations(societyDefinitions)
+  const definitions = normalizeGivingSocietyConfigurations(societyDefinitions);
+  const annualDefinitions = definitions
     .filter((definition) => definition.active !== false && definition.basis === "annual");
-  const annualDefinitions = definitions.length
-    ? definitions
+  const activeAnnualDefinitions = annualDefinitions.length
+    ? annualDefinitions
     : getDefaultGivingSocietyConfigurations();
+  const lifetimeSummary = calculateLifetimeGivingSocieties({
+    societyDefinitions: definitions,
+    lifetimeGiving,
+  });
   const totalsByWindow = new Map();
 
-  const societyResults = annualDefinitions
+  const societyResults = activeAnnualDefinitions
     .map((definition) => {
       const window = getAnnualDefinitionWindow(definition, now);
       const windowKey = `${window.startDate}:${window.endDate}`;
@@ -429,9 +555,9 @@ export function calculateAnnualGivingSocieties({
 
       const totals = totalsByWindow.get(windowKey);
       const supportedCountSources =
-        definition.countSources.filter(sourceIsSupported);
+        definition.countSources.filter((source) => sourceIsSupported(source, "annual"));
       const unsupportedCountSources =
-        definition.countSources.filter((source) => !sourceIsSupported(source));
+        definition.countSources.filter((source) => !sourceIsSupported(source, "annual"));
       const qualifyingAmount = Number(
         (
           (supportedCountSources.includes("received_revenue")
@@ -481,7 +607,7 @@ export function calculateAnnualGivingSocieties({
         yearBasis: primarySociety.yearBasis,
         periodBasis: primarySociety.periodBasis,
       }
-    : getAnnualDefinitionWindow(annualDefinitions[0], now);
+    : getAnnualDefinitionWindow(activeAnnualDefinitions[0], now);
   const primaryTotals = totalsByWindow.get(
     `${primaryWindow.startDate}:${primaryWindow.endDate}`,
   ) || calculateGivingTotalsForWindow({
@@ -498,6 +624,13 @@ export function calculateAnnualGivingSocieties({
       ).toFixed(2),
     );
 
+  const combinedSocieties = [...societyResults, ...lifetimeSummary.societies]
+    .sort((left, right) => {
+      if (left.hierarchy !== right.hierarchy) return left.hierarchy - right.hierarchy;
+      if (left.basis !== right.basis) return left.basis === "annual" ? -1 : 1;
+      return right.qualifyingAmount - left.qualifyingAmount;
+    });
+
   return {
     year: primaryWindow.year,
     yearLabel: primaryWindow.yearLabel,
@@ -512,7 +645,17 @@ export function calculateAnnualGivingSocieties({
     receivedRevenueGiftCount: primaryTotals.receivedRevenueGiftCount,
     recognitionCreditGiftCount: primaryTotals.recognitionCreditGiftCount,
     primarySociety,
-    societies: societyResults,
+    primaryAnnualSociety: primarySociety,
+    primaryLifetimeSociety: lifetimeSummary.primarySociety,
+    annualSocieties: societyResults,
+    lifetimeSocieties: lifetimeSummary.societies,
+    societies: combinedSocieties,
+    lifetimeGiving: {
+      committedTotal: lifetimeSummary.committedTotal,
+      receivedRevenueTotal: lifetimeSummary.receivedRevenueTotal,
+      recognitionCreditTotal: lifetimeSummary.recognitionCreditTotal,
+      combinedLifetimeGiving: lifetimeSummary.combinedLifetimeGiving,
+    },
     calculatedAt: now.toISOString(),
   };
 }
@@ -525,6 +668,8 @@ export async function fetchAnnualGivingSocieties({
   constituentId,
   now = new Date(),
   societyDefinitions,
+  lifetimeGiving,
+  loadLifetimeGiving,
 } = {}) {
   if (!listGifts) {
     throw new Error("A Blackbaud gift list function is required");
@@ -535,23 +680,31 @@ export async function fetchAnnualGivingSocieties({
 
   const definitions = normalizeGivingSocietyConfigurations(societyDefinitions);
   const startGiftDate = getEarliestAnnualStartDate(definitions, now);
-  const gifts = await listGifts({
-    userId,
-    authUserId,
-    origin,
-    searchParams: {
-      constituent_id: String(constituentId),
-      start_gift_date: startGiftDate,
-      end_gift_date: formatDateOnly(now),
-    },
-    pageLimit: 500,
-    maxPages: 20,
-  });
+  const [gifts, resolvedLifetimeGiving] = await Promise.all([
+    listGifts({
+      userId,
+      authUserId,
+      origin,
+      searchParams: {
+        constituent_id: String(constituentId),
+        start_gift_date: startGiftDate,
+        end_gift_date: formatDateOnly(now),
+      },
+      pageLimit: 500,
+      maxPages: 20,
+    }),
+    lifetimeGiving !== undefined
+      ? Promise.resolve(lifetimeGiving)
+      : typeof loadLifetimeGiving === "function"
+        ? Promise.resolve().then(loadLifetimeGiving).catch(() => null)
+        : Promise.resolve(null),
+  ]);
 
   return calculateAnnualGivingSocieties({
     constituentId,
     gifts,
     now,
     societyDefinitions: definitions,
+    lifetimeGiving: resolvedLifetimeGiving,
   });
 }
