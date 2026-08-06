@@ -51,8 +51,99 @@ const IMPORT_FIELDS = [
     key: "email",
     header: "Email Address",
     label: "Email Address",
-    group: "Match fields",
+    group: "Email fields",
     description: "Useful supporting match data. Email-only matches still require human review.",
+  },
+  {
+    key: "emailType",
+    header: "Email Type",
+    label: "Email Type",
+    group: "Email fields",
+    description: "Optional NXT email type, such as Home, Business, or Other.",
+  },
+  {
+    key: "emailMakePrimary",
+    header: "Email Make Primary?",
+    label: "Email Make Primary?",
+    group: "Email fields",
+    description: "Optional yes/no flag for whether this email should become primary.",
+  },
+  {
+    key: "phoneNumber",
+    header: "Phone Number",
+    label: "Phone Number",
+    group: "Phone fields",
+    description: "Phone number to add or update.",
+  },
+  {
+    key: "phoneType",
+    header: "Phone Type",
+    label: "Phone Type",
+    group: "Phone fields",
+    description: "Optional NXT phone type, such as Home, Mobile, Business, or Other.",
+  },
+  {
+    key: "phoneMakePrimary",
+    header: "Phone Make Primary?",
+    label: "Phone Make Primary?",
+    group: "Phone fields",
+    description: "Optional yes/no flag for whether this phone should become primary.",
+  },
+  {
+    key: "addressType",
+    header: "Address Type",
+    label: "Address Type",
+    group: "Address fields",
+    description: "Optional NXT address type, such as Home, Business, Seasonal, or Other.",
+  },
+  {
+    key: "addressLine1",
+    header: "Address Line 1",
+    label: "Address Line 1",
+    group: "Address fields",
+    description: "Primary street address line.",
+  },
+  {
+    key: "addressLine2",
+    header: "Address Line 2",
+    label: "Address Line 2",
+    group: "Address fields",
+    description: "Apartment, suite, unit, or secondary address line.",
+  },
+  {
+    key: "city",
+    header: "City",
+    label: "City",
+    group: "Address fields",
+    description: "Address city.",
+  },
+  {
+    key: "state",
+    header: "State",
+    label: "State",
+    group: "Address fields",
+    description: "Address state or province.",
+  },
+  {
+    key: "postalCode",
+    header: "ZIP/Postal Code",
+    label: "ZIP/Postal Code",
+    group: "Address fields",
+    description: "Address ZIP or postal code.",
+  },
+  {
+    key: "country",
+    header: "Country",
+    label: "Country",
+    group: "Address fields",
+    description: "Address country. Can be blank when the import source already assumes United States.",
+  },
+  {
+    key: "addressMakePrimary",
+    header: "Address Make Primary?",
+    label: "Address Make Primary?",
+    group: "Address fields",
+    description: "Optional yes/no flag for whether this address should become primary.",
   },
   {
     key: "sourceConstituency",
@@ -73,15 +164,92 @@ const IMPORT_FIELDS = [
     key: "startDate",
     header: "New Constituent Code Start Date",
     label: "New Constituent Code Start Date",
-    group: "Date fields",
+    group: "Constituent code fields",
     description: "Optional start date for the new constituent code. This can be blank.",
   },
   {
     key: "endDate",
     header: "New Constituent Code End Date",
     label: "New Constituent Code End Date",
-    group: "Date fields",
+    group: "Constituent code fields",
     description: "Optional end date for the new constituent code. This can be blank.",
+  },
+  {
+    key: "educationInstitution",
+    header: "Education Institution",
+    label: "Education Institution",
+    group: "Education relationship fields",
+    description: "School, college, or university name for an education relationship.",
+  },
+  {
+    key: "educationDegree",
+    header: "Education Degree",
+    label: "Education Degree",
+    group: "Education relationship fields",
+    description: "Degree name or credential, when available.",
+  },
+  {
+    key: "educationMajor",
+    header: "Education Major",
+    label: "Education Major",
+    group: "Education relationship fields",
+    description: "Major, program, or academic area, when available.",
+  },
+  {
+    key: "educationClassYear",
+    header: "Education Class Year",
+    label: "Education Class Year",
+    group: "Education relationship fields",
+    description: "Graduation or class year, when available.",
+  },
+  {
+    key: "educationRelationshipMakePrimary",
+    header: "Education Relationship Make Primary?",
+    label: "Education Relationship Make Primary?",
+    group: "Education relationship fields",
+    description: "Optional yes/no flag for whether this education relationship should be primary.",
+  },
+  {
+    key: "organizationName",
+    header: "Organization Name",
+    label: "Organization Name",
+    group: "Organization relationship fields",
+    description: "Organization or employer name for an organization relationship.",
+  },
+  {
+    key: "organizationRelationshipType",
+    header: "Organization Relationship Type",
+    label: "Organization Relationship Type",
+    group: "Organization relationship fields",
+    description: "Relationship type, such as Employee, Board Member, Owner, or Other.",
+  },
+  {
+    key: "organizationTitle",
+    header: "Organization Title",
+    label: "Organization Title",
+    group: "Organization relationship fields",
+    description: "Title, role, or position at the organization.",
+  },
+  {
+    key: "organizationStartDate",
+    header: "Organization Relationship Start Date",
+    label: "Organization Relationship Start Date",
+    group: "Organization relationship fields",
+    description: "Optional start date for the organization relationship.",
+  },
+  {
+    key: "organizationEndDate",
+    header: "Organization Relationship End Date",
+    label: "Organization Relationship End Date",
+    group: "Organization relationship fields",
+    description: "Optional end date for the organization relationship.",
+  },
+  {
+    key: "organizationRelationshipMakePrimary",
+    header: "Organization Relationship Make Primary?",
+    label: "Organization Relationship Make Primary?",
+    group: "Organization relationship fields",
+    description: "Optional yes/no flag for whether this organization relationship should be primary.",
   },
 ];
 
@@ -92,18 +260,63 @@ const DEFAULT_ACTIVE_FIELDS = {
   lastName: true,
   preferredName: false,
   email: true,
+  emailType: false,
+  emailMakePrimary: false,
+  phoneNumber: false,
+  phoneType: false,
+  phoneMakePrimary: false,
+  addressType: false,
+  addressLine1: false,
+  addressLine2: false,
+  city: false,
+  state: false,
+  postalCode: false,
+  country: false,
+  addressMakePrimary: false,
   sourceConstituency: false,
   targetConstituency: true,
   startDate: true,
   endDate: false,
+  educationInstitution: false,
+  educationDegree: false,
+  educationMajor: false,
+  educationClassYear: false,
+  educationRelationshipMakePrimary: false,
+  organizationName: false,
+  organizationRelationshipType: false,
+  organizationTitle: false,
+  organizationStartDate: false,
+  organizationEndDate: false,
+  organizationRelationshipMakePrimary: false,
 };
 
 const FIELD_GROUP_ORDER = [
   "Match fields",
   "Name fields",
+  "Email fields",
+  "Phone fields",
+  "Address fields",
   "Constituent code fields",
-  "Date fields",
+  "Education relationship fields",
+  "Organization relationship fields",
 ];
+
+const FIELD_GROUP_HELP = {
+  "Match fields": "Use one or more strong identifiers to avoid duplicate records.",
+  "Name fields": "Name columns used for matching and future new-record imports.",
+  "Email fields": "Email columns, including the optional primary flag.",
+  "Phone fields": "Phone columns, including the optional primary flag.",
+  "Address fields": "Address columns, including the optional primary flag.",
+  "Constituent code fields": "Constituent-code add/replace options and optional dates.",
+  "Education relationship fields": "Education relationship columns for school and degree data.",
+  "Organization relationship fields": "Organization relationship columns for employer or affiliation data.",
+};
+
+const DEFAULT_OPEN_FIELD_GROUPS = {
+  "Match fields": true,
+  "Name fields": true,
+  "Constituent code fields": true,
+};
 
 const CONSTITUENCY_ACTIONS = [
   {
@@ -134,6 +347,32 @@ function makeTemplateRows(fields) {
         return "Jane";
       case "email":
         return "jane@example.com";
+      case "emailType":
+        return "Home";
+      case "emailMakePrimary":
+        return "Yes";
+      case "phoneNumber":
+        return "(904) 555-0101";
+      case "phoneType":
+        return "Mobile";
+      case "phoneMakePrimary":
+        return "No";
+      case "addressType":
+        return "Home";
+      case "addressLine1":
+        return "2800 University Blvd N";
+      case "addressLine2":
+        return "";
+      case "city":
+        return "Jacksonville";
+      case "state":
+        return "FL";
+      case "postalCode":
+        return "32211";
+      case "country":
+        return "United States";
+      case "addressMakePrimary":
+        return "Yes";
       case "sourceConstituency":
         return "Student";
       case "targetConstituency":
@@ -142,6 +381,28 @@ function makeTemplateRows(fields) {
         return "2026-05-01";
       case "endDate":
         return "";
+      case "educationInstitution":
+        return "Jacksonville University";
+      case "educationDegree":
+        return "Bachelor of Science";
+      case "educationMajor":
+        return "Nursing";
+      case "educationClassYear":
+        return "2026";
+      case "educationRelationshipMakePrimary":
+        return "Yes";
+      case "organizationName":
+        return "Dolphin Health System";
+      case "organizationRelationshipType":
+        return "Employee";
+      case "organizationTitle":
+        return "Director";
+      case "organizationStartDate":
+        return "2024-01-15";
+      case "organizationEndDate":
+        return "";
+      case "organizationRelationshipMakePrimary":
+        return "Yes";
       default:
         return "";
     }
@@ -160,6 +421,32 @@ function makeTemplateRows(fields) {
         return "";
       case "email":
         return "sam@example.com";
+      case "emailType":
+        return "Business";
+      case "emailMakePrimary":
+        return "No";
+      case "phoneNumber":
+        return "(904) 555-0102";
+      case "phoneType":
+        return "Home";
+      case "phoneMakePrimary":
+        return "Yes";
+      case "addressType":
+        return "Business";
+      case "addressLine1":
+        return "1 Dolphin Way";
+      case "addressLine2":
+        return "Suite 200";
+      case "city":
+        return "Jacksonville";
+      case "state":
+        return "FL";
+      case "postalCode":
+        return "32202";
+      case "country":
+        return "United States";
+      case "addressMakePrimary":
+        return "No";
       case "sourceConstituency":
         return "";
       case "targetConstituency":
@@ -168,6 +455,28 @@ function makeTemplateRows(fields) {
         return "2026-05-01";
       case "endDate":
         return "";
+      case "educationInstitution":
+        return "Jacksonville University";
+      case "educationDegree":
+        return "Master of Business Administration";
+      case "educationMajor":
+        return "Business";
+      case "educationClassYear":
+        return "2026";
+      case "educationRelationshipMakePrimary":
+        return "No";
+      case "organizationName":
+        return "Dolphin Foundation";
+      case "organizationRelationshipType":
+        return "Board Member";
+      case "organizationTitle":
+        return "Trustee";
+      case "organizationStartDate":
+        return "2025-07-01";
+      case "organizationEndDate":
+        return "";
+      case "organizationRelationshipMakePrimary":
+        return "No";
       default:
         return "";
     }
@@ -262,6 +571,7 @@ export default function ConstituencyImportPage() {
   const [profile, setProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
+  const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
   const [rawCsv, setRawCsv] = useState(() =>
@@ -354,6 +664,10 @@ export default function ConstituencyImportPage() {
   function toggleField(key) {
     setActiveFields((current) => ({ ...current, [key]: !current[key] }));
     setPreview(null);
+  }
+
+  function toggleFieldGroup(group) {
+    setOpenFieldGroups((current) => ({ ...current, [group]: !current[group] }));
   }
 
   function selectConstituencyAction(nextAction) {
@@ -591,12 +905,70 @@ export default function ConstituencyImportPage() {
 
               {FIELD_GROUP_ORDER.map((group) => {
                 const groupFields = IMPORT_FIELDS.filter((field) => field.group === group);
+                const isOpen = Boolean(openFieldGroups[group]);
+                const activeCount = groupFields.filter((field) => activeFields[field.key]).length;
                 return (
-                  <div key={group} style={{ display: "grid", gap: "10px" }}>
-                    <h3 style={{ margin: "4px 0 0", color: "#111827", fontSize: "16px" }}>
-                      {group}
-                    </h3>
-                    <div style={{ display: "grid", gap: "10px" }}>
+                  <div
+                    key={group}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "16px",
+                      overflow: "hidden",
+                      backgroundColor: "white",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFieldGroup(group)}
+                      aria-expanded={isOpen}
+                      style={{
+                        width: "100%",
+                        border: "none",
+                        backgroundColor: isOpen ? "#F8FAFC" : "white",
+                        color: "#111827",
+                        padding: "14px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: "12px",
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span>
+                        <span style={{ display: "block", fontSize: "16px", fontWeight: 900 }}>
+                          {group}
+                        </span>
+                        <span
+                          style={{
+                            display: "block",
+                            marginTop: "4px",
+                            color: "#6B7280",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {FIELD_GROUP_HELP[group]}
+                        </span>
+                      </span>
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <Pill tone={activeCount ? "green" : "neutral"}>
+                          {activeCount}/{groupFields.length} active
+                        </Pill>
+                        <span style={{ color: "#4F46E5", fontWeight: 900 }}>
+                          {isOpen ? "Hide" : "Show"}
+                        </span>
+                      </span>
+                    </button>
+                    {isOpen ? (
+                      <div
+                        style={{
+                          borderTop: "1px solid #E5E7EB",
+                          display: "grid",
+                          gap: "10px",
+                          padding: "14px",
+                        }}
+                      >
                       {groupFields.map((field) => {
                         const active = Boolean(activeFields[field.key]);
                         return (
@@ -605,7 +977,7 @@ export default function ConstituencyImportPage() {
                               type="button"
                               onClick={() => toggleField(field.key)}
                               style={{
-                              display: "grid",
+                                display: "grid",
                                 gridTemplateColumns: "auto 1fr",
                                 gap: "12px",
                                 textAlign: "left",
@@ -792,6 +1164,7 @@ export default function ConstituencyImportPage() {
                         );
                       })}
                     </div>
+                    ) : null}
                   </div>
                 );
               })}
