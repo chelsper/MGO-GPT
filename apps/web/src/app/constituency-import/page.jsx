@@ -69,6 +69,30 @@ const IMPORT_FIELDS = [
     description: "Optional yes/no flag for whether this email should become primary.",
   },
   {
+    key: "email2",
+    header: "Email 2 Address",
+    label: "Email 2 Address",
+    group: "Email fields",
+    description: "Second email address to add or update.",
+    additionalSet: "secondEmail",
+  },
+  {
+    key: "email2Type",
+    header: "Email 2 Type",
+    label: "Email 2 Type",
+    group: "Email fields",
+    description: "NXT email type for the second email, such as Home, Business, or Other.",
+    additionalSet: "secondEmail",
+  },
+  {
+    key: "email2MakePrimary",
+    header: "Email 2 Make Primary?",
+    label: "Email 2 Make Primary?",
+    group: "Email fields",
+    description: "Optional yes/no flag for whether the second email should become primary.",
+    additionalSet: "secondEmail",
+  },
+  {
     key: "phoneNumber",
     header: "Phone Number",
     label: "Phone Number",
@@ -88,6 +112,30 @@ const IMPORT_FIELDS = [
     label: "Phone Make Primary?",
     group: "Phone fields",
     description: "Optional yes/no flag for whether this phone should become primary.",
+  },
+  {
+    key: "phone2Number",
+    header: "Phone 2 Number",
+    label: "Phone 2 Number",
+    group: "Phone fields",
+    description: "Second phone number to add or update.",
+    additionalSet: "secondPhone",
+  },
+  {
+    key: "phone2Type",
+    header: "Phone 2 Type",
+    label: "Phone 2 Type",
+    group: "Phone fields",
+    description: "NXT phone type for the second phone, such as Home, Mobile, Business, or Other.",
+    additionalSet: "secondPhone",
+  },
+  {
+    key: "phone2MakePrimary",
+    header: "Phone 2 Make Primary?",
+    label: "Phone 2 Make Primary?",
+    group: "Phone fields",
+    description: "Optional yes/no flag for whether the second phone should become primary.",
+    additionalSet: "secondPhone",
   },
   {
     key: "addressType",
@@ -262,9 +310,15 @@ const DEFAULT_ACTIVE_FIELDS = {
   email: true,
   emailType: false,
   emailMakePrimary: false,
+  email2: false,
+  email2Type: false,
+  email2MakePrimary: false,
   phoneNumber: false,
   phoneType: false,
   phoneMakePrimary: false,
+  phone2Number: false,
+  phone2Type: false,
+  phone2MakePrimary: false,
   addressType: false,
   addressLine1: false,
   addressLine2: false,
@@ -318,6 +372,21 @@ const DEFAULT_OPEN_FIELD_GROUPS = {
   "Constituent code fields": true,
 };
 
+const ADDITIONAL_CONTACT_SETS = {
+  "Email fields": {
+    keys: ["email2", "email2Type", "email2MakePrimary"],
+    addLabel: "+ Add second email",
+    removeLabel: "Remove second email",
+    description: "Adds Email 2 Address, Email 2 Type, and Email 2 Make Primary? columns.",
+  },
+  "Phone fields": {
+    keys: ["phone2Number", "phone2Type", "phone2MakePrimary"],
+    addLabel: "+ Add second phone",
+    removeLabel: "Remove second phone",
+    description: "Adds Phone 2 Number, Phone 2 Type, and Phone 2 Make Primary? columns.",
+  },
+};
+
 const CONSTITUENCY_ACTIONS = [
   {
     value: "add",
@@ -351,12 +420,24 @@ function makeTemplateRows(fields) {
         return "Home";
       case "emailMakePrimary":
         return "Yes";
+      case "email2":
+        return "jane.business@example.com";
+      case "email2Type":
+        return "Business";
+      case "email2MakePrimary":
+        return "No";
       case "phoneNumber":
         return "(904) 555-0101";
       case "phoneType":
         return "Mobile";
       case "phoneMakePrimary":
         return "No";
+      case "phone2Number":
+        return "(904) 555-0199";
+      case "phone2Type":
+        return "Home";
+      case "phone2MakePrimary":
+        return "Yes";
       case "addressType":
         return "Home";
       case "addressLine1":
@@ -425,12 +506,24 @@ function makeTemplateRows(fields) {
         return "Business";
       case "emailMakePrimary":
         return "No";
+      case "email2":
+        return "sam.home@example.com";
+      case "email2Type":
+        return "Home";
+      case "email2MakePrimary":
+        return "Yes";
       case "phoneNumber":
         return "(904) 555-0102";
       case "phoneType":
         return "Home";
       case "phoneMakePrimary":
         return "Yes";
+      case "phone2Number":
+        return "(904) 555-0198";
+      case "phone2Type":
+        return "Business";
+      case "phone2MakePrimary":
+        return "No";
       case "addressType":
         return "Business";
       case "addressLine1":
@@ -663,6 +756,19 @@ export default function ConstituencyImportPage() {
 
   function toggleField(key) {
     setActiveFields((current) => ({ ...current, [key]: !current[key] }));
+    setPreview(null);
+  }
+
+  function setContactFieldSetActive(group, active) {
+    const contactSet = ADDITIONAL_CONTACT_SETS[group];
+    if (!contactSet) return;
+    setActiveFields((current) => {
+      const next = { ...current };
+      contactSet.keys.forEach((key) => {
+        next[key] = active;
+      });
+      return next;
+    });
     setPreview(null);
   }
 
@@ -904,7 +1010,14 @@ export default function ConstituencyImportPage() {
               </div>
 
               {FIELD_GROUP_ORDER.map((group) => {
-                const groupFields = IMPORT_FIELDS.filter((field) => field.group === group);
+                const contactSet = ADDITIONAL_CONTACT_SETS[group];
+                const contactSetActive = contactSet
+                  ? contactSet.keys.some((key) => activeFields[key])
+                  : false;
+                const groupFields = IMPORT_FIELDS.filter(
+                  (field) =>
+                    field.group === group && (!field.additionalSet || contactSetActive),
+                );
                 const isOpen = Boolean(openFieldGroups[group]);
                 const activeCount = groupFields.filter((field) => activeFields[field.key]).length;
                 return (
@@ -1163,6 +1276,40 @@ export default function ConstituencyImportPage() {
                           </div>
                         );
                       })}
+                      {contactSet ? (
+                        <div
+                          style={{
+                            borderTop: "1px dashed #CBD5E1",
+                            paddingTop: "12px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            flexWrap: "wrap",
+                            gap: "10px",
+                          }}
+                        >
+                          <p style={{ margin: 0, color: "#6B7280", lineHeight: 1.45 }}>
+                            {contactSet.description}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setContactFieldSetActive(group, !contactSetActive)}
+                            style={{
+                              border: contactSetActive
+                                ? "1px solid #FCA5A5"
+                                : "1px solid #C7D2FE",
+                              borderRadius: "999px",
+                              backgroundColor: "white",
+                              color: contactSetActive ? "#991B1B" : "#4338CA",
+                              padding: "9px 13px",
+                              fontWeight: 900,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {contactSetActive ? contactSet.removeLabel : contactSet.addLabel}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                     ) : null}
                   </div>
