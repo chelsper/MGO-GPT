@@ -302,6 +302,11 @@ const IMPORT_FIELDS = [
   },
 ];
 
+const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
+  acc[field.key] = field;
+  return acc;
+}, {});
+
 const DEFAULT_ACTIVE_FIELDS = {
   blackbaudConstituentId: false,
   lookupId: true,
@@ -806,6 +811,7 @@ export default function ConstituencyImportPage() {
     [activeFields],
   );
   const expectedHeaders = selectedFields.map((field) => field.header);
+  const uploadedHeaderSet = useMemo(() => new Set(headers), [headers]);
   const mappings = useMemo(
     () =>
       selectedFields.reduce((acc, field) => {
@@ -816,6 +822,10 @@ export default function ConstituencyImportPage() {
   );
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
   const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
+  const hasUploadedHeader = (key) => {
+    const header = FIELD_BY_KEY[key]?.header;
+    return Boolean(activeFields[key] && header && uploadedHeaderSet.has(header));
+  };
   const educationRelationshipFieldsActive = Boolean(
     activeFields.educationInstitution ||
       activeFields.educationDegree ||
@@ -833,16 +843,36 @@ export default function ConstituencyImportPage() {
       organizationRelationshipFieldsActive,
   );
   const mappedIdentityField = Boolean(
-    activeFields.blackbaudConstituentId ||
-      activeFields.lookupId ||
-      activeFields.email ||
-      (activeFields.firstName && activeFields.lastName),
+    hasUploadedHeader("blackbaudConstituentId") ||
+      hasUploadedHeader("lookupId") ||
+      hasUploadedHeader("email") ||
+      (hasUploadedHeader("firstName") && hasUploadedHeader("lastName")),
+  );
+  const mappedImportOperation = Boolean(
+    hasUploadedHeader("targetConstituency") ||
+      hasUploadedHeader("educationInstitution") ||
+      hasUploadedHeader("educationDegree") ||
+      hasUploadedHeader("educationMajor") ||
+      hasUploadedHeader("educationClassYear") ||
+      hasUploadedHeader("organizationName") ||
+      hasUploadedHeader("organizationRelationshipType") ||
+      hasUploadedHeader("organizationTitle"),
   );
   const canPreview =
     rows.length > 0 &&
     mappedIdentityField &&
-    missingHeaders.length === 0 &&
-    hasImportOperation;
+    hasImportOperation &&
+    mappedImportOperation;
+  const previewBlockers = [
+    rows.length === 0 ? "Add at least one CSV data row." : "",
+    mappedIdentityField ? "" : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, or First Name + Last Name.",
+    hasImportOperation
+      ? ""
+      : "Activate at least one constituent-code, education, or organization field.",
+    mappedImportOperation
+      ? ""
+      : "Include at least one active change column in the CSV, such as New Constituent Code, Education Institution, or Organization Name.",
+  ].filter(Boolean);
   const readySavedRows =
     preview?.savedRun && Array.isArray(preview?.rows)
       ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt).length
@@ -1643,7 +1673,7 @@ export default function ConstituencyImportPage() {
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                   Your file should include these active headers. Extra columns are ignored in the
-                  preview; missing active headers block preview.
+                  preview; missing optional active headers are ignored.
                 </p>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
@@ -1735,10 +1765,10 @@ export default function ConstituencyImportPage() {
               <Pill tone={rows.length ? "green" : "amber"}>
                 {rows.length ? `${rows.length} rows parsed` : "Upload CSV rows"}
               </Pill>
-              <Pill tone={missingHeaders.length === 0 ? "green" : "red"}>
+              <Pill tone={missingHeaders.length === 0 ? "green" : "amber"}>
                 {missingHeaders.length === 0
                   ? "All active headers present"
-                  : `${missingHeaders.length} active header(s) missing`}
+                  : `${missingHeaders.length} active header(s) not in CSV`}
               </Pill>
             </div>
             {error ? (
@@ -1753,6 +1783,36 @@ export default function ConstituencyImportPage() {
                 }}
               >
                 {error}
+              </div>
+            ) : null}
+            {previewBlockers.length ? (
+              <div
+                style={{
+                  border: "1px solid #FECACA",
+                  borderRadius: "14px",
+                  backgroundColor: "#FEF2F2",
+                  color: "#991B1B",
+                  padding: "12px",
+                  fontWeight: 800,
+                  lineHeight: 1.45,
+                }}
+              >
+                Preview needs: {previewBlockers.join(" ")}
+              </div>
+            ) : missingHeaders.length ? (
+              <div
+                style={{
+                  border: "1px solid #FDE68A",
+                  borderRadius: "14px",
+                  backgroundColor: "#FFFBEB",
+                  color: "#92400E",
+                  padding: "12px",
+                  fontWeight: 800,
+                  lineHeight: 1.45,
+                }}
+              >
+                Preview can run. Missing active optional headers will be ignored:{" "}
+                {missingHeaders.join(", ")}
               </div>
             ) : null}
             <button
@@ -1966,15 +2026,16 @@ export default function ConstituencyImportPage() {
           {missingHeaders.length ? (
             <div
               style={{
-                border: "1px solid #FECACA",
+                border: "1px solid #FDE68A",
                 borderRadius: "14px",
-                backgroundColor: "#FEF2F2",
-                color: "#991B1B",
+                backgroundColor: "#FFFBEB",
+                color: "#92400E",
                 padding: "12px",
                 fontWeight: 800,
               }}
             >
-              Missing active CSV headers: {missingHeaders.join(", ")}
+              Active fields not found in this CSV will be ignored for preview:{" "}
+              {missingHeaders.join(", ")}
             </div>
           ) : null}
           {extraHeaders.length ? (
