@@ -1242,7 +1242,6 @@ export default function ConstituencyImportPage() {
   const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
   const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
-  const [selectedReconciliationRowIds, setSelectedReconciliationRowIds] = useState([]);
   const [reconcilingRun, setReconcilingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
   const [retryingRowId, setRetryingRowId] = useState("");
@@ -1400,8 +1399,8 @@ export default function ConstituencyImportPage() {
     preview?.savedRun && Array.isArray(preview?.rows)
       ? preview.rows.filter((row) => row.status === "Applied" && row.appliedAt)
       : [];
-  const selectedReconciliationRows = appliedReconciliationRows.filter((row) =>
-    selectedReconciliationRowIds.includes(String(row.id)),
+  const unverifiedReconciliationRows = appliedReconciliationRows.filter(
+    (row) => !row.blackbaudResult?.reconciliation?.verifiedAt,
   );
   const potentialNewRows =
     preview?.savedRun && Array.isArray(preview?.rows)
@@ -1755,7 +1754,6 @@ export default function ConstituencyImportPage() {
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
-      setSelectedReconciliationRowIds([]);
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -1779,25 +1777,12 @@ export default function ConstituencyImportPage() {
     setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
   }
 
-  function toggleReconciliationRow(rowId) {
-    const normalizedRowId = String(rowId);
-    setSelectedReconciliationRowIds((current) =>
-      current.includes(normalizedRowId)
-        ? current.filter((candidate) => candidate !== normalizedRowId)
-        : [...current, normalizedRowId],
-    );
-  }
-
-  function selectAllAppliedRows() {
-    setSelectedReconciliationRowIds(appliedReconciliationRows.map((row) => String(row.id)));
-  }
-
   async function applySavedRun() {
     const runId = preview?.savedRun?.id;
     if (!runId || applyingRun || !selectedApplyRows.length) return;
 
     const shouldApply = window.confirm(
-      `Apply ${selectedApplyRows.length} selected row${selectedApplyRows.length === 1 ? "" : "s"} and ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"} now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`,
+      `Import ${selectedApplyRows.length} selected row${selectedApplyRows.length === 1 ? "" : "s"} and ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`,
     );
     if (!shouldApply) return;
 
@@ -1832,10 +1817,9 @@ export default function ConstituencyImportPage() {
 
       setPreview(payload);
       setSelectedApplyRowIds([]);
-      setSelectedReconciliationRowIds([]);
       setSaveMessage(
         fullyApplied
-          ? `Import complete. ${applied} row${applied === 1 ? " was" : "s were"} updated in Raiser's Edge NXT. Verify the applied rows before starting another CSV.`
+          ? `Import complete. ${applied} row${applied === 1 ? " was" : "s were"} updated in Raiser's Edge NXT. You can optionally verify the imported rows against current NXT data.`
           : payload?.applySummary?.message || `Applied import run #${runId}.`,
       );
       fetchSavedRuns();
@@ -1850,10 +1834,10 @@ export default function ConstituencyImportPage() {
 
   async function reconcileAppliedRows() {
     const runId = preview?.savedRun?.id;
-    if (!runId || reconcilingRun || !selectedReconciliationRows.length) return;
+    if (!runId || reconcilingRun || !unverifiedReconciliationRows.length) return;
 
     const shouldVerify = window.confirm(
-      `Verify ${selectedReconciliationRows.length} applied row${selectedReconciliationRows.length === 1 ? "" : "s"} against current Raiser's Edge NXT data? This only reads NXT and records a JUMGOGPT verification audit; it will not write or change any constituent record.`,
+      `Verify ${unverifiedReconciliationRows.length} imported row${unverifiedReconciliationRows.length === 1 ? "" : "s"} against current Raiser's Edge NXT data? This only reads NXT and records a JUMGOGPT verification audit; it will not write or change any constituent record.`,
     );
     if (!shouldVerify) return;
 
@@ -1864,7 +1848,7 @@ export default function ConstituencyImportPage() {
       const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/reconcile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowIds: selectedReconciliationRows.map((row) => String(row.id)) }),
+        body: JSON.stringify({ rowIds: unverifiedReconciliationRows.map((row) => String(row.id)) }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1893,7 +1877,6 @@ export default function ConstituencyImportPage() {
             }
           : current,
       );
-      setSelectedReconciliationRowIds([]);
       setSaveMessage(payload?.reconciliationSummary?.message || "NXT verification completed.");
     } catch (reconciliationError) {
       setError(
@@ -3553,10 +3536,10 @@ export default function ConstituencyImportPage() {
                 }}
               >
                 {savingRun
-                  ? "Saving preview..."
+                  ? "Saving reviewed import..."
                   : contactDecisionsDirty
                     ? "Refresh contact plan before saving"
-                    : "Save preview run"}
+                    : "Save reviewed import"}
               </button>
               <button
                 type="button"
@@ -3644,138 +3627,141 @@ export default function ConstituencyImportPage() {
                 flexWrap: "wrap",
               }}
             >
-              <span>
-                Saved import run #{preview.savedRun.id}. {readySavedRows} ready confirmed update
-                {readySavedRows === 1 ? "" : "s"} can be selected for an NXT batch. {appliedReconciliationRows.length} applied row
-                {appliedReconciliationRows.length === 1 ? "" : "s"} can be verified against current NXT data.
-                {potentialNewRows
-                  ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} individual review and a separate one-record creation confirmation.`
-                  : " No unreviewed potential new records remain."}
-              </span>
-              <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
-                <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
-                  Controlled batch: {selectedApplyRows.length} of {readySavedRows} rows · {selectedApplyWriteCount} staged writes
+              <div style={{ display: "grid", gap: "12px", width: "100%" }}>
+                <div>
+                  <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
+                    Import run #{preview.savedRun.id}
+                  </div>
+                  <div style={{ marginTop: "4px" }}>
+                    {readySavedRows
+                      ? `${readySavedRows} reviewed update${readySavedRows === 1 ? " is" : "s are"} ready to import to Raiser's Edge NXT.`
+                      : appliedReconciliationRows.length
+                        ? `All reviewed updates from this run have been imported to Raiser's Edge NXT.`
+                        : "No reviewed updates are ready to import from this run."}
+                    {potentialNewRows
+                      ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} separate individual review below.`
+                      : ""}
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    onClick={selectAllReadyRows}
-                    disabled={!readySavedRows || applyingRun}
-                    style={{
-                      border: "1px solid #6EE7B7",
-                      borderRadius: "999px",
-                      backgroundColor: "white",
-                      color: "#047857",
-                      padding: "9px 14px",
-                      fontWeight: 900,
-                      cursor: !readySavedRows || applyingRun ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Select all ready
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedApplyRowIds([])}
-                    disabled={!selectedApplyRows.length || applyingRun}
-                    style={{
-                      border: "1px solid #A7F3D0",
-                      borderRadius: "999px",
-                      backgroundColor: "white",
-                      color: "#047857",
-                      padding: "9px 14px",
-                      fontWeight: 900,
-                      cursor: !selectedApplyRows.length || applyingRun ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Clear selection
-                  </button>
-                  <button
-                    type="button"
-                    onClick={applySavedRun}
-                    disabled={!selectedApplyRows.length || applyingRun}
-                    style={{
-                      border: "1px solid #047857",
-                      borderRadius: "999px",
-                      backgroundColor: !selectedApplyRows.length || applyingRun ? "#D1FAE5" : "#047857",
-                      color: !selectedApplyRows.length || applyingRun ? "#047857" : "white",
-                      padding: "9px 14px",
-                      fontWeight: 900,
-                      cursor: !selectedApplyRows.length || applyingRun ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {applyingRun
-                      ? "Applying..."
-                      : `Apply ${selectedApplyRows.length || "selected"} row${selectedApplyRows.length === 1 ? "" : "s"}`}
-                  </button>
-                </div>
-                {appliedReconciliationRows.length ? (
-                  <div
+
+                {readySavedRows ? (
+                  <section
                     style={{
                       borderTop: "1px solid #A7F3D0",
-                      paddingTop: "8px",
+                      paddingTop: "10px",
                       display: "grid",
                       gap: "8px",
-                      width: "100%",
+                    }}
+                  >
+                    <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
+                      1. Choose reviewed rows to import
+                    </div>
+                    <div style={{ color: "#047857", fontSize: "14px" }}>
+                      {selectedApplyRows.length
+                        ? `${selectedApplyRows.length} row${selectedApplyRows.length === 1 ? "" : "s"} selected · ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"}.`
+                        : "Select rows below, or select every ready row."}
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={selectAllReadyRows}
+                        disabled={applyingRun}
+                        style={{
+                          border: "1px solid #6EE7B7",
+                          borderRadius: "999px",
+                          backgroundColor: "white",
+                          color: "#047857",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: applyingRun ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Select all ready
+                      </button>
+                      {selectedApplyRows.length ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedApplyRowIds([])}
+                          disabled={applyingRun}
+                          style={{
+                            border: "1px solid #A7F3D0",
+                            borderRadius: "999px",
+                            backgroundColor: "white",
+                            color: "#047857",
+                            padding: "9px 14px",
+                            fontWeight: 900,
+                            cursor: applyingRun ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          Clear selection
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={applySavedRun}
+                        disabled={!selectedApplyRows.length || applyingRun}
+                        style={{
+                          border: "1px solid #047857",
+                          borderRadius: "999px",
+                          backgroundColor: !selectedApplyRows.length || applyingRun ? "#D1FAE5" : "#047857",
+                          color: !selectedApplyRows.length || applyingRun ? "#047857" : "white",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: !selectedApplyRows.length || applyingRun ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {applyingRun
+                          ? "Importing to NXT..."
+                          : `Import ${selectedApplyRows.length || "selected"} row${selectedApplyRows.length === 1 ? "" : "s"} to NXT`}
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+
+                {appliedReconciliationRows.length ? (
+                  <section
+                    style={{
+                      borderTop: "1px solid #A7F3D0",
+                      paddingTop: "10px",
+                      display: "grid",
+                      gap: "8px",
                     }}
                   >
                     <div style={{ color: "#075985", fontSize: "13px", fontWeight: 900 }}>
-                      NXT verification: {selectedReconciliationRows.length} of {appliedReconciliationRows.length} applied rows selected
+                      {unverifiedReconciliationRows.length
+                        ? "Optional: Verify the import"
+                        : "NXT verification complete"}
                     </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        onClick={selectAllAppliedRows}
-                        disabled={reconcilingRun}
-                        style={{
-                          border: "1px solid #7DD3FC",
-                          borderRadius: "999px",
-                          backgroundColor: "white",
-                          color: "#0369A1",
-                          padding: "9px 14px",
-                          fontWeight: 900,
-                          cursor: reconcilingRun ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        Select all applied
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedReconciliationRowIds([])}
-                        disabled={!selectedReconciliationRows.length || reconcilingRun}
-                        style={{
-                          border: "1px solid #BAE6FD",
-                          borderRadius: "999px",
-                          backgroundColor: "white",
-                          color: "#0369A1",
-                          padding: "9px 14px",
-                          fontWeight: 900,
-                          cursor: !selectedReconciliationRows.length || reconcilingRun ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        Clear verification selection
-                      </button>
-                      <button
-                        type="button"
-                        onClick={reconcileAppliedRows}
-                        disabled={!selectedReconciliationRows.length || reconcilingRun}
-                        style={{
-                          border: "1px solid #0369A1",
-                          borderRadius: "999px",
-                          backgroundColor: !selectedReconciliationRows.length || reconcilingRun ? "#E0F2FE" : "#0369A1",
-                          color: !selectedReconciliationRows.length || reconcilingRun ? "#0369A1" : "white",
-                          padding: "9px 14px",
-                          fontWeight: 900,
-                          cursor: !selectedReconciliationRows.length || reconcilingRun ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        {reconcilingRun
-                          ? "Verifying NXT..."
-                          : `Verify ${selectedReconciliationRows.length || "selected"} applied row${selectedReconciliationRows.length === 1 ? "" : "s"}`}
-                      </button>
+                    <div style={{ color: "#0C4A6E", fontSize: "14px" }}>
+                      {unverifiedReconciliationRows.length
+                        ? `Re-read ${unverifiedReconciliationRows.length} imported row${unverifiedReconciliationRows.length === 1 ? "" : "s"} in NXT. This records a verification audit but makes no changes.`
+                        : `${appliedReconciliationRows.length} imported row${appliedReconciliationRows.length === 1 ? " has" : "s have"} been checked against current NXT data.`}
                     </div>
-                  </div>
+                    {unverifiedReconciliationRows.length ? (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={reconcileAppliedRows}
+                          disabled={reconcilingRun}
+                          style={{
+                            border: "1px solid #0369A1",
+                            borderRadius: "999px",
+                            backgroundColor: reconcilingRun ? "#E0F2FE" : "#0369A1",
+                            color: reconcilingRun ? "#0369A1" : "white",
+                            padding: "9px 14px",
+                            fontWeight: 900,
+                            cursor: reconcilingRun ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {reconcilingRun
+                            ? "Verifying NXT..."
+                            : `Verify ${unverifiedReconciliationRows.length} imported row${unverifiedReconciliationRows.length === 1 ? "" : "s"}`}
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
                 ) : null}
-                </div>
+              </div>
             </div>
           ) : null}
 
@@ -3799,10 +3785,6 @@ export default function ConstituencyImportPage() {
                   preview?.savedRun && row.status === "Ready" && !row.appliedAt,
                 );
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
-                const canReconcileRow = Boolean(
-                  preview?.savedRun && row.status === "Applied" && row.appliedAt,
-                );
-                const reconciliationRowSelected = selectedReconciliationRowIds.includes(String(row.id));
                 return (
                   <article
                     key={row.rowNumber}
@@ -3886,31 +3868,6 @@ export default function ConstituencyImportPage() {
                               onChange={() => toggleApplyRow(row.id)}
                             />
                             Include in NXT batch
-                          </label>
-                        ) : null}
-                        {canReconcileRow ? (
-                          <label
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "7px",
-                              border: `1px solid ${reconciliationRowSelected ? "#0369A1" : "#7DD3FC"}`,
-                              borderRadius: "999px",
-                              backgroundColor: reconciliationRowSelected ? "#E0F2FE" : "white",
-                              color: "#075985",
-                              padding: "6px 10px",
-                              fontSize: "12px",
-                              fontWeight: 900,
-                              cursor: reconcilingRun ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={reconciliationRowSelected}
-                              disabled={reconcilingRun}
-                              onChange={() => toggleReconciliationRow(row.id)}
-                            />
-                            Verify NXT result
                           </label>
                         ) : null}
                       </div>
