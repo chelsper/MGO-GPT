@@ -350,6 +350,8 @@ const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
   return acc;
 }, {});
 
+const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "birthDate", "suffix"];
+
 const DEFAULT_ACTIVE_FIELDS = {
   blackbaudConstituentId: false,
   lookupId: true,
@@ -1416,6 +1418,9 @@ export default function ConstituencyImportPage() {
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
     const parsedHeaderSet = new Set(parsed.headers);
+    const detectedIndividualProfileHeaders = INDIVIDUAL_PROFILE_FIELD_KEYS.map(
+      (key) => FIELD_BY_KEY[key]?.header,
+    ).filter((header) => parsedHeaderSet.has(header));
     setRows(parsed.rows);
     setHeaders(parsed.headers);
     setActiveFields((current) => {
@@ -1429,12 +1434,23 @@ export default function ConstituencyImportPage() {
       });
       return changed ? next : current;
     });
+    // These fields are unambiguous profile changes, unlike first and last name, which may only
+    // be present to match a record. Selecting the review operation lets the user preview them.
+    if (detectedIndividualProfileHeaders.length) {
+      setUpdateIndividualProfileFields(true);
+    }
     setPreview(null);
     setSaveMessage("");
     if (parsed.errors.length > 0) {
       setParseMessage(`Parsed ${parsed.rows.length} rows with ${parsed.errors.length} CSV warning(s).`);
     } else {
-      setParseMessage(parsed.rows.length ? `Parsed ${parsed.rows.length} rows.` : "");
+      setParseMessage(
+        parsed.rows.length
+          ? detectedIndividualProfileHeaders.length
+            ? `Parsed ${parsed.rows.length} rows. Selected individual-profile updates for ${detectedIndividualProfileHeaders.join(", ")}.`
+            : `Parsed ${parsed.rows.length} rows.`
+          : "",
+      );
     }
   }
 
@@ -3156,6 +3172,9 @@ export default function ConstituencyImportPage() {
                   : "Select a constituent code, relationship, name, or email operation"}
               </Pill>
               {mappedEmailUpdate ? <Pill tone="blue">Email: Add if new</Pill> : null}
+              {mappedIndividualProfileUpdate ? (
+                <Pill tone="blue">Individual profile: Review and update</Pill>
+              ) : null}
               {activeFields.targetConstituency ? (
                 <Pill tone="blue">
                   Constituent code:{" "}
