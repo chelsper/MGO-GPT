@@ -221,7 +221,10 @@ function createSnapshotReader({ request, user, constituentId }) {
     codes: async () => getCollection(await read("codes", `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/constituentcodes`)).map(mapConstituencyCode),
     educations: async () => getCollection(await read("educations", `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/educations`)),
     relationships: async () => getCollection(await read("relationships", `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/relationships`)),
-    nameFormat: (targetId) => read(`name-format:${targetId}`, `/constituent/v1/nameformats/${encodeURIComponent(targetId)}`),
+    nameFormatSummary: () => read(
+      "name-format-summary",
+      `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/nameformats/summary`,
+    ),
   };
 }
 
@@ -270,7 +273,10 @@ async function reconcileWrite({ write, applyResult, reader }) {
     const value = cleanText(write.value);
     const targetId = cleanText(write.targetId);
     if (!targetId || !value) return needsReview(write, "The primary name-format ID or proposed value is unavailable for verification.");
-    const current = await reader.nameFormat(targetId);
+    const summary = await reader.nameFormatSummary();
+    const current = write.kind === "salutation"
+      ? summary?.primary_salutation || summary?.primarySalutation
+      : summary?.primary_addressee || summary?.primaryAddressee;
     const actual = cleanText(current?.formatted_name || current?.formattedName || current?.name);
     return normalizeText(actual) === normalizeText(value)
       ? confirmed(write, `NXT primary ${write.kind || "name format"} matches the import value.`)

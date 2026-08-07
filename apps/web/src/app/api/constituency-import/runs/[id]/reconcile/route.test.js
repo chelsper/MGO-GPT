@@ -92,6 +92,45 @@ describe("constituency import reconciliation route", () => {
     });
   });
 
+  it("confirms an applied primary addressee through the name format summary", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "constituent_name_format",
+      action: "update_primary",
+      kind: "addressee",
+      targetId: "primary-addressee-1",
+      value: "Dr. Jane Dolphin",
+    };
+    const row = {
+      id: "10",
+      run_id: "42",
+      status: "Applied",
+      applied_at: "2026-08-07T15:00:00Z",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      blackbaud_result: { results: [{ status: "applied", writeIndex: 0, type: "constituent_name_format" }] },
+      preview: { writePlan: [write] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({
+      primary_addressee: { id: "primary-addressee-1", formatted_name: "Dr. Jane Dolphin" },
+    });
+
+    const response = await POST(makeRequest({ rowIds: ["10"] }), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/123/nameformats/summary",
+      { userId: 7, authUserId: 7, origin: "https://example.com" },
+    );
+    expect(payload.reconciliationSummary).toMatchObject({ confirmed: 1, needsReview: 0 });
+  });
+
   it("returns a stale selection without reading NXT", async () => {
     const { POST } = await import("./route.js");
     sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([]);

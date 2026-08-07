@@ -363,6 +363,10 @@ describe("constituency import preview route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.rows[0].status).toBe("Ready");
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/123/nameformats/summary",
+      { userId: 7, authUserId: 7, origin: "https://example.com" },
+    );
     expect(payload.rows[0].writePlan).toContainEqual(
       expect.objectContaining({
         type: "constituent_name_format",

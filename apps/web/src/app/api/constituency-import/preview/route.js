@@ -1182,7 +1182,7 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId,
 
 async function fetchCurrentNameFormats({ userId, authUserId, origin, constituentId }) {
   const payload = await blackbaudApiFetch(
-    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/nameformats`,
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/nameformats/summary`,
     { userId, authUserId, origin },
   );
   const primaryAddressee = serializeNameFormat(

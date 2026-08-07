@@ -404,7 +404,7 @@ async function applyConstituentNameFormatUpdate({ request, user, row, write }) {
   }
 
   const result = await blackbaudApiFetch(
-    `/constituent/v1/nameformats/${encodeURIComponent(String(targetId))}`,
+    `/constituent/v1/primarynameformats/${encodeURIComponent(String(targetId))}`,
     {
       userId: user.id,
       authUserId: user.id,

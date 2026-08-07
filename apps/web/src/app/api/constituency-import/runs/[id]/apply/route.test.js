@@ -326,7 +326,7 @@ describe("constituency import run apply route", () => {
 
     expect(response.status).toBe(200);
     expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
-      "/constituent/v1/nameformats/name-format-1",
+      "/constituent/v1/primarynameformats/name-format-1",
       {
         userId: 7,
         authUserId: 7,
