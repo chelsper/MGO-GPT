@@ -18,6 +18,13 @@ function normalizeText(value) {
     .trim();
 }
 
+function parseBoolean(value) {
+  const normalized = normalizeText(value);
+  if (["true", "yes", "y", "1"].includes(normalized)) return true;
+  if (["false", "no", "n", "0"].includes(normalized)) return false;
+  return false;
+}
+
 function serializeRun(row) {
   if (!row) return null;
   return {
@@ -268,6 +275,111 @@ async function applyConstituentNameUpdate({ request, user, row, write }) {
   };
 }
 
+function normalizeEmail(value) {
+  return cleanText(value).toLowerCase();
+}
+
+function getEmailAddress(value) {
+  if (typeof value === "string") return cleanText(value);
+  return cleanText(value?.address || value?.email || value?.email_address);
+}
+
+function isPrimaryEmail(value) {
+  return parseBoolean(value?.primary ?? value?.is_primary);
+}
+
+async function fetchEmailAddresses({ request, user, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/emailaddresses`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+    },
+  );
+  return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+}
+
+async function applyEmailAddressUpdate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const address = cleanText(write?.address);
+  const emailType = cleanText(write?.emailType);
+  const makePrimary = parseBoolean(write?.makePrimary);
+
+  if (!constituentId || !address) {
+    return {
+      status: "manual_required",
+      type: "email_address",
+      action: "add_if_new",
+      message: "A matched NXT constituent ID and a populated email address are required.",
+    };
+  }
+  if (!emailType) {
+    return {
+      status: "manual_required",
+      type: "email_address",
+      action: "add_if_new",
+      message: `An NXT email type is required before adding ${address}.`,
+    };
+  }
+
+  const emails = await fetchEmailAddresses({ request, user, constituentId });
+  const existing = emails.find(
+    (email) => normalizeEmail(getEmailAddress(email)) === normalizeEmail(address),
+  );
+
+  if (existing) {
+    const existingId = cleanText(existing?.id || existing?.email_address_id);
+    if (makePrimary && existingId && !isPrimaryEmail(existing)) {
+      const result = await blackbaudApiFetch(
+        `/constituent/v1/emailaddresses/${encodeURIComponent(existingId)}`,
+        {
+          userId: user.id,
+          authUserId: user.id,
+          origin: new URL(request.url).origin,
+          method: "PATCH",
+          body: { primary: true },
+        },
+      );
+      return {
+        status: "applied",
+        type: "email_address",
+        action: "set_primary",
+        message: `${address} already existed and is now the primary email address.`,
+        blackbaudResult: result || null,
+      };
+    }
+
+    return {
+      status: "applied",
+      type: "email_address",
+      action: "skip_existing",
+      message: `${address} is already present in NXT; no duplicate email was added.`,
+    };
+  }
+
+  const result = await blackbaudApiFetch("/constituent/v1/emailaddresses", {
+    userId: user.id,
+    authUserId: user.id,
+    origin: new URL(request.url).origin,
+    method: "POST",
+    body: {
+      constituent_id: String(constituentId),
+      address,
+      type: emailType,
+      primary: makePrimary,
+    },
+  });
+
+  return {
+    status: "applied",
+    type: "email_address",
+    action: "add",
+    message: `Added ${address} to the NXT record${makePrimary ? " as the primary email" : ""}.`,
+    blackbaudResult: result || null,
+  };
+}
+
 async function applyConstituentCodeAdd({ request, user, row, write, currentCodes = null }) {
   const constituentId = getMatchedConstituentId(row);
   const targetConstituency = cleanText(write.targetConstituency || row.target_constituency);
@@ -473,6 +585,9 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
 async function applyWrite({ request, user, row, write }) {
   if (write?.type === "constituent_name" && write?.action === "update") {
     return applyConstituentNameUpdate({ request, user, row, write });
+  }
+  if (write?.type === "email_address" && write?.action === "add_if_new") {
+    return applyEmailAddressUpdate({ request, user, row, write });
   }
   if (write?.type === "constituent_code" && write?.action === "add") {
     return applyConstituentCodeAdd({ request, user, row, write });

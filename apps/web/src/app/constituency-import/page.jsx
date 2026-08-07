@@ -52,7 +52,8 @@ const IMPORT_FIELDS = [
     header: "Email Address",
     label: "Email Address",
     group: "Email fields",
-    description: "Useful supporting match data. Email-only matches still require human review.",
+    description:
+      "Use for matching or, when selected below, to add an email address to the matched NXT record.",
   },
   {
     key: "emailType",
@@ -704,6 +705,12 @@ function formatWritePlanItem(write) {
     return `Update NXT ${fields || "name fields"}`;
   }
 
+  if (write.type === "email_address") {
+    const primary = write.makePrimary ? " and set as primary" : "";
+    const type = write.emailType ? ` (${write.emailType})` : "";
+    return `Add email if new: ${write.address || "unspecified"}${type}${primary}`;
+  }
+
   if (write.type === "education_relationship") {
     const action =
       write.action === "update" ? "Update existing education relationship" : "Add education relationship";
@@ -750,6 +757,9 @@ function formatApplyResultItem(result) {
     }
     if (result.type === "constituent_name") {
       return result.message || "Updated matched NXT name fields.";
+    }
+    if (result.type === "email_address") {
+      return result.message || "Applied the staged NXT email update.";
     }
     return "Applied staged write.";
   }
@@ -800,6 +810,7 @@ export default function ConstituencyImportPage() {
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
   const [updateNameFields, setUpdateNameFields] = useState(false);
+  const [updateEmailFields, setUpdateEmailFields] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
@@ -856,22 +867,29 @@ export default function ConstituencyImportPage() {
   const nameFieldsActive = Boolean(
     activeFields.firstName || activeFields.lastName || activeFields.preferredName,
   );
+  const emailFieldsActive = Boolean(activeFields.email || activeFields.email2);
   const mappedNameUpdate = Boolean(
     updateNameFields &&
       (hasUploadedHeader("firstName") ||
         hasUploadedHeader("lastName") ||
         hasUploadedHeader("preferredName")),
   );
+  const mappedEmailUpdate = Boolean(
+    updateEmailFields &&
+      (hasUploadedHeader("email") || hasUploadedHeader("email2")),
+  );
   const hasImportOperation = Boolean(
     activeFields.targetConstituency ||
       educationRelationshipFieldsActive ||
       organizationRelationshipFieldsActive ||
-      updateNameFields,
+      updateNameFields ||
+      updateEmailFields,
   );
   const mappedIdentityField = Boolean(
     hasUploadedHeader("blackbaudConstituentId") ||
       hasUploadedHeader("lookupId") ||
       hasUploadedHeader("email") ||
+      hasUploadedHeader("addressLine1") ||
       (hasUploadedHeader("firstName") && hasUploadedHeader("lastName")),
   );
   const mappedImportOperation = Boolean(
@@ -883,7 +901,8 @@ export default function ConstituencyImportPage() {
       hasUploadedHeader("organizationName") ||
       hasUploadedHeader("organizationRelationshipType") ||
       hasUploadedHeader("organizationTitle") ||
-      mappedNameUpdate,
+      mappedNameUpdate ||
+      mappedEmailUpdate,
   );
   const canPreview =
     rows.length > 0 &&
@@ -892,13 +911,13 @@ export default function ConstituencyImportPage() {
     mappedImportOperation;
   const previewBlockers = [
     rows.length === 0 ? "Add at least one CSV data row." : "",
-    mappedIdentityField ? "" : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, or First Name + Last Name.",
+    mappedIdentityField ? "" : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, Address Line 1, or First Name + Last Name.",
     hasImportOperation
       ? ""
-      : "Activate at least one constituent-code, education, or organization field.",
+      : "Select at least one import operation, such as a constituent code, relationship, name update, or email update.",
     mappedImportOperation
       ? ""
-      : "Include at least one active change column in the CSV, such as New Constituent Code, Education Institution, or Organization Name.",
+      : "Include at least one active change column in the CSV, such as Email Address, New Constituent Code, Education Institution, or Organization Name.",
   ].filter(Boolean);
   const readySavedRows =
     preview?.savedRun && Array.isArray(preview?.rows)
@@ -1168,6 +1187,7 @@ export default function ConstituencyImportPage() {
             educationRelationshipAction,
             useHierarchy,
             updateNameFields,
+            updateEmailFields,
           },
           sourceFilename,
           saveRun,
@@ -1763,6 +1783,56 @@ export default function ConstituencyImportPage() {
                           </label>
                         </div>
                       ) : null}
+                      {group === "Email fields" && emailFieldsActive ? (
+                        <div
+                          style={{
+                            border: "1px solid #BBF7D0",
+                            borderRadius: "16px",
+                            backgroundColor: "#F0FDF4",
+                            padding: "14px",
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: "#111827",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="updateMatchedNxtEmailFields"
+                              checked={updateEmailFields}
+                              onChange={(event) => {
+                                setUpdateEmailFields(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Add email addresses to matched NXT records
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  color: "#166534",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                A real NXT system ID or lookup ID allows automatic application.
+                                Without one, the preview can propose a match from name, email, and
+                                address evidence, but it stays in review until a person confirms it.
+                                Existing matching email addresses are never duplicated.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      ) : null}
                       {contactSet ? (
                         <div
                           style={{
@@ -1877,8 +1947,9 @@ export default function ConstituencyImportPage() {
               <Pill tone={hasImportOperation ? "green" : "amber"}>
                 {hasImportOperation
                   ? "Import operation selected"
-                  : "Activate a constituent code or relationship field"}
+                  : "Select a constituent code, relationship, name, or email operation"}
               </Pill>
+              {mappedEmailUpdate ? <Pill tone="blue">Email: Add if new</Pill> : null}
               {activeFields.targetConstituency ? (
                 <Pill tone="blue">
                   Constituent code:{" "}

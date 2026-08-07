@@ -192,6 +192,109 @@ describe("constituency import run apply route", () => {
     expect(payload.applySummary.applied).toBe(1);
   });
 
+  it("adds a new email address after checking NXT for duplicates", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "email_address",
+      action: "add_if_new",
+      address: "chelsea.updated@example.com",
+      emailType: "Preferred Email 1",
+      makePrimary: true,
+    };
+    const row = {
+      id: "15",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Chelsea Jasper" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [{ id: "old-email", address: "prior@example.com" }] })
+      .mockResolvedValueOnce({ id: "new-email" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/constituent/v1/constituents/123/emailaddresses",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+      },
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(2, "/constituent/v1/emailaddresses", {
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      method: "POST",
+      body: {
+        constituent_id: "123",
+        address: "chelsea.updated@example.com",
+        type: "Preferred Email 1",
+        primary: true,
+      },
+    });
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("does not add a duplicate email address", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "email_address",
+      action: "add_if_new",
+      address: "existing@example.com",
+      emailType: "Home",
+      makePrimary: false,
+    };
+    const row = {
+      id: "16",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: { input: {}, match: { blackbaudConstituentId: "123" }, writePlan: [write] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({
+      value: [{ id: "existing-email", address: "Existing@Example.com", primary: false }],
+    });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
   it("applies replace rows by end-dating the source code and adding the target code", async () => {
     const { POST } = await import("./route.js");
     const write = {

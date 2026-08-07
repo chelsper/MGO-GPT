@@ -71,6 +71,13 @@ function normalizeText(value) {
     .trim();
 }
 
+function parseBoolean(value) {
+  const normalized = normalizeText(value);
+  if (["true", "yes", "y", "1"].includes(normalized)) return true;
+  if (["false", "no", "n", "0"].includes(normalized)) return false;
+  return null;
+}
+
 function normalizeAction(value, fallback = "replace") {
   const normalized = normalizeText(value || fallback);
   return ACTION_ALIASES.get(normalized) || ACTION_ALIASES.get(normalizeText(fallback)) || "replace";
@@ -130,6 +137,7 @@ function getRowInput(row, mappings, defaults = {}) {
     blackbaudConstituentId: getMappedValue(row, mappings, "blackbaudConstituentId"),
     lookupId: getMappedValue(row, mappings, "lookupId"),
     email: getMappedValue(row, mappings, "email"),
+    addressLine1: getMappedValue(row, mappings, "addressLine1"),
     sourceConstituency: getMappedValue(row, mappings, "sourceConstituency"),
     targetConstituency: getMappedValue(row, mappings, "targetConstituency"),
     action: normalizeAction(getMappedValue(row, mappings, "action"), defaultAction),
@@ -175,6 +183,24 @@ function getRowInput(row, mappings, defaults = {}) {
       lastName,
       preferredName,
     };
+  }
+  if (defaults.updateEmailFields === true) {
+    const emailUpdates = [
+      {
+        address: getMappedValue(row, mappings, "email"),
+        type: getMappedValue(row, mappings, "emailType"),
+        makePrimary: parseBoolean(getMappedValue(row, mappings, "emailMakePrimary")),
+      },
+      {
+        address: getMappedValue(row, mappings, "email2"),
+        type: getMappedValue(row, mappings, "email2Type"),
+        makePrimary: parseBoolean(getMappedValue(row, mappings, "email2MakePrimary")),
+      },
+    ].filter((email) => email.address);
+
+    if (emailUpdates.length) {
+      input.emailUpdates = emailUpdates;
+    }
   }
 
   return input;
@@ -223,6 +249,19 @@ function buildNameUpdateWrite(input, match) {
     current,
     blankValuePolicy: "leave_unchanged",
   };
+}
+
+function buildEmailUpdateWrites(input) {
+  if (!Array.isArray(input.emailUpdates)) return [];
+
+  return input.emailUpdates.map((email) => ({
+    type: "email_address",
+    action: "add_if_new",
+    address: email.address,
+    emailType: email.type || "",
+    makePrimary: email.makePrimary === true,
+    blankValuePolicy: "leave_unchanged",
+  }));
 }
 
 function buildWritePlan(input, changePreview, match = null) {
@@ -274,6 +313,8 @@ function buildWritePlan(input, changePreview, match = null) {
   if (nameUpdateWrite) {
     writes.push(nameUpdateWrite);
   }
+
+  writes.push(...buildEmailUpdateWrites(input));
 
   return writes;
 }
@@ -460,6 +501,8 @@ function scoreCandidate(candidate, input) {
   const candidateName = normalizeText(candidate?.name);
   const inputEmail = normalizeText(input.email);
   const inputName = normalizeText(input.constituentName);
+  const candidateAddress = normalizeText(candidate?.address);
+  const inputAddress = normalizeText(input.addressLine1);
 
   let score = 0;
   const reasons = [];
@@ -474,6 +517,14 @@ function scoreCandidate(candidate, input) {
   } else if (inputName && candidateName && candidateName.includes(inputName)) {
     score += 20;
     reasons.push("Partial name match");
+  }
+  if (
+    inputAddress &&
+    candidateAddress &&
+    (candidateAddress.includes(inputAddress) || inputAddress.includes(candidateAddress))
+  ) {
+    score += 25;
+    reasons.push("Address line 1 match");
   }
 
   return { score, reasons };
@@ -511,7 +562,9 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
       origin,
       lookupId: input.lookupId,
     });
-    return match
+    const hasExactLookupId =
+      match && String(match.lookupId || match.blackbaudLookupId || "").trim() === input.lookupId;
+    return hasExactLookupId
       ? {
           status: "matched",
           method: "NXT lookup ID",
@@ -528,7 +581,7 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
         };
   }
 
-  const query = input.email || input.constituentName;
+  const query = input.constituentName || input.email || input.addressLine1;
   if (!query) {
     return {
       status: "not_matched",
@@ -553,7 +606,7 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
   if (!best || best.score <= 0) {
     return {
       status: "not_matched",
-      method: input.email ? "email search" : "name search",
+      method: input.constituentName ? "name search" : input.email ? "email search" : "address search",
       confidence: 0,
       match: null,
       notes: ["No likely NXT match was found."],
@@ -562,12 +615,12 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
 
   return {
     status: "needs_review",
-    method: input.email ? "email search" : "name search",
+    method: input.constituentName ? "name search" : input.email ? "email search" : "address search",
     confidence: Math.min(best.score, 85),
     match: best.candidate,
     notes: [
       ...best.reasons,
-      "Name and email matches are previewed for human review before import.",
+      "Name, email, and address matches are previewed for human review before import.",
     ],
   };
 }
@@ -845,6 +898,11 @@ export async function POST(request) {
         ...(writePlan.some((write) => write.type === "constituent_name")
           ? [
               "Selected name fields are staged to update the matched NXT constituent. Blank name cells will be left unchanged.",
+            ]
+          : []),
+        ...(writePlan.some((write) => write.type === "email_address")
+          ? [
+              "Selected email addresses are staged for NXT. A duplicate email is skipped; a populated email type is required to add a new email address.",
             ]
           : []),
       ].filter(Boolean);

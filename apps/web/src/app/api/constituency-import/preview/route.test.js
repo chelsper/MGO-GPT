@@ -253,6 +253,92 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan[0].lastName).toBe("");
   });
 
+  it("treats an explicitly selected email address as an import change", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Email Address": "chelsea.updated@example.com",
+            "Email Type": "Preferred Email 1",
+            "Email Make Primary?": "TRUE",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          email: "Email Address",
+          emailType: "Email Type",
+          emailMakePrimary: "Email Make Primary?",
+        },
+        defaults: { updateEmailFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "email_address",
+        action: "add_if_new",
+        address: "chelsea.updated@example.com",
+        emailType: "Preferred Email 1",
+        makePrimary: true,
+      }),
+    ]);
+  });
+
+  it("holds ID-less name and address matches for review", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([
+      {
+        blackbaudConstituentId: "221",
+        lookupId: "C221",
+        name: "Autumn Leaves",
+        email: "prior@example.com",
+        address: "100 River Street\nJacksonville, FL 32202",
+      },
+    ]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "First Name": "Autumn",
+            "Last Name": "Leaves",
+            "Address Line 1": "100 River Street",
+            "Email Address": "autumn.updated@example.com",
+            "Email Type": "Home",
+          },
+        ],
+        mappings: {
+          firstName: "First Name",
+          lastName: "Last Name",
+          addressLine1: "Address Line 1",
+          email: "Email Address",
+          emailType: "Email Type",
+        },
+        defaults: { updateEmailFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Needs Review");
+    expect(payload.rows[0].matchMethod).toBe("name search");
+    expect(payload.rows[0].confidence).toBe(60);
+    expect(payload.rows[0].writePlan[0]).toEqual(
+      expect.objectContaining({ type: "email_address", address: "autumn.updated@example.com" }),
+    );
+  });
+
   it("places graduate alumni after bachelor alumni", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({
