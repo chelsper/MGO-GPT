@@ -758,6 +758,16 @@ function renderList(values) {
   return values.join(" -> ");
 }
 
+function formatBirthDateForDisplay(value) {
+  const text = String(value || "").trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${year}`;
+  }
+  return text;
+}
+
 function formatWritePlanItem(write) {
   if (!write || typeof write !== "object") return "";
 
@@ -782,7 +792,7 @@ function formatWritePlanItem(write) {
     const fields = [
       write.title && `title to ${write.title}`,
       write.gender && `gender to ${write.gender}`,
-      write.birthDate && `birth date to ${write.birthDate}`,
+      write.birthDate && `birth date to ${formatBirthDateForDisplay(write.birthDate)}`,
       write.suffix && `suffix to ${write.suffix}`,
     ]
       .filter(Boolean)
@@ -3941,13 +3951,23 @@ export default function ConstituencyImportPage() {
                               ["Suffix", write.current?.suffix, write.suffix],
                             ]
                               .filter(([, , proposed]) => proposed)
-                              .map(([label, current, proposed]) => (
+                              .map(([label, current, proposed]) => {
+                                const displayCurrent =
+                                  label === "Birth Date"
+                                    ? formatBirthDateForDisplay(current)
+                                    : current;
+                                const displayProposed =
+                                  label === "Birth Date"
+                                    ? formatBirthDateForDisplay(proposed)
+                                    : proposed;
+                                return (
                                 <div key={label} style={{ border: "1px solid #BFDBFE", borderRadius: "10px", backgroundColor: "white", padding: "9px" }}>
                                   <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
-                                  <div style={{ marginTop: "4px", color: "#475569", fontSize: "13px" }}>Current: {current || "Not set"}</div>
-                                  <div style={{ marginTop: "3px", color: "#0F172A", fontWeight: 900 }}>CSV: {proposed}</div>
+                                  <div style={{ marginTop: "4px", color: "#475569", fontSize: "13px" }}>Current: {displayCurrent || "Not set"}</div>
+                                  <div style={{ marginTop: "3px", color: "#0F172A", fontWeight: 900 }}>CSV: {displayProposed}</div>
                                 </div>
-                              ))}
+                                );
+                              })}
                           </div>
                         ))}
                         {nameFormatWrites.map((write, index) => (
