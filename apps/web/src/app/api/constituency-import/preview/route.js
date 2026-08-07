@@ -166,11 +166,66 @@ function getRowInput(row, mappings, defaults = {}) {
   if (hasAnyValue(organizationRelationship, ["name", "relationshipType", "title"])) {
     input.organizationRelationship = organizationRelationship;
   }
+  if (
+    defaults.updateNameFields === true &&
+    [firstName, lastName, preferredName].some(Boolean)
+  ) {
+    input.nameUpdate = {
+      firstName,
+      lastName,
+      preferredName,
+    };
+  }
 
   return input;
 }
 
-function buildWritePlan(input, changePreview) {
+function getMatchedNameValues(match) {
+  const raw = match?.raw && typeof match.raw === "object" ? match.raw : {};
+  return {
+    firstName: cleanText(raw.first || raw.first_name),
+    lastName: cleanText(raw.last || raw.last_name),
+    preferredName: cleanText(raw.preferred_name || raw.preferredName),
+  };
+}
+
+function buildNameUpdateWrite(input, match) {
+  if (!input.nameUpdate || !match) return null;
+
+  const current = getMatchedNameValues(match);
+  const changes = {
+    firstName:
+      cleanText(input.nameUpdate.firstName) &&
+      normalizeText(input.nameUpdate.firstName) !== normalizeText(current.firstName)
+        ? cleanText(input.nameUpdate.firstName)
+        : "",
+    lastName:
+      cleanText(input.nameUpdate.lastName) &&
+      normalizeText(input.nameUpdate.lastName) !== normalizeText(current.lastName)
+        ? cleanText(input.nameUpdate.lastName)
+        : "",
+    preferredName:
+      cleanText(input.nameUpdate.preferredName) &&
+      normalizeText(input.nameUpdate.preferredName) !== normalizeText(current.preferredName)
+        ? cleanText(input.nameUpdate.preferredName)
+        : "",
+  };
+
+  if (!Object.values(changes).some(Boolean)) return null;
+
+  return {
+    type: "constituent_name",
+    action: "update",
+    recordType: cleanText(match?.raw?.type),
+    firstName: changes.firstName,
+    lastName: changes.lastName,
+    preferredName: changes.preferredName,
+    current,
+    blankValuePolicy: "leave_unchanged",
+  };
+}
+
+function buildWritePlan(input, changePreview, match = null) {
   const writes = [];
 
   if (changePreview.status === STATUS.ready && cleanText(input.targetConstituency)) {
@@ -213,6 +268,11 @@ function buildWritePlan(input, changePreview) {
       endDate: input.organizationRelationship.endDate || "",
       makePrimary: input.organizationRelationship.makePrimary || "",
     });
+  }
+
+  const nameUpdateWrite = buildNameUpdateWrite(input, match);
+  if (nameUpdateWrite) {
+    writes.push(nameUpdateWrite);
   }
 
   return writes;
@@ -767,7 +827,7 @@ export async function POST(request) {
       }
 
       const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
-      const writePlan = buildWritePlan(input, changePreview);
+      const writePlan = buildWritePlan(input, changePreview, matchResult.match);
       const reasons = [
         ...matchResult.notes,
         ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
@@ -781,6 +841,11 @@ export async function POST(request) {
           : []),
         ...(input.organizationRelationship
           ? ["Organization relationship data is staged as an additional organization relationship; it will not replace existing organization relationships."]
+          : []),
+        ...(writePlan.some((write) => write.type === "constituent_name")
+          ? [
+              "Selected name fields are staged to update the matched NXT constituent. Blank name cells will be left unchanged.",
+            ]
           : []),
       ].filter(Boolean);
 

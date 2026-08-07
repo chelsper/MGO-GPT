@@ -207,6 +207,52 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].status).toBe("Ready");
   });
 
+  it("stages a preferred-name correction only when name updates are explicitly enabled", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea C. Jasper",
+      raw: {
+        type: "Individual",
+        first: "Chelsea",
+        last: "Jasper",
+        preferred_name: "Chelsea",
+      },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Preferred Name": "Chels",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          preferredName: "Preferred Name",
+        },
+        defaults: { updateNameFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "constituent_name",
+        action: "update",
+        recordType: "Individual",
+        preferredName: "Chels",
+        blankValuePolicy: "leave_unchanged",
+      }),
+    ]);
+    expect(payload.rows[0].writePlan[0].firstName).toBe("");
+    expect(payload.rows[0].writePlan[0].lastName).toBe("");
+  });
+
   it("places graduate alumni after bachelor alumni", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({

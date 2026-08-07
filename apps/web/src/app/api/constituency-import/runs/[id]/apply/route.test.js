@@ -139,6 +139,59 @@ describe("constituency import run apply route", () => {
     expect(payload.savedRun.appliedCount).toBe(1);
   });
 
+  it("applies a staged preferred-name correction without clearing other name fields", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "constituent_name",
+      action: "update",
+      recordType: "Individual",
+      firstName: "",
+      lastName: "",
+      preferredName: "Chels",
+      blankValuePolicy: "leave_unchanged",
+    };
+    const row = {
+      id: "14",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Chelsea Jasper" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({ id: "123", preferred_name: "Chels" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/123",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+        method: "PATCH",
+        body: { preferred_name: "Chels" },
+      },
+    );
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
   it("applies replace rows by end-dating the source code and adding the target code", async () => {
     const { POST } = await import("./route.js");
     const write = {

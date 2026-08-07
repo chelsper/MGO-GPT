@@ -29,7 +29,7 @@ const IMPORT_FIELDS = [
     header: "First Name",
     label: "First Name",
     group: "Name fields",
-    description: "Used for matching and for eventual new-record import work.",
+    description: "Used for matching and, when selected below, to update the matched NXT first name.",
     recommended: true,
   },
   {
@@ -37,7 +37,7 @@ const IMPORT_FIELDS = [
     header: "Last Name",
     label: "Last Name",
     group: "Name fields",
-    description: "Used with First Name or Preferred Name for matching.",
+    description: "Used for matching and, when selected below, to update the matched NXT last name.",
     recommended: true,
   },
   {
@@ -45,7 +45,7 @@ const IMPORT_FIELDS = [
     header: "Preferred Name",
     label: "Preferred Name",
     group: "Name fields",
-    description: "Optional, but useful when the name used by MGOs differs from legal first name.",
+    description: "Optional, but can update the matched NXT preferred name when it differs from the current value.",
   },
   {
     key: "email",
@@ -363,7 +363,7 @@ const FIELD_GROUP_ORDER = [
 
 const FIELD_GROUP_HELP = {
   "Match fields": "Use one or more strong identifiers to avoid duplicate records.",
-  "Name fields": "Name columns used for matching and future new-record imports.",
+  "Name fields": "Name columns can match records and, when selected, update the matched NXT name fields.",
   "Email fields": "Email columns, including the optional primary flag.",
   "Phone fields": "Phone columns, including the optional primary flag.",
   "Address fields": "Address columns, including the optional primary flag.",
@@ -693,6 +693,17 @@ function formatWritePlanItem(write) {
     return `${action} constituent code: ${from}${write.targetConstituency || "unspecified"}`;
   }
 
+  if (write.type === "constituent_name") {
+    const fields = [
+      write.firstName && `first name to ${write.firstName}`,
+      write.lastName && `last name to ${write.lastName}`,
+      write.preferredName && `preferred name to ${write.preferredName}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return `Update NXT ${fields || "name fields"}`;
+  }
+
   if (write.type === "education_relationship") {
     const action =
       write.action === "update" ? "Update existing education relationship" : "Add education relationship";
@@ -736,6 +747,9 @@ function formatApplyResultItem(result) {
         return result.message || `${result.targetConstituency || "Selected code"} was already present.`;
       }
       return `Applied constituent code: ${result.targetConstituency || "selected code"}`;
+    }
+    if (result.type === "constituent_name") {
+      return result.message || "Updated matched NXT name fields.";
     }
     return "Applied staged write.";
   }
@@ -785,6 +799,7 @@ export default function ConstituencyImportPage() {
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
+  const [updateNameFields, setUpdateNameFields] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
@@ -838,10 +853,20 @@ export default function ConstituencyImportPage() {
       activeFields.organizationRelationshipType ||
       activeFields.organizationTitle,
   );
+  const nameFieldsActive = Boolean(
+    activeFields.firstName || activeFields.lastName || activeFields.preferredName,
+  );
+  const mappedNameUpdate = Boolean(
+    updateNameFields &&
+      (hasUploadedHeader("firstName") ||
+        hasUploadedHeader("lastName") ||
+        hasUploadedHeader("preferredName")),
+  );
   const hasImportOperation = Boolean(
     activeFields.targetConstituency ||
       educationRelationshipFieldsActive ||
-      organizationRelationshipFieldsActive,
+      organizationRelationshipFieldsActive ||
+      updateNameFields,
   );
   const mappedIdentityField = Boolean(
     hasUploadedHeader("blackbaudConstituentId") ||
@@ -857,7 +882,8 @@ export default function ConstituencyImportPage() {
       hasUploadedHeader("educationClassYear") ||
       hasUploadedHeader("organizationName") ||
       hasUploadedHeader("organizationRelationshipType") ||
-      hasUploadedHeader("organizationTitle"),
+      hasUploadedHeader("organizationTitle") ||
+      mappedNameUpdate,
   );
   const canPreview =
     rows.length > 0 &&
@@ -1091,7 +1117,7 @@ export default function ConstituencyImportPage() {
     if (!runId || applyingRun) return;
 
     const shouldApply = window.confirm(
-      "Apply ready constituent-code rows to NXT now? Replace and end-date rows require an end date. Education and organization relationship rows will stay staged for manual review.",
+      "Apply ready rows to NXT now? This may update constituent codes and selected matched name fields. Replace and end-date constituent-code rows require an end date. Education and organization relationship rows will stay staged for manual review.",
     );
     if (!shouldApply) return;
 
@@ -1137,7 +1163,12 @@ export default function ConstituencyImportPage() {
         body: JSON.stringify({
           rows,
           mappings,
-          defaults: { defaultAction: constituencyAction, educationRelationshipAction, useHierarchy },
+          defaults: {
+            defaultAction: constituencyAction,
+            educationRelationshipAction,
+            useHierarchy,
+            updateNameFields,
+          },
           sourceFilename,
           saveRun,
         }),
@@ -1680,6 +1711,56 @@ export default function ConstituencyImportPage() {
                               );
                             })}
                           </div>
+                        </div>
+                      ) : null}
+                      {group === "Name fields" && nameFieldsActive ? (
+                        <div
+                          style={{
+                            border: "1px solid #C7D2FE",
+                            borderRadius: "16px",
+                            backgroundColor: "#EEF2FF",
+                            padding: "14px",
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: "#111827",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="updateMatchedNxtNameFields"
+                              checked={updateNameFields}
+                              onChange={(event) => {
+                                setUpdateNameFields(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Update matched NXT name fields
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  color: "#4338CA",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                Use this for corrections to individual constituents, such as a
+                                preferred name that differs from the current NXT record. Only
+                                populated CSV cells are updated; blank name cells never clear an
+                                existing NXT value.
+                              </span>
+                            </span>
+                          </label>
                         </div>
                       ) : null}
                       {contactSet ? (

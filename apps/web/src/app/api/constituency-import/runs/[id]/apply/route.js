@@ -209,6 +209,65 @@ async function patchConstituentCode({ request, user, codeId, payload }) {
   );
 }
 
+async function applyConstituentNameUpdate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const recordType = normalizeText(write?.recordType);
+  const payload = {};
+  const firstName = cleanText(write?.firstName);
+  const lastName = cleanText(write?.lastName);
+  const preferredName = cleanText(write?.preferredName);
+
+  if (firstName) payload.first = firstName;
+  if (lastName) payload.last = lastName;
+  if (preferredName) payload.preferred_name = preferredName;
+
+  if (!constituentId || Object.keys(payload).length === 0) {
+    return {
+      status: "manual_required",
+      type: "constituent_name",
+      action: "update",
+      message: "A matched NXT constituent ID and at least one populated name field are required.",
+    };
+  }
+
+  if (recordType.includes("organization")) {
+    return {
+      status: "manual_required",
+      type: "constituent_name",
+      action: "update",
+      message:
+        "Name-field imports are limited to individual constituents. Review organization name changes manually.",
+    };
+  }
+
+  const result = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
+
+  const fields = [
+    firstName && "first name",
+    lastName && "last name",
+    preferredName && "preferred name",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    status: "applied",
+    type: "constituent_name",
+    action: "update",
+    message: `Updated NXT ${fields}.`,
+    blackbaudResult: result || null,
+  };
+}
+
 async function applyConstituentCodeAdd({ request, user, row, write, currentCodes = null }) {
   const constituentId = getMatchedConstituentId(row);
   const targetConstituency = cleanText(write.targetConstituency || row.target_constituency);
@@ -412,6 +471,9 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
 }
 
 async function applyWrite({ request, user, row, write }) {
+  if (write?.type === "constituent_name" && write?.action === "update") {
+    return applyConstituentNameUpdate({ request, user, row, write });
+  }
   if (write?.type === "constituent_code" && write?.action === "add") {
     return applyConstituentCodeAdd({ request, user, row, write });
   }
