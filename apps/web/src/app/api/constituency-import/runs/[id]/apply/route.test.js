@@ -247,6 +247,7 @@ describe("constituency import run apply route", () => {
       recordType: "Individual",
       title: "Dr.",
       gender: "Female",
+      ethnicity: "Hispanic or Latino",
       birthDate: "07/23/80",
       suffix: "Ph.D.",
     };
@@ -284,6 +285,7 @@ describe("constituency import run apply route", () => {
         body: {
           title: "Dr.",
           gender: "Female",
+          ethnicity: "Hispanic or Latino",
           suffix: "Ph.D.",
           birthdate: { y: 1980, m: 7, d: 23 },
         },
@@ -520,6 +522,7 @@ describe("constituency import run apply route", () => {
       state: "FL",
       postalCode: "32211",
       country: "United States",
+      validFrom: "07/01/2026",
       preserveExistingSettings: true,
     };
     const row = {
@@ -571,6 +574,7 @@ describe("constituency import run apply route", () => {
           state: "FL",
           postal_code: "32211",
           country: "United States",
+          valid_from: "2026-07-01",
         },
       },
     );

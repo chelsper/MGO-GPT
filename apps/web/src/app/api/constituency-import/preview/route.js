@@ -154,6 +154,9 @@ function buildNameFormatValue(kind, pattern, values) {
   const suffix = cleanText(values?.suffix);
 
   if (kind === "salutation") {
+    if (pattern === "title-last") {
+      return joinNameParts([title, lastName]);
+    }
     const salutationName = pattern === "first" ? firstName : preferredName;
     if (!salutationName) return "";
     if (pattern === "preferred") return salutationName;
@@ -182,6 +185,7 @@ function getRowInput(row, mappings, defaults = {}) {
   const preferredName = getMappedValue(row, mappings, "preferredName");
   const title = getMappedValue(row, mappings, "title");
   const gender = getMappedValue(row, mappings, "gender");
+  const ethnicity = getMappedValue(row, mappings, "ethnicity");
   const birthDate = getMappedValue(row, mappings, "birthDate");
   const suffix = getMappedValue(row, mappings, "suffix");
   const legacyConstituentName = getMappedValue(row, mappings, "constituentName");
@@ -196,6 +200,7 @@ function getRowInput(row, mappings, defaults = {}) {
     preferredName,
     title,
     gender,
+    ethnicity,
     birthDate,
     suffix,
     constituentName: derivedName,
@@ -273,9 +278,9 @@ function getRowInput(row, mappings, defaults = {}) {
   }
   if (
     defaults.updateIndividualProfileFields === true &&
-    [title, gender, birthDate, suffix].some(Boolean)
+    [title, gender, ethnicity, birthDate, suffix].some(Boolean)
   ) {
-    input.individualProfileUpdate = { title, gender, birthDate, suffix };
+    input.individualProfileUpdate = { title, gender, ethnicity, birthDate, suffix };
   }
 
   const csvAddressee = getMappedValue(row, mappings, "addressee");
@@ -342,6 +347,7 @@ function getRowInput(row, mappings, defaults = {}) {
       input.addressUpdates = [
         {
           type: getMappedValue(row, mappings, "addressType"),
+          validFrom: getMappedValue(row, mappings, "addressValidFrom"),
           addressLine1,
           addressLine2: getMappedValue(row, mappings, "addressLine2"),
           city: getMappedValue(row, mappings, "city"),
@@ -371,6 +377,7 @@ function getMatchedIndividualValues(match) {
   return {
     title: cleanText(raw.title),
     gender: cleanText(raw.gender),
+    ethnicity: cleanText(raw.ethnicity?.description || raw.ethnicity?.name || raw.ethnicity?.value || raw.ethnicity),
     birthDate: formatBirthDate(raw.birthdate || raw.birth_date),
     suffix: cleanText(raw.suffix),
   };
@@ -392,6 +399,11 @@ function buildIndividualProfileWrite(input, match) {
       cleanText(input.individualProfileUpdate.gender) &&
       normalizeText(input.individualProfileUpdate.gender) !== normalizeText(current.gender)
         ? cleanText(input.individualProfileUpdate.gender)
+        : "",
+    ethnicity:
+      cleanText(input.individualProfileUpdate.ethnicity) &&
+      normalizeText(input.individualProfileUpdate.ethnicity) !== normalizeText(current.ethnicity)
+        ? cleanText(input.individualProfileUpdate.ethnicity)
         : "",
     suffix:
       cleanText(input.individualProfileUpdate.suffix) &&
@@ -544,6 +556,7 @@ function serializeContactSnapshot(payload = {}) {
   })).filter((phone) => phone.id || phone.number);
   const mapAddresses = (payload.addresses || []).map((address) => {
     const lines = getAddressLines(address);
+    const validFrom = formatEducationDate(address?.valid_from || address?.validFrom || address?.date_from);
     return {
       id: getContactId(address, "address"),
       type: getContactType(address),
@@ -553,6 +566,7 @@ function serializeContactSnapshot(payload = {}) {
       state: cleanText(address?.state),
       postalCode: cleanText(address?.postal_code || address?.postalCode || address?.zip),
       country: cleanText(address?.country),
+      ...(validFrom ? { validFrom } : {}),
       primary: isPrimaryContact(address),
     };
   }).filter((address) => address.id || address.addressLine1);
@@ -609,11 +623,18 @@ function buildContactWrites({
     };
 
     if (kind === "address") {
+      const requestedValidFrom = cleanText(value.validFrom);
+      const parsedValidFrom = requestedValidFrom ? parseBirthDate(requestedValidFrom) : null;
       write.addressLine2 = value.addressLine2 || "";
       write.city = value.city || "";
       write.state = value.state || "";
       write.postalCode = value.postalCode || "";
       write.country = value.country || "";
+      write.validFrom = parsedValidFrom ? formatBirthDate(parsedValidFrom) : requestedValidFrom;
+      if (requestedValidFrom && !parsedValidFrom) {
+        write.requiresReview = true;
+        write.validationMessage = "Address Valid From must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value before it can be imported.";
+      }
     }
 
     if (action === "replace") {
@@ -1745,7 +1766,7 @@ export async function POST(request) {
           : []),
         ...(writePlan.some((write) => write.type === "constituent_profile")
           ? [
-              "Selected title, gender, birth date, and suffix values are staged for the matched individual constituent. Blank CSV cells will be left unchanged.",
+              "Selected title, gender, ethnicity, birth date, and suffix values are staged for the matched individual constituent. Blank CSV cells will be left unchanged.",
             ]
           : []),
         ...(writePlan.some((write) => write.type === "constituent_name_format")
@@ -1765,7 +1786,7 @@ export async function POST(request) {
           : []),
         ...(writePlan.some((write) => write.type === "address")
           ? [
-              "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting.",
+              "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting. Address Valid From is included when provided.",
             ]
           : []),
         ...writePlan

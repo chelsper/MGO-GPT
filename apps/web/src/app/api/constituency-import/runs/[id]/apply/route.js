@@ -328,12 +328,14 @@ async function applyConstituentProfileUpdate({ request, user, row, write }) {
   const recordType = normalizeText(write?.recordType);
   const title = cleanText(write?.title);
   const gender = cleanText(write?.gender);
+  const ethnicity = cleanText(write?.ethnicity);
   const suffix = cleanText(write?.suffix);
   const birthDate = cleanText(write?.birthDate);
   const payload = {};
 
   if (title) payload.title = title;
   if (gender) payload.gender = gender;
+  if (ethnicity) payload.ethnicity = ethnicity;
   if (suffix) payload.suffix = suffix;
   if (birthDate) {
     const parsedBirthDate = parseBirthDate(birthDate);
@@ -361,7 +363,7 @@ async function applyConstituentProfileUpdate({ request, user, row, write }) {
       status: "manual_required",
       type: "constituent_profile",
       action: "update",
-      message: "Title, gender, birth date, and suffix imports are limited to individual constituents.",
+      message: "Title, gender, ethnicity, birth date, and suffix imports are limited to individual constituents.",
     };
   }
 
@@ -375,7 +377,7 @@ async function applyConstituentProfileUpdate({ request, user, row, write }) {
       body: payload,
     },
   );
-  const fields = [title && "title", gender && "gender", birthDate && "birth date", suffix && "suffix"]
+  const fields = [title && "title", gender && "gender", ethnicity && "ethnicity", birthDate && "birth date", suffix && "suffix"]
     .filter(Boolean)
     .join(", ");
 
@@ -1051,6 +1053,8 @@ function getAddressPayload(write, constituentId, options = {}) {
     postal_code: cleanText(write?.postalCode),
     country: cleanText(write?.country),
   };
+  const validFrom = formatDateForBlackbaud(write?.validFrom);
+  if (validFrom) payload.valid_from = validFrom;
   if (!options.existing) {
     payload.constituent_id = String(constituentId);
     payload.type = cleanText(write?.addressType);
@@ -1129,12 +1133,16 @@ async function applyAddressUpdate({ request, user, row, write }) {
   const constituentId = getMatchedConstituentId(row);
   const addressLine1 = cleanText(write?.addressLine1);
   const addressType = cleanText(write?.addressType);
+  const validFrom = cleanText(write?.validFrom);
   const action = cleanText(write?.action) || "add";
   if (!constituentId || !addressLine1) {
     return manualContactResult("address", action, "A matched NXT constituent ID and address line 1 are required.");
   }
   if (action !== "replace" && !addressType) {
     return manualContactResult("address", action, "An NXT address type is required before adding this address.");
+  }
+  if (validFrom && !parseBirthDate(validFrom)) {
+    return manualContactResult("address", action, "Address Valid From must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value before it can be imported.");
   }
   const addresses = await fetchContactValues({ request, user, constituentId, kind: "address" });
   if (action === "replace") {
@@ -1162,7 +1170,7 @@ async function applyAddressUpdate({ request, user, row, write }) {
       status: "applied",
       type: "address",
       action,
-      message: `Replaced ${targetLines[0] || "the selected NXT address"} with ${addressLine1}, preserving its NXT type and primary setting.`,
+      message: `Replaced ${targetLines[0] || "the selected NXT address"} with ${addressLine1}, preserving its NXT type and primary setting${validFrom ? ` and setting valid from ${formatDateForBlackbaud(validFrom)}` : ""}.`,
       blackbaudResult: result || null,
     };
   }
@@ -1187,7 +1195,7 @@ async function applyAddressUpdate({ request, user, row, write }) {
     status: "applied",
     type: "address",
     action: "add",
-    message: `Added ${addressLine1} to the NXT record${parseBoolean(write?.makePrimary) ? " as the primary address" : ""}.`,
+    message: `Added ${addressLine1} to the NXT record${parseBoolean(write?.makePrimary) ? " as the primary address" : ""}${validFrom ? `, valid from ${formatDateForBlackbaud(validFrom)}` : ""}.`,
     blackbaudResult: result || null,
   };
 }

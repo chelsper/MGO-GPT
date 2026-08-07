@@ -310,6 +310,7 @@ async function reconcileWrite({ write, applyResult, reader }) {
     const expected = [
       ["title", write.title, constituent?.title],
       ["gender", write.gender, constituent?.gender],
+      ["ethnicity", write.ethnicity, constituent?.ethnicity?.description || constituent?.ethnicity?.name || constituent?.ethnicity?.value || constituent?.ethnicity],
       ["suffix", write.suffix, constituent?.suffix],
       ["birth date", write.birthDate, constituent?.birthdate || constituent?.birth_date],
     ].filter(([, value]) => cleanText(value));
@@ -365,6 +366,12 @@ async function reconcileWrite({ write, applyResult, reader }) {
     if (!address) return needsReview(write, "The imported address was not found on the current NXT record.");
     if (parseBoolean(write.makePrimary) && !isPrimaryContact(address)) {
       return needsReview(write, "The imported address exists in NXT but is not marked primary.");
+    }
+    if (
+      cleanText(write.validFrom) &&
+      comparableDate(address?.valid_from || address?.validFrom || address?.date_from) !== comparableDate(write.validFrom)
+    ) {
+      return needsReview(write, "The imported address exists in NXT but has a different valid-from date.");
     }
     return confirmed(write, "The imported address is present in NXT.");
   }

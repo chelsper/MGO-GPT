@@ -62,6 +62,13 @@ const IMPORT_FIELDS = [
     description: "Optional NXT gender value. The CSV value is reviewed against the current record before import.",
   },
   {
+    key: "ethnicity",
+    header: "Ethnicity",
+    label: "Ethnicity",
+    group: "Individual profile fields",
+    description: "Optional NXT ethnicity value. The CSV value is reviewed against the current record before import.",
+  },
+  {
     key: "birthDate",
     header: "Birth Date",
     label: "Birth Date",
@@ -186,6 +193,13 @@ const IMPORT_FIELDS = [
     label: "Address Type",
     group: "Address fields",
     description: "Optional NXT address type, such as Home, Business, Seasonal, or Other.",
+  },
+  {
+    key: "addressValidFrom",
+    header: "Address Valid From",
+    label: "Address Valid From",
+    group: "Address fields",
+    description: "Optional date this address becomes valid, in MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD format.",
   },
   {
     key: "addressLine1",
@@ -413,11 +427,11 @@ const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
   return acc;
 }, {});
 
-const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "birthDate", "suffix"];
+const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "ethnicity", "birthDate", "suffix"];
 const NAME_FORMAT_FIELD_KEYS = ["addressee", "salutation"];
 const EMAIL_FIELD_KEYS = ["email", "email2"];
 const PHONE_FIELD_KEYS = ["phoneNumber", "phone2Number"];
-const ADDRESS_FIELD_KEYS = ["addressLine1", "addressLine2", "city", "state", "postalCode", "country"];
+const ADDRESS_FIELD_KEYS = ["addressType", "addressValidFrom", "addressLine1", "addressLine2", "city", "state", "postalCode", "country"];
 
 function getDetectedHeaders(headerSet, fieldKeys) {
   return fieldKeys
@@ -433,6 +447,7 @@ const DEFAULT_ACTIVE_FIELDS = {
   preferredName: false,
   title: false,
   gender: false,
+  ethnicity: false,
   birthDate: false,
   suffix: false,
   addressee: false,
@@ -450,6 +465,7 @@ const DEFAULT_ACTIVE_FIELDS = {
   phone2Type: false,
   phone2MakePrimary: false,
   addressType: false,
+  addressValidFrom: false,
   addressLine1: false,
   addressLine2: false,
   city: false,
@@ -499,11 +515,11 @@ const FIELD_GROUP_ORDER = [
 const FIELD_GROUP_HELP = {
   "Match fields": "Use one or more strong identifiers to avoid duplicate records.",
   "Name fields": "Name columns can match records and, when selected, update the matched NXT name fields.",
-  "Individual profile fields": "Optional title, gender, birth date, and suffix values for individual constituents.",
+  "Individual profile fields": "Optional title, gender, ethnicity, birth date, and suffix values for individual constituents.",
   "Addressee and salutation fields": "Optionally import custom primary NXT formats or build consistent values for an entire file.",
   "Email fields": "Email columns, including the optional primary flag.",
   "Phone fields": "Phone columns, including the optional primary flag.",
-  "Address fields": "Address columns, including the optional primary flag.",
+  "Address fields": "Address columns, including type, valid-from date, and the optional primary flag.",
   "Constituent code fields": "Constituent-code add/replace options and optional dates.",
   "Education relationship fields": "Education columns add new NXT education relationships only. Existing education rows are never edited or replaced, and matching entries are skipped.",
   "Organization relationship fields": "Organization columns are staged as additional relationships so existing affiliations are not replaced.",
@@ -615,6 +631,8 @@ function makeTemplateRows(fields) {
         return "Yes";
       case "addressType":
         return "Home";
+      case "addressValidFrom":
+        return "2026-01-15";
       case "addressLine1":
         return "2800 University Blvd N";
       case "addressLine2":
@@ -719,6 +737,8 @@ function makeTemplateRows(fields) {
         return "No";
       case "addressType":
         return "Business";
+      case "addressValidFrom":
+        return "2026-01-15";
       case "addressLine1":
         return "1 Dolphin Way";
       case "addressLine2":
@@ -1091,17 +1111,23 @@ function getContactDecision(decisions, rowNumber, kind, index) {
 function getContactValue(contact, kind) {
   if (kind === "email") return contact?.address || "";
   if (kind === "phone") return contact?.number || "";
-  return [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
+  const address = [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
     .filter(Boolean)
     .join(", ");
+  return contact?.validFrom
+    ? `${address}${address ? " · " : ""}Valid from ${formatBirthDateForDisplay(contact.validFrom)}`
+    : address;
 }
 
 function getIncomingContactValue(contact, kind) {
   if (kind === "email") return contact?.address || "";
   if (kind === "phone") return contact?.number || "";
-  return [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
+  const address = [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
     .filter(Boolean)
     .join(", ");
+  return contact?.validFrom
+    ? `${address}${address ? " · " : ""}Valid from ${formatBirthDateForDisplay(contact.validFrom)}`
+    : address;
 }
 
 function ContactReviewPanel({ row, decisions, onDecisionChange }) {
@@ -1674,11 +1700,13 @@ export default function ConstituencyImportPage() {
     activeFields.firstName || activeFields.lastName || activeFields.preferredName,
   );
   const individualProfileFieldsActive = Boolean(
-    activeFields.title || activeFields.gender || activeFields.birthDate || activeFields.suffix,
+    activeFields.title || activeFields.gender || activeFields.ethnicity || activeFields.birthDate || activeFields.suffix,
   );
   const emailFieldsActive = Boolean(activeFields.email || activeFields.email2);
   const phoneFieldsActive = Boolean(activeFields.phoneNumber || activeFields.phone2Number);
-  const addressFieldsActive = Boolean(activeFields.addressLine1);
+  const addressFieldsActive = Boolean(
+    activeFields.addressType || activeFields.addressValidFrom || activeFields.addressLine1,
+  );
   const mappedNameUpdate = Boolean(
     updateNameFields &&
       (hasUploadedHeader("firstName") ||
@@ -1689,6 +1717,7 @@ export default function ConstituencyImportPage() {
     updateIndividualProfileFields &&
       (hasUploadedHeader("title") ||
         hasUploadedHeader("gender") ||
+        hasUploadedHeader("ethnicity") ||
         hasUploadedHeader("birthDate") ||
         hasUploadedHeader("suffix")),
   );
@@ -2637,6 +2666,7 @@ export default function ConstituencyImportPage() {
         preferredName: row.input?.preferredName || "",
         title: row.input?.title || "",
         gender: row.input?.gender || "",
+        ethnicity: row.input?.ethnicity || "",
         birthDate: row.input?.birthDate || "",
         suffix: row.input?.suffix || "",
         addressee: row.input?.nameFormatUpdate?.addressee || "",
@@ -3470,7 +3500,7 @@ export default function ConstituencyImportPage() {
                                   lineHeight: 1.45,
                                 }}
                               >
-                                Compare title, gender, birth date, and suffix against the current
+                                Compare title, gender, ethnicity, birth date, and suffix against the current
                                 NXT record before applying. Only populated CSV cells are staged;
                                 blank cells never clear a value. Birth dates must be complete
                                 MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD values.
@@ -3605,6 +3635,7 @@ export default function ConstituencyImportPage() {
                                 >
                                   <option value="dear-preferred">Dear + preferred name</option>
                                   <option value="dear-first">Dear + first name</option>
+                                  <option value="title-last">Title + last name</option>
                                   <option value="preferred">Preferred name only</option>
                                   <option value="first">First name only</option>
                                 </select>
@@ -3757,7 +3788,8 @@ export default function ConstituencyImportPage() {
                               >
                                 The preview compares the CSV address with current NXT addresses.
                                 Adding preserves current address values; replacing keeps the
-                                selected NXT address type and primary setting.
+                                selected NXT address type and primary setting. Address Valid From
+                                is included when supplied.
                               </span>
                             </span>
                           </label>
@@ -4760,6 +4792,7 @@ export default function ConstituencyImportPage() {
                             {[
                               ["Title", write.current?.title, write.title],
                               ["Gender", write.current?.gender, write.gender],
+                              ["Ethnicity", write.current?.ethnicity, write.ethnicity],
                               ["Birth Date", write.current?.birthDate, write.birthDate],
                               ["Suffix", write.current?.suffix, write.suffix],
                             ]

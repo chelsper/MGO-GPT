@@ -299,6 +299,7 @@ export async function POST(request, { params }) {
     if (cleanText(input.preferredName)) createPayload.preferred_name = cleanText(input.preferredName);
     if (cleanText(input.title)) createPayload.title = cleanText(input.title);
     if (cleanText(input.gender)) createPayload.gender = cleanText(input.gender);
+    if (cleanText(input.ethnicity)) createPayload.ethnicity = cleanText(input.ethnicity);
     if (cleanText(input.suffix)) createPayload.suffix = cleanText(input.suffix);
     if (birthdate) createPayload.birthdate = birthdate;
 

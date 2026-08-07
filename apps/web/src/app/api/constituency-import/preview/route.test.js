@@ -263,6 +263,7 @@ describe("constituency import preview route", () => {
         type: "Individual",
         title: "Ms.",
         gender: "Female",
+        ethnicity: "Not Hispanic or Latino",
         suffix: "",
         birthdate: { y: 1980, m: 7, d: 23 },
       },
@@ -275,6 +276,7 @@ describe("constituency import preview route", () => {
             "NXT ID": "123",
             Title: "Dr.",
             Gender: "Female",
+            Ethnicity: "Hispanic or Latino",
             "Birth Date": "07/23/80",
             Suffix: "Ph.D.",
           },
@@ -283,6 +285,7 @@ describe("constituency import preview route", () => {
           blackbaudConstituentId: "NXT ID",
           title: "Title",
           gender: "Gender",
+          ethnicity: "Ethnicity",
           birthDate: "Birth Date",
           suffix: "Suffix",
         },
@@ -299,9 +302,10 @@ describe("constituency import preview route", () => {
         action: "update",
         title: "Dr.",
         gender: "",
+        ethnicity: "Hispanic or Latino",
         birthDate: "",
         suffix: "Ph.D.",
-        current: expect.objectContaining({ title: "Ms.", gender: "Female" }),
+        current: expect.objectContaining({ title: "Ms.", gender: "Female", ethnicity: "Not Hispanic or Latino" }),
       }),
     ]);
   });
@@ -355,7 +359,7 @@ describe("constituency import preview route", () => {
           updateNameFormatFields: true,
           buildNameFormats: true,
           addresseeFormat: "title-preferred-last-suffix",
-          salutationFormat: "dear-preferred",
+          salutationFormat: "title-last",
         },
       }),
     );
@@ -376,8 +380,14 @@ describe("constituency import preview route", () => {
         value: "Dr. Jane Dolphin",
       }),
     );
-    expect(payload.rows[0].writePlan).not.toContainEqual(
-      expect.objectContaining({ type: "constituent_name_format", kind: "salutation" }),
+    expect(payload.rows[0].writePlan).toContainEqual(
+      expect.objectContaining({
+        type: "constituent_name_format",
+        kind: "salutation",
+        targetId: "salutation-1",
+        currentValue: "Dear Jane",
+        value: "Dr. Dolphin",
+      }),
     );
   });
 
