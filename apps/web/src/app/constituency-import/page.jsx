@@ -903,8 +903,20 @@ export default function ConstituencyImportPage() {
 
   useEffect(() => {
     const parsed = parseCsv(rawCsv);
+    const parsedHeaderSet = new Set(parsed.headers);
     setRows(parsed.rows);
     setHeaders(parsed.headers);
+    setActiveFields((current) => {
+      let changed = false;
+      const next = { ...current };
+      IMPORT_FIELDS.forEach((field) => {
+        if (parsedHeaderSet.has(field.header) && !next[field.key]) {
+          next[field.key] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
     setPreview(null);
     setSaveMessage("");
     if (parsed.errors.length > 0) {
@@ -1965,7 +1977,8 @@ export default function ConstituencyImportPage() {
                 3. Upload CSV and review preview
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Paste CSV content or upload a file exported from a data append.
+                Paste CSV content or upload a file exported from a data append. Matching headers
+                are activated automatically.
               </p>
               {sourceFilename ? (
                 <p style={{ margin: "6px 0 0", color: "#64748B", fontWeight: 800 }}>
