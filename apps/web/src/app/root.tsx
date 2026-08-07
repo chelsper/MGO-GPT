@@ -269,33 +269,6 @@ export const ClientOnly: React.FC<ClientOnlyProps> = ({ loader }) => {
   );
 };
 
-function HydratedRouteBody({ children }: { children: ReactNode }) {
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'grid',
-          placeItems: 'center',
-          backgroundColor: '#F9FAFB',
-          color: '#6B7280',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-        }}
-      >
-        Loading...
-      </div>
-    );
-  }
-
-  return <ErrorBoundaryWrapper>{children}</ErrorBoundaryWrapper>;
-}
-
 function ClientDocumentIntegrations({ isMobile }: { isMobile: boolean }) {
   return (
     <>
@@ -490,7 +463,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <LoadFonts />
       </head>
       <body>
-        <HydratedRouteBody>{children}</HydratedRouteBody>
+        <ErrorBoundaryWrapper>{children}</ErrorBoundaryWrapper>
         {/* These integrations require browser APIs or can mutate the document before React hydrates. */}
         <ClientOnly loader={() => <ClientDocumentIntegrations isMobile={isMobile} />} />
         <ScrollRestoration />
