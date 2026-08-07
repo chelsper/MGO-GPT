@@ -143,6 +143,44 @@ describe("constituency import preview route", () => {
     ]);
   });
 
+  it("previews the minimal uploaded CSV headers used by the import screen", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [{ description: "Friend" }],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Preferred Name": "Chels",
+            "New Constituent Code": "Student",
+            "New Constituent Code End Date": "2030",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          preferredName: "Preferred Name",
+          targetConstituency: "New Constituent Code",
+          endDate: "New Constituent Code End Date",
+        },
+        defaults: { defaultAction: "add", useHierarchy: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].input.lookupId).toBe("440085");
+    expect(payload.rows[0].input.targetConstituency).toBe("Student");
+    expect(payload.rows[0].status).toBe("Ready");
+  });
+
   it("places graduate alumni after bachelor alumni", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({

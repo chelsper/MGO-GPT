@@ -785,12 +785,11 @@ export default function ConstituencyImportPage() {
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
-  const [rawCsv, setRawCsv] = useState(() =>
-    makeTemplateRows(IMPORT_FIELDS.filter((field) => DEFAULT_ACTIVE_FIELDS[field.key])),
-  );
+  const [rawCsv, setRawCsv] = useState("");
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
@@ -977,11 +976,6 @@ export default function ConstituencyImportPage() {
     setPreview(null);
   }
 
-  function useTemplateCsv() {
-    setRawCsv(makeTemplateRows(selectedFields));
-    setSourceFilename("Template CSV");
-  }
-
   function downloadTemplateCsv() {
     const csv = makeTemplateRows(selectedFields);
     downloadCsv(csv, "constituency-import-template.csv");
@@ -990,10 +984,31 @@ export default function ConstituencyImportPage() {
   function handleFileUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    setError("");
+    setSaveMessage("");
+    setPreview(null);
     setSourceFilename(file.name || "");
     const reader = new FileReader();
     reader.onload = () => setRawCsv(String(reader.result || ""));
+    reader.onerror = () => {
+      setRawCsv("");
+      setRows([]);
+      setHeaders([]);
+      setError("The selected CSV could not be read. Please save it as a UTF-8 CSV and try again.");
+    };
     reader.readAsText(file);
+  }
+
+  function clearUploadedCsv() {
+    setRawCsv("");
+    setRows([]);
+    setHeaders([]);
+    setSourceFilename("");
+    setParseMessage("");
+    setPreview(null);
+    setError("");
+    setSaveMessage("");
+    setFileInputKey((current) => current + 1);
   }
 
   async function fetchSavedRuns() {
@@ -1098,6 +1113,11 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to preview constituency import");
       }
       setPreview(payload);
+      window.setTimeout(() => {
+        document
+          .getElementById("constituency-import-preview-results")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
       if (saveRun && payload?.savedRun?.id) {
         setSaveMessage(`Saved import run #${payload.savedRun.id}. No NXT records were changed.`);
         fetchSavedRuns();
@@ -1696,21 +1716,6 @@ export default function ConstituencyImportPage() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
                 <button
                   type="button"
-                  onClick={useTemplateCsv}
-                  style={{
-                    border: "1px solid #C7D2FE",
-                    borderRadius: "999px",
-                    backgroundColor: "white",
-                    color: "#4338CA",
-                    padding: "10px 14px",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                  }}
-                >
-                  Put template in upload box
-                </button>
-                <button
-                  type="button"
                   onClick={downloadTemplateCsv}
                   style={{
                     border: "1px solid #D1D5DB",
@@ -1783,121 +1788,6 @@ export default function ConstituencyImportPage() {
                   : `${missingHeaders.length} active header(s) not in CSV`}
               </Pill>
             </div>
-            {error ? (
-              <div
-                style={{
-                  border: "1px solid #FECACA",
-                  borderRadius: "14px",
-                  backgroundColor: "#FEF2F2",
-                  color: "#991B1B",
-                  padding: "12px",
-                  fontWeight: 800,
-                }}
-              >
-                {error}
-              </div>
-            ) : null}
-            {previewBlockers.length ? (
-              <div
-                style={{
-                  border: "1px solid #FECACA",
-                  borderRadius: "14px",
-                  backgroundColor: "#FEF2F2",
-                  color: "#991B1B",
-                  padding: "12px",
-                  fontWeight: 800,
-                  lineHeight: 1.45,
-                }}
-              >
-                Preview needs: {previewBlockers.join(" ")}
-              </div>
-            ) : missingHeaders.length ? (
-              <div
-                style={{
-                  border: "1px solid #FDE68A",
-                  borderRadius: "14px",
-                  backgroundColor: "#FFFBEB",
-                  color: "#92400E",
-                  padding: "12px",
-                  fontWeight: 800,
-                  lineHeight: 1.45,
-                }}
-              >
-                Preview can run. Missing active optional headers will be ignored:{" "}
-                {missingHeaders.join(", ")}
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => requestPreview()}
-              disabled={!canPreview || previewing}
-              style={{
-                border: "none",
-                borderRadius: "14px",
-                backgroundColor: !canPreview || previewing ? "#CBD5E1" : "#6D5DFB",
-                color: "white",
-                padding: "13px 16px",
-                fontWeight: 900,
-                fontSize: "15px",
-                cursor: !canPreview || previewing ? "not-allowed" : "pointer",
-              }}
-            >
-              {previewing ? "Previewing..." : "Preview import"}
-            </button>
-            {preview?.rows?.length ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => requestPreview({ saveRun: true })}
-                  disabled={savingRun}
-                  style={{
-                    border: "1px solid #A7F3D0",
-                    borderRadius: "14px",
-                    backgroundColor: savingRun ? "#E5E7EB" : "#ECFDF5",
-                    color: savingRun ? "#64748B" : "#047857",
-                    padding: "12px 16px",
-                    fontWeight: 900,
-                    cursor: savingRun ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {savingRun ? "Saving preview..." : "Save preview run"}
-                </button>
-                <button
-                  type="button"
-                  onClick={downloadPreviewCsv}
-                  style={{
-                    display: "inline-flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    gap: "8px",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "14px",
-                    backgroundColor: "white",
-                    color: "#374151",
-                    padding: "12px 16px",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                  }}
-                >
-                  <FileText size={16} /> Export preview CSV
-                </button>
-              </>
-            ) : null}
-            {saveMessage ? (
-              <div
-                style={{
-                  border: "1px solid #A7F3D0",
-                  borderRadius: "14px",
-                  backgroundColor: "#ECFDF5",
-                  color: "#065F46",
-                  padding: "12px",
-                  fontWeight: 800,
-                  lineHeight: 1.4,
-                }}
-              >
-                {saveMessage}
-              </div>
-            ) : null}
             <div
               style={{
                 borderTop: "1px solid #E5E7EB",
@@ -1977,14 +1867,9 @@ export default function ConstituencyImportPage() {
                 3. Upload CSV and review preview
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Paste CSV content or upload a file exported from a data append. Matching headers
-                are activated automatically.
+                Upload one CSV file exported from a data append. Matching headers are activated
+                automatically.
               </p>
-              {sourceFilename ? (
-                <p style={{ margin: "6px 0 0", color: "#64748B", fontWeight: 800 }}>
-                  Source: {sourceFilename}
-                </p>
-              ) : null}
             </div>
             <label
               style={{
@@ -2002,6 +1887,7 @@ export default function ConstituencyImportPage() {
             >
               <Upload size={16} /> Upload CSV
               <input
+                key={fileInputKey}
                 id="constituency-import-file"
                 name="constituency-import-file"
                 type="file"
@@ -2012,24 +1898,47 @@ export default function ConstituencyImportPage() {
             </label>
           </div>
 
-          <textarea
-            name="constituency-import-csv"
-            value={rawCsv}
-            onChange={(event) => setRawCsv(event.target.value)}
-            rows={8}
-            spellCheck={false}
+          <div
             style={{
-              width: "100%",
-              boxSizing: "border-box",
-              border: "1px solid #D1D5DB",
+              border: "1px solid #C7D2FE",
               borderRadius: "14px",
               padding: "14px",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: "13px",
-              color: "#111827",
-              backgroundColor: "#F9FAFB",
+              backgroundColor: sourceFilename ? "#F8FAFC" : "#FFFFFF",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "12px",
+              flexWrap: "wrap",
             }}
-          />
+          >
+            <div>
+              <div style={{ color: "#111827", fontWeight: 900 }}>
+                {sourceFilename || "No CSV selected"}
+              </div>
+              <div style={{ marginTop: "4px", color: "#64748B", lineHeight: 1.4 }}>
+                {sourceFilename
+                  ? "Headers are matched automatically when the file is read."
+                  : "Choose one CSV file to begin the preview."}
+              </div>
+            </div>
+            {sourceFilename ? (
+              <button
+                type="button"
+                onClick={clearUploadedCsv}
+                style={{
+                  border: "1px solid #D1D5DB",
+                  borderRadius: "999px",
+                  backgroundColor: "white",
+                  color: "#374151",
+                  padding: "8px 12px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Clear file
+              </button>
+            ) : null}
+          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
             <Pill tone={rows.length ? "green" : "neutral"}>
               {rows.length ? `${rows.length} rows parsed` : "No rows parsed"}
@@ -2065,8 +1974,59 @@ export default function ConstituencyImportPage() {
               Extra CSV headers will be ignored in this preview: {extraHeaders.join(", ")}
             </div>
           ) : null}
+          {error ? (
+            <div
+              role="alert"
+              style={{
+                border: "1px solid #FECACA",
+                borderRadius: "14px",
+                backgroundColor: "#FEF2F2",
+                color: "#991B1B",
+                padding: "12px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              Preview could not be created: {error}
+            </div>
+          ) : null}
+          {previewBlockers.length ? (
+            <div
+              style={{
+                border: "1px solid #FDE68A",
+                borderRadius: "14px",
+                backgroundColor: "#FFFBEB",
+                color: "#92400E",
+                padding: "12px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              Preview needs: {previewBlockers.join(" ")}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => requestPreview()}
+              disabled={previewing}
+              style={{
+                justifySelf: "start",
+                border: "none",
+                borderRadius: "14px",
+                backgroundColor: previewing ? "#CBD5E1" : "#6D5DFB",
+                color: "white",
+                padding: "13px 18px",
+                fontWeight: 900,
+                fontSize: "15px",
+                cursor: previewing ? "not-allowed" : "pointer",
+              }}
+            >
+              {previewing ? "Creating preview..." : "Preview uploaded CSV"}
+            </button>
+          )}
 
           <div
+            id="constituency-import-preview-results"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
@@ -2102,6 +2062,62 @@ export default function ConstituencyImportPage() {
               </div>
             ))}
           </div>
+
+          {preview?.rows?.length ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => requestPreview({ saveRun: true })}
+                disabled={savingRun}
+                style={{
+                  border: "1px solid #A7F3D0",
+                  borderRadius: "14px",
+                  backgroundColor: savingRun ? "#E5E7EB" : "#ECFDF5",
+                  color: savingRun ? "#64748B" : "#047857",
+                  padding: "12px 16px",
+                  fontWeight: 900,
+                  cursor: savingRun ? "not-allowed" : "pointer",
+                }}
+              >
+                {savingRun ? "Saving preview..." : "Save preview run"}
+              </button>
+              <button
+                type="button"
+                onClick={downloadPreviewCsv}
+                style={{
+                  display: "inline-flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  gap: "8px",
+                  border: "1px solid #D1D5DB",
+                  borderRadius: "14px",
+                  backgroundColor: "white",
+                  color: "#374151",
+                  padding: "12px 16px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                <FileText size={16} /> Export preview CSV
+              </button>
+            </div>
+          ) : null}
+
+          {saveMessage ? (
+            <div
+              style={{
+                border: "1px solid #A7F3D0",
+                borderRadius: "14px",
+                backgroundColor: "#ECFDF5",
+                color: "#065F46",
+                padding: "12px",
+                fontWeight: 800,
+                lineHeight: 1.4,
+              }}
+            >
+              {saveMessage}
+            </div>
+          ) : null}
 
           {preview?.warnings?.length ? (
             <div
