@@ -788,8 +788,9 @@ export default function ConstituencyImportPage() {
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
-  const [fileInputKey, setFileInputKey] = useState(0);
   const fileInputRef = useRef(null);
+  const fileReadVersionRef = useRef(0);
+  const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
@@ -981,32 +982,43 @@ export default function ConstituencyImportPage() {
     downloadCsv(csv, "constituency-import-template.csv");
   }
 
-  function handleFileUpload(event) {
+  async function handleFileUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    const fileReadVersion = fileReadVersionRef.current + 1;
+    fileReadVersionRef.current = fileReadVersion;
     setError("");
     setSaveMessage("");
     setPreview(null);
     setSourceFilename(file.name || "");
-    const reader = new FileReader();
-    reader.onload = () => loadCsvPreviewData(String(reader.result || ""));
-    reader.onerror = () => {
+    setFileReadStatus(`Reading ${file.name || "selected CSV"}...`);
+    try {
+      const csvText = await file.text();
+      if (fileReadVersion !== fileReadVersionRef.current) return;
+      loadCsvPreviewData(csvText);
+      setFileReadStatus(`Loaded ${file.name || "selected CSV"}.`);
+    } catch {
+      if (fileReadVersion !== fileReadVersionRef.current) return;
       setRows([]);
       setHeaders([]);
+      setFileReadStatus("");
       setError("The selected CSV could not be read. Please save it as a UTF-8 CSV and try again.");
-    };
-    reader.readAsText(file);
+    }
   }
 
   function clearUploadedCsv() {
+    fileReadVersionRef.current += 1;
     setRows([]);
     setHeaders([]);
     setSourceFilename("");
+    setFileReadStatus("");
     setParseMessage("");
     setPreview(null);
     setError("");
     setSaveMessage("");
-    setFileInputKey((current) => current + 1);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }
 
   async function fetchSavedRuns() {
@@ -1869,9 +1881,8 @@ export default function ConstituencyImportPage() {
                 automatically.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
+            <label
+              htmlFor="constituency-import-file"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -1887,17 +1898,13 @@ export default function ConstituencyImportPage() {
               }}
             >
               <Upload size={16} /> Choose CSV file
-            </button>
+            </label>
             <input
               ref={fileInputRef}
-              key={fileInputKey}
               id="constituency-import-file"
               name="constituency-import-file"
               type="file"
               accept=".csv,text/csv"
-              onClick={(event) => {
-                event.currentTarget.value = "";
-              }}
               onChange={handleFileUpload}
               style={{
                 position: "absolute",
@@ -1957,6 +1964,7 @@ export default function ConstituencyImportPage() {
               {rows.length ? `${rows.length} rows parsed` : "No rows parsed"}
             </Pill>
             {parseMessage ? <span style={{ color: "#6B7280" }}>{parseMessage}</span> : null}
+            {fileReadStatus ? <span style={{ color: "#4338CA", fontWeight: 700 }}>{fileReadStatus}</span> : null}
           </div>
           {missingHeaders.length ? (
             <div
