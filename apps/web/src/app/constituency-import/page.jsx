@@ -1154,6 +1154,7 @@ export default function ConstituencyImportPage() {
   const [loadingSavedRuns, setLoadingSavedRuns] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
@@ -1453,6 +1454,7 @@ export default function ConstituencyImportPage() {
     fileReadVersionRef.current = fileReadVersion;
     setError("");
     setSaveMessage("");
+    setCompletionMessage("");
     setPreview(null);
     setContactDecisions({});
     setContactDecisionsDirty(false);
@@ -1476,9 +1478,25 @@ export default function ConstituencyImportPage() {
     readSelectedFile(event.target.files?.[0]);
   }
 
-  function clearUploadedCsv() {
+  function resetImportWorkspace({ completion = "", resetFieldConfiguration = false } = {}) {
     fileReadVersionRef.current += 1;
     lastReadFileRef.current = null;
+    if (resetFieldConfiguration) {
+      setActiveFields(DEFAULT_ACTIVE_FIELDS);
+      setOpenFieldGroups(DEFAULT_OPEN_FIELD_GROUPS);
+      setConstituencyAction("add");
+      setEducationRelationshipAction("add");
+      setUseHierarchy(true);
+      setUpdateNameFields(false);
+      setUpdateIndividualProfileFields(false);
+      setUpdateNameFormatFields(false);
+      setBuildNameFormats(false);
+      setAddresseeFormat("title-preferred-last-suffix");
+      setSalutationFormat("dear-preferred");
+      setUpdateEmailFields(false);
+      setUpdatePhoneFields(false);
+      setUpdateAddressFields(false);
+    }
     setRows([]);
     setHeaders([]);
     setSourceFilename("");
@@ -1489,9 +1507,14 @@ export default function ConstituencyImportPage() {
     setContactDecisionsDirty(false);
     setError("");
     setSaveMessage("");
+    setCompletionMessage(completion);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  }
+
+  function clearUploadedCsv() {
+    resetImportWorkspace();
   }
 
   async function fetchSavedRuns() {
@@ -1540,7 +1563,7 @@ export default function ConstituencyImportPage() {
     if (!runId || applyingRun) return;
 
     const shouldApply = window.confirm(
-      "Apply ready rows to NXT now? This may update constituent codes, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Education and organization relationship rows will stay staged for manual review.",
+      "Apply ready rows to NXT now? This may update constituent codes, education relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationship rows stay staged for manual review.",
     );
     if (!shouldApply) return;
 
@@ -1556,8 +1579,25 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to apply saved import run");
       }
 
-      setPreview(payload);
-      setSaveMessage(payload?.applySummary?.message || `Applied import run #${runId}.`);
+      const applied = Number(payload?.applySummary?.applied || 0);
+      const manualRequired = Number(payload?.applySummary?.manualRequired || 0);
+      const failed = Number(payload?.applySummary?.failed || 0);
+      const fullyApplied = applied > 0 && manualRequired === 0 && failed === 0;
+
+      if (fullyApplied) {
+        resetImportWorkspace({
+          completion: `Import complete. ${applied} row${applied === 1 ? " was" : "s were"} updated in Raiser's Edge NXT. The import workspace has been cleared and is ready for the next CSV.`,
+          resetFieldConfiguration: true,
+        });
+        window.setTimeout(() => {
+          document
+            .getElementById("constituency-import-completion")
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 0);
+      } else {
+        setPreview(payload);
+        setSaveMessage(payload?.applySummary?.message || `Applied import run #${runId}.`);
+      }
       fetchSavedRuns();
     } catch (applyError) {
       setError(
@@ -1774,6 +1814,46 @@ export default function ConstituencyImportPage() {
           headers shown here, then upload the file. You can now save preview runs for review, but
           saving a preview never writes to NXT; only a saved run's explicit Apply ready rows action does.
         </section>
+
+        {completionMessage ? (
+          <section
+            id="constituency-import-completion"
+            role="status"
+            style={{
+              backgroundColor: "#ECFDF5",
+              border: "1px solid #6EE7B7",
+              borderRadius: "18px",
+              padding: "16px 18px",
+              marginBottom: "18px",
+              color: "#065F46",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "14px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 900, fontSize: "18px" }}>Import complete</div>
+              <div style={{ marginTop: "4px", lineHeight: 1.45 }}>{completionMessage}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCompletionMessage("")}
+              style={{
+                border: "1px solid #6EE7B7",
+                borderRadius: "999px",
+                backgroundColor: "white",
+                color: "#047857",
+                padding: "8px 12px",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Dismiss
+            </button>
+          </section>
+        ) : null}
 
         <section
           style={{
