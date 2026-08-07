@@ -1689,7 +1689,7 @@ export default function ConstituencyImportPage() {
       setImportIntent("updates");
       setConstituencyAction("add");
       setEducationRelationshipAction("add");
-      setUseHierarchy(true);
+      setUseHierarchy(false);
       setUpdateNameFields(false);
       setUpdateIndividualProfileFields(false);
       setUpdateNameFormatFields(false);
@@ -2188,6 +2188,115 @@ export default function ConstituencyImportPage() {
           can update confirmed existing records.
         </section>
 
+        <section
+          style={{
+            backgroundColor: "white",
+            border: "1px solid #E5E7EB",
+            borderRadius: "20px",
+            padding: "20px",
+            marginBottom: "18px",
+            display: "grid",
+            gap: "16px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
+                1. Upload CSV
+              </h2>
+              <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
+                Start with the file. JUMGOGPT automatically maps recognized headers, then you can
+                confirm its purpose and adjust the selected fields.
+              </p>
+            </div>
+            <label
+              htmlFor="constituency-import-file"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                alignSelf: "start",
+                border: "1px solid #C7D2FE",
+                borderRadius: "999px",
+                color: "#4338CA",
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontWeight: 800,
+                backgroundColor: "white",
+              }}
+            >
+              <Upload size={16} /> Choose CSV file
+            </label>
+            <input
+              ref={fileInputRef}
+              id="constituency-import-file"
+              name="constituency-import-file"
+              type="file"
+              accept=".csv,text/csv"
+              onInput={handleFileUpload}
+              onChange={handleFileUpload}
+              style={{
+                position: "absolute",
+                width: "1px",
+                height: "1px",
+                overflow: "hidden",
+                clip: "rect(0 0 0 0)",
+                clipPath: "inset(50%)",
+                whiteSpace: "nowrap",
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #C7D2FE",
+              borderRadius: "14px",
+              padding: "14px",
+              backgroundColor: sourceFilename ? "#F8FAFC" : "#FFFFFF",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ color: "#111827", fontWeight: 900 }}>
+                {sourceFilename || "No CSV selected"}
+              </div>
+              <div style={{ marginTop: "4px", color: "#64748B", lineHeight: 1.4 }}>
+                {sourceFilename
+                  ? "Headers were mapped automatically. Review the highlighted fields below before previewing."
+                  : "Choose one CSV file to begin the import review."}
+              </div>
+            </div>
+            {sourceFilename ? (
+              <button
+                type="button"
+                onClick={clearUploadedCsv}
+                style={{
+                  border: "1px solid #D1D5DB",
+                  borderRadius: "999px",
+                  backgroundColor: "white",
+                  color: "#374151",
+                  padding: "8px 12px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Clear file
+              </button>
+            ) : null}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+            <Pill tone={rows.length ? "green" : "neutral"}>
+              {rows.length ? `${rows.length} rows parsed` : "No rows parsed"}
+            </Pill>
+            {parseMessage ? <span style={{ color: "#6B7280" }}>{parseMessage}</span> : null}
+            {fileReadStatus ? <span style={{ color: "#4338CA", fontWeight: 700 }}>{fileReadStatus}</span> : null}
+          </div>
+        </section>
+
         {completionMessage ? (
           <section
             id="constituency-import-completion"
@@ -2241,7 +2350,7 @@ export default function ConstituencyImportPage() {
         >
           <div>
             <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-              1. What does this file contain?
+              2. What does this file contain?
             </h2>
             <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
               This determines how the preview classifies each row. A missing NXT match never
@@ -2320,7 +2429,7 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  2. Choose import fields
+                  3. Choose import fields
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                   Turn on only the NXT fields represented in your import. The CSV must use the
@@ -3115,11 +3224,11 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  3. Prepare exact CSV headers
+                  Active CSV headers
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-                  Your file should include these active headers. Extra columns are ignored in the
-                  preview; missing optional active headers are ignored.
+                  These active fields are expected in the uploaded CSV. Extra columns are ignored
+                  in the preview, and missing optional active headers are ignored.
                 </p>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
@@ -3290,98 +3399,13 @@ export default function ConstituencyImportPage() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                4. Upload CSV and review preview
+                4. Review and create preview
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Upload one CSV file. Active headers are matched automatically and each row is
-                classified according to the selected file intent.
+                Confirm the auto-mapped fields and review the validation checklist before creating
+                a safe, read-only preview of {sourceFilename || "the uploaded CSV"}.
               </p>
             </div>
-            <label
-              htmlFor="constituency-import-file"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                alignSelf: "start",
-                border: "1px solid #C7D2FE",
-                borderRadius: "999px",
-                color: "#4338CA",
-                padding: "10px 14px",
-                cursor: "pointer",
-                fontWeight: 800,
-                backgroundColor: "white",
-              }}
-            >
-              <Upload size={16} /> Choose CSV file
-            </label>
-            <input
-              ref={fileInputRef}
-              id="constituency-import-file"
-              name="constituency-import-file"
-              type="file"
-              accept=".csv,text/csv"
-              onInput={handleFileUpload}
-              onChange={handleFileUpload}
-              style={{
-                position: "absolute",
-                width: "1px",
-                height: "1px",
-                overflow: "hidden",
-                clip: "rect(0 0 0 0)",
-                clipPath: "inset(50%)",
-                whiteSpace: "nowrap",
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              border: "1px solid #C7D2FE",
-              borderRadius: "14px",
-              padding: "14px",
-              backgroundColor: sourceFilename ? "#F8FAFC" : "#FFFFFF",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              flexWrap: "wrap",
-            }}
-          >
-            <div>
-              <div style={{ color: "#111827", fontWeight: 900 }}>
-                {sourceFilename || "No CSV selected"}
-              </div>
-              <div style={{ marginTop: "4px", color: "#64748B", lineHeight: 1.4 }}>
-                {sourceFilename
-                  ? "Headers are matched automatically when the file is read."
-                  : "Choose one CSV file to begin the preview."}
-              </div>
-            </div>
-            {sourceFilename ? (
-              <button
-                type="button"
-                onClick={clearUploadedCsv}
-                style={{
-                  border: "1px solid #D1D5DB",
-                  borderRadius: "999px",
-                  backgroundColor: "white",
-                  color: "#374151",
-                  padding: "8px 12px",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Clear file
-              </button>
-            ) : null}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
-            <Pill tone={rows.length ? "green" : "neutral"}>
-              {rows.length ? `${rows.length} rows parsed` : "No rows parsed"}
-            </Pill>
-            {parseMessage ? <span style={{ color: "#6B7280" }}>{parseMessage}</span> : null}
-            {fileReadStatus ? <span style={{ color: "#4338CA", fontWeight: 700 }}>{fileReadStatus}</span> : null}
           </div>
           {missingHeaders.length ? (
             <div
