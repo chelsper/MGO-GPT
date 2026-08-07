@@ -742,7 +742,130 @@ describe("constituency import run apply route", () => {
     expect(payload.applySummary.manualRequired).toBe(1);
   });
 
-  it("keeps relationship writes in manual review instead of guessing NXT payloads", async () => {
+  it("adds a new education relationship after rechecking NXT for duplicates", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "education_relationship",
+      action: "add",
+      recordType: "Individual",
+      institution: "Jacksonville University",
+      degree: "Bachelor of Science",
+      major: "Nursing",
+      classYear: "2026",
+      makePrimary: "Yes",
+    };
+    const row = {
+      id: "10",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ id: "education-1" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/constituent/v1/constituents/123/educations",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+      },
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(2, "/constituent/v1/educations", {
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      method: "POST",
+      body: {
+        constituent_id: "123",
+        school: "Jacksonville University",
+        degree: "Bachelor of Science",
+        majors: ["Nursing"],
+        class_of: 2026,
+        primary: true,
+      },
+    });
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("does not duplicate a matching education relationship", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "education_relationship",
+      action: "add",
+      recordType: "Individual",
+      institution: "Jacksonville University",
+      degree: "Bachelor of Science",
+      major: "Nursing",
+      classYear: "2026",
+    };
+    const row = {
+      id: "10",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({
+      value: [
+        {
+          id: "education-1",
+          school: "Jacksonville University",
+          degree: "Bachelor of Science",
+          majors: ["Nursing"],
+          class_of: 2026,
+        },
+      ],
+    });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("keeps legacy education update writes in manual review", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "education_relationship",

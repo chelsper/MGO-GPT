@@ -465,12 +465,8 @@ const EDUCATION_RELATIONSHIP_ACTIONS = [
   {
     value: "add",
     label: "Add New Education Relationship",
-    description: "Create an additional education relationship and leave existing education rows intact.",
-  },
-  {
-    value: "update",
-    label: "Update Existing Education Relationship",
-    description: "Use when the row should revise an existing education relationship, such as Student to Alumni.",
+    description:
+      "Add a new education relationship only. Existing NXT education rows are never changed, and matching entries are skipped.",
   },
 ];
 
@@ -799,7 +795,9 @@ function formatWritePlanItem(write) {
 
   if (write.type === "education_relationship") {
     const action =
-      write.action === "update" ? "Update existing education relationship" : "Add education relationship";
+      write.action === "skip_existing"
+        ? "Matching education relationship already exists"
+        : "Add education relationship";
     const details = [write.institution, write.degree, write.major, write.classYear && `Class ${write.classYear}`]
       .filter(Boolean)
       .join(" / ");
@@ -1590,7 +1588,7 @@ export default function ConstituencyImportPage() {
           mappings,
           defaults: {
             defaultAction: constituencyAction,
-            educationRelationshipAction,
+            educationRelationshipAction: "add",
             useHierarchy,
             updateNameFields,
             updateIndividualProfileFields,
@@ -2104,9 +2102,9 @@ export default function ConstituencyImportPage() {
                                 lineHeight: 1.45,
                               }}
                             >
-                              Choose whether these education columns should create a new education
-                              relationship or update an existing one already on the matched NXT
-                              record.
+                              This import adds a new education relationship only. It never edits or
+                              end-dates an existing NXT education row, and it safely skips an
+                              identical education relationship.
                             </p>
                           </div>
                           <div
@@ -2664,10 +2662,7 @@ export default function ConstituencyImportPage() {
                 </Pill>
               ) : null}
               {educationRelationshipFieldsActive ? (
-                <Pill tone="blue">
-                  Education:{" "}
-                  {educationRelationshipAction === "update" ? "Update Existing" : "Add New"}
-                </Pill>
+                <Pill tone="blue">Education: Add New Only</Pill>
               ) : null}
               {organizationRelationshipFieldsActive ? (
                 <Pill tone="blue">Organization: Add Additional</Pill>

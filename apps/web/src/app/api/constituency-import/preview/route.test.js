@@ -697,13 +697,15 @@ describe("constituency import preview route", () => {
     ]);
   });
 
-  it("stages education updates and organization additions as relationship writes", async () => {
+  it("stages add-only education and organization relationship writes", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({
       blackbaudConstituentId: "789",
       lookupId: "A789",
       name: "Student Dolphin",
+      raw: { type: "Individual" },
     });
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
 
     const response = await POST(
       makeRequest({
@@ -741,8 +743,8 @@ describe("constituency import preview route", () => {
     expect(response.status).toBe(200);
     expect(payload.rows[0].status).toBe("Ready");
     expect(payload.rows[0].input.educationRelationship).toMatchObject({
-      action: "update",
-      duplicatePolicy: "match_existing_before_update",
+      action: "add",
+      duplicatePolicy: "skip_if_matching",
       institution: "Jacksonville University",
       degree: "Bachelor of Science",
       major: "Nursing",
@@ -759,8 +761,9 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan).toEqual([
       expect.objectContaining({
         type: "education_relationship",
-        action: "update",
-        duplicatePolicy: "match_existing_before_update",
+        action: "add",
+        duplicatePolicy: "skip_if_matching",
+        recordType: "Individual",
       }),
       expect.objectContaining({
         type: "organization_relationship",
@@ -769,12 +772,68 @@ describe("constituency import preview route", () => {
       }),
     ]);
     expect(payload.rows[0].reasons.join(" ")).toContain(
-      "update an existing education relationship",
+      "Existing education records are never replaced or end-dated",
     );
     expect(payload.rows[0].reasons.join(" ")).toContain(
       "additional organization relationship",
     );
-    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/789/educations",
+      expect.objectContaining({ userId: 7, authUserId: 7 }),
+    );
+  });
+
+  it("skips a matching education relationship during preview", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "789",
+      lookupId: "A789",
+      name: "Student Dolphin",
+      raw: { type: "Individual" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [
+        {
+          id: "education-1",
+          school: "Jacksonville University",
+          degree: "Bachelor of Science",
+          majors: ["Nursing"],
+          class_of: 2026,
+        },
+      ],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "789",
+            "Education Institution": "Jacksonville University",
+            "Education Degree": "Bachelor of Science",
+            "Education Major": "Nursing",
+            "Education Class Year": "2026",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          educationInstitution: "Education Institution",
+          educationDegree: "Education Degree",
+          educationMajor: "Education Major",
+          educationClassYear: "Education Class Year",
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "education_relationship",
+        action: "skip_existing",
+        existingEducation: expect.objectContaining({ id: "education-1" }),
+      }),
+    ]);
   });
 
   it("saves preview runs and row-level preview results when requested", async () => {

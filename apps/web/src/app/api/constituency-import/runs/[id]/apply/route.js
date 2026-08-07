@@ -447,6 +447,139 @@ function getCollection(payload) {
   return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
 }
 
+function getEducationSchool(value) {
+  if (typeof value === "string") return cleanText(value);
+  const school = value?.school || value?.school_name || value?.institution || value?.name;
+  if (typeof school === "string") return cleanText(school);
+  return cleanText(school?.name || school?.description || school?.value);
+}
+
+function getEducationValueText(value) {
+  if (typeof value === "string" || typeof value === "number") return cleanText(value);
+  return cleanText(value?.name || value?.description || value?.value || value?.degree || value?.major);
+}
+
+function getEducationValues(value, pluralKey, singularKeys) {
+  const values = [];
+  const pluralValue = value?.[pluralKey];
+  if (Array.isArray(pluralValue)) {
+    pluralValue.forEach((item) => values.push(getEducationValueText(item)));
+  } else if (pluralValue) {
+    values.push(getEducationValueText(pluralValue));
+  }
+  singularKeys.forEach((key) => values.push(getEducationValueText(value?.[key])));
+  return [...new Set(values.map(cleanText).filter(Boolean))];
+}
+
+function getEducationClassYear(value) {
+  return cleanText(value?.class_of || value?.class_year || value?.classYear || value?.class);
+}
+
+function educationMatchesWrite(write, education) {
+  const expectedSchool = normalizeText(write?.institution);
+  if (!expectedSchool || expectedSchool !== normalizeText(getEducationSchool(education))) {
+    return false;
+  }
+
+  const matchesValue = (expected, values) => {
+    const normalizedExpected = normalizeText(expected);
+    return !normalizedExpected || values.some((value) => normalizeText(value) === normalizedExpected);
+  };
+
+  return (
+    matchesValue(write?.degree, getEducationValues(education, "degrees", ["degree", "degree_name"])) &&
+    matchesValue(write?.major, getEducationValues(education, "majors", ["major", "major_name"])) &&
+    (!cleanText(write?.classYear) || cleanText(write.classYear) === getEducationClassYear(education))
+  );
+}
+
+async function fetchCurrentEducations({ request, user, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/educations`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+    },
+  );
+  return getCollection(payload);
+}
+
+function manualEducationResult(action, message) {
+  return { status: "manual_required", type: "education_relationship", action, message };
+}
+
+async function applyEducationRelationshipAdd({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const action = cleanText(write?.action) || "add";
+  const recordType = normalizeText(write?.recordType);
+  const institution = cleanText(write?.institution);
+  const degree = cleanText(write?.degree);
+  const major = cleanText(write?.major);
+  const classYear = cleanText(write?.classYear);
+
+  if (!constituentId || !institution) {
+    return manualEducationResult(
+      action,
+      "A matched NXT constituent ID and Education Institution are required before an education relationship can be added.",
+    );
+  }
+  if (recordType !== "individual") {
+    return manualEducationResult(
+      action,
+      "Education imports require a confirmed matched individual NXT constituent. Refresh the preview before applying.",
+    );
+  }
+  if (classYear && !/^\d{4}$/.test(classYear)) {
+    return manualEducationResult(
+      action,
+      "Education Class Year must be a four-digit year before it can be imported.",
+    );
+  }
+
+  const currentEducations = await fetchCurrentEducations({ request, user, constituentId });
+  const existing = currentEducations.find((education) => educationMatchesWrite(write, education));
+  if (existing) {
+    return {
+      status: "applied",
+      type: "education_relationship",
+      action: "skip_existing",
+      message: `${institution} is already present as a matching NXT education relationship; no duplicate was added.`,
+    };
+  }
+  if (action === "skip_existing") {
+    return manualEducationResult(
+      action,
+      "The matching NXT education relationship changed after preview. Refresh the preview before applying.",
+    );
+  }
+
+  const payload = {
+    constituent_id: String(constituentId),
+    school: institution,
+  };
+  if (degree) payload.degree = degree;
+  if (major) payload.majors = [major];
+  if (classYear) payload.class_of = Number(classYear);
+  if (parseBoolean(write?.makePrimary)) payload.primary = true;
+
+  const result = await blackbaudApiFetch("/constituent/v1/educations", {
+    userId: user.id,
+    authUserId: user.id,
+    origin: new URL(request.url).origin,
+    method: "POST",
+    body: payload,
+  });
+
+  return {
+    status: "applied",
+    type: "education_relationship",
+    action: "add",
+    message: `Added ${institution} as an NXT education relationship.`,
+    blackbaudResult: result || null,
+  };
+}
+
 async function fetchEmailAddresses({ request, user, constituentId }) {
   const payload = await blackbaudApiFetch(
     `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/emailaddresses`,
@@ -1011,6 +1144,12 @@ async function applyWrite({ request, user, row, write }) {
   if (write?.type === "address" && ["add", "replace"].includes(write?.action)) {
     return applyAddressUpdate({ request, user, row, write });
   }
+  if (
+    write?.type === "education_relationship" &&
+    ["add", "skip_existing"].includes(write?.action)
+  ) {
+    return applyEducationRelationshipAdd({ request, user, row, write });
+  }
   if (write?.type === "constituent_code" && write?.action === "add") {
     return applyConstituentCodeAdd({ request, user, row, write });
   }
@@ -1037,7 +1176,7 @@ async function applyWrite({ request, user, row, write }) {
       type: "education_relationship",
       action: write?.action || "review",
       message:
-        "Education relationship writes are staged for manual NXT review until relationship endpoint payloads are validated.",
+        "Only add-only education relationship imports are automated. Existing education relationships are not edited by this import.",
     };
   }
 

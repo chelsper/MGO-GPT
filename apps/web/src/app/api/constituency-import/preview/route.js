@@ -34,17 +34,6 @@ const ACTION_ALIASES = new Map([
   ["sort", "reorder"],
 ]);
 
-const RELATIONSHIP_ACTION_ALIASES = new Map([
-  ["add", "add"],
-  ["new", "add"],
-  ["add new", "add"],
-  ["add additional", "add"],
-  ["update", "update"],
-  ["edit", "update"],
-  ["update existing", "update"],
-  ["edit existing", "update"],
-]);
-
 const CONSTITUENCY_HIERARCHY = [
   "Trustee",
   "Former Trustee",
@@ -81,15 +70,6 @@ function parseBoolean(value) {
 function normalizeAction(value, fallback = "replace") {
   const normalized = normalizeText(value || fallback);
   return ACTION_ALIASES.get(normalized) || ACTION_ALIASES.get(normalizeText(fallback)) || "replace";
-}
-
-function normalizeRelationshipAction(value, fallback = "add") {
-  const normalized = normalizeText(value || fallback);
-  return (
-    RELATIONSHIP_ACTION_ALIASES.get(normalized) ||
-    RELATIONSHIP_ACTION_ALIASES.get(normalizeText(fallback)) ||
-    "add"
-  );
 }
 
 function getMappedValue(row, mappings, key) {
@@ -179,10 +159,9 @@ function buildNameFormatValue(kind, pattern, values) {
 
 function getRowInput(row, mappings, defaults = {}) {
   const defaultAction = cleanText(defaults.defaultAction) || "replace";
-  const defaultEducationAction = normalizeRelationshipAction(
-    defaults.educationRelationshipAction,
-    "add",
-  );
+  // Education imports are intentionally add-only until a separately reviewed
+  // update workflow exists. Never infer an existing relationship to edit.
+  const defaultEducationAction = "add";
   const firstName = getMappedValue(row, mappings, "firstName");
   const lastName = getMappedValue(row, mappings, "lastName");
   const preferredName = getMappedValue(row, mappings, "preferredName");
@@ -218,10 +197,7 @@ function getRowInput(row, mappings, defaults = {}) {
 
   const educationRelationship = {
     action: defaultEducationAction,
-    duplicatePolicy:
-      defaultEducationAction === "update"
-        ? "match_existing_before_update"
-        : "add_additional",
+    duplicatePolicy: "skip_if_matching",
     institution: getMappedValue(row, mappings, "educationInstitution"),
     degree: getMappedValue(row, mappings, "educationDegree"),
     major: getMappedValue(row, mappings, "educationMajor"),
@@ -643,6 +619,109 @@ function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
   ];
 }
 
+function getEducationId(value) {
+  return cleanText(value?.id || value?.education_id);
+}
+
+function getEducationSchool(value) {
+  if (typeof value === "string") return cleanText(value);
+  const school = value?.school || value?.school_name || value?.institution || value?.name;
+  if (typeof school === "string") return cleanText(school);
+  return cleanText(school?.name || school?.description || school?.value);
+}
+
+function getEducationValueText(value) {
+  if (typeof value === "string" || typeof value === "number") return cleanText(value);
+  return cleanText(value?.name || value?.description || value?.value || value?.degree || value?.major);
+}
+
+function getEducationValues(value, pluralKey, singularKeys) {
+  const values = [];
+  const pluralValue = value?.[pluralKey];
+  if (Array.isArray(pluralValue)) {
+    pluralValue.forEach((item) => values.push(getEducationValueText(item)));
+  } else if (pluralValue) {
+    values.push(getEducationValueText(pluralValue));
+  }
+  singularKeys.forEach((key) => values.push(getEducationValueText(value?.[key])));
+  return [...new Set(values.map(cleanText).filter(Boolean))];
+}
+
+function getEducationClassYear(value) {
+  return cleanText(value?.class_of || value?.class_year || value?.classYear || value?.class);
+}
+
+function serializeEducation(value) {
+  return {
+    id: getEducationId(value),
+    school: getEducationSchool(value),
+    degrees: getEducationValues(value, "degrees", ["degree", "degree_name"]),
+    majors: getEducationValues(value, "majors", ["major", "major_name"]),
+    classYear: getEducationClassYear(value),
+    primary: parseBoolean(value?.primary ?? value?.is_primary) === true,
+  };
+}
+
+function educationMatchesWrite(write, education) {
+  const expectedSchool = normalizeText(write?.institution);
+  if (!expectedSchool || expectedSchool !== normalizeText(getEducationSchool(education))) {
+    return false;
+  }
+
+  const matchesValue = (expected, values) => {
+    const normalizedExpected = normalizeText(expected);
+    return !normalizedExpected || values.some((value) => normalizeText(value) === normalizedExpected);
+  };
+
+  return (
+    matchesValue(write?.degree, getEducationValues(education, "degrees", ["degree", "degree_name"])) &&
+    matchesValue(write?.major, getEducationValues(education, "majors", ["major", "major_name"])) &&
+    (!cleanText(write?.classYear) || cleanText(write.classYear) === getEducationClassYear(education))
+  );
+}
+
+function buildEducationRelationshipWrite(input, match, currentEducations) {
+  if (!input.educationRelationship) return null;
+
+  const write = {
+    type: "education_relationship",
+    action: "add",
+    duplicatePolicy: "skip_if_matching",
+    recordType: cleanText(match?.raw?.type),
+    institution: cleanText(input.educationRelationship.institution),
+    degree: cleanText(input.educationRelationship.degree),
+    major: cleanText(input.educationRelationship.major),
+    classYear: cleanText(input.educationRelationship.classYear),
+    makePrimary: input.educationRelationship.makePrimary || "",
+  };
+
+  if (!write.institution) {
+    write.requiresReview = true;
+    write.validationMessage = "An Education Institution is required before an education relationship can be added.";
+    return write;
+  }
+  if (!normalizeText(write.recordType).includes("individual")) {
+    write.requiresReview = true;
+    write.validationMessage = "Education imports require a confirmed matched individual NXT constituent.";
+    return write;
+  }
+  if (write.classYear && !/^\d{4}$/.test(write.classYear)) {
+    write.requiresReview = true;
+    write.validationMessage = "Education Class Year must be a four-digit year before it can be imported.";
+    return write;
+  }
+
+  const existing = (Array.isArray(currentEducations) ? currentEducations : []).find((education) =>
+    educationMatchesWrite(write, education),
+  );
+  if (existing) {
+    write.action = "skip_existing";
+    write.existingEducation = serializeEducation(existing);
+  }
+
+  return write;
+}
+
 function buildWritePlan(
   input,
   changePreview,
@@ -650,6 +729,7 @@ function buildWritePlan(
   currentContacts = null,
   contactDecisions = {},
   currentNameFormats = null,
+  currentEducations = null,
 ) {
   const writes = [];
 
@@ -665,20 +745,13 @@ function buildWritePlan(
     });
   }
 
-  if (input.educationRelationship) {
-    writes.push({
-      type: "education_relationship",
-      action: input.educationRelationship.action || "add",
-      duplicatePolicy:
-        input.educationRelationship.action === "update"
-          ? "match_existing_before_update"
-          : "add_additional",
-      institution: input.educationRelationship.institution || "",
-      degree: input.educationRelationship.degree || "",
-      major: input.educationRelationship.major || "",
-      classYear: input.educationRelationship.classYear || "",
-      makePrimary: input.educationRelationship.makePrimary || "",
-    });
+  const educationRelationshipWrite = buildEducationRelationshipWrite(
+    input,
+    match,
+    currentEducations,
+  );
+  if (educationRelationshipWrite) {
+    writes.push(educationRelationshipWrite);
   }
 
   if (input.organizationRelationship) {
@@ -1089,11 +1162,20 @@ async function fetchCurrentNameFormats({ userId, authUserId, origin, constituent
   return { addressee: primaryAddressee, salutation: primarySalutation };
 }
 
+async function fetchCurrentEducations({ userId, authUserId, origin, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/educations`,
+    { userId, authUserId, origin },
+  );
+  return getCollection(payload);
+}
+
 function deriveStatus(
   matchResult,
   codeFetchError,
   contactFetchErrors,
   nameFormatFetchError,
+  educationFetchError,
   changePreview,
   writePlan = [],
 ) {
@@ -1103,12 +1185,14 @@ function deriveStatus(
     ["email_address", "phone", "address"].includes(write.type),
   );
   const hasNameFormatWrite = writePlan.some((write) => write.type === "constituent_name_format");
+  const hasEducationWrite = writePlan.some((write) => write.type === "education_relationship");
 
   if (changePreview.status === STATUS.conflict) return STATUS.conflict;
   if (matchResult.status !== "matched") return STATUS.needsReview;
   if (codeFetchError && hasConstituentCodeWrite) return STATUS.needsReview;
   if (contactFetchErrors.length && hasContactWrite) return STATUS.needsReview;
   if (nameFormatFetchError && hasNameFormatWrite) return STATUS.needsReview;
+  if (educationFetchError && hasEducationWrite) return STATUS.needsReview;
   if (writePlan.some((write) => write.requiresReview)) return STATUS.needsReview;
   if (hasWritePlan) return STATUS.ready;
   if (changePreview.status === STATUS.skipped) return STATUS.skipped;
@@ -1319,6 +1403,8 @@ export async function POST(request) {
         salutation: { id: "", value: "" },
       };
       let nameFormatFetchError = "";
+      let currentEducations = [];
+      let educationFetchError = "";
 
       try {
         matchResult = await resolveMatch({
@@ -1353,7 +1439,12 @@ export async function POST(request) {
 
       if (
         matchResult.match?.blackbaudConstituentId &&
-        (input.nameUpdate || input.individualProfileUpdate || input.nameFormatUpdate)
+        (
+          input.nameUpdate ||
+          input.individualProfileUpdate ||
+          input.nameFormatUpdate ||
+          input.educationRelationship
+        )
       ) {
         try {
           const detailedMatch = await getBlackbaudConstituentById({
@@ -1403,6 +1494,22 @@ export async function POST(request) {
         }
       }
 
+      if (matchResult.match?.blackbaudConstituentId && input.educationRelationship) {
+        try {
+          currentEducations = await fetchCurrentEducations({
+            userId: user.id,
+            authUserId,
+            origin,
+            constituentId: matchResult.match.blackbaudConstituentId,
+          });
+        } catch (error) {
+          educationFetchError =
+            error instanceof Error
+              ? error.message
+              : "Could not load current NXT education relationships.";
+        }
+      }
+
       const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
       const writePlan = buildWritePlan(
         input,
@@ -1411,6 +1518,7 @@ export async function POST(request) {
         currentContacts,
         contactDecisions[String(index + 1)] || {},
         currentNameFormats,
+        currentEducations,
       );
       const reasons = [
         ...matchResult.notes,
@@ -1419,12 +1527,13 @@ export async function POST(request) {
         ...(nameFormatFetchError
           ? [`Could not load current NXT addressee and salutation formats: ${nameFormatFetchError}`]
           : []),
+        ...(educationFetchError
+          ? [`Could not load current NXT education relationships: ${educationFetchError}`]
+          : []),
         ...changePreview.reasons,
         ...(input.educationRelationship
           ? [
-              input.educationRelationship.action === "update"
-                ? "Education relationship data is staged to update an existing education relationship; the matching relationship should be reviewed before applying."
-                : "Education relationship data is staged as an additional education relationship; it will not replace existing education relationships.",
+              "Education relationship data is staged as a new NXT education record. Existing education records are never replaced or end-dated, and an identical record is skipped.",
             ]
           : []),
         ...(input.organizationRelationship
@@ -1472,6 +1581,7 @@ export async function POST(request) {
           codeFetchError,
           contactFetchErrors,
           nameFormatFetchError,
+          educationFetchError,
           changePreview,
           writePlan,
         ),
@@ -1490,6 +1600,7 @@ export async function POST(request) {
         currentCodes: currentCodes.map((code) => code.label),
         currentContacts,
         currentNameFormats,
+        currentEducations: currentEducations.map(serializeEducation),
         proposedCodes: changePreview.proposedCodes,
         writePlan,
         reasons,
