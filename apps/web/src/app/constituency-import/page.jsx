@@ -1324,6 +1324,172 @@ function HeaderCode({ children }) {
   );
 }
 
+const NXT_TABLE_SUGGESTION_FIELDS = new Set([
+  "educationDegree",
+  "educationSchoolType",
+  "educationStatus",
+  "educationMajor",
+  "educationMinor",
+]);
+
+function CsvRowEditor({
+  rowNumber,
+  draft,
+  fields,
+  suggestions,
+  loadingFieldKey,
+  onChange,
+  onFindSuggestions,
+  onUseSuggestion,
+  onSave,
+  onCancel,
+  saving,
+}) {
+  return (
+    <section
+      style={{
+        border: "1px solid #A5B4FC",
+        borderRadius: "12px",
+        backgroundColor: "#F5F3FF",
+        padding: "14px",
+        display: "grid",
+        gap: "12px",
+      }}
+    >
+      <div>
+        <div style={{ color: "#4338CA", fontWeight: 900 }}>Edit CSV values for this preview</div>
+        <div style={{ marginTop: "4px", color: "#5B21B6", fontSize: "14px", lineHeight: 1.45 }}>
+          Changes stay local to this import session. Save them to rebuild this preview against NXT before any import run is saved.
+        </div>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "12px",
+        }}
+      >
+        {fields.map((field) => {
+          const suggestionState = suggestions[field.key];
+          const isTableField = NXT_TABLE_SUGGESTION_FIELDS.has(field.key);
+          return (
+            <div key={field.key} style={{ display: "grid", gap: "6px" }}>
+              <label htmlFor={`import-row-${rowNumber}-${field.key}`} style={{ color: "#312E81", fontSize: "13px", fontWeight: 900 }}>
+                {field.label}
+              </label>
+              <input
+                id={`import-row-${rowNumber}-${field.key}`}
+                name={`import-row-${rowNumber}-${field.key}`}
+                value={draft[field.header] || ""}
+                onChange={(event) => onChange(field.header, event.target.value)}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  border: "1px solid #C7D2FE",
+                  borderRadius: "9px",
+                  backgroundColor: "white",
+                  padding: "9px 10px",
+                  color: "#111827",
+                }}
+              />
+              {isTableField ? (
+                <div style={{ display: "grid", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => onFindSuggestions(field)}
+                    disabled={loadingFieldKey === field.key || !(draft[field.header] || "").trim()}
+                    style={{
+                      justifySelf: "start",
+                      border: "1px solid #818CF8",
+                      borderRadius: "999px",
+                      backgroundColor: "white",
+                      color: "#4338CA",
+                      padding: "6px 9px",
+                      fontSize: "12px",
+                      fontWeight: 900,
+                      cursor: loadingFieldKey === field.key ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {loadingFieldKey === field.key ? "Checking NXT..." : "Find NXT matches"}
+                  </button>
+                  {suggestionState?.error ? (
+                    <div style={{ color: "#B91C1C", fontSize: "12px", lineHeight: 1.4 }}>
+                      {suggestionState.error}
+                    </div>
+                  ) : null}
+                  {suggestionState?.message ? (
+                    <div style={{ color: "#5B21B6", fontSize: "12px", lineHeight: 1.4 }}>
+                      {suggestionState.message}
+                    </div>
+                  ) : null}
+                  {suggestionState?.suggestions?.length ? (
+                    <div style={{ display: "grid", gap: "5px" }}>
+                      {suggestionState.suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.value}
+                          type="button"
+                          onClick={() => onUseSuggestion(field.header, suggestion.value)}
+                          style={{
+                            border: "1px solid #C7D2FE",
+                            borderRadius: "8px",
+                            backgroundColor: "#EEF2FF",
+                            color: "#312E81",
+                            padding: "7px 8px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            fontWeight: 800,
+                          }}
+                        >
+                          Use {suggestion.value}
+                          {suggestion.exact ? " (exact match)" : ` (${suggestion.confidence}% match)`}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          style={{
+            border: "1px solid #4338CA",
+            borderRadius: "999px",
+            backgroundColor: saving ? "#C7D2FE" : "#4F46E5",
+            color: "white",
+            padding: "9px 14px",
+            fontWeight: 900,
+            cursor: saving ? "not-allowed" : "pointer",
+          }}
+        >
+          {saving ? "Rebuilding preview..." : "Save changes and rebuild preview"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          style={{
+            border: "1px solid #C7D2FE",
+            borderRadius: "999px",
+            backgroundColor: "white",
+            color: "#4338CA",
+            padding: "9px 14px",
+            fontWeight: 900,
+            cursor: saving ? "not-allowed" : "pointer",
+          }}
+        >
+          Cancel edits
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function isUnresolvedImportRow(row) {
   return row?.status !== "Applied" && row?.status !== "Skipped";
 }
@@ -1388,6 +1554,10 @@ export default function ConstituencyImportPage() {
   const [reconcilingRun, setReconcilingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
   const [retryingRowId, setRetryingRowId] = useState("");
+  const [editingPreviewRowNumber, setEditingPreviewRowNumber] = useState(null);
+  const [editingRowDraft, setEditingRowDraft] = useState({});
+  const [tableSuggestions, setTableSuggestions] = useState({});
+  const [loadingSuggestionFieldKey, setLoadingSuggestionFieldKey] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -1833,6 +2003,10 @@ export default function ConstituencyImportPage() {
     setPreview(null);
     setFocusedRowId("");
     setReviewMode(false);
+    setEditingPreviewRowNumber(null);
+    setEditingRowDraft({});
+    setTableSuggestions({});
+    setLoadingSuggestionFieldKey("");
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setSourceFilename(file.name || "");
@@ -1883,6 +2057,10 @@ export default function ConstituencyImportPage() {
     setPreview(null);
     setSelectedApplyRowIds([]);
     setFocusedRowId("");
+    setEditingPreviewRowNumber(null);
+    setEditingRowDraft({});
+    setTableSuggestions({});
+    setLoadingSuggestionFieldKey("");
     setShowBatchTools(false);
     setReviewMode(true);
     setContactDecisions({});
@@ -1933,6 +2111,9 @@ export default function ConstituencyImportPage() {
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
       setReviewMode(true);
+      setEditingPreviewRowNumber(null);
+      setEditingRowDraft({});
+      setTableSuggestions({});
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -1986,6 +2167,86 @@ export default function ConstituencyImportPage() {
       }
     }
     focusImportRow(allRows[currentIndex]?.id || allRows[0]?.id);
+  }
+
+  function beginPreviewRowEdit(row) {
+    if (preview?.savedRun) {
+      setError("Saved import runs are immutable. Upload the CSV again to make a corrected preview while keeping this run as the audit record.");
+      return;
+    }
+    const rowNumber = Number(row?.rowNumber);
+    const sourceRow = Number.isInteger(rowNumber) ? rows[rowNumber - 1] : null;
+    if (!sourceRow) {
+      setError("This CSV row is no longer available to edit. Upload the file again and create a new preview.");
+      return;
+    }
+    setError("");
+    setSaveMessage("");
+    setEditingPreviewRowNumber(rowNumber);
+    setEditingRowDraft({ ...sourceRow });
+    setTableSuggestions({});
+  }
+
+  function cancelPreviewRowEdit() {
+    setEditingPreviewRowNumber(null);
+    setEditingRowDraft({});
+    setTableSuggestions({});
+    setLoadingSuggestionFieldKey("");
+  }
+
+  function updatePreviewRowDraft(header, value) {
+    setEditingRowDraft((current) => ({ ...current, [header]: value }));
+    setTableSuggestions((current) => {
+      const next = { ...current };
+      const mappedField = selectedFields.find((field) => field.header === header);
+      if (mappedField) delete next[mappedField.key];
+      return next;
+    });
+  }
+
+  async function findNxtTableSuggestions(field) {
+    const value = String(editingRowDraft[field.header] || "").trim();
+    if (!value) return;
+    setLoadingSuggestionFieldKey(field.key);
+    setTableSuggestions((current) => ({ ...current, [field.key]: null }));
+    try {
+      const response = await fetch("/api/constituency-import/table-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fieldKey: field.key, value }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not load NXT table suggestions.");
+      }
+      setTableSuggestions((current) => ({ ...current, [field.key]: payload }));
+    } catch (suggestionError) {
+      setTableSuggestions((current) => ({
+        ...current,
+        [field.key]: {
+          suggestions: [],
+          error:
+            suggestionError instanceof Error
+              ? suggestionError.message
+              : "Could not load NXT table suggestions.",
+        },
+      }));
+    } finally {
+      setLoadingSuggestionFieldKey("");
+    }
+  }
+
+  async function savePreviewRowEdits() {
+    const rowNumber = Number(editingPreviewRowNumber);
+    if (!Number.isInteger(rowNumber) || rowNumber < 1 || previewing) return;
+    const nextRows = rows.map((row, index) =>
+      index === rowNumber - 1 ? { ...editingRowDraft } : row,
+    );
+    setRows(nextRows);
+    await requestPreview({
+      rowsOverride: nextRows,
+      successMessage: `Updated row ${rowNumber} and rebuilt the preview against current NXT data. Review the new staged writes before saving an import run.`,
+    });
   }
 
   async function applyRowsToNxt(rowsToApply, { singleRecord = false } = {}) {
@@ -2222,7 +2483,7 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function requestPreview({ saveRun = false } = {}) {
+  async function requestPreview({ saveRun = false, rowsOverride = null, successMessage = "" } = {}) {
     if (saveRun) {
       setSavingRun(true);
     } else {
@@ -2238,7 +2499,7 @@ export default function ConstituencyImportPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rows,
+          rows: rowsOverride || rows,
           mappings,
           defaults: {
             importIntent,
@@ -2270,6 +2531,9 @@ export default function ConstituencyImportPage() {
       setReviewMode(Boolean(payload?.savedRun));
       setShowBatchTools(false);
       setContactDecisionsDirty(false);
+      setEditingPreviewRowNumber(null);
+      setEditingRowDraft({});
+      setTableSuggestions({});
       window.setTimeout(() => {
         document
           .getElementById("constituency-import-preview-results")
@@ -2278,6 +2542,8 @@ export default function ConstituencyImportPage() {
       if (saveRun && payload?.savedRun?.id) {
         setSaveMessage(`Saved import run #${payload.savedRun.id}. No NXT records were changed.`);
         fetchSavedRuns();
+      } else if (successMessage) {
+        setSaveMessage(successMessage);
       }
     } catch (previewError) {
       setError(
@@ -4166,6 +4432,9 @@ export default function ConstituencyImportPage() {
                 );
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
                 const isFocusedRow = String(row.id) === String(focusedReviewRow?.id);
+                const isEditingThisRow =
+                  !preview?.savedRun && Number(editingPreviewRowNumber) === Number(row.rowNumber);
+                const editableFields = selectedFields.filter((field) => headers.includes(field.header));
                 return (
                   <article
                     key={row.rowNumber}
@@ -4227,6 +4496,25 @@ export default function ConstituencyImportPage() {
                             {row.intentDisposition.label}
                           </Pill>
                         ) : null}
+                        {!preview?.savedRun && !isEditingThisRow ? (
+                          <button
+                            type="button"
+                            onClick={() => beginPreviewRowEdit(row)}
+                            disabled={previewing || Boolean(editingPreviewRowNumber)}
+                            style={{
+                              border: "1px solid #818CF8",
+                              borderRadius: "999px",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              cursor: previewing || editingPreviewRowNumber ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            Edit CSV values
+                          </button>
+                        ) : null}
                         {canApplyRow && showBatchTools ? (
                           <label
                             style={{
@@ -4254,6 +4542,22 @@ export default function ConstituencyImportPage() {
                         ) : null}
                       </div>
                     </div>
+
+                    {isEditingThisRow ? (
+                      <CsvRowEditor
+                        rowNumber={row.rowNumber}
+                        draft={editingRowDraft}
+                        fields={editableFields}
+                        suggestions={tableSuggestions}
+                        loadingFieldKey={loadingSuggestionFieldKey}
+                        onChange={updatePreviewRowDraft}
+                        onFindSuggestions={findNxtTableSuggestions}
+                        onUseSuggestion={updatePreviewRowDraft}
+                        onSave={savePreviewRowEdits}
+                        onCancel={cancelPreviewRowEdit}
+                        saving={previewing}
+                      />
+                    ) : null}
 
                     {preview?.savedRun ? (
                       <section
