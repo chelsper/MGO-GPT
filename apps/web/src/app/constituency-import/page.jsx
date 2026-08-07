@@ -907,6 +907,26 @@ function renderApplyAudit(result) {
     .join(" || ");
 }
 
+function renderReconciliationAudit(result) {
+  const attempts = Array.isArray(result?.reconciliation?.attempts)
+    ? result.reconciliation.attempts
+    : Array.isArray(result?.reconciliation?.results)
+      ? [result.reconciliation]
+      : [];
+  if (!attempts.length) return "Not verified";
+
+  return attempts
+    .map((attempt, index) => {
+      const outcomes = Array.isArray(attempt?.results)
+        ? attempt.results
+            .map((item) => `${item?.status === "confirmed" ? "Confirmed" : "Review"}: ${item?.message || item?.type || "NXT check"}`)
+            .join(" | ")
+        : "No verification details recorded";
+      return `Check ${index + 1}: ${outcomes}`;
+    })
+    .join(" || ");
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -1200,6 +1220,8 @@ export default function ConstituencyImportPage() {
   const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
   const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
+  const [selectedReconciliationRowIds, setSelectedReconciliationRowIds] = useState([]);
+  const [reconcilingRun, setReconcilingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
   const [retryingRowId, setRetryingRowId] = useState("");
 
@@ -1351,6 +1373,13 @@ export default function ConstituencyImportPage() {
   const selectedApplyWriteCount = selectedApplyRows.reduce(
     (count, row) => count + (Array.isArray(row.writePlan) ? row.writePlan.length : 0),
     0,
+  );
+  const appliedReconciliationRows =
+    preview?.savedRun && Array.isArray(preview?.rows)
+      ? preview.rows.filter((row) => row.status === "Applied" && row.appliedAt)
+      : [];
+  const selectedReconciliationRows = appliedReconciliationRows.filter((row) =>
+    selectedReconciliationRowIds.includes(String(row.id)),
   );
   const potentialNewRows =
     preview?.savedRun && Array.isArray(preview?.rows)
@@ -1628,6 +1657,7 @@ export default function ConstituencyImportPage() {
     setParseMessage("");
     setPreview(null);
     setSelectedApplyRowIds([]);
+    setSelectedReconciliationRowIds([]);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setError("");
@@ -1674,6 +1704,7 @@ export default function ConstituencyImportPage() {
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
+      setSelectedReconciliationRowIds([]);
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -1695,6 +1726,19 @@ export default function ConstituencyImportPage() {
 
   function selectAllReadyRows() {
     setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
+  }
+
+  function toggleReconciliationRow(rowId) {
+    const normalizedRowId = String(rowId);
+    setSelectedReconciliationRowIds((current) =>
+      current.includes(normalizedRowId)
+        ? current.filter((candidate) => candidate !== normalizedRowId)
+        : [...current, normalizedRowId],
+    );
+  }
+
+  function selectAllAppliedRows() {
+    setSelectedReconciliationRowIds(appliedReconciliationRows.map((row) => String(row.id)));
   }
 
   async function applySavedRun() {
@@ -1735,21 +1779,14 @@ export default function ConstituencyImportPage() {
         failed === 0 &&
         payload?.savedRun?.status === "applied";
 
-      if (fullyApplied) {
-        resetImportWorkspace({
-          completion: `Import complete. ${applied} row${applied === 1 ? " was" : "s were"} updated in Raiser's Edge NXT. The import workspace has been cleared and is ready for the next CSV.`,
-          resetFieldConfiguration: true,
-        });
-        window.setTimeout(() => {
-          document
-            .getElementById("constituency-import-completion")
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 0);
-      } else {
-        setPreview(payload);
-        setSelectedApplyRowIds([]);
-        setSaveMessage(payload?.applySummary?.message || `Applied import run #${runId}.`);
-      }
+      setPreview(payload);
+      setSelectedApplyRowIds([]);
+      setSelectedReconciliationRowIds([]);
+      setSaveMessage(
+        fullyApplied
+          ? `Import complete. ${applied} row${applied === 1 ? " was" : "s were"} updated in Raiser's Edge NXT. Verify the applied rows before starting another CSV.`
+          : payload?.applySummary?.message || `Applied import run #${runId}.`,
+      );
       fetchSavedRuns();
     } catch (applyError) {
       setError(
@@ -1757,6 +1794,64 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setApplyingRun(false);
+    }
+  }
+
+  async function reconcileAppliedRows() {
+    const runId = preview?.savedRun?.id;
+    if (!runId || reconcilingRun || !selectedReconciliationRows.length) return;
+
+    const shouldVerify = window.confirm(
+      `Verify ${selectedReconciliationRows.length} applied row${selectedReconciliationRows.length === 1 ? "" : "s"} against current Raiser's Edge NXT data? This only reads NXT and records a JUMGOGPT verification audit; it will not write or change any constituent record.`,
+    );
+    if (!shouldVerify) return;
+
+    setReconcilingRun(true);
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/reconcile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowIds: selectedReconciliationRows.map((row) => String(row.id)) }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to verify the import run in NXT");
+      }
+
+      const reconciliations = new Map(
+        (payload?.rows || []).map((row) => [String(row.id), row.reconciliation]),
+      );
+      setPreview((current) =>
+        current
+          ? {
+              ...current,
+              rows: current.rows.map((row) => {
+                const reconciliation = reconciliations.get(String(row.id));
+                return reconciliation
+                  ? {
+                      ...row,
+                      blackbaudResult: {
+                        ...(row.blackbaudResult || {}),
+                        reconciliation,
+                      },
+                    }
+                  : row;
+              }),
+            }
+          : current,
+      );
+      setSelectedReconciliationRowIds([]);
+      setSaveMessage(payload?.reconciliationSummary?.message || "NXT verification completed.");
+    } catch (reconciliationError) {
+      setError(
+        reconciliationError instanceof Error
+          ? reconciliationError.message
+          : "Failed to verify the import run in NXT",
+      );
+    } finally {
+      setReconcilingRun(false);
     }
   }
 
@@ -1888,6 +1983,7 @@ export default function ConstituencyImportPage() {
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
+      setSelectedReconciliationRowIds([]);
       setContactDecisionsDirty(false);
       window.setTimeout(() => {
         document
@@ -1941,6 +2037,7 @@ export default function ConstituencyImportPage() {
         proposedCodes: renderList(row.proposedCodes),
         writePlan: renderWritePlan(row.writePlan),
         applyAudit: renderApplyAudit(row.blackbaudResult),
+        reconciliationAudit: renderReconciliationAudit(row.blackbaudResult),
         appliedAt: row.appliedAt || "",
         applyError: row.blackbaudError || "",
         reasons: (row.reasons || []).join(" | "),
@@ -3495,7 +3592,8 @@ export default function ConstituencyImportPage() {
             >
               <span>
                 Saved import run #{preview.savedRun.id}. {readySavedRows} ready confirmed update
-                {readySavedRows === 1 ? "" : "s"} can be applied to NXT.
+                {readySavedRows === 1 ? "" : "s"} can be selected for an NXT batch. {appliedReconciliationRows.length} applied row
+                {appliedReconciliationRows.length === 1 ? "" : "s"} can be verified against current NXT data.
                 {potentialNewRows
                   ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} individual review and a separate one-record creation confirmation.`
                   : " No unreviewed potential new records remain."}
@@ -3556,7 +3654,74 @@ export default function ConstituencyImportPage() {
                       : `Apply ${selectedApplyRows.length || "selected"} row${selectedApplyRows.length === 1 ? "" : "s"}`}
                   </button>
                 </div>
-              </div>
+                {appliedReconciliationRows.length ? (
+                  <div
+                    style={{
+                      borderTop: "1px solid #A7F3D0",
+                      paddingTop: "8px",
+                      display: "grid",
+                      gap: "8px",
+                      width: "100%",
+                    }}
+                  >
+                    <div style={{ color: "#075985", fontSize: "13px", fontWeight: 900 }}>
+                      NXT verification: {selectedReconciliationRows.length} of {appliedReconciliationRows.length} applied rows selected
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        onClick={selectAllAppliedRows}
+                        disabled={reconcilingRun}
+                        style={{
+                          border: "1px solid #7DD3FC",
+                          borderRadius: "999px",
+                          backgroundColor: "white",
+                          color: "#0369A1",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: reconcilingRun ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Select all applied
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReconciliationRowIds([])}
+                        disabled={!selectedReconciliationRows.length || reconcilingRun}
+                        style={{
+                          border: "1px solid #BAE6FD",
+                          borderRadius: "999px",
+                          backgroundColor: "white",
+                          color: "#0369A1",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: !selectedReconciliationRows.length || reconcilingRun ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Clear verification selection
+                      </button>
+                      <button
+                        type="button"
+                        onClick={reconcileAppliedRows}
+                        disabled={!selectedReconciliationRows.length || reconcilingRun}
+                        style={{
+                          border: "1px solid #0369A1",
+                          borderRadius: "999px",
+                          backgroundColor: !selectedReconciliationRows.length || reconcilingRun ? "#E0F2FE" : "#0369A1",
+                          color: !selectedReconciliationRows.length || reconcilingRun ? "#0369A1" : "white",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: !selectedReconciliationRows.length || reconcilingRun ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {reconcilingRun
+                          ? "Verifying NXT..."
+                          : `Verify ${selectedReconciliationRows.length || "selected"} applied row${selectedReconciliationRows.length === 1 ? "" : "s"}`}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                </div>
             </div>
           ) : null}
 
@@ -3580,6 +3745,10 @@ export default function ConstituencyImportPage() {
                   preview?.savedRun && row.status === "Ready" && !row.appliedAt,
                 );
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
+                const canReconcileRow = Boolean(
+                  preview?.savedRun && row.status === "Applied" && row.appliedAt,
+                );
+                const reconciliationRowSelected = selectedReconciliationRowIds.includes(String(row.id));
                 return (
                   <article
                     key={row.rowNumber}
@@ -3663,6 +3832,31 @@ export default function ConstituencyImportPage() {
                               onChange={() => toggleApplyRow(row.id)}
                             />
                             Include in NXT batch
+                          </label>
+                        ) : null}
+                        {canReconcileRow ? (
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              border: `1px solid ${reconciliationRowSelected ? "#0369A1" : "#7DD3FC"}`,
+                              borderRadius: "999px",
+                              backgroundColor: reconciliationRowSelected ? "#E0F2FE" : "white",
+                              color: "#075985",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              cursor: reconcilingRun ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={reconciliationRowSelected}
+                              disabled={reconcilingRun}
+                              onChange={() => toggleReconciliationRow(row.id)}
+                            />
+                            Verify NXT result
                           </label>
                         ) : null}
                       </div>
@@ -3841,6 +4035,43 @@ export default function ConstituencyImportPage() {
                             }}
                           >
                             {formatApplyResultItem(result)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {Array.isArray(row.blackbaudResult?.reconciliation?.results) &&
+                    row.blackbaudResult.reconciliation.results.length ? (
+                      <div
+                        style={{
+                          border: "1px solid #7DD3FC",
+                          borderRadius: "12px",
+                          backgroundColor: "#F0F9FF",
+                          padding: "11px 12px",
+                          display: "grid",
+                          gap: "6px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: "#075985",
+                            fontSize: "12px",
+                            fontWeight: 900,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          NXT verification{row.blackbaudResult.reconciliation.verifiedAt ? ` · ${formatDateTime(row.blackbaudResult.reconciliation.verifiedAt)}` : ""}
+                        </div>
+                        {row.blackbaudResult.reconciliation.results.map((result, resultIndex) => (
+                          <div
+                            key={`${result.type || "verification"}-${resultIndex}`}
+                            style={{
+                              color: result.status === "confirmed" ? "#166534" : "#92400E",
+                              fontWeight: 800,
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {result.status === "confirmed" ? "Confirmed" : "Needs review"}: {result.message}
                           </div>
                         ))}
                       </div>
