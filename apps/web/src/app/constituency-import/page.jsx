@@ -1563,7 +1563,7 @@ export default function ConstituencyImportPage() {
     if (!runId || applyingRun) return;
 
     const shouldApply = window.confirm(
-      "Apply ready rows to NXT now? This may update constituent codes, education relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationship rows stay staged for manual review.",
+      "Apply ready rows to NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.",
     );
     if (!shouldApply) return;
 

@@ -865,6 +865,250 @@ describe("constituency import run apply route", () => {
     expect(payload.applySummary.applied).toBe(1);
   });
 
+  it("adds an organization relationship only for an exact existing NXT organization", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "organization_relationship",
+      action: "add",
+      recordType: "Individual",
+      name: "Dolphin Health System",
+      relationshipType: "Employee",
+      title: "Nurse",
+      startDate: "2026-08-01",
+      endDate: "2026-12-31",
+      makePrimary: "Yes",
+    };
+    const row = {
+      id: "11",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [{ id: "456", name: "Dolphin Health System", type: "Organization" }],
+      })
+      .mockResolvedValueOnce({ id: "relationship-1" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/constituent/v1/constituents/123/relationships",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+      },
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/constituent/v1/constituents/search",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+        searchParams: { search_text: "Dolphin Health System", limit: 10 },
+      },
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(3, "/constituent/v1/relationships", {
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      method: "POST",
+      body: {
+        constituent_id: "123",
+        relation_id: "456",
+        type: "Employee",
+        position: "Nurse",
+        start: "2026-08-01",
+        end: "2026-12-31",
+        is_primary_business: true,
+      },
+    });
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("does not duplicate an organization relationship that is already linked", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "organization_relationship",
+      action: "add",
+      recordType: "Individual",
+      name: "Dolphin Health System",
+    };
+    const row = {
+      id: "12",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [{ relation_id: "456", name: "Dolphin Health System" }],
+      })
+      .mockResolvedValueOnce({
+        value: [{ id: "456", name: "Dolphin Health System", type: "Organization" }],
+      });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("verifies sparse exact search results are organizations before adding a relationship", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "organization_relationship",
+      action: "add",
+      recordType: "Individual constituent",
+      name: "Dolphin Health System",
+    };
+    const row = {
+      id: "15",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [{ id: "456", name: "Dolphin Health System" }],
+      })
+      .mockResolvedValueOnce({ id: "456", type: "Organization", name: "Dolphin Health System" })
+      .mockResolvedValueOnce({ id: "relationship-1" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/constituent/v1/constituents/456",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+      },
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(4, "/constituent/v1/relationships", {
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      method: "POST",
+      body: { constituent_id: "123", relation_id: "456" },
+    });
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("keeps ambiguous organization matches in review without creating a relationship", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "organization_relationship",
+      action: "add",
+      recordType: "Individual",
+      name: "Dolphin Health System",
+    };
+    const row = {
+      id: "13",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeRun({ status: "partially_applied", ready_count: 0, needs_review_count: 1 }),
+      ])
+      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [
+          { id: "456", name: "Dolphin Health System", type: "Organization" },
+          { id: "789", name: "Dolphin Health System", type: "Organization" },
+        ],
+      });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
+    expect(payload.applySummary.manualRequired).toBe(1);
+    expect(payload.savedRun.needsReviewCount).toBe(1);
+  });
+
   it("keeps legacy education update writes in manual review", async () => {
     const { POST } = await import("./route.js");
     const write = {

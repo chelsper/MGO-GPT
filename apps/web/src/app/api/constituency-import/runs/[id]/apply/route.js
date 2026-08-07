@@ -580,6 +580,212 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
   };
 }
 
+function getRelationshipConstituentId(value) {
+  return cleanText(
+    value?.relation_id ||
+      value?.related_constituent_id ||
+      value?.relatedConstituentId ||
+      value?.relation?.id,
+  );
+}
+
+function getRelationshipName(value) {
+  return cleanText(
+    value?.name ||
+      value?.relation_name ||
+      value?.related_constituent_name ||
+      value?.relation?.name,
+  );
+}
+
+function relationshipMatchesOrganization(relationship, organization) {
+  const relationshipId = getRelationshipConstituentId(relationship);
+  const organizationId = cleanText(organization?.id || organization?.constituent_id);
+  if (relationshipId && organizationId && relationshipId === organizationId) {
+    return true;
+  }
+
+  const relationshipName = normalizeText(getRelationshipName(relationship));
+  const organizationName = normalizeText(organization?.name);
+  return Boolean(relationshipName && organizationName && relationshipName === organizationName);
+}
+
+function getSearchCandidateId(value) {
+  return cleanText(value?.id || value?.constituent_id || value?.constituentId);
+}
+
+function getSearchCandidateName(value) {
+  return cleanText(
+    value?.name ||
+      value?.formatted_name ||
+      value?.organization_name ||
+      value?.org_name ||
+      value?.organization?.name ||
+      value?.display_name,
+  );
+}
+
+function isOrganizationConstituent(value) {
+  return normalizeText(
+    value?.type || value?.constituent_type || value?.record_type || value?.recordType,
+  ).includes("organization");
+}
+
+async function fetchCurrentRelationships({ request, user, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/relationships`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+    },
+  );
+  return getCollection(payload);
+}
+
+async function resolveExactOrganization({ request, user, organizationName }) {
+  const origin = new URL(request.url).origin;
+  const searchPayload = await blackbaudApiFetch("/constituent/v1/constituents/search", {
+    userId: user.id,
+    authUserId: user.id,
+    origin,
+    searchParams: {
+      search_text: organizationName,
+      limit: 10,
+    },
+  });
+
+  const exactCandidates = getCollection(searchPayload).filter((candidate) =>
+    normalizeText(getSearchCandidateName(candidate)) === normalizeText(organizationName),
+  );
+
+  const organizations = [];
+  for (const candidate of exactCandidates) {
+    const candidateId = getSearchCandidateId(candidate);
+    if (!candidateId) continue;
+
+    if (isOrganizationConstituent(candidate)) {
+      organizations.push({ id: candidateId, name: getSearchCandidateName(candidate) });
+      continue;
+    }
+
+    // Search results do not always include constituent type, so verify an exact
+    // name candidate before creating any relationship.
+    const constituent = await blackbaudApiFetch(
+      `/constituent/v1/constituents/${encodeURIComponent(candidateId)}`,
+      {
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+      },
+    );
+    if (isOrganizationConstituent(constituent)) {
+      organizations.push({
+        id: getSearchCandidateId(constituent) || candidateId,
+        name: getSearchCandidateName(constituent) || getSearchCandidateName(candidate),
+      });
+    }
+  }
+
+  const uniqueOrganizations = [];
+  const seen = new Set();
+  for (const organization of organizations) {
+    if (!organization?.id || seen.has(organization.id)) continue;
+    seen.add(organization.id);
+    uniqueOrganizations.push(organization);
+  }
+
+  return uniqueOrganizations;
+}
+
+function manualOrganizationResult(action, message) {
+  return { status: "manual_required", type: "organization_relationship", action, message };
+}
+
+async function applyOrganizationRelationshipAdd({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const action = cleanText(write?.action) || "add";
+  const recordType = normalizeText(write?.recordType);
+  const organizationName = cleanText(write?.name);
+
+  if (!constituentId || !organizationName) {
+    return manualOrganizationResult(
+      action,
+      "A matched NXT constituent ID and Organization Name are required before an organization relationship can be added.",
+    );
+  }
+  if (!recordType.includes("individual")) {
+    return manualOrganizationResult(
+      action,
+      "Organization relationship imports require a confirmed matched individual NXT constituent. Refresh the preview before applying.",
+    );
+  }
+
+  const currentRelationships = await fetchCurrentRelationships({ request, user, constituentId });
+  const organizations = await resolveExactOrganization({ request, user, organizationName });
+  if (organizations.length === 0) {
+    return manualOrganizationResult(
+      action,
+      `No exact existing NXT organization matched ${organizationName}; no organization record or relationship was created.`,
+    );
+  }
+  if (organizations.length > 1) {
+    return manualOrganizationResult(
+      action,
+      `More than one exact NXT organization matched ${organizationName}; choose the organization manually to avoid a duplicate or incorrect link.`,
+    );
+  }
+
+  const organization = organizations[0];
+  const existing = currentRelationships.find((relationship) =>
+    relationshipMatchesOrganization(relationship, organization),
+  );
+  if (existing) {
+    return {
+      status: "applied",
+      type: "organization_relationship",
+      action: "skip_existing",
+      message: `${organization.name} is already linked in NXT; no duplicate organization relationship was added.`,
+    };
+  }
+  if (action === "skip_existing") {
+    return manualOrganizationResult(
+      action,
+      "The matching NXT organization relationship changed after preview. Refresh the preview before applying.",
+    );
+  }
+
+  const payload = {
+    constituent_id: String(constituentId),
+    relation_id: String(organization.id),
+  };
+  const relationshipType = cleanText(write?.relationshipType);
+  const title = cleanText(write?.title);
+  const startDate = formatDateForBlackbaud(write?.startDate);
+  const endDate = formatDateForBlackbaud(write?.endDate);
+  if (relationshipType) payload.type = relationshipType;
+  if (title) payload.position = title;
+  if (startDate) payload.start = startDate;
+  if (endDate) payload.end = endDate;
+  if (parseBoolean(write?.makePrimary)) payload.is_primary_business = true;
+
+  const result = await blackbaudApiFetch("/constituent/v1/relationships", {
+    userId: user.id,
+    authUserId: user.id,
+    origin: new URL(request.url).origin,
+    method: "POST",
+    body: payload,
+  });
+
+  return {
+    status: "applied",
+    type: "organization_relationship",
+    action: "add",
+    message: `Added ${organization.name} as an NXT organization relationship.`,
+    blackbaudResult: result || null,
+  };
+}
+
 async function fetchEmailAddresses({ request, user, constituentId }) {
   const payload = await blackbaudApiFetch(
     `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/emailaddresses`,
@@ -1150,6 +1356,12 @@ async function applyWrite({ request, user, row, write }) {
   ) {
     return applyEducationRelationshipAdd({ request, user, row, write });
   }
+  if (
+    write?.type === "organization_relationship" &&
+    ["add", "skip_existing"].includes(write?.action)
+  ) {
+    return applyOrganizationRelationshipAdd({ request, user, row, write });
+  }
   if (write?.type === "constituent_code" && write?.action === "add") {
     return applyConstituentCodeAdd({ request, user, row, write });
   }
@@ -1186,7 +1398,7 @@ async function applyWrite({ request, user, row, write }) {
       type: "organization_relationship",
       action: write?.action || "review",
       message:
-        "Organization relationship writes are staged for manual NXT review until relationship endpoint payloads are validated.",
+        "Only add-only organization relationship imports are automated. Existing organization relationships are not edited by this import.",
     };
   }
 

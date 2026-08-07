@@ -768,14 +768,15 @@ describe("constituency import preview route", () => {
       expect.objectContaining({
         type: "organization_relationship",
         action: "add",
-        duplicatePolicy: "add_additional",
+        duplicatePolicy: "skip_if_existing_organization",
+        recordType: "Individual",
       }),
     ]);
     expect(payload.rows[0].reasons.join(" ")).toContain(
       "Existing education records are never replaced or end-dated",
     );
     expect(payload.rows[0].reasons.join(" ")).toContain(
-      "additional organization relationship",
+      "single exact existing NXT organization",
     );
     expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
       "/constituent/v1/constituents/789/educations",

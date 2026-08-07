@@ -722,6 +722,38 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
   return write;
 }
 
+function buildOrganizationRelationshipWrite(input, match) {
+  if (!input.organizationRelationship) return null;
+
+  const write = {
+    type: "organization_relationship",
+    action: "add",
+    // Never replace, end-date, or otherwise alter an existing organization link.
+    duplicatePolicy: "skip_if_existing_organization",
+    recordType: cleanText(match?.raw?.type),
+    name: cleanText(input.organizationRelationship.name),
+    relationshipType: cleanText(input.organizationRelationship.relationshipType),
+    title: cleanText(input.organizationRelationship.title),
+    startDate: cleanText(input.organizationRelationship.startDate),
+    endDate: cleanText(input.organizationRelationship.endDate),
+    makePrimary: input.organizationRelationship.makePrimary || "",
+  };
+
+  if (!write.name) {
+    write.requiresReview = true;
+    write.validationMessage =
+      "An Organization Name is required before an organization relationship can be added.";
+    return write;
+  }
+  if (!normalizeText(write.recordType).includes("individual")) {
+    write.requiresReview = true;
+    write.validationMessage =
+      "Organization relationship imports require a confirmed matched individual NXT constituent.";
+  }
+
+  return write;
+}
+
 function buildWritePlan(
   input,
   changePreview,
@@ -754,18 +786,9 @@ function buildWritePlan(
     writes.push(educationRelationshipWrite);
   }
 
-  if (input.organizationRelationship) {
-    writes.push({
-      type: "organization_relationship",
-      action: "add",
-      duplicatePolicy: "add_additional",
-      name: input.organizationRelationship.name || "",
-      relationshipType: input.organizationRelationship.relationshipType || "",
-      title: input.organizationRelationship.title || "",
-      startDate: input.organizationRelationship.startDate || "",
-      endDate: input.organizationRelationship.endDate || "",
-      makePrimary: input.organizationRelationship.makePrimary || "",
-    });
+  const organizationRelationshipWrite = buildOrganizationRelationshipWrite(input, match);
+  if (organizationRelationshipWrite) {
+    writes.push(organizationRelationshipWrite);
   }
 
   const nameUpdateWrite = buildNameUpdateWrite(input, match);
@@ -1537,7 +1560,9 @@ export async function POST(request) {
             ]
           : []),
         ...(input.organizationRelationship
-          ? ["Organization relationship data is staged as an additional organization relationship; it will not replace existing organization relationships."]
+          ? [
+              "Organization relationship data is add-only. The import will link a single exact existing NXT organization, skip an existing link, and keep missing or ambiguous organization matches in review.",
+            ]
           : []),
         ...(writePlan.some((write) => write.type === "constituent_name")
           ? [
