@@ -287,10 +287,84 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan).toEqual([
       expect.objectContaining({
         type: "email_address",
-        action: "add_if_new",
+        action: "add",
         address: "chelsea.updated@example.com",
         emailType: "Preferred Email 1",
         makePrimary: true,
+      }),
+    ]);
+  });
+
+  it("shows current NXT contact values and stages an explicitly selected email replacement", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
+          { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [{ id: "phone-1", number: "904-555-0100", type: "Mobile", primary: true }] })
+      .mockResolvedValueOnce({ value: [{ id: "address-1", address_lines: ["10 Elm St."], type: "Home", primary: true }] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Email Address": "chelsea.new@ju.edu",
+            "Email Type": "Preferred Email 1",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          email: "Email Address",
+          emailType: "Email Type",
+        },
+        defaults: { updateEmailFields: true },
+        contactDecisions: {
+          1: {
+            email: {
+              0: { mode: "replace", targetId: "email-primary" },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].currentContacts).toEqual({
+      emails: [
+        { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
+        { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
+      ],
+      phones: [{ id: "phone-1", number: "904-555-0100", type: "Mobile", primary: true }],
+      addresses: [{
+        id: "address-1",
+        type: "Home",
+        addressLine1: "10 Elm St.",
+        addressLine2: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: "",
+        primary: true,
+      }],
+    });
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "email_address",
+        action: "replace",
+        targetId: "email-primary",
+        address: "chelsea.new@ju.edu",
+        preserveExistingSettings: true,
+        makePrimary: false,
       }),
     ]);
   });

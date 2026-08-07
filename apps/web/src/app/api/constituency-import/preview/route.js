@@ -203,6 +203,43 @@ function getRowInput(row, mappings, defaults = {}) {
     }
   }
 
+  if (defaults.updatePhoneFields === true) {
+    const phoneUpdates = [
+      {
+        number: getMappedValue(row, mappings, "phoneNumber"),
+        type: getMappedValue(row, mappings, "phoneType"),
+        makePrimary: parseBoolean(getMappedValue(row, mappings, "phoneMakePrimary")),
+      },
+      {
+        number: getMappedValue(row, mappings, "phone2Number"),
+        type: getMappedValue(row, mappings, "phone2Type"),
+        makePrimary: parseBoolean(getMappedValue(row, mappings, "phone2MakePrimary")),
+      },
+    ].filter((phone) => phone.number);
+
+    if (phoneUpdates.length) {
+      input.phoneUpdates = phoneUpdates;
+    }
+  }
+
+  if (defaults.updateAddressFields === true) {
+    const addressLine1 = getMappedValue(row, mappings, "addressLine1");
+    if (addressLine1) {
+      input.addressUpdates = [
+        {
+          type: getMappedValue(row, mappings, "addressType"),
+          addressLine1,
+          addressLine2: getMappedValue(row, mappings, "addressLine2"),
+          city: getMappedValue(row, mappings, "city"),
+          state: getMappedValue(row, mappings, "state"),
+          postalCode: getMappedValue(row, mappings, "postalCode"),
+          country: getMappedValue(row, mappings, "country"),
+          makePrimary: parseBoolean(getMappedValue(row, mappings, "addressMakePrimary")),
+        },
+      ];
+    }
+  }
+
   return input;
 }
 
@@ -251,20 +288,171 @@ function buildNameUpdateWrite(input, match) {
   };
 }
 
-function buildEmailUpdateWrites(input) {
-  if (!Array.isArray(input.emailUpdates)) return [];
-
-  return input.emailUpdates.map((email) => ({
-    type: "email_address",
-    action: "add_if_new",
-    address: email.address,
-    emailType: email.type || "",
-    makePrimary: email.makePrimary === true,
-    blankValuePolicy: "leave_unchanged",
-  }));
+function getContactId(value, kind) {
+  if (!value || typeof value !== "object") return "";
+  const idKeys =
+    kind === "email"
+      ? ["id", "email_address_id"]
+      : kind === "phone"
+        ? ["id", "phone_id"]
+        : ["id", "address_id"];
+  return cleanText(idKeys.map((key) => value[key]).find(Boolean));
 }
 
-function buildWritePlan(input, changePreview, match = null) {
+function getContactType(value) {
+  return cleanText(value?.type || value?.type_name || value?.type_description);
+}
+
+function isPrimaryContact(value) {
+  return parseBoolean(value?.primary ?? value?.is_primary ?? value?.preferred) === true;
+}
+
+function getEmailAddress(value) {
+  return cleanText(value?.address || value?.email || value?.email_address);
+}
+
+function getPhoneNumber(value) {
+  return cleanText(value?.number || value?.phone || value?.phone_number);
+}
+
+function getAddressLines(value) {
+  const lines = value?.address_lines || value?.addressLines || value?.lines;
+  if (Array.isArray(lines)) return lines.map(cleanText).filter(Boolean);
+  if (typeof lines === "string") return lines.split("\n").map(cleanText).filter(Boolean);
+  return [cleanText(value?.address_line1 || value?.line1), cleanText(value?.address_line2 || value?.line2)].filter(Boolean);
+}
+
+function serializeContactSnapshot(payload = {}) {
+  const mapEmails = (payload.emails || []).map((email) => ({
+    id: getContactId(email, "email"),
+    address: getEmailAddress(email),
+    type: getContactType(email),
+    primary: isPrimaryContact(email),
+  })).filter((email) => email.id || email.address);
+  const mapPhones = (payload.phones || []).map((phone) => ({
+    id: getContactId(phone, "phone"),
+    number: getPhoneNumber(phone),
+    type: getContactType(phone),
+    primary: isPrimaryContact(phone),
+  })).filter((phone) => phone.id || phone.number);
+  const mapAddresses = (payload.addresses || []).map((address) => {
+    const lines = getAddressLines(address);
+    return {
+      id: getContactId(address, "address"),
+      type: getContactType(address),
+      addressLine1: lines[0] || "",
+      addressLine2: lines.slice(1).join("\n"),
+      city: cleanText(address?.city),
+      state: cleanText(address?.state),
+      postalCode: cleanText(address?.postal_code || address?.postalCode || address?.zip),
+      country: cleanText(address?.country),
+      primary: isPrimaryContact(address),
+    };
+  }).filter((address) => address.id || address.addressLine1);
+
+  return { emails: mapEmails, phones: mapPhones, addresses: mapAddresses };
+}
+
+function getDecision(decisions, kind, index) {
+  const value = decisions?.[kind]?.[String(index)] || decisions?.[kind]?.[index];
+  return value && typeof value === "object" ? value : {};
+}
+
+function getExistingPrimary(contacts) {
+  return contacts.find((contact) => contact.primary) || null;
+}
+
+function buildContactWrites({
+  input,
+  kind,
+  values,
+  contacts = [],
+  decisions = {},
+}) {
+  if (!Array.isArray(values)) return [];
+
+  const config =
+    kind === "email"
+      ? { type: "email_address", valueKey: "address", typeKey: "emailType" }
+      : kind === "phone"
+        ? { type: "phone", valueKey: "number", typeKey: "phoneType" }
+        : { type: "address", valueKey: "addressLine1", typeKey: "addressType" };
+  const existingPrimary = getExistingPrimary(contacts);
+  const defaultPrimaryIndex = values.findIndex((value) => value.makePrimary === true);
+
+  return values.map((value, index) => {
+    const decision = getDecision(decisions, kind, index);
+    const action = decision.mode === "replace" ? "replace" : "add";
+    const targetId = cleanText(decision.targetId);
+    const makePrimary =
+      action === "replace"
+        ? false
+        : decision.makePrimary === undefined
+          ? index === defaultPrimaryIndex
+          : decision.makePrimary === true;
+    const write = {
+      type: config.type,
+      action,
+      [config.valueKey]: value[config.valueKey] || "",
+      [config.typeKey]: value.type || "",
+      makePrimary,
+      existingPrimaryId: existingPrimary?.id || "",
+      demotedPrimaryType: cleanText(decision.demotedPrimaryType),
+      blankValuePolicy: "leave_unchanged",
+    };
+
+    if (kind === "address") {
+      write.addressLine2 = value.addressLine2 || "";
+      write.city = value.city || "";
+      write.state = value.state || "";
+      write.postalCode = value.postalCode || "";
+      write.country = value.country || "";
+    }
+
+    if (action === "replace") {
+      write.targetId = targetId;
+      write.preserveExistingSettings = true;
+      if (!targetId) {
+        write.requiresReview = true;
+        write.validationMessage = `Choose the current NXT ${kind} value to replace.`;
+      }
+    }
+
+    if (makePrimary && existingPrimary?.id && existingPrimary.id !== targetId) {
+      write.demoteExistingPrimary = true;
+    }
+
+    return write;
+  });
+}
+
+function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
+  return [
+    ...buildContactWrites({
+      input,
+      kind: "email",
+      values: input.emailUpdates,
+      contacts: currentContacts?.emails,
+      decisions: contactDecisions,
+    }),
+    ...buildContactWrites({
+      input,
+      kind: "phone",
+      values: input.phoneUpdates,
+      contacts: currentContacts?.phones,
+      decisions: contactDecisions,
+    }),
+    ...buildContactWrites({
+      input,
+      kind: "address",
+      values: input.addressUpdates,
+      contacts: currentContacts?.addresses,
+      decisions: contactDecisions,
+    }),
+  ];
+}
+
+function buildWritePlan(input, changePreview, match = null, currentContacts = null, contactDecisions = {}) {
   const writes = [];
 
   if (changePreview.status === STATUS.ready && cleanText(input.targetConstituency)) {
@@ -314,7 +502,7 @@ function buildWritePlan(input, changePreview, match = null) {
     writes.push(nameUpdateWrite);
   }
 
-  writes.push(...buildEmailUpdateWrites(input));
+  writes.push(...buildContactUpdateWrites(input, currentContacts, contactDecisions));
 
   return writes;
 }
@@ -642,13 +830,58 @@ async function fetchConstituencyCodes({ userId, authUserId, origin, constituentI
   return rows.map(mapConstituencyCode).filter((code) => code.label);
 }
 
-function deriveStatus(matchResult, codeFetchError, changePreview, writePlan = []) {
+function getCollection(payload) {
+  return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+}
+
+async function fetchCurrentContacts({ userId, authUserId, origin, constituentId, input }) {
+  const requestedKinds = new Set([
+    Array.isArray(input.emailUpdates) && input.emailUpdates.length ? "emails" : "",
+    Array.isArray(input.phoneUpdates) && input.phoneUpdates.length ? "phones" : "",
+    Array.isArray(input.addressUpdates) && input.addressUpdates.length ? "addresses" : "",
+  ].filter(Boolean));
+  const basePath = "/constituent/v1/constituents/" + encodeURIComponent(String(constituentId));
+  // Load all contact categories so reviewers can compare the full NXT contact picture.
+  // Only a failed category selected for import should block the row from being applied.
+  const requests = [
+    ["emails", `${basePath}/emailaddresses`],
+    ["phones", `${basePath}/phones`],
+    ["addresses", `${basePath}/addresses`],
+  ];
+
+  const results = await Promise.allSettled(
+    requests.map(([, path]) => blackbaudApiFetch(path, { userId, authUserId, origin })),
+  );
+  const contacts = { emails: [], phones: [], addresses: [] };
+  const errors = [];
+  results.forEach((result, index) => {
+    const [kind] = requests[index];
+    if (result.status === "fulfilled") {
+      contacts[kind] = getCollection(result.value);
+      return;
+    }
+    if (requestedKinds.has(kind)) {
+      errors.push(`Could not load current NXT ${kind}: ${
+        result.reason instanceof Error ? result.reason.message : "Unknown error"
+      }`);
+    }
+  });
+
+  return { contacts: serializeContactSnapshot(contacts), errors };
+}
+
+function deriveStatus(matchResult, codeFetchError, contactFetchErrors, changePreview, writePlan = []) {
   const hasWritePlan = Array.isArray(writePlan) && writePlan.length > 0;
   const hasConstituentCodeWrite = writePlan.some((write) => write.type === "constituent_code");
+  const hasContactWrite = writePlan.some((write) =>
+    ["email_address", "phone", "address"].includes(write.type),
+  );
 
   if (changePreview.status === STATUS.conflict) return STATUS.conflict;
   if (matchResult.status !== "matched") return STATUS.needsReview;
   if (codeFetchError && hasConstituentCodeWrite) return STATUS.needsReview;
+  if (contactFetchErrors.length && hasContactWrite) return STATUS.needsReview;
+  if (writePlan.some((write) => write.requiresReview)) return STATUS.needsReview;
   if (hasWritePlan) return STATUS.ready;
   if (changePreview.status === STATUS.skipped) return STATUS.skipped;
   return changePreview.status;
@@ -835,6 +1068,10 @@ export async function POST(request) {
     const rowsToPreview = inputRows.slice(0, MAX_PREVIEW_ROWS);
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
+    const contactDecisions =
+      body?.contactDecisions && typeof body.contactDecisions === "object"
+        ? body.contactDecisions
+        : {};
     const useHierarchy = defaults.useHierarchy !== false;
     const saveRun = Boolean(body?.saveRun);
     const origin = new URL(request.url).origin;
@@ -847,6 +1084,8 @@ export async function POST(request) {
       let matchResult;
       let currentCodes = [];
       let codeFetchError = "";
+      let currentContacts = { emails: [], phones: [], addresses: [] };
+      let contactFetchErrors = [];
 
       try {
         matchResult = await resolveMatch({
@@ -879,11 +1118,33 @@ export async function POST(request) {
         }
       }
 
+      if (
+        matchResult.match?.blackbaudConstituentId &&
+        (input.emailUpdates?.length || input.phoneUpdates?.length || input.addressUpdates?.length)
+      ) {
+        const contactPreview = await fetchCurrentContacts({
+          userId: user.id,
+          authUserId,
+          origin,
+          constituentId: matchResult.match.blackbaudConstituentId,
+          input,
+        });
+        currentContacts = contactPreview.contacts;
+        contactFetchErrors = contactPreview.errors;
+      }
+
       const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
-      const writePlan = buildWritePlan(input, changePreview, matchResult.match);
+      const writePlan = buildWritePlan(
+        input,
+        changePreview,
+        matchResult.match,
+        currentContacts,
+        contactDecisions[String(index + 1)] || {},
+      );
       const reasons = [
         ...matchResult.notes,
         ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
+        ...contactFetchErrors,
         ...changePreview.reasons,
         ...(input.educationRelationship
           ? [
@@ -902,14 +1163,33 @@ export async function POST(request) {
           : []),
         ...(writePlan.some((write) => write.type === "email_address")
           ? [
-              "Selected email addresses are staged for NXT. A duplicate email is skipped; a populated email type is required to add a new email address.",
+              "Review the current NXT email address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT email type and primary setting.",
             ]
           : []),
+        ...(writePlan.some((write) => write.type === "phone")
+          ? [
+              "Review the current NXT phone number and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT phone type and primary setting.",
+            ]
+          : []),
+        ...(writePlan.some((write) => write.type === "address")
+          ? [
+              "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting.",
+            ]
+          : []),
+        ...writePlan
+          .filter((write) => write.validationMessage)
+          .map((write) => write.validationMessage),
       ].filter(Boolean);
 
       previewRows.push({
         rowNumber: index + 1,
-        status: deriveStatus(matchResult, codeFetchError, changePreview, writePlan),
+        status: deriveStatus(
+          matchResult,
+          codeFetchError,
+          contactFetchErrors,
+          changePreview,
+          writePlan,
+        ),
         matchStatus: matchResult.status,
         matchMethod: matchResult.method,
         confidence: matchResult.confidence,
@@ -923,6 +1203,7 @@ export async function POST(request) {
             }
           : null,
         currentCodes: currentCodes.map((code) => code.label),
+        currentContacts,
         proposedCodes: changePreview.proposedCodes,
         writePlan,
         reasons,

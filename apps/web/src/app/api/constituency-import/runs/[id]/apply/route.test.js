@@ -256,6 +256,178 @@ describe("constituency import run apply route", () => {
     expect(payload.applySummary.applied).toBe(1);
   });
 
+  it("replaces a selected NXT email without changing its type or primary setting", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "email_address",
+      action: "replace",
+      targetId: "email-primary",
+      address: "chelsea.new@example.com",
+      preserveExistingSettings: true,
+    };
+    const row = {
+      id: "17",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: { input: {}, match: { blackbaudConstituentId: "123" }, writePlan: [write] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
+        ],
+      })
+      .mockResolvedValueOnce({ id: "email-primary", address: "chelsea.new@example.com" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/constituent/v1/emailaddresses/email-primary",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+        method: "PATCH",
+        body: { address: "chelsea.new@example.com" },
+      },
+    );
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("adds a phone as an additional NXT contact", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "phone",
+      action: "add",
+      number: "904-555-0199",
+      phoneType: "Mobile",
+      makePrimary: false,
+    };
+    const row = {
+      id: "18",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: { input: {}, match: { blackbaudConstituentId: "123" }, writePlan: [write] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [{ id: "phone-old", number: "904-555-0100", type: "Home", primary: true }] })
+      .mockResolvedValueOnce({ id: "phone-new" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(2, "/constituent/v1/phones", {
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      method: "POST",
+      body: {
+        constituent_id: "123",
+        number: "904-555-0199",
+        type: "Mobile",
+        primary: false,
+      },
+    });
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("replaces a selected NXT address without overwriting its type or primary setting", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "address",
+      action: "replace",
+      targetId: "address-home",
+      addressLine1: "2800 University Blvd N",
+      addressLine2: "",
+      city: "Jacksonville",
+      state: "FL",
+      postalCode: "32211",
+      country: "United States",
+      preserveExistingSettings: true,
+    };
+    const row = {
+      id: "19",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: { input: {}, match: { blackbaudConstituentId: "123" }, writePlan: [write] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "address-home",
+            address_lines: ["10 Elm St."],
+            type: "Home",
+            primary: true,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ id: "address-home" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/constituent/v1/addresses/address-home",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+        method: "PATCH",
+        body: {
+          address_lines: ["2800 University Blvd N"],
+          city: "Jacksonville",
+          state: "FL",
+          postal_code: "32211",
+          country: "United States",
+        },
+      },
+    );
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
   it("does not add a duplicate email address", async () => {
     const { POST } = await import("./route.js");
     const write = {

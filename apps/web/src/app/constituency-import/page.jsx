@@ -706,9 +706,24 @@ function formatWritePlanItem(write) {
   }
 
   if (write.type === "email_address") {
+    if (write.action === "replace") {
+      return `Replace selected email: ${write.address || "unspecified"}`;
+    }
     const primary = write.makePrimary ? " and set as primary" : "";
     const type = write.emailType ? ` (${write.emailType})` : "";
-    return `Add email if new: ${write.address || "unspecified"}${type}${primary}`;
+    return `Add email as additional: ${write.address || "unspecified"}${type}${primary}`;
+  }
+  if (write.type === "phone") {
+    if (write.action === "replace") {
+      return `Replace selected phone: ${write.number || "unspecified"}`;
+    }
+    return `Add phone as additional: ${write.number || "unspecified"}${write.makePrimary ? " and set as primary" : ""}`;
+  }
+  if (write.type === "address") {
+    if (write.action === "replace") {
+      return `Replace selected address: ${write.addressLine1 || "unspecified"}`;
+    }
+    return `Add address as additional: ${write.addressLine1 || "unspecified"}${write.makePrimary ? " and set as primary" : ""}`;
   }
 
   if (write.type === "education_relationship") {
@@ -761,6 +776,12 @@ function formatApplyResultItem(result) {
     if (result.type === "email_address") {
       return result.message || "Applied the staged NXT email update.";
     }
+    if (result.type === "phone") {
+      return result.message || "Applied the staged NXT phone update.";
+    }
+    if (result.type === "address") {
+      return result.message || "Applied the staged NXT address update.";
+    }
     return "Applied staged write.";
   }
   if (result.status === "manual_required") {
@@ -780,6 +801,228 @@ function formatDateTime(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function getContactDecision(decisions, rowNumber, kind, index) {
+  return decisions?.[String(rowNumber)]?.[kind]?.[String(index)] || {};
+}
+
+function getContactValue(contact, kind) {
+  if (kind === "email") return contact?.address || "";
+  if (kind === "phone") return contact?.number || "";
+  return [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function getIncomingContactValue(contact, kind) {
+  if (kind === "email") return contact?.address || "";
+  if (kind === "phone") return contact?.number || "";
+  return [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function ContactReviewPanel({ row, decisions, onDecisionChange }) {
+  const sections = [
+    { kind: "email", label: "Email addresses", values: row.input?.emailUpdates || [], contacts: row.currentContacts?.emails || [] },
+    { kind: "phone", label: "Phone numbers", values: row.input?.phoneUpdates || [], contacts: row.currentContacts?.phones || [] },
+    { kind: "address", label: "Addresses", values: row.input?.addressUpdates || [], contacts: row.currentContacts?.addresses || [] },
+  ];
+
+  if (!row.match?.blackbaudConstituentId) return null;
+
+  return (
+    <section
+      style={{
+        border: "1px solid #86EFAC",
+        borderRadius: "14px",
+        backgroundColor: "#F0FDF4",
+        padding: "14px",
+        display: "grid",
+        gap: "14px",
+      }}
+    >
+      <div>
+        <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Contact change review
+        </div>
+        <p style={{ margin: "5px 0 0", color: "#166534", lineHeight: 1.45 }}>
+          Compare the current NXT value with the CSV value. Adding is the default and does not
+          change an existing contact. Replacing retains the selected NXT type and primary setting.
+        </p>
+      </div>
+
+      {sections.map((section) => {
+        const primary = section.contacts.find((contact) => contact.primary) || null;
+        const typeOptions = [...new Set(section.contacts.map((contact) => contact.type).filter(Boolean))];
+        const defaultPrimaryIndex = section.values.findIndex((value) => value.makePrimary === true);
+
+        return (
+          <div key={section.kind} style={{ display: "grid", gap: "10px" }}>
+            <div style={{ color: "#14532D", fontWeight: 900 }}>{section.label}</div>
+            <div
+              style={{
+                border: "1px solid #BBF7D0",
+                borderRadius: "12px",
+                backgroundColor: "white",
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ color: "#6B7280", fontSize: "12px", fontWeight: 900, textTransform: "uppercase" }}>
+                Current NXT {section.label.toLowerCase()}
+              </div>
+              {section.contacts.length ? (
+                <div style={{ marginTop: "7px", display: "grid", gap: "5px" }}>
+                  {section.contacts.map((contact) => (
+                    <div key={contact.id || getContactValue(contact, section.kind)} style={{ color: "#111827", lineHeight: 1.35 }}>
+                      <strong>{getContactValue(contact, section.kind)}</strong>
+                      {contact.type ? ` · ${contact.type}` : ""}
+                      {contact.primary ? " · Primary" : ""}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ marginTop: "7px", color: "#6B7280" }}>No current NXT {section.label.toLowerCase()} found.</div>
+              )}
+            </div>
+
+            {!section.values.length ? (
+              <div style={{ color: "#6B7280", fontSize: "14px", lineHeight: 1.4 }}>
+                No CSV {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"} is selected for import.
+              </div>
+            ) : null}
+
+            {section.values.map((incoming, index) => {
+              const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
+              const mode = decision.mode === "replace" ? "replace" : "add";
+              const selectedTarget = section.contacts.find((contact) => contact.id === decision.targetId) || null;
+              const makePrimary =
+                mode === "add" &&
+                (decision.makePrimary === undefined
+                  ? index === defaultPrimaryIndex
+                  : decision.makePrimary === true);
+              const datalistId = `contact-types-${row.rowNumber}-${section.kind}-${index}`;
+
+              return (
+                <div
+                  key={`${section.kind}-${index}`}
+                  style={{
+                    border: "1px solid #A7F3D0",
+                    borderRadius: "12px",
+                    backgroundColor: "#ECFDF5",
+                    padding: "12px",
+                    display: "grid",
+                    gap: "10px",
+                  }}
+                >
+                  <div>
+                    <div style={{ color: "#6B7280", fontSize: "12px", fontWeight: 900, textTransform: "uppercase" }}>
+                      CSV value
+                    </div>
+                    <div style={{ marginTop: "4px", color: "#111827", fontWeight: 900 }}>
+                      {getIncomingContactValue(incoming, section.kind)}
+                      {incoming.type ? ` · ${incoming.type}` : ""}
+                      {incoming.makePrimary === true ? " · CSV marks primary" : ""}
+                    </div>
+                  </div>
+
+                  <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
+                    Apply this CSV value as
+                    <select
+                      name={`contact-mode-${row.rowNumber}-${section.kind}-${index}`}
+                      value={mode}
+                      onChange={(event) =>
+                        onDecisionChange(row.rowNumber, section.kind, index, {
+                          mode: event.target.value,
+                          targetId: event.target.value === "replace" ? decision.targetId || "" : "",
+                        })
+                      }
+                      style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
+                    >
+                      <option value="add">Add as an additional {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"}</option>
+                      <option value="replace" disabled={!section.contacts.length}>Replace a selected current NXT value</option>
+                    </select>
+                  </label>
+
+                  {mode === "replace" ? (
+                    <>
+                      <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
+                        Replace which current NXT value?
+                        <select
+                          name={`contact-target-${row.rowNumber}-${section.kind}-${index}`}
+                          value={decision.targetId || ""}
+                          onChange={(event) =>
+                            onDecisionChange(row.rowNumber, section.kind, index, { targetId: event.target.value })
+                          }
+                          style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
+                        >
+                          <option value="">Choose a current NXT value</option>
+                          {section.contacts.map((contact) => (
+                            <option key={contact.id} value={contact.id}>
+                              {getContactValue(contact, section.kind)}{contact.type ? ` (${contact.type})` : ""}{contact.primary ? " - Primary" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {selectedTarget ? (
+                        <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                          This will replace the value only. NXT will keep {selectedTarget.type || "the current type"} and {selectedTarget.primary ? "the primary designation" : "its non-primary designation"}.
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <label style={{ display: "flex", gap: "8px", alignItems: "center", color: "#374151", fontWeight: 800 }}>
+                        <input
+                          type="checkbox"
+                          name={`contact-primary-${row.rowNumber}-${section.kind}-${index}`}
+                          checked={makePrimary}
+                          onChange={(event) =>
+                            onDecisionChange(
+                              row.rowNumber,
+                              section.kind,
+                              index,
+                              { makePrimary: event.target.checked },
+                              section.values.length,
+                            )
+                          }
+                        />
+                        Make the CSV value primary
+                      </label>
+                      {makePrimary && primary ? (
+                        <div style={{ display: "grid", gap: "6px", padding: "10px", borderRadius: "10px", backgroundColor: "#DCFCE7", color: "#166534" }}>
+                          <div style={{ fontWeight: 800 }}>
+                            {getContactValue(primary, section.kind)} is currently primary and will be unmarked.
+                          </div>
+                          <label style={{ display: "grid", gap: "4px", color: "#166534", fontSize: "14px" }}>
+                            Change the former primary's type (optional)
+                            <input
+                              name={`contact-demoted-type-${row.rowNumber}-${section.kind}-${index}`}
+                              list={datalistId}
+                              value={decision.demotedPrimaryType || ""}
+                              onChange={(event) =>
+                                onDecisionChange(row.rowNumber, section.kind, index, { demotedPrimaryType: event.target.value })
+                              }
+                              placeholder={`Keep ${primary.type || "current type"}`}
+                              style={{ border: "1px solid #86EFAC", borderRadius: "8px", backgroundColor: "white", padding: "8px 9px", color: "#111827" }}
+                            />
+                            <datalist id={datalistId}>
+                              {typeOptions.map((type) => <option key={type} value={type} />)}
+                            </datalist>
+                          </label>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </section>
+  );
 }
 
 function HeaderCode({ children }) {
@@ -811,6 +1054,10 @@ export default function ConstituencyImportPage() {
   const [useHierarchy, setUseHierarchy] = useState(true);
   const [updateNameFields, setUpdateNameFields] = useState(false);
   const [updateEmailFields, setUpdateEmailFields] = useState(false);
+  const [updatePhoneFields, setUpdatePhoneFields] = useState(false);
+  const [updateAddressFields, setUpdateAddressFields] = useState(false);
+  const [contactDecisions, setContactDecisions] = useState({});
+  const [contactDecisionsDirty, setContactDecisionsDirty] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
@@ -868,6 +1115,8 @@ export default function ConstituencyImportPage() {
     activeFields.firstName || activeFields.lastName || activeFields.preferredName,
   );
   const emailFieldsActive = Boolean(activeFields.email || activeFields.email2);
+  const phoneFieldsActive = Boolean(activeFields.phoneNumber || activeFields.phone2Number);
+  const addressFieldsActive = Boolean(activeFields.addressLine1);
   const mappedNameUpdate = Boolean(
     updateNameFields &&
       (hasUploadedHeader("firstName") ||
@@ -878,12 +1127,21 @@ export default function ConstituencyImportPage() {
     updateEmailFields &&
       (hasUploadedHeader("email") || hasUploadedHeader("email2")),
   );
+  const mappedPhoneUpdate = Boolean(
+    updatePhoneFields &&
+      (hasUploadedHeader("phoneNumber") || hasUploadedHeader("phone2Number")),
+  );
+  const mappedAddressUpdate = Boolean(
+    updateAddressFields && hasUploadedHeader("addressLine1"),
+  );
   const hasImportOperation = Boolean(
     activeFields.targetConstituency ||
       educationRelationshipFieldsActive ||
       organizationRelationshipFieldsActive ||
       updateNameFields ||
-      updateEmailFields,
+      updateEmailFields ||
+      updatePhoneFields ||
+      updateAddressFields,
   );
   const mappedIdentityField = Boolean(
     hasUploadedHeader("blackbaudConstituentId") ||
@@ -902,7 +1160,9 @@ export default function ConstituencyImportPage() {
       hasUploadedHeader("organizationRelationshipType") ||
       hasUploadedHeader("organizationTitle") ||
       mappedNameUpdate ||
-      mappedEmailUpdate,
+      mappedEmailUpdate ||
+      mappedPhoneUpdate ||
+      mappedAddressUpdate,
   );
   const canPreview =
     rows.length > 0 &&
@@ -914,10 +1174,10 @@ export default function ConstituencyImportPage() {
     mappedIdentityField ? "" : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, Address Line 1, or First Name + Last Name.",
     hasImportOperation
       ? ""
-      : "Select at least one import operation, such as a constituent code, relationship, name update, or email update.",
+      : "Select at least one import operation, such as a constituent code, relationship, name update, or contact update.",
     mappedImportOperation
       ? ""
-      : "Include at least one active change column in the CSV, such as Email Address, New Constituent Code, Education Institution, or Organization Name.",
+      : "Include at least one active change column in the CSV, such as Email Address, Phone Number, Address Line 1, New Constituent Code, Education Institution, or Organization Name.",
   ].filter(Boolean);
   const readySavedRows =
     preview?.savedRun && Array.isArray(preview?.rows)
@@ -1040,6 +1300,43 @@ export default function ConstituencyImportPage() {
     setPreview(null);
   }
 
+  function updateContactDecision(rowNumber, kind, index, change, contactCount = 0) {
+    setContactDecisions((current) => {
+      const rowKey = String(rowNumber);
+      const rowDecisions = current[rowKey] || {};
+      const kindDecisions = rowDecisions[kind] || {};
+      const nextKindDecisions = {
+        ...kindDecisions,
+        [String(index)]: {
+          ...(kindDecisions[String(index)] || {}),
+          ...change,
+        },
+      };
+
+      if (change.makePrimary === true) {
+        for (let contactIndex = 0; contactIndex < contactCount; contactIndex += 1) {
+          if (contactIndex !== index) {
+            const key = String(contactIndex);
+            nextKindDecisions[key] = {
+              ...nextKindDecisions[key],
+              makePrimary: false,
+            };
+          }
+        }
+      }
+
+      return {
+        ...current,
+        [rowKey]: {
+          ...rowDecisions,
+          [kind]: nextKindDecisions,
+        },
+      };
+    });
+    setContactDecisionsDirty(true);
+    setSaveMessage("");
+  }
+
   function downloadTemplateCsv() {
     const csv = makeTemplateRows(selectedFields);
     downloadCsv(csv, "constituency-import-template.csv");
@@ -1054,6 +1351,8 @@ export default function ConstituencyImportPage() {
     setError("");
     setSaveMessage("");
     setPreview(null);
+    setContactDecisions({});
+    setContactDecisionsDirty(false);
     setSourceFilename(file.name || "");
     setFileReadStatus(`Reading ${file.name || "selected CSV"}...`);
     try {
@@ -1083,6 +1382,8 @@ export default function ConstituencyImportPage() {
     setFileReadStatus("");
     setParseMessage("");
     setPreview(null);
+    setContactDecisions({});
+    setContactDecisionsDirty(false);
     setError("");
     setSaveMessage("");
     if (fileInputRef.current) {
@@ -1136,7 +1437,7 @@ export default function ConstituencyImportPage() {
     if (!runId || applyingRun) return;
 
     const shouldApply = window.confirm(
-      "Apply ready rows to NXT now? This may update constituent codes and selected matched name fields. Replace and end-date constituent-code rows require an end date. Education and organization relationship rows will stay staged for manual review.",
+      "Apply ready rows to NXT now? This may update constituent codes, selected name fields, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Education and organization relationship rows will stay staged for manual review.",
     );
     if (!shouldApply) return;
 
@@ -1188,7 +1489,10 @@ export default function ConstituencyImportPage() {
             useHierarchy,
             updateNameFields,
             updateEmailFields,
+            updatePhoneFields,
+            updateAddressFields,
           },
+          contactDecisions,
           sourceFilename,
           saveRun,
         }),
@@ -1198,6 +1502,7 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to preview constituency import");
       }
       setPreview(payload);
+      setContactDecisionsDirty(false);
       window.setTimeout(() => {
         document
           .getElementById("constituency-import-preview-results")
@@ -1813,7 +2118,7 @@ export default function ConstituencyImportPage() {
                             />
                             <span>
                               <span style={{ display: "block", fontWeight: 900 }}>
-                                Add email addresses to matched NXT records
+                                Review and import email addresses
                               </span>
                               <span
                                 style={{
@@ -1827,7 +2132,107 @@ export default function ConstituencyImportPage() {
                                 A real NXT system ID or lookup ID allows automatic application.
                                 Without one, the preview can propose a match from name, email, and
                                 address evidence, but it stays in review until a person confirms it.
-                                Existing matching email addresses are never duplicated.
+                                Each preview will show the current NXT email addresses beside the
+                                CSV value. You can add a new address or replace one selected NXT
+                                address before the run is saved.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      ) : null}
+                      {group === "Phone fields" && phoneFieldsActive ? (
+                        <div
+                          style={{
+                            border: "1px solid #BBF7D0",
+                            borderRadius: "16px",
+                            backgroundColor: "#F0FDF4",
+                            padding: "14px",
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: "#111827",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="updateMatchedNxtPhoneFields"
+                              checked={updatePhoneFields}
+                              onChange={(event) => {
+                                setUpdatePhoneFields(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Review and import phone numbers
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  color: "#166534",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                The preview compares each CSV phone number with current NXT phone
+                                numbers. Choose whether to add it or replace a selected NXT value
+                                before saving the run.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      ) : null}
+                      {group === "Address fields" && addressFieldsActive ? (
+                        <div
+                          style={{
+                            border: "1px solid #BBF7D0",
+                            borderRadius: "16px",
+                            backgroundColor: "#F0FDF4",
+                            padding: "14px",
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: "#111827",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="updateMatchedNxtAddressFields"
+                              checked={updateAddressFields}
+                              onChange={(event) => {
+                                setUpdateAddressFields(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Review and import addresses
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  color: "#166534",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                The preview compares the CSV address with current NXT addresses.
+                                Adding preserves current address values; replacing keeps the
+                                selected NXT address type and primary setting.
                               </span>
                             </span>
                           </label>
@@ -2263,21 +2668,43 @@ export default function ConstituencyImportPage() {
 
           {preview?.rows?.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+              {contactDecisionsDirty ? (
+                <button
+                  type="button"
+                  onClick={() => requestPreview()}
+                  disabled={previewing}
+                  style={{
+                    border: "1px solid #C7D2FE",
+                    borderRadius: "14px",
+                    backgroundColor: previewing ? "#E5E7EB" : "#EEF2FF",
+                    color: previewing ? "#64748B" : "#4338CA",
+                    padding: "12px 16px",
+                    fontWeight: 900,
+                    cursor: previewing ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {previewing ? "Refreshing contact plan..." : "Refresh contact plan"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => requestPreview({ saveRun: true })}
-                disabled={savingRun}
+                disabled={savingRun || contactDecisionsDirty}
                 style={{
                   border: "1px solid #A7F3D0",
                   borderRadius: "14px",
-                  backgroundColor: savingRun ? "#E5E7EB" : "#ECFDF5",
-                  color: savingRun ? "#64748B" : "#047857",
+                  backgroundColor: savingRun || contactDecisionsDirty ? "#E5E7EB" : "#ECFDF5",
+                  color: savingRun || contactDecisionsDirty ? "#64748B" : "#047857",
                   padding: "12px 16px",
                   fontWeight: 900,
-                  cursor: savingRun ? "not-allowed" : "pointer",
+                  cursor: savingRun || contactDecisionsDirty ? "not-allowed" : "pointer",
                 }}
               >
-                {savingRun ? "Saving preview..." : "Save preview run"}
+                {savingRun
+                  ? "Saving preview..."
+                  : contactDecisionsDirty
+                    ? "Refresh contact plan before saving"
+                    : "Save preview run"}
               </button>
               <button
                 type="button"
@@ -2298,6 +2725,22 @@ export default function ConstituencyImportPage() {
               >
                 <FileText size={16} /> Export preview CSV
               </button>
+            </div>
+          ) : null}
+
+          {contactDecisionsDirty ? (
+            <div
+              style={{
+                border: "1px solid #C7D2FE",
+                borderRadius: "14px",
+                backgroundColor: "#EEF2FF",
+                color: "#3730A3",
+                padding: "12px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              Contact choices changed. Refresh the preview to rebuild the exact NXT write plan before saving this run.
             </div>
           ) : null}
 
@@ -2465,6 +2908,12 @@ export default function ConstituencyImportPage() {
                         </div>
                       </div>
                     </div>
+
+                    <ContactReviewPanel
+                      row={row}
+                      decisions={contactDecisions}
+                      onDecisionChange={updateContactDecision}
+                    />
 
                     {row.writePlan?.length ? (
                       <div
