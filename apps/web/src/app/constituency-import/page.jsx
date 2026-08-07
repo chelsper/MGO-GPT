@@ -1707,7 +1707,6 @@ export default function ConstituencyImportPage() {
     setParseMessage("");
     setPreview(null);
     setSelectedApplyRowIds([]);
-    setSelectedReconciliationRowIds([]);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setError("");
@@ -2017,7 +2016,6 @@ export default function ConstituencyImportPage() {
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
-      setSelectedReconciliationRowIds([]);
       setContactDecisionsDirty(false);
       window.setTimeout(() => {
         document
