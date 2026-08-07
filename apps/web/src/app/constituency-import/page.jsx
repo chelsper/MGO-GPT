@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { ArrowLeft, FileText, Upload } from "lucide-react";
+import { ArrowLeft, Check, Copy, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -1321,6 +1321,73 @@ function HeaderCode({ children }) {
     >
       {children}
     </code>
+  );
+}
+
+function CopyableHeaderCode({ children }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyHeader() {
+    const text = String(children);
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // The header remains selectable if clipboard access is unavailable.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copyHeader}
+      aria-label={`Copy CSV header: ${children}`}
+      title={`Copy ${children}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        border: "none",
+        borderRadius: "8px",
+        padding: 0,
+        backgroundColor: "transparent",
+        color: "inherit",
+        cursor: "copy",
+        userSelect: "text",
+      }}
+    >
+      <HeaderCode>{children}</HeaderCode>
+      <span
+        aria-live="polite"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "3px",
+          color: copied ? "#047857" : "#4F46E5",
+          fontSize: "12px",
+          fontWeight: 900,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+        {copied ? "Copied" : "Copy"}
+      </span>
+    </button>
   );
 }
 
@@ -3031,21 +3098,28 @@ export default function ConstituencyImportPage() {
                         const active = Boolean(activeFields[field.key]);
                         return (
                           <div key={field.key} style={{ display: "grid", gap: "8px" }}>
-                            <button
-                              type="button"
-                              onClick={() => toggleField(field.key)}
+                            <div
                               style={{
-                                display: "grid",
-                                gridTemplateColumns: "auto 1fr",
-                                gap: "12px",
-                                textAlign: "left",
                                 border: active ? "2px solid #6D5DFB" : "1px solid #E5E7EB",
                                 borderRadius: "14px",
-                                padding: "13px",
                                 backgroundColor: active ? "#F5F3FF" : "white",
-                                cursor: "pointer",
                               }}
                             >
+                              <button
+                                type="button"
+                                onClick={() => toggleField(field.key)}
+                                style={{
+                                  width: "100%",
+                                  display: "grid",
+                                  gridTemplateColumns: "auto 1fr",
+                                  gap: "12px",
+                                  padding: "13px 13px 6px",
+                                  textAlign: "left",
+                                  border: "none",
+                                  backgroundColor: "transparent",
+                                  cursor: "pointer",
+                                }}
+                              >
                               <span
                                 aria-hidden="true"
                                 style={{
@@ -3077,9 +3151,6 @@ export default function ConstituencyImportPage() {
                                   {field.label}
                                   {field.recommended ? <Pill tone="green">Recommended</Pill> : null}
                                 </span>
-                                <span style={{ display: "block", marginTop: "6px" }}>
-                                  CSV header: <HeaderCode>{field.header}</HeaderCode>
-                                </span>
                                 <span
                                   style={{
                                     display: "block",
@@ -3091,7 +3162,11 @@ export default function ConstituencyImportPage() {
                                   {field.description}
                                 </span>
                               </span>
-                            </button>
+                              </button>
+                              <div style={{ padding: "0 13px 13px 47px" }}>
+                                CSV header: <CopyableHeaderCode>{field.header}</CopyableHeaderCode>
+                              </div>
+                            </div>
                             {field.key === "targetConstituency" && active ? (
                               <div
                                 style={{
@@ -3750,7 +3825,7 @@ export default function ConstituencyImportPage() {
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                 {expectedHeaders.map((header) => (
-                  <HeaderCode key={header}>{header}</HeaderCode>
+                  <CopyableHeaderCode key={header}>{header}</CopyableHeaderCode>
                 ))}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
