@@ -1411,10 +1411,11 @@ async function savePreviewRun({
   `;
   const run = createdRows[0];
 
+  const persistedRowIds = new Map();
   for (const row of previewRows) {
     const rawRow = rawRows[row.rowNumber - 1] || {};
     const input = row.input || {};
-    await sql`
+    const insertedRows = await sql`
       INSERT INTO constituency_import_rows (
         run_id,
         row_number,
@@ -1457,10 +1458,18 @@ async function savePreviewRun({
         NOW(),
         NOW()
       )
+      RETURNING id, row_number
     `;
+    const persistedRow = insertedRows?.[0];
+    if (persistedRow?.id != null) {
+      persistedRowIds.set(String(row.rowNumber), String(persistedRow.id));
+    }
   }
 
-  return serializeRun(run);
+  return {
+    run: serializeRun(run),
+    persistedRowIds,
+  };
 }
 
 export async function POST(request) {
@@ -1741,7 +1750,7 @@ export async function POST(request) {
     }
 
     const summary = summarize(previewRows, warnings);
-    const savedRun = saveRun
+    const savedPreview = saveRun
       ? await savePreviewRun({
           sessionUser: user,
           workspaceUser: user,
@@ -1752,15 +1761,25 @@ export async function POST(request) {
           summary,
           previewRows,
           rawRows: rowsToPreview,
-        })
+      })
       : null;
+    const savedRun = savedPreview?.run || null;
+    // A saved run needs its database row IDs immediately so the guarded NXT batch
+    // can be selected without reloading the preview first.
+    const responseRows = savedPreview
+      ? previewRows.map((row) => ({
+          ...row,
+          id: savedPreview.persistedRowIds.get(String(row.rowNumber)) || null,
+          runId: savedRun?.id || null,
+        }))
+      : previewRows;
 
     return Response.json({
       previewOnly: true,
       savedRun,
       warnings,
       summary,
-      rows: previewRows,
+      rows: responseRows,
     });
   } catch (error) {
     console.error("Error previewing constituency import:", error);

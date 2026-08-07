@@ -865,7 +865,7 @@ describe("constituency import preview route", () => {
           applied_at: null,
         },
       ])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ id: "9", row_number: 1 }]);
 
     const response = await POST(
       makeRequest({
@@ -891,6 +891,8 @@ describe("constituency import preview route", () => {
     expect(response.status).toBe(200);
     expect(payload.savedRun.id).toBe("42");
     expect(payload.savedRun.sourceFilename).toBe("alumni-import.csv");
+    expect(payload.rows[0].id).toBe("9");
+    expect(payload.rows[0].runId).toBe("42");
     expect(payload.summary.ready).toBe(1);
     expect(sqlMock).toHaveBeenCalledTimes(2);
   });
