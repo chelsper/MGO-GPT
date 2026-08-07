@@ -66,7 +66,7 @@ const IMPORT_FIELDS = [
     header: "Birth Date",
     label: "Birth Date",
     group: "Individual profile fields",
-    description: "Optional full birth date in YYYY-MM-DD format. Partial dates are not imported automatically.",
+    description: "Optional full birth date in MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD format. Partial dates are not imported automatically.",
   },
   {
     key: "suffix",
@@ -2250,7 +2250,7 @@ export default function ConstituencyImportPage() {
                                 Compare title, gender, birth date, and suffix against the current
                                 NXT record before applying. Only populated CSV cells are staged;
                                 blank cells never clear a value. Birth dates must be complete
-                                YYYY-MM-DD values.
+                                MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD values.
                               </span>
                             </span>
                           </label>

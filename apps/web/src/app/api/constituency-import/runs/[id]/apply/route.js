@@ -96,21 +96,24 @@ function formatDateForBlackbaud(value) {
 
 function parseBirthDate(value) {
   const normalized = cleanText(value);
-  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (!match) return null;
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const usMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!isoMatch && !usMatch) return null;
 
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
+  const year = Number(isoMatch?.[1] ?? usMatch?.[3]);
+  const month = Number(isoMatch?.[2] ?? usMatch?.[1]);
+  const day = Number(isoMatch?.[3] ?? usMatch?.[2]);
+  const currentTwoDigitYear = new Date().getUTCFullYear() % 100;
+  const resolvedYear = year < 100 ? (year <= currentTwoDigitYear ? 2000 + year : 1900 + year) : year;
+  const date = new Date(Date.UTC(resolvedYear, month - 1, day));
   if (
-    date.getUTCFullYear() !== year ||
+    date.getUTCFullYear() !== resolvedYear ||
     date.getUTCMonth() !== month - 1 ||
     date.getUTCDate() !== day
   ) {
     return null;
   }
-  return { y: year, m: month, d: day };
+  return { y: resolvedYear, m: month, d: day };
 }
 
 function getConstituencyLabel(value) {
@@ -313,7 +316,7 @@ async function applyConstituentProfileUpdate({ request, user, row, write }) {
         status: "manual_required",
         type: "constituent_profile",
         action: "update",
-        message: "Birth Date must use a valid YYYY-MM-DD value before it can be imported.",
+        message: "Birth Date must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value before it can be imported.",
       };
     }
     payload.birthdate = parsedBirthDate;

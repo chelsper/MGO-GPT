@@ -200,7 +200,7 @@ describe("constituency import run apply route", () => {
       recordType: "Individual",
       title: "Dr.",
       gender: "Female",
-      birthDate: "1980-07-23",
+      birthDate: "07/23/80",
       suffix: "Ph.D.",
     };
     const row = {

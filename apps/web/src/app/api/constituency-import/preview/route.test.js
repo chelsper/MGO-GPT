@@ -275,7 +275,7 @@ describe("constituency import preview route", () => {
             "NXT ID": "123",
             Title: "Dr.",
             Gender: "Female",
-            "Birth Date": "1980-07-23",
+            "Birth Date": "07/23/80",
             Suffix: "Ph.D.",
           },
         ],
@@ -303,6 +303,29 @@ describe("constituency import preview route", () => {
         suffix: "Ph.D.",
         current: expect.objectContaining({ title: "Ms.", gender: "Female" }),
       }),
+    ]);
+  });
+
+  it("normalizes MM/DD/YY birth dates before staging the individual update", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "A123",
+      name: "Jane Dolphin",
+      raw: { type: "Individual", first: "Jane", last: "Dolphin" },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123", "Birth Date": "07/23/80" }],
+        mappings: { blackbaudConstituentId: "NXT ID", birthDate: "Birth Date" },
+        defaults: { updateIndividualProfileFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({ type: "constituent_profile", birthDate: "1980-07-23" }),
     ]);
   });
 
