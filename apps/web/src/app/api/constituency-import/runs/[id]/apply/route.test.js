@@ -26,9 +26,15 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
 }));
 
-function makeRequest(search = "") {
+function makeRequest(search = "", body) {
   return new Request(`https://example.com/api/constituency-import/runs/42/apply${search}`, {
     method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
   });
 }
 
@@ -75,6 +81,45 @@ describe("constituency import run apply route", () => {
     });
   });
 
+  it("rejects an empty controlled batch before any NXT or database write", async () => {
+    const { POST } = await import("./route.js");
+
+    const response = await POST(makeRequest("", { rowIds: [] }), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe("Select at least one Ready row before applying changes to NXT.");
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale selected rows before any NXT write and returns the refreshed run", async () => {
+    const { POST } = await import("./route.js");
+    const currentRow = {
+      id: "9",
+      run_id: "42",
+      row_number: 1,
+      status: "Applied",
+      requested_writes: [],
+      preview: { rowNumber: 1, writePlan: [] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun({ ready_count: 0, applied_count: 1, status: "applied" })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ ready_count: 0, applied_count: 1, status: "applied" })])
+      .mockResolvedValueOnce([currentRow]);
+
+    const response = await POST(makeRequest("", { rowIds: ["9"] }), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer Ready");
+    expect(payload.savedRun.status).toBe("applied");
+    expect(payload.rows).toHaveLength(1);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("applies additive constituent-code rows to NXT", async () => {
     const { POST } = await import("./route.js");
     const write = {
@@ -111,10 +156,12 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce({ value: [] })
       .mockResolvedValueOnce({ id: "cc-1" });
 
-    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const response = await POST(makeRequest("", { rowIds: ["9"] }), { params: { id: "42" } });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(sqlMock.mock.calls[1][0].join(" ")).toContain("id = ANY");
+    expect(sqlMock.mock.calls[1][2]).toEqual(["9"]);
     expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/constituent/v1/constituents/123/constituentcodes",

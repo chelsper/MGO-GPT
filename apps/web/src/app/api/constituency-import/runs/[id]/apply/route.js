@@ -9,6 +9,26 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
+function parseSelectedRowIds(value) {
+  if (value === undefined) return { rowIds: null };
+  if (!Array.isArray(value)) {
+    return { error: "Selected import rows must be provided as an array." };
+  }
+
+  const rowIds = value.map(cleanText);
+  if (!rowIds.length) {
+    return { error: "Select at least one Ready row before applying changes to NXT." };
+  }
+  if (rowIds.some((rowId) => !/^\d+$/.test(rowId))) {
+    return { error: "One or more selected import rows are invalid." };
+  }
+  if (new Set(rowIds).size !== rowIds.length) {
+    return { error: "Each selected import row may appear only once." };
+  }
+
+  return { rowIds };
+}
+
 function normalizeText(value) {
   return cleanText(value)
     .toLowerCase()
@@ -1610,6 +1630,16 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Invalid import row ID" }, { status: 400 });
     }
 
+    let selectedRowIds = null;
+    if (!retryRowId) {
+      const body = await request.json().catch(() => ({}));
+      const selection = parseSelectedRowIds(body?.rowIds);
+      if (selection.error) {
+        return Response.json({ error: selection.error }, { status: 400 });
+      }
+      selectedRowIds = selection.rowIds;
+    }
+
     const runs = await sql`
       SELECT *
       FROM constituency_import_runs
@@ -1630,7 +1660,17 @@ export async function POST(request, { params }) {
             AND status = 'Failed'
           LIMIT 1
         `
-      : await sql`
+      : selectedRowIds
+        ? await sql`
+            SELECT *
+            FROM constituency_import_rows
+            WHERE run_id = ${runId}
+              AND id = ANY(${selectedRowIds})
+              AND status = 'Ready'
+              AND applied_at IS NULL
+            ORDER BY row_number ASC
+          `
+        : await sql`
           SELECT *
           FROM constituency_import_rows
           WHERE run_id = ${runId}
@@ -1638,6 +1678,25 @@ export async function POST(request, { params }) {
             AND applied_at IS NULL
           ORDER BY row_number ASC
         `;
+
+    if (selectedRowIds && candidateRows.length !== selectedRowIds.length) {
+      const payload = await fetchRunWithRows(runId);
+      const error =
+        "One or more selected rows are no longer Ready to apply. Refresh the saved run, review the remaining eligible rows, and try again.";
+      return Response.json(
+        {
+          ...payload,
+          error,
+          applySummary: {
+            applied: 0,
+            manualRequired: 0,
+            failed: 0,
+            message: error,
+          },
+        },
+        { status: 409 },
+      );
+    }
 
     if (!candidateRows.length) {
       const payload = await fetchRunWithRows(runId);
@@ -1726,7 +1785,7 @@ export async function POST(request, { params }) {
         failed,
         message: retryRowId
           ? `Retried failed NXT writes for ${candidateRows.length} row${candidateRows.length === 1 ? "" : "s"}; ${applied} completed; ${manualRequired} need manual review; ${failed} still failed.`
-          : `Applied ${applied} row${applied === 1 ? "" : "s"}; ${manualRequired} need manual review; ${failed} failed.`,
+          : `Applied ${applied} of ${candidateRows.length} selected row${candidateRows.length === 1 ? "" : "s"}; ${manualRequired} need manual review; ${failed} failed.`,
       },
     });
   } catch (error) {

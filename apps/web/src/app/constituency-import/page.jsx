@@ -889,6 +889,24 @@ function formatApplyResultItem(result) {
   return result.message || result.status || "Apply result recorded.";
 }
 
+function renderApplyAudit(result) {
+  const attempts = Array.isArray(result?.attempts)
+    ? result.attempts
+    : Array.isArray(result?.results)
+      ? [{ retryFailedOnly: false, results: result.results }]
+      : [];
+  if (!attempts.length) return "Not applied";
+
+  return attempts
+    .map((attempt, index) => {
+      const outcomes = Array.isArray(attempt?.results)
+        ? attempt.results.map(formatApplyResultItem).filter(Boolean).join(" | ")
+        : "No result details recorded";
+      return `Attempt ${index + 1}${attempt?.retryFailedOnly ? " (failed-write retry)" : ""}: ${outcomes}`;
+    })
+    .join(" || ");
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -1181,6 +1199,7 @@ export default function ConstituencyImportPage() {
   const [saveMessage, setSaveMessage] = useState("");
   const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
+  const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
   const [creatingRowId, setCreatingRowId] = useState("");
   const [retryingRowId, setRetryingRowId] = useState("");
 
@@ -1321,10 +1340,18 @@ export default function ConstituencyImportPage() {
       ? ""
       : "Include at least one active change column in the CSV, such as Title, Email Address, Addressee, Phone Number, Address Line 1, New Constituent Code, Education Institution, or Organization Name.",
   ].filter(Boolean);
-  const readySavedRows =
+  const readyApplyRows =
     preview?.savedRun && Array.isArray(preview?.rows)
-      ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt).length
-      : 0;
+      ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt)
+      : [];
+  const readySavedRows = readyApplyRows.length;
+  const selectedApplyRows = readyApplyRows.filter((row) =>
+    selectedApplyRowIds.includes(String(row.id)),
+  );
+  const selectedApplyWriteCount = selectedApplyRows.reduce(
+    (count, row) => count + (Array.isArray(row.writePlan) ? row.writePlan.length : 0),
+    0,
+  );
   const potentialNewRows =
     preview?.savedRun && Array.isArray(preview?.rows)
       ? preview.rows.filter(
@@ -1600,6 +1627,7 @@ export default function ConstituencyImportPage() {
     setFileReadStatus("");
     setParseMessage("");
     setPreview(null);
+    setSelectedApplyRowIds([]);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setError("");
@@ -1645,6 +1673,7 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to load saved import preview");
       }
       setPreview(payload);
+      setSelectedApplyRowIds([]);
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -1655,12 +1684,25 @@ export default function ConstituencyImportPage() {
     }
   }
 
+  function toggleApplyRow(rowId) {
+    const normalizedRowId = String(rowId);
+    setSelectedApplyRowIds((current) =>
+      current.includes(normalizedRowId)
+        ? current.filter((candidate) => candidate !== normalizedRowId)
+        : [...current, normalizedRowId],
+    );
+  }
+
+  function selectAllReadyRows() {
+    setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
+  }
+
   async function applySavedRun() {
     const runId = preview?.savedRun?.id;
-    if (!runId || applyingRun) return;
+    if (!runId || applyingRun || !selectedApplyRows.length) return;
 
     const shouldApply = window.confirm(
-      "Apply ready rows to NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.",
+      `Apply ${selectedApplyRows.length} selected row${selectedApplyRows.length === 1 ? "" : "s"} and ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"} now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`,
     );
     if (!shouldApply) return;
 
@@ -1670,16 +1712,28 @@ export default function ConstituencyImportPage() {
     try {
       const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/apply`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowIds: selectedApplyRows.map((row) => String(row.id)) }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to apply saved import run");
+        if (payload?.savedRun) {
+          setPreview(payload);
+          setSelectedApplyRowIds([]);
+        }
+        throw new Error(
+          payload?.error || payload?.applySummary?.message || "Failed to apply saved import run",
+        );
       }
 
       const applied = Number(payload?.applySummary?.applied || 0);
       const manualRequired = Number(payload?.applySummary?.manualRequired || 0);
       const failed = Number(payload?.applySummary?.failed || 0);
-      const fullyApplied = applied > 0 && manualRequired === 0 && failed === 0;
+      const fullyApplied =
+        applied > 0 &&
+        manualRequired === 0 &&
+        failed === 0 &&
+        payload?.savedRun?.status === "applied";
 
       if (fullyApplied) {
         resetImportWorkspace({
@@ -1693,6 +1747,7 @@ export default function ConstituencyImportPage() {
         }, 0);
       } else {
         setPreview(payload);
+        setSelectedApplyRowIds([]);
         setSaveMessage(payload?.applySummary?.message || `Applied import run #${runId}.`);
       }
       fetchSavedRuns();
@@ -1832,6 +1887,7 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to preview constituency import");
       }
       setPreview(payload);
+      setSelectedApplyRowIds([]);
       setContactDecisionsDirty(false);
       window.setTimeout(() => {
         document
@@ -1884,6 +1940,9 @@ export default function ConstituencyImportPage() {
         currentCodes: renderList(row.currentCodes),
         proposedCodes: renderList(row.proposedCodes),
         writePlan: renderWritePlan(row.writePlan),
+        applyAudit: renderApplyAudit(row.blackbaudResult),
+        appliedAt: row.appliedAt || "",
+        applyError: row.blackbaudError || "",
         reasons: (row.reasons || []).join(" | "),
       })),
     );
@@ -3441,22 +3500,63 @@ export default function ConstituencyImportPage() {
                   ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} individual review and a separate one-record creation confirmation.`
                   : " No unreviewed potential new records remain."}
               </span>
-              <button
-                type="button"
-                onClick={applySavedRun}
-                disabled={!readySavedRows || applyingRun}
-                style={{
-                  border: "1px solid #047857",
-                  borderRadius: "999px",
-                  backgroundColor: !readySavedRows || applyingRun ? "#D1FAE5" : "#047857",
-                  color: !readySavedRows || applyingRun ? "#047857" : "white",
-                  padding: "9px 14px",
-                  fontWeight: 900,
-                  cursor: !readySavedRows || applyingRun ? "not-allowed" : "pointer",
-                }}
-              >
-                {applyingRun ? "Applying..." : "Apply ready rows"}
-              </button>
+              <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
+                  Controlled batch: {selectedApplyRows.length} of {readySavedRows} rows · {selectedApplyWriteCount} staged writes
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={selectAllReadyRows}
+                    disabled={!readySavedRows || applyingRun}
+                    style={{
+                      border: "1px solid #6EE7B7",
+                      borderRadius: "999px",
+                      backgroundColor: "white",
+                      color: "#047857",
+                      padding: "9px 14px",
+                      fontWeight: 900,
+                      cursor: !readySavedRows || applyingRun ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Select all ready
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedApplyRowIds([])}
+                    disabled={!selectedApplyRows.length || applyingRun}
+                    style={{
+                      border: "1px solid #A7F3D0",
+                      borderRadius: "999px",
+                      backgroundColor: "white",
+                      color: "#047857",
+                      padding: "9px 14px",
+                      fontWeight: 900,
+                      cursor: !selectedApplyRows.length || applyingRun ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applySavedRun}
+                    disabled={!selectedApplyRows.length || applyingRun}
+                    style={{
+                      border: "1px solid #047857",
+                      borderRadius: "999px",
+                      backgroundColor: !selectedApplyRows.length || applyingRun ? "#D1FAE5" : "#047857",
+                      color: !selectedApplyRows.length || applyingRun ? "#047857" : "white",
+                      padding: "9px 14px",
+                      fontWeight: 900,
+                      cursor: !selectedApplyRows.length || applyingRun ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {applyingRun
+                      ? "Applying..."
+                      : `Apply ${selectedApplyRows.length || "selected"} row${selectedApplyRows.length === 1 ? "" : "s"}`}
+                  </button>
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -3476,6 +3576,10 @@ export default function ConstituencyImportPage() {
                         result?.status === "failed" && Number.isInteger(result?.writeIndex),
                     )
                   : [];
+                const canApplyRow = Boolean(
+                  preview?.savedRun && row.status === "Ready" && !row.appliedAt,
+                );
+                const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
                 return (
                   <article
                     key={row.rowNumber}
@@ -3535,6 +3639,31 @@ export default function ConstituencyImportPage() {
                           <Pill tone={row.intentDisposition.key === "potential_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" ? "amber" : "green"}>
                             {row.intentDisposition.label}
                           </Pill>
+                        ) : null}
+                        {canApplyRow ? (
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              border: `1px solid ${applyRowSelected ? "#047857" : "#A7F3D0"}`,
+                              borderRadius: "999px",
+                              backgroundColor: applyRowSelected ? "#ECFDF5" : "white",
+                              color: "#065F46",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              cursor: applyingRun ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={applyRowSelected}
+                              disabled={applyingRun}
+                              onChange={() => toggleApplyRow(row.id)}
+                            />
+                            Include in NXT batch
+                          </label>
                         ) : null}
                       </div>
                     </div>
