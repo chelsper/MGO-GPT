@@ -790,6 +790,7 @@ export default function ConstituencyImportPage() {
   const [sourceFilename, setSourceFilename] = useState("");
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
+  const lastReadFileRef = useRef(null);
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
@@ -931,6 +932,23 @@ export default function ConstituencyImportPage() {
     fetchSavedRuns();
   }, [isReviewer]);
 
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return undefined;
+
+    // Native events remain reliable when the page has recovered from a React hydration error.
+    const handleNativeFileSelection = (event) => {
+      readSelectedFile(event.currentTarget?.files?.[0]);
+    };
+
+    input.addEventListener("change", handleNativeFileSelection);
+    input.addEventListener("input", handleNativeFileSelection);
+    return () => {
+      input.removeEventListener("change", handleNativeFileSelection);
+      input.removeEventListener("input", handleNativeFileSelection);
+    };
+  }, []);
+
   const summaryCards = useMemo(() => {
     const summary = preview?.summary || {};
     return [
@@ -982,9 +1000,10 @@ export default function ConstituencyImportPage() {
     downloadCsv(csv, "constituency-import-template.csv");
   }
 
-  async function handleFileUpload(event) {
-    const file = event.target.files?.[0];
+  async function readSelectedFile(file) {
     if (!file) return;
+    if (lastReadFileRef.current === file) return;
+    lastReadFileRef.current = file;
     const fileReadVersion = fileReadVersionRef.current + 1;
     fileReadVersionRef.current = fileReadVersion;
     setError("");
@@ -1006,8 +1025,13 @@ export default function ConstituencyImportPage() {
     }
   }
 
+  function handleFileUpload(event) {
+    readSelectedFile(event.target.files?.[0]);
+  }
+
   function clearUploadedCsv() {
     fileReadVersionRef.current += 1;
+    lastReadFileRef.current = null;
     setRows([]);
     setHeaders([]);
     setSourceFilename("");
@@ -1905,6 +1929,7 @@ export default function ConstituencyImportPage() {
               name="constituency-import-file"
               type="file"
               accept=".csv,text/csv"
+              onInput={handleFileUpload}
               onChange={handleFileUpload}
               style={{
                 position: "absolute",
