@@ -220,7 +220,8 @@ const IMPORT_FIELDS = [
     header: "New Constituent Code End Date",
     label: "New Constituent Code End Date",
     group: "Constituent code fields",
-    description: "Optional end date for the new constituent code. This can be blank.",
+    description:
+      "Optional end date for add actions. For replace/end-date actions, this is the date used to end the current code.",
   },
   {
     key: "educationInstitution",
@@ -693,6 +694,22 @@ function formatApplyResultItem(result) {
   if (!result || typeof result !== "object") return "";
   if (result.status === "applied") {
     if (result.type === "constituent_code") {
+      if (result.action === "replace") {
+        return (
+          result.message ||
+          `Replaced constituent code: ${result.sourceConstituency || "current code"} to ${
+            result.targetConstituency || "selected code"
+          }`
+        );
+      }
+      if (result.action === "end-date") {
+        return `End-dated constituent code: ${result.sourceConstituency || "selected code"}${
+          result.endDate ? ` on ${result.endDate}` : ""
+        }`;
+      }
+      if (result.action === "skip_existing") {
+        return result.message || `${result.targetConstituency || "Selected code"} was already present.`;
+      }
       return `Applied constituent code: ${result.targetConstituency || "selected code"}`;
     }
     return "Applied staged write.";
@@ -969,7 +986,7 @@ export default function ConstituencyImportPage() {
     if (!runId || applyingRun) return;
 
     const shouldApply = window.confirm(
-      "Apply ready additive constituent-code rows to NXT now? Relationship rows, replacements, and end-date changes will stay staged for manual review.",
+      "Apply ready constituent-code rows to NXT now? Replace and end-date rows require an end date. Education and organization relationship rows will stay staged for manual review.",
     );
     if (!shouldApply) return;
 

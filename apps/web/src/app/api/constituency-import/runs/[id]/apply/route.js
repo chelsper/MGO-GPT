@@ -9,6 +9,15 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
+function normalizeText(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function serializeRun(row) {
   if (!row) return null;
   return {
@@ -78,6 +87,66 @@ function formatDateForBlackbaud(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function getConstituencyLabel(value) {
+  if (!value) return "";
+  if (typeof value === "string") return cleanText(value);
+  return cleanText(
+    value.description ||
+      value.constituent_code ||
+      value.constituentCode ||
+      value.constituency ||
+      value.code ||
+      value.name ||
+      value.type ||
+      value.category,
+  );
+}
+
+function mapConstituencyCode(item) {
+  return {
+    id: item?.id || item?.constituent_code_id || item?.code_id || null,
+    label: getConstituencyLabel(item),
+    startDate: item?.date_from || item?.start_date || item?.start || null,
+    endDate: item?.date_to || item?.end_date || item?.end || null,
+    raw: item || null,
+  };
+}
+
+function findCode(codes, label) {
+  const normalizedLabel = normalizeText(label);
+  return codes.find((code) => normalizeText(code.label) === normalizedLabel) || null;
+}
+
+function isOpenConstituencyCode(code) {
+  return !cleanText(code?.endDate);
+}
+
+function findOpenCode(codes, label) {
+  const normalizedLabel = normalizeText(label);
+  return (
+    codes.find(
+      (code) => normalizeText(code.label) === normalizedLabel && isOpenConstituencyCode(code),
+    ) || null
+  );
+}
+
+async function fetchConstituencyCodes({ request, user, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/constituentcodes`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+    },
+  );
+  const rows = Array.isArray(payload?.value)
+    ? payload.value
+    : Array.isArray(payload)
+      ? payload
+      : [];
+  return rows.map(mapConstituencyCode).filter((code) => code.label);
+}
+
 async function requireReviewer(request) {
   const session = await auth();
   if (!session || !session.user?.email) {
@@ -100,7 +169,47 @@ async function requireReviewer(request) {
   return { user };
 }
 
-async function applyConstituentCodeAdd({ request, user, row, write }) {
+async function createConstituentCode({
+  request,
+  user,
+  constituentId,
+  targetConstituency,
+  row,
+  write,
+  includeEndDate = true,
+}) {
+  const payload = {
+    constituent_id: String(constituentId),
+    description: targetConstituency,
+  };
+  const startDate = formatDateForBlackbaud(write.startDate || row.start_date);
+  const endDate = formatDateForBlackbaud(write.endDate || row.end_date);
+  if (startDate) payload.date_from = startDate;
+  if (includeEndDate && endDate) payload.date_to = endDate;
+
+  return blackbaudApiFetch("/constituent/v1/constituentcodes", {
+    userId: user.id,
+    authUserId: user.id,
+    origin: new URL(request.url).origin,
+    method: "POST",
+    body: payload,
+  });
+}
+
+async function patchConstituentCode({ request, user, codeId, payload }) {
+  return blackbaudApiFetch(
+    `/constituent/v1/constituentcodes/${encodeURIComponent(String(codeId))}`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
+}
+
+async function applyConstituentCodeAdd({ request, user, row, write, currentCodes = null }) {
   const constituentId = getMatchedConstituentId(row);
   const targetConstituency = cleanText(write.targetConstituency || row.target_constituency);
 
@@ -113,21 +222,35 @@ async function applyConstituentCodeAdd({ request, user, row, write }) {
     };
   }
 
-  const payload = {
-    constituent_id: String(constituentId),
-    description: targetConstituency,
-  };
-  const startDate = formatDateForBlackbaud(write.startDate || row.start_date);
-  const endDate = formatDateForBlackbaud(write.endDate || row.end_date);
-  if (startDate) payload.date_from = startDate;
-  if (endDate) payload.date_to = endDate;
+  const liveCodes =
+    currentCodes || (await fetchConstituencyCodes({ request, user, constituentId }));
+  const existingCode = findCode(liveCodes, targetConstituency);
+  if (existingCode && !isOpenConstituencyCode(existingCode)) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "add",
+      targetConstituency,
+      message: `${targetConstituency} already exists in NXT with an end date; review before adding another copy.`,
+    };
+  }
+  if (existingCode) {
+    return {
+      status: "applied",
+      type: "constituent_code",
+      action: "skip_existing",
+      targetConstituency,
+      message: `${targetConstituency} is already present in NXT; no duplicate code was added.`,
+    };
+  }
 
-  const result = await blackbaudApiFetch("/constituent/v1/constituentcodes", {
-    userId: user.id,
-    authUserId: user.id,
-    origin: new URL(request.url).origin,
-    method: "POST",
-    body: payload,
+  const result = await createConstituentCode({
+    request,
+    user,
+    constituentId,
+    targetConstituency,
+    row,
+    write,
   });
 
   return {
@@ -139,9 +262,164 @@ async function applyConstituentCodeAdd({ request, user, row, write }) {
   };
 }
 
+async function applyConstituentCodeEndDate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const sourceConstituency = cleanText(write.sourceConstituency || row.source_constituency);
+  const endDate = formatDateForBlackbaud(write.endDate || row.end_date);
+
+  if (!constituentId || !sourceConstituency) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: write.action || "end-date",
+      message: "Missing matched NXT constituent ID or current constituent code.",
+    };
+  }
+  if (!endDate) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: write.action || "end-date",
+      message: `An end date is required before ${sourceConstituency} can be changed in NXT.`,
+    };
+  }
+
+  const liveCodes = await fetchConstituencyCodes({ request, user, constituentId });
+  const sourceCode = findOpenCode(liveCodes, sourceConstituency);
+  if (!sourceCode && findCode(liveCodes, sourceConstituency)) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: write.action || "end-date",
+      message: `${sourceConstituency} already has an end date in NXT; review before changing it.`,
+    };
+  }
+  if (!sourceCode?.id) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: write.action || "end-date",
+      message: `${sourceConstituency} was not found on the current NXT record.`,
+    };
+  }
+
+  const result = await patchConstituentCode({
+    request,
+    user,
+    codeId: sourceCode.id,
+    payload: { date_to: endDate },
+  });
+
+  return {
+    status: "applied",
+    type: "constituent_code",
+    action: "end-date",
+    sourceConstituency,
+    endDate,
+    blackbaudResult: result || null,
+  };
+}
+
+async function applyConstituentCodeReplace({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const sourceConstituency = cleanText(write.sourceConstituency || row.source_constituency);
+  const targetConstituency = cleanText(write.targetConstituency || row.target_constituency);
+  const endDate = formatDateForBlackbaud(write.endDate || row.end_date);
+
+  if (!constituentId || !sourceConstituency || !targetConstituency) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "replace",
+      message:
+        "Matched NXT constituent ID, current constituent code, and new constituent code are required before replace can apply.",
+    };
+  }
+  if (!endDate) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "replace",
+      message: `An end date is required before replacing ${sourceConstituency} in NXT.`,
+    };
+  }
+
+  const liveCodes = await fetchConstituencyCodes({ request, user, constituentId });
+  const sourceCode = findOpenCode(liveCodes, sourceConstituency);
+  if (!sourceCode && findCode(liveCodes, sourceConstituency)) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "replace",
+      message: `${sourceConstituency} already has an end date in NXT; review before replacing it.`,
+    };
+  }
+  if (!sourceCode?.id) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "replace",
+      message: `${sourceConstituency} was not found on the current NXT record.`,
+    };
+  }
+
+  const targetAlreadyExists = findCode(liveCodes, targetConstituency);
+  if (targetAlreadyExists && !isOpenConstituencyCode(targetAlreadyExists)) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "replace",
+      message: `${targetConstituency} already exists in NXT with an end date; review before adding another copy.`,
+    };
+  }
+
+  const results = [];
+  results.push(
+    await patchConstituentCode({
+      request,
+      user,
+      codeId: sourceCode.id,
+      payload: { date_to: endDate },
+    }),
+  );
+
+  if (!targetAlreadyExists) {
+    results.push(
+      await createConstituentCode({
+        request,
+        user,
+        constituentId,
+        targetConstituency,
+        row,
+        write,
+        includeEndDate: false,
+      }),
+    );
+  }
+
+  return {
+    status: "applied",
+    type: "constituent_code",
+    action: "replace",
+    sourceConstituency,
+    targetConstituency,
+    endDate,
+    message: targetAlreadyExists
+      ? `${sourceConstituency} was end-dated and ${targetConstituency} was already present.`
+      : `${sourceConstituency} was end-dated and ${targetConstituency} was added.`,
+    blackbaudResult: results,
+  };
+}
+
 async function applyWrite({ request, user, row, write }) {
   if (write?.type === "constituent_code" && write?.action === "add") {
     return applyConstituentCodeAdd({ request, user, row, write });
+  }
+  if (write?.type === "constituent_code" && write?.action === "end-date") {
+    return applyConstituentCodeEndDate({ request, user, row, write });
+  }
+  if (write?.type === "constituent_code" && write?.action === "replace") {
+    return applyConstituentCodeReplace({ request, user, row, write });
   }
 
   if (write?.type === "constituent_code") {
@@ -150,7 +428,7 @@ async function applyWrite({ request, user, row, write }) {
       type: "constituent_code",
       action: write?.action || "review",
       message:
-        "Only additive constituent-code writes are automated in this stage. Replace and end-date rows still require manual NXT review.",
+        "This constituent-code action is not automated yet.",
     };
   }
 
