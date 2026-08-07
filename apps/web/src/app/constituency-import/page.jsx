@@ -288,11 +288,74 @@ const IMPORT_FIELDS = [
     description: "Major, program, or academic area, when available.",
   },
   {
+    key: "educationMinor",
+    header: "Education Minor",
+    label: "Education Minor",
+    group: "Education relationship fields",
+    description: "Minor or secondary academic area, when available.",
+  },
+  {
+    key: "educationSchoolType",
+    header: "Education School Type",
+    label: "Education School Type",
+    group: "Education relationship fields",
+    description: "Active NXT School type table entry, when available.",
+  },
+  {
+    key: "educationCampus",
+    header: "Education Campus",
+    label: "Education Campus",
+    group: "Education relationship fields",
+    description: "Campus name, when available.",
+  },
+  {
+    key: "educationFraternitySorority",
+    header: "Education Fraternity/Sorority",
+    label: "Education Fraternity/Sorority",
+    group: "Education relationship fields",
+    description: "Fraternity or sorority affiliation, when available.",
+  },
+  {
+    key: "educationGpa",
+    header: "Education GPA",
+    label: "Education GPA",
+    group: "Education relationship fields",
+    description: "Numeric GPA, when available.",
+  },
+  {
     key: "educationClassYear",
     header: "Education Class Year",
     label: "Education Class Year",
     group: "Education relationship fields",
     description: "Graduation or class year, when available.",
+  },
+  {
+    key: "educationStatus",
+    header: "Education Status",
+    label: "Education Status",
+    group: "Education relationship fields",
+    description: "Active NXT education status table entry, when available.",
+  },
+  {
+    key: "educationDateGraduated",
+    header: "Education Date Graduated",
+    label: "Education Date Graduated",
+    group: "Education relationship fields",
+    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
+  },
+  {
+    key: "educationDateEntered",
+    header: "Education Date Entered",
+    label: "Education Date Entered",
+    group: "Education relationship fields",
+    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
+  },
+  {
+    key: "educationDateLeft",
+    header: "Education Date Left",
+    label: "Education Date Left",
+    group: "Education relationship fields",
+    description: "Use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD. This can be blank.",
   },
   {
     key: "educationRelationshipMakePrimary",
@@ -401,7 +464,16 @@ const DEFAULT_ACTIVE_FIELDS = {
   educationInstitution: false,
   educationDegree: false,
   educationMajor: false,
+  educationMinor: false,
+  educationSchoolType: false,
+  educationCampus: false,
+  educationFraternitySorority: false,
+  educationGpa: false,
   educationClassYear: false,
+  educationStatus: false,
+  educationDateGraduated: false,
+  educationDateEntered: false,
+  educationDateLeft: false,
   educationRelationshipMakePrimary: false,
   organizationName: false,
   organizationRelationshipType: false,
@@ -433,7 +505,7 @@ const FIELD_GROUP_HELP = {
   "Phone fields": "Phone columns, including the optional primary flag.",
   "Address fields": "Address columns, including the optional primary flag.",
   "Constituent code fields": "Constituent-code add/replace options and optional dates.",
-  "Education relationship fields": "Education columns can add a new relationship or update an existing one, such as Student to Alumni.",
+  "Education relationship fields": "Education columns add new NXT education relationships only. Existing education rows are never edited or replaced, and matching entries are skipped.",
   "Organization relationship fields": "Organization columns are staged as additional relationships so existing affiliations are not replaced.",
 };
 
@@ -571,8 +643,26 @@ function makeTemplateRows(fields) {
         return "Bachelor of Science";
       case "educationMajor":
         return "Nursing";
+      case "educationMinor":
+        return "Psychology";
+      case "educationSchoolType":
+        return "University";
+      case "educationCampus":
+        return "Main Campus";
+      case "educationFraternitySorority":
+        return "Alpha Delta Pi";
+      case "educationGpa":
+        return "3.8";
       case "educationClassYear":
         return "2026";
+      case "educationStatus":
+        return "Graduated";
+      case "educationDateGraduated":
+        return "05/01/2026";
+      case "educationDateEntered":
+        return "08/15/2022";
+      case "educationDateLeft":
+        return "";
       case "educationRelationshipMakePrimary":
         return "Yes";
       case "organizationName":
@@ -657,8 +747,26 @@ function makeTemplateRows(fields) {
         return "Master of Business Administration";
       case "educationMajor":
         return "Business";
+      case "educationMinor":
+        return "Finance";
+      case "educationSchoolType":
+        return "University";
+      case "educationCampus":
+        return "Downtown Campus";
+      case "educationFraternitySorority":
+        return "";
+      case "educationGpa":
+        return "3.6";
       case "educationClassYear":
         return "2026";
+      case "educationStatus":
+        return "Graduated";
+      case "educationDateGraduated":
+        return "05/01/2026";
+      case "educationDateEntered":
+        return "08/15/2024";
+      case "educationDateLeft":
+        return "";
       case "educationRelationshipMakePrimary":
         return "No";
       case "organizationName":
@@ -841,7 +949,21 @@ function formatWritePlanItem(write) {
       write.action === "skip_existing"
         ? "Matching education relationship already exists"
         : "Add education relationship";
-    const details = [write.institution, write.degree, write.major, write.classYear && `Class ${write.classYear}`]
+    const details = [
+      write.institution,
+      write.degree,
+      write.major,
+      write.minor && `Minor ${write.minor}`,
+      write.schoolType && `Type ${write.schoolType}`,
+      write.campus,
+      write.fraternitySorority,
+      write.gpa && `GPA ${write.gpa}`,
+      write.classYear && `Class ${write.classYear}`,
+      write.status,
+      write.dateGraduated && `Graduated ${write.dateGraduated}`,
+      write.dateEntered && `Entered ${write.dateEntered}`,
+      write.dateLeft && `Left ${write.dateLeft}`,
+    ]
       .filter(Boolean)
       .join(" / ");
     return `${action}: ${details || "details supplied in row"}`;
@@ -1295,7 +1417,16 @@ export default function ConstituencyImportPage() {
     activeFields.educationInstitution ||
       activeFields.educationDegree ||
       activeFields.educationMajor ||
-      activeFields.educationClassYear,
+      activeFields.educationMinor ||
+      activeFields.educationSchoolType ||
+      activeFields.educationCampus ||
+      activeFields.educationFraternitySorority ||
+      activeFields.educationGpa ||
+      activeFields.educationClassYear ||
+      activeFields.educationStatus ||
+      activeFields.educationDateGraduated ||
+      activeFields.educationDateEntered ||
+      activeFields.educationDateLeft,
   );
   const organizationRelationshipFieldsActive = Boolean(
     activeFields.organizationName ||
@@ -1370,7 +1501,16 @@ export default function ConstituencyImportPage() {
       hasUploadedHeader("educationInstitution") ||
       hasUploadedHeader("educationDegree") ||
       hasUploadedHeader("educationMajor") ||
+      hasUploadedHeader("educationMinor") ||
+      hasUploadedHeader("educationSchoolType") ||
+      hasUploadedHeader("educationCampus") ||
+      hasUploadedHeader("educationFraternitySorority") ||
+      hasUploadedHeader("educationGpa") ||
       hasUploadedHeader("educationClassYear") ||
+      hasUploadedHeader("educationStatus") ||
+      hasUploadedHeader("educationDateGraduated") ||
+      hasUploadedHeader("educationDateEntered") ||
+      hasUploadedHeader("educationDateLeft") ||
       hasUploadedHeader("organizationName") ||
       hasUploadedHeader("organizationRelationshipType") ||
       hasUploadedHeader("organizationTitle") ||

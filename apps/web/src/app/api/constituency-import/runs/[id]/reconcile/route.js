@@ -143,6 +143,60 @@ function educationMatchesWrite(write, education) {
   );
 }
 
+function educationDetailsMismatch(write, education) {
+  const mismatches = [];
+  const textFields = [
+    ["school type", write?.schoolType, education?.type ?? education?.school_type],
+    ["campus", write?.campus, education?.campus],
+    [
+      "fraternity/sorority",
+      write?.fraternitySorority,
+      education?.social_organization ?? education?.fraternity_sorority,
+    ],
+    ["status", write?.status, education?.status],
+  ];
+  textFields.forEach(([label, expected, actual]) => {
+    if (cleanText(expected) && normalizeText(expected) !== normalizeText(getEducationValueText(actual))) {
+      mismatches.push(label);
+    }
+  });
+
+  const expectedMinor = cleanText(write?.minor);
+  if (
+    expectedMinor &&
+    !getEducationValues(education, "minors", ["minor", "minor_name"]).some(
+      (value) => normalizeText(value) === normalizeText(expectedMinor),
+    )
+  ) {
+    mismatches.push("minor");
+  }
+
+  const expectedGpa = cleanText(write?.gpa);
+  if (
+    expectedGpa &&
+    (!Number.isFinite(Number(education?.gpa)) || Math.abs(Number(expectedGpa) - Number(education.gpa)) > 0.001)
+  ) {
+    mismatches.push("GPA");
+  }
+
+  const dateFields = [
+    ["date graduated", write?.dateGraduated, education?.date_graduated ?? education?.graduation_date],
+    ["date entered", write?.dateEntered, education?.date_entered],
+    ["date left", write?.dateLeft, education?.date_left],
+  ];
+  dateFields.forEach(([label, expected, actual]) => {
+    if (cleanText(expected) && comparableDate(expected) !== comparableDate(actual)) {
+      mismatches.push(label);
+    }
+  });
+
+  if (parseBoolean(write?.makePrimary) && !parseBoolean(education?.primary ?? education?.is_primary)) {
+    mismatches.push("primary designation");
+  }
+
+  return mismatches;
+}
+
 function getRelationshipName(value) {
   return cleanText(value?.name || value?.relation_name || value?.related_constituent_name || value?.relation?.name);
 }
@@ -339,9 +393,16 @@ async function reconcileWrite({ write, applyResult, reader }) {
 
   if (write.type === "education_relationship") {
     const match = (await reader.educations()).find((education) => educationMatchesWrite(write, education));
-    return match
-      ? confirmed(write, "The imported education relationship is present in NXT.")
-      : needsReview(write, "The imported education relationship was not found on the current NXT record.");
+    if (!match) {
+      return needsReview(write, "The imported education relationship was not found on the current NXT record.");
+    }
+    const mismatches = educationDetailsMismatch(write, match);
+    return mismatches.length
+      ? needsReview(
+          write,
+          `The education relationship is present, but NXT differs for: ${mismatches.join(", ")}.`,
+        )
+      : confirmed(write, "The imported education relationship is present in NXT.");
   }
 
   if (write.type === "organization_relationship") {

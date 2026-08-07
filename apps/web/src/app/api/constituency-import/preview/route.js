@@ -136,6 +136,12 @@ function formatBirthDate(value) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function formatEducationDate(value) {
+  const source = typeof value === "object" ? formatBirthDate(value) : cleanText(value);
+  const parsed = parseBirthDate(source);
+  return parsed ? formatBirthDate(parsed) : source;
+}
+
 function joinNameParts(parts) {
   return parts.map(cleanText).filter(Boolean).join(" ");
 }
@@ -210,7 +216,16 @@ function getRowInput(row, mappings, defaults = {}) {
     institution: getMappedValue(row, mappings, "educationInstitution"),
     degree: getMappedValue(row, mappings, "educationDegree"),
     major: getMappedValue(row, mappings, "educationMajor"),
+    minor: getMappedValue(row, mappings, "educationMinor"),
+    schoolType: getMappedValue(row, mappings, "educationSchoolType"),
+    campus: getMappedValue(row, mappings, "educationCampus"),
+    fraternitySorority: getMappedValue(row, mappings, "educationFraternitySorority"),
+    gpa: getMappedValue(row, mappings, "educationGpa"),
     classYear: getMappedValue(row, mappings, "educationClassYear"),
+    status: getMappedValue(row, mappings, "educationStatus"),
+    dateGraduated: getMappedValue(row, mappings, "educationDateGraduated"),
+    dateEntered: getMappedValue(row, mappings, "educationDateEntered"),
+    dateLeft: getMappedValue(row, mappings, "educationDateLeft"),
     makePrimary: getMappedValue(row, mappings, "educationRelationshipMakePrimary"),
   };
   const organizationRelationship = {
@@ -224,7 +239,23 @@ function getRowInput(row, mappings, defaults = {}) {
     makePrimary: getMappedValue(row, mappings, "organizationRelationshipMakePrimary"),
   };
 
-  if (hasAnyValue(educationRelationship, ["institution", "degree", "major", "classYear"])) {
+  if (
+    hasAnyValue(educationRelationship, [
+      "institution",
+      "degree",
+      "major",
+      "minor",
+      "schoolType",
+      "campus",
+      "fraternitySorority",
+      "gpa",
+      "classYear",
+      "status",
+      "dateGraduated",
+      "dateEntered",
+      "dateLeft",
+    ])
+  ) {
     input.educationRelationship = educationRelationship;
   }
   if (hasAnyValue(organizationRelationship, ["name", "relationshipType", "title"])) {
@@ -666,7 +697,18 @@ function serializeEducation(value) {
     school: getEducationSchool(value),
     degrees: getEducationValues(value, "degrees", ["degree", "degree_name"]),
     majors: getEducationValues(value, "majors", ["major", "major_name"]),
+    minors: getEducationValues(value, "minors", ["minor", "minor_name"]),
+    schoolType: getEducationValueText(value?.type ?? value?.school_type),
+    campus: getEducationValueText(value?.campus),
+    fraternitySorority: getEducationValueText(
+      value?.social_organization ?? value?.fraternity_sorority,
+    ),
+    gpa: cleanText(value?.gpa),
     classYear: getEducationClassYear(value),
+    status: getEducationValueText(value?.status),
+    dateGraduated: formatEducationDate(value?.date_graduated ?? value?.graduation_date),
+    dateEntered: formatEducationDate(value?.date_entered),
+    dateLeft: formatEducationDate(value?.date_left),
     primary: parseBoolean(value?.primary ?? value?.is_primary) === true,
   };
 }
@@ -700,7 +742,16 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
     institution: cleanText(input.educationRelationship.institution),
     degree: cleanText(input.educationRelationship.degree),
     major: cleanText(input.educationRelationship.major),
+    minor: cleanText(input.educationRelationship.minor),
+    schoolType: cleanText(input.educationRelationship.schoolType),
+    campus: cleanText(input.educationRelationship.campus),
+    fraternitySorority: cleanText(input.educationRelationship.fraternitySorority),
+    gpa: cleanText(input.educationRelationship.gpa),
     classYear: cleanText(input.educationRelationship.classYear),
+    status: cleanText(input.educationRelationship.status),
+    dateGraduated: cleanText(input.educationRelationship.dateGraduated),
+    dateEntered: cleanText(input.educationRelationship.dateEntered),
+    dateLeft: cleanText(input.educationRelationship.dateLeft),
     makePrimary: input.educationRelationship.makePrimary || "",
   };
 
@@ -717,6 +768,21 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
   if (write.classYear && !/^\d{4}$/.test(write.classYear)) {
     write.requiresReview = true;
     write.validationMessage = "Education Class Year must be a four-digit year before it can be imported.";
+    return write;
+  }
+  if (write.gpa && (!Number.isFinite(Number(write.gpa)) || Number(write.gpa) < 0)) {
+    write.requiresReview = true;
+    write.validationMessage = "Education GPA must be a non-negative number before it can be imported.";
+    return write;
+  }
+  const invalidDate = [
+    ["Education Date Graduated", write.dateGraduated],
+    ["Education Date Entered", write.dateEntered],
+    ["Education Date Left", write.dateLeft],
+  ].find(([, value]) => cleanText(value) && !parseBirthDate(value));
+  if (invalidDate) {
+    write.requiresReview = true;
+    write.validationMessage = `${invalidDate[0]} must use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD before it can be imported.`;
     return write;
   }
 

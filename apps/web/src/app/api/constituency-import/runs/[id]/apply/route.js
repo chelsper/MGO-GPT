@@ -542,7 +542,16 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
   const institution = cleanText(write?.institution);
   const degree = cleanText(write?.degree);
   const major = cleanText(write?.major);
+  const minor = cleanText(write?.minor);
+  const schoolType = cleanText(write?.schoolType);
+  const campus = cleanText(write?.campus);
+  const fraternitySorority = cleanText(write?.fraternitySorority);
+  const gpa = cleanText(write?.gpa);
   const classYear = cleanText(write?.classYear);
+  const status = cleanText(write?.status);
+  const dateGraduated = cleanText(write?.dateGraduated);
+  const dateEntered = cleanText(write?.dateEntered);
+  const dateLeft = cleanText(write?.dateLeft);
 
   if (!constituentId || !institution) {
     return manualEducationResult(
@@ -560,6 +569,28 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
     return manualEducationResult(
       action,
       "Education Class Year must be a four-digit year before it can be imported.",
+    );
+  }
+  if (gpa && (!Number.isFinite(Number(gpa)) || Number(gpa) < 0)) {
+    return manualEducationResult(
+      action,
+      "Education GPA must be a non-negative number before it can be imported.",
+    );
+  }
+  const parsedEducationDates = {
+    dateGraduated: dateGraduated ? parseBirthDate(dateGraduated) : null,
+    dateEntered: dateEntered ? parseBirthDate(dateEntered) : null,
+    dateLeft: dateLeft ? parseBirthDate(dateLeft) : null,
+  };
+  const invalidDate = [
+    ["Education Date Graduated", dateGraduated, parsedEducationDates.dateGraduated],
+    ["Education Date Entered", dateEntered, parsedEducationDates.dateEntered],
+    ["Education Date Left", dateLeft, parsedEducationDates.dateLeft],
+  ].find(([, value, parsed]) => value && !parsed);
+  if (invalidDate) {
+    return manualEducationResult(
+      action,
+      `${invalidDate[0]} must use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD before it can be imported.`,
     );
   }
 
@@ -586,7 +617,16 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
   };
   if (degree) payload.degree = degree;
   if (major) payload.majors = [major];
+  if (minor) payload.minors = [minor];
+  if (schoolType) payload.type = schoolType;
+  if (campus) payload.campus = campus;
+  if (fraternitySorority) payload.social_organization = fraternitySorority;
+  if (gpa) payload.gpa = Number(gpa);
   if (classYear) payload.class_of = Number(classYear);
+  if (status) payload.status = status;
+  if (parsedEducationDates.dateGraduated) payload.date_graduated = parsedEducationDates.dateGraduated;
+  if (parsedEducationDates.dateEntered) payload.date_entered = parsedEducationDates.dateEntered;
+  if (parsedEducationDates.dateLeft) payload.date_left = parsedEducationDates.dateLeft;
   if (parseBoolean(write?.makePrimary)) payload.primary = true;
 
   const result = await blackbaudApiFetch("/constituent/v1/educations", {
