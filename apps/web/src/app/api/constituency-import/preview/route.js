@@ -72,6 +72,15 @@ function normalizeAction(value, fallback = "replace") {
   return ACTION_ALIASES.get(normalized) || ACTION_ALIASES.get(normalizeText(fallback)) || "replace";
 }
 
+function normalizeImportIntent(value) {
+  const normalized = normalizeText(value);
+  if (normalized === "new" || normalized === "new records") return "new";
+  if (normalized === "both" || normalized === "mixed" || normalized === "new and updates") {
+    return "mixed";
+  }
+  return "updates";
+}
+
 function getMappedValue(row, mappings, key) {
   const mappedColumn = cleanText(mappings?.[key]);
   if (mappedColumn && Object.prototype.hasOwnProperty.call(row, mappedColumn)) {
@@ -1222,6 +1231,86 @@ function deriveStatus(
   return changePreview.status;
 }
 
+function classifyImportRow(importIntent, matchResult, status) {
+  if (status === STATUS.conflict) {
+    return {
+      key: "conflict",
+      label: "Conflict",
+      allowApply: false,
+      message:
+        "The CSV contains conflicting identifiers or validation errors. Resolve the conflict before this row can update an existing record or be reviewed as a potential new constituent.",
+    };
+  }
+
+  if (importIntent === "new") {
+    if (matchResult.status === "matched") {
+      return {
+        key: "possible_duplicate",
+        label: "Possible duplicate",
+        allowApply: false,
+        message:
+          "An existing NXT record was found. This row is held for duplicate review and will not update or create a record from the new-records workflow.",
+      };
+    }
+    if (matchResult.status === "needs_review") {
+      return {
+        key: "needs_resolution",
+        label: "Needs resolution",
+        allowApply: false,
+        message:
+          "A possible NXT match was found. Resolve the duplicate check before treating this row as a new constituent.",
+      };
+    }
+    return {
+      key: "potential_new",
+      label: "Potential new record",
+      allowApply: false,
+      message:
+        "No likely NXT record was found. This row is a potential new constituent and remains in controlled review; this import does not create NXT records.",
+    };
+  }
+
+  if (importIntent === "mixed") {
+    if (matchResult.status === "matched") {
+      return {
+        key: status === STATUS.ready ? "ready_update" : "needs_resolution",
+        label: status === STATUS.ready ? "Ready update" : "Needs resolution",
+        allowApply: status === STATUS.ready,
+        message:
+          status === STATUS.ready
+            ? "An existing NXT record was confirmed and the requested update is ready for the guarded apply step."
+            : "An existing NXT record was found, but this row needs review before it can be updated.",
+      };
+    }
+    if (matchResult.status === "needs_review") {
+      return {
+        key: "needs_resolution",
+        label: "Needs resolution",
+        allowApply: false,
+        message:
+          "A possible NXT match was found. Resolve the match before deciding whether this row updates an existing record or becomes a new-record candidate.",
+      };
+    }
+    return {
+      key: "potential_new",
+      label: "Potential new record",
+      allowApply: false,
+      message:
+        "No likely NXT record was found. This row is a potential new constituent and remains in controlled review; this import does not create NXT records.",
+    };
+  }
+
+  return {
+    key: status === STATUS.ready ? "ready_update" : status === STATUS.needsReview ? "needs_resolution" : "other",
+    label: status === STATUS.ready ? "Ready update" : status,
+    allowApply: status === STATUS.ready,
+    message:
+      status === STATUS.ready
+        ? "An existing NXT record was confirmed and the requested update is ready for the guarded apply step."
+        : "This row requires an existing NXT match before it can be updated.",
+  };
+}
+
 function summarize(rows, warnings) {
   return rows.reduce(
     (acc, row) => {
@@ -1230,6 +1319,13 @@ function summarize(rows, warnings) {
       if (row.status === STATUS.needsReview) acc.needsReview += 1;
       if (row.status === STATUS.skipped) acc.skipped += 1;
       if (row.status === STATUS.conflict) acc.conflict += 1;
+      if (row.intentDisposition?.key === "potential_new") acc.potentialNew += 1;
+      if (
+        row.intentDisposition?.key === "needs_resolution" ||
+        row.intentDisposition?.key === "possible_duplicate"
+      ) {
+        acc.needsResolution += 1;
+      }
       return acc;
     },
     {
@@ -1238,6 +1334,8 @@ function summarize(rows, warnings) {
       needsReview: 0,
       skipped: 0,
       conflict: 0,
+      potentialNew: 0,
+      needsResolution: 0,
       warningCount: warnings.length,
     },
   );
@@ -1408,6 +1506,7 @@ export async function POST(request) {
         ? body.contactDecisions
         : {};
     const useHierarchy = defaults.useHierarchy !== false;
+    const importIntent = normalizeImportIntent(defaults.importIntent);
     const saveRun = Boolean(body?.saveRun);
     const origin = new URL(request.url).origin;
     const authUserId = user.id;
@@ -1599,17 +1698,26 @@ export async function POST(request) {
           .map((write) => write.validationMessage),
       ].filter(Boolean);
 
+      const initialStatus = deriveStatus(
+        matchResult,
+        codeFetchError,
+        contactFetchErrors,
+        nameFormatFetchError,
+        educationFetchError,
+        changePreview,
+        writePlan,
+      );
+      const intentDisposition = classifyImportRow(importIntent, matchResult, initialStatus);
+      const status = intentDisposition.allowApply ? initialStatus :
+        initialStatus === STATUS.conflict ? STATUS.conflict :
+        initialStatus === STATUS.skipped && intentDisposition.key === "other" ? STATUS.skipped :
+        STATUS.needsReview;
+
       previewRows.push({
         rowNumber: index + 1,
-        status: deriveStatus(
-          matchResult,
-          codeFetchError,
-          contactFetchErrors,
-          nameFormatFetchError,
-          educationFetchError,
-          changePreview,
-          writePlan,
-        ),
+        status,
+        importIntent,
+        intentDisposition,
         matchStatus: matchResult.status,
         matchMethod: matchResult.method,
         confidence: matchResult.confidence,

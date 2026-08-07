@@ -461,6 +461,27 @@ const CONSTITUENCY_ACTIONS = [
   },
 ];
 
+const IMPORT_INTENTS = [
+  {
+    value: "updates",
+    label: "Updates to existing NXT records",
+    description:
+      "Use existing IDs whenever possible. Name, email, and address matches remain review-only.",
+  },
+  {
+    value: "new",
+    label: "New constituent records",
+    description:
+      "Screen each row for duplicates first. Potential new records stay in review and are never created automatically.",
+  },
+  {
+    value: "mixed",
+    label: "A mix of new records and updates",
+    description:
+      "The preview separates confirmed updates, potential new records, and rows needing resolution.",
+  },
+];
+
 const EDUCATION_RELATIONSHIP_ACTIONS = [
   {
     value: "add",
@@ -1124,6 +1145,7 @@ export default function ConstituencyImportPage() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
   const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
+  const [importIntent, setImportIntent] = useState("updates");
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
@@ -1252,6 +1274,9 @@ export default function ConstituencyImportPage() {
       hasUploadedHeader("addressLine1") ||
       (hasUploadedHeader("firstName") && hasUploadedHeader("lastName")),
   );
+  const mappedNewRecordIdentity = Boolean(
+    hasUploadedHeader("firstName") && hasUploadedHeader("lastName"),
+  );
   const mappedImportOperation = Boolean(
     hasUploadedHeader("targetConstituency") ||
       hasUploadedHeader("educationInstitution") ||
@@ -1268,14 +1293,22 @@ export default function ConstituencyImportPage() {
       mappedPhoneUpdate ||
       mappedAddressUpdate,
   );
+  const identityRequirementMet =
+    importIntent === "new" ? mappedNewRecordIdentity : mappedIdentityField;
+  const identityRequirementCopy =
+    importIntent === "new"
+      ? "Include active First Name and Last Name columns for every potential new individual."
+      : importIntent === "mixed"
+        ? "Include an active matching column for existing records or First Name + Last Name for potential new individuals."
+        : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, Address Line 1, or First Name + Last Name.";
   const canPreview =
     rows.length > 0 &&
-    mappedIdentityField &&
+    identityRequirementMet &&
     hasImportOperation &&
     mappedImportOperation;
   const previewBlockers = [
     rows.length === 0 ? "Add at least one CSV data row." : "",
-    mappedIdentityField ? "" : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, Address Line 1, or First Name + Last Name.",
+    identityRequirementMet ? "" : identityRequirementCopy,
     hasImportOperation
       ? ""
       : "Select at least one import operation, such as a constituent code, relationship, individual update, name-format update, or contact update.",
@@ -1360,6 +1393,16 @@ export default function ConstituencyImportPage() {
 
   const summaryCards = useMemo(() => {
     const summary = preview?.summary || {};
+    if (importIntent !== "updates") {
+      return [
+        ["Ready updates", summary.ready || 0, "green"],
+        ["Potential new records", summary.potentialNew || 0, "blue"],
+        ["Needs resolution", summary.needsResolution || 0, "amber"],
+        ["Conflicts", summary.conflict || 0, "red"],
+        ["Skipped", summary.skipped || 0, "blue"],
+        ["Total", summary.total || rows.length || 0, "neutral"],
+      ];
+    }
     return [
       ["Ready", summary.ready || 0, "green"],
       ["Needs Review", summary.needsReview || 0, "amber"],
@@ -1367,7 +1410,41 @@ export default function ConstituencyImportPage() {
       ["Skipped", summary.skipped || 0, "blue"],
       ["Total", summary.total || rows.length || 0, "neutral"],
     ];
-  }, [preview, rows.length]);
+  }, [importIntent, preview, rows.length]);
+
+  const summaryToneColors = {
+    green: "#166534",
+    blue: "#1D4ED8",
+    amber: "#92400E",
+    red: "#991B1B",
+    neutral: "#374151",
+  };
+
+  function selectImportIntent(nextIntent) {
+    setImportIntent(nextIntent);
+    setActiveFields((current) => {
+      if (nextIntent === "new") {
+        return {
+          ...current,
+          firstName: true,
+          lastName: true,
+        };
+      }
+      if (nextIntent === "mixed") {
+        return {
+          ...current,
+          lookupId: true,
+          firstName: true,
+          lastName: true,
+        };
+      }
+      return current;
+    });
+    setPreview(null);
+    setContactDecisions({});
+    setContactDecisionsDirty(false);
+    setSaveMessage("");
+  }
 
   function toggleField(key) {
     setActiveFields((current) => ({ ...current, [key]: !current[key] }));
@@ -1443,7 +1520,13 @@ export default function ConstituencyImportPage() {
 
   function downloadTemplateCsv() {
     const csv = makeTemplateRows(selectedFields);
-    downloadCsv(csv, "constituency-import-template.csv");
+    const templateName =
+      importIntent === "new"
+        ? "new-constituents-import-template.csv"
+        : importIntent === "mixed"
+          ? "mixed-constituent-import-template.csv"
+          : "constituent-update-import-template.csv";
+    downloadCsv(csv, templateName);
   }
 
   async function readSelectedFile(file) {
@@ -1484,6 +1567,7 @@ export default function ConstituencyImportPage() {
     if (resetFieldConfiguration) {
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
       setOpenFieldGroups(DEFAULT_OPEN_FIELD_GROUPS);
+      setImportIntent("updates");
       setConstituencyAction("add");
       setEducationRelationshipAction("add");
       setUseHierarchy(true);
@@ -1627,6 +1711,7 @@ export default function ConstituencyImportPage() {
           rows,
           mappings,
           defaults: {
+            importIntent,
             defaultAction: constituencyAction,
             educationRelationshipAction: "add",
             useHierarchy,
@@ -1705,7 +1790,7 @@ export default function ConstituencyImportPage() {
         reasons: (row.reasons || []).join(" | "),
       })),
     );
-    downloadCsv(csv, "constituency-import-preview.csv");
+    downloadCsv(csv, `${importIntent}-constituency-import-preview.csv`);
   }
 
   if (loading || loadingProfile) {
@@ -1790,7 +1875,7 @@ export default function ConstituencyImportPage() {
                 Constituency Import Preview
               </h1>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Configure exact CSV headers, preview matches, and review constituent-code changes.
+                Classify each CSV row, preview NXT matches, and safely review proposed updates.
               </p>
             </div>
           </div>
@@ -1810,9 +1895,10 @@ export default function ConstituencyImportPage() {
             lineHeight: 1.5,
           }}
         >
-          This version is template-first: choose the fields you are importing, use the exact CSV
-          headers shown here, then upload the file. You can now save preview runs for review, but
-          saving a preview never writes to NXT; only a saved run's explicit Apply ready rows action does.
+          Choose what the file contains before selecting its fields. Every row is checked against
+          NXT before it can be updated. Potential new records remain in controlled review; saving
+          a preview never writes to NXT, and only a saved run's explicit Apply ready rows action
+          can update confirmed existing records.
         </section>
 
         {completionMessage ? (
@@ -1857,6 +1943,77 @@ export default function ConstituencyImportPage() {
 
         <section
           style={{
+            backgroundColor: "white",
+            border: "1px solid #E5E7EB",
+            borderRadius: "20px",
+            padding: "20px",
+            marginBottom: "18px",
+            display: "grid",
+            gap: "14px",
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
+              1. What does this file contain?
+            </h2>
+            <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
+              This determines how the preview classifies each row. A missing NXT match never
+              creates a constituent automatically.
+            </p>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            {IMPORT_INTENTS.map((intent) => {
+              const selected = importIntent === intent.value;
+              return (
+                <button
+                  key={intent.value}
+                  type="button"
+                  onClick={() => selectImportIntent(intent.value)}
+                  aria-pressed={selected}
+                  style={{
+                    border: selected ? "2px solid #6D5DFB" : "1px solid #E5E7EB",
+                    borderRadius: "16px",
+                    padding: "15px",
+                    backgroundColor: selected ? "#F5F3FF" : "white",
+                    color: "#111827",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ display: "block", fontWeight: 900, fontSize: "16px" }}>
+                    {intent.label}
+                  </span>
+                  <span style={{ display: "block", marginTop: "7px", color: "#6B7280", lineHeight: 1.45 }}>
+                    {intent.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div
+            style={{
+              borderRadius: "14px",
+              border: "1px solid #BFDBFE",
+              backgroundColor: "#EFF6FF",
+              color: "#1E3A8A",
+              padding: "12px 14px",
+              lineHeight: 1.45,
+            }}
+          >
+            <strong>How matching works:</strong> NXT System ID and Lookup ID are the only
+            automatic update matches. Name, email, and address results are shown for human
+            review. If identifiers disagree, the row must be resolved before any NXT update.
+          </div>
+        </section>
+
+        <section
+          style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             gap: "18px",
@@ -1876,7 +2033,7 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  1. Choose import fields
+                  2. Choose import fields
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                   Turn on only the NXT fields represented in your import. The CSV must use the
@@ -2671,7 +2828,7 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                  2. Prepare exact CSV headers
+                  3. Prepare exact CSV headers
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                   Your file should include these active headers. Extra columns are ignored in the
@@ -2724,10 +2881,21 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
             <div style={{ display: "grid", gap: "8px" }}>
-              <Pill tone={mappedIdentityField ? "green" : "amber"}>
-                {mappedIdentityField
-                  ? "Identity fields active"
-                  : "Activate ID, lookup, email, or first/last name"}
+              <Pill tone={identityRequirementMet ? "green" : "amber"}>
+                {identityRequirementMet
+                  ? importIntent === "new"
+                    ? "New-record identity fields active"
+                    : "Identity fields active"
+                  : importIntent === "new"
+                    ? "Activate first and last name"
+                    : "Activate ID, lookup, email, or first/last name"}
+              </Pill>
+              <Pill tone="blue">
+                {importIntent === "updates"
+                  ? "Existing-record update mode"
+                  : importIntent === "new"
+                    ? "Potential new records stay in review"
+                    : "Mixed file: updates and new candidates"}
               </Pill>
               <Pill tone={hasImportOperation ? "green" : "amber"}>
                 {hasImportOperation
@@ -2832,11 +3000,11 @@ export default function ConstituencyImportPage() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                3. Upload CSV and review preview
+                4. Upload CSV and review preview
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Upload one CSV file exported from a data append. Matching headers are activated
-                automatically.
+                Upload one CSV file. Active headers are matched automatically and each row is
+                classified according to the selected file intent.
               </p>
             </div>
             <label
@@ -3031,7 +3199,7 @@ export default function ConstituencyImportPage() {
                     marginTop: "8px",
                     fontSize: "26px",
                     fontWeight: 900,
-                    color: statusTone(label === "Conflicts" ? "Conflict" : label).fg,
+                    color: summaryToneColors[tone] || "#374151",
                   }}
                 >
                   {value}
@@ -3170,8 +3338,9 @@ export default function ConstituencyImportPage() {
               }}
             >
               <span>
-                Saved import run #{preview.savedRun.id}. {readySavedRows} ready unapplied row
-                {readySavedRows === 1 ? "" : "s"} can be applied to NXT.
+                Saved import run #{preview.savedRun.id}. {readySavedRows} ready confirmed update
+                {readySavedRows === 1 ? "" : "s"} can be applied to NXT. Potential new records
+                remain in review and are not included in this action.
               </span>
               <button
                 type="button"
@@ -3236,7 +3405,9 @@ export default function ConstituencyImportPage() {
                         <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
                           {row.match?.name
                             ? `Matched to ${row.match.name}${row.match.lookupId ? ` · Lookup ID ${row.match.lookupId}` : ""}`
-                            : "No NXT match selected"}
+                            : row.intentDisposition?.key === "potential_new"
+                              ? "No likely NXT match found"
+                              : "No NXT match selected"}
                         </p>
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -3255,6 +3426,11 @@ export default function ConstituencyImportPage() {
                         </span>
                         <Pill tone="neutral">{row.confidence}% confidence</Pill>
                         <Pill tone="blue">{row.matchMethod}</Pill>
+                        {row.intentDisposition?.label ? (
+                          <Pill tone={row.intentDisposition.key === "potential_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" ? "amber" : "green"}>
+                            {row.intentDisposition.label}
+                          </Pill>
+                        ) : null}
                       </div>
                     </div>
 
@@ -3442,6 +3618,20 @@ export default function ConstituencyImportPage() {
                         }}
                       >
                         {row.reasons.join(" ")}
+                      </div>
+                    ) : null}
+                    {row.intentDisposition?.message ? (
+                      <div
+                        style={{
+                          border: "1px solid #BFDBFE",
+                          borderRadius: "12px",
+                          padding: "10px 12px",
+                          color: "#1E3A8A",
+                          backgroundColor: "#EFF6FF",
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {row.intentDisposition.message}
                       </div>
                     ) : null}
                   </article>

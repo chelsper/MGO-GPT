@@ -894,4 +894,122 @@ describe("constituency import preview route", () => {
     expect(payload.summary.ready).toBe(1);
     expect(sqlMock).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps an unmatched new-record row in controlled review", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "First Name": "Avery",
+            "Last Name": "Newcomer",
+            "New Constituency": "Friend",
+          },
+        ],
+        mappings: {
+          firstName: "First Name",
+          lastName: "Last Name",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add", importIntent: "new" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Needs Review");
+    expect(payload.rows[0].intentDisposition).toMatchObject({
+      key: "potential_new",
+      allowApply: false,
+    });
+    expect(payload.summary.ready).toBe(0);
+    expect(payload.summary.potentialNew).toBe(1);
+  });
+
+  it("holds an exact NXT match for duplicate review in a new-record file", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "First Name": "Chelsea",
+            "Last Name": "Jasper",
+            "New Constituency": "Friend",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add", importIntent: "new" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Needs Review");
+    expect(payload.rows[0].intentDisposition).toMatchObject({
+      key: "possible_duplicate",
+      allowApply: false,
+    });
+    expect(payload.summary.ready).toBe(0);
+    expect(payload.summary.needsResolution).toBe(1);
+  });
+
+  it("separates confirmed updates from potential new records in a mixed file", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "First Name": "Chelsea",
+            "Last Name": "Jasper",
+            "New Constituency": "Friend",
+          },
+          {
+            "First Name": "Avery",
+            "Last Name": "Newcomer",
+            "New Constituency": "Friend",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add", importIntent: "mixed" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].intentDisposition.key).toBe("ready_update");
+    expect(payload.rows[1].status).toBe("Needs Review");
+    expect(payload.rows[1].intentDisposition.key).toBe("potential_new");
+    expect(payload.summary.ready).toBe(1);
+    expect(payload.summary.potentialNew).toBe(1);
+  });
 });
