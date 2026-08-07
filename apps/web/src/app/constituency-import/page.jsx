@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import { ArrowLeft, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
@@ -789,6 +789,7 @@ export default function ConstituencyImportPage() {
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
+  const fileInputRef = useRef(null);
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
@@ -1868,7 +1869,9 @@ export default function ConstituencyImportPage() {
                 automatically.
               </p>
             </div>
-            <label
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -1880,19 +1883,32 @@ export default function ConstituencyImportPage() {
                 padding: "10px 14px",
                 cursor: "pointer",
                 fontWeight: 800,
+                backgroundColor: "white",
               }}
             >
-              <Upload size={16} /> Upload CSV
-              <input
-                key={fileInputKey}
-                id="constituency-import-file"
-                name="constituency-import-file"
-                type="file"
-                accept=".csv,text/csv"
-                onChange={handleFileUpload}
-                style={{ display: "none" }}
-              />
-            </label>
+              <Upload size={16} /> Choose CSV file
+            </button>
+            <input
+              ref={fileInputRef}
+              key={fileInputKey}
+              id="constituency-import-file"
+              name="constituency-import-file"
+              type="file"
+              accept=".csv,text/csv"
+              onClick={(event) => {
+                event.currentTarget.value = "";
+              }}
+              onChange={handleFileUpload}
+              style={{
+                position: "absolute",
+                width: "1px",
+                height: "1px",
+                overflow: "hidden",
+                clip: "rect(0 0 0 0)",
+                clipPath: "inset(50%)",
+                whiteSpace: "nowrap",
+              }}
+            />
           </div>
 
           <div
