@@ -1202,6 +1202,24 @@ function HeaderCode({ children }) {
   );
 }
 
+function isUnresolvedImportRow(row) {
+  return row?.status !== "Applied" && row?.status !== "Skipped";
+}
+
+function getReviewQueueRows(rows) {
+  return Array.isArray(rows) ? rows.filter(isUnresolvedImportRow) : [];
+}
+
+function getImportRowLabel(row) {
+  return (
+    row?.input?.constituentName ||
+    row?.match?.name ||
+    row?.input?.lookupId ||
+    row?.input?.blackbaudConstituentId ||
+    "this constituent"
+  );
+}
+
 export default function ConstituencyImportPage() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -1242,6 +1260,9 @@ export default function ConstituencyImportPage() {
   const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
   const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
+  const [showBatchTools, setShowBatchTools] = useState(false);
+  const [reviewMode, setReviewMode] = useState(true);
+  const [focusedRowId, setFocusedRowId] = useState("");
   const [reconcilingRun, setReconcilingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
   const [retryingRowId, setRetryingRowId] = useState("");
@@ -1410,6 +1431,18 @@ export default function ConstituencyImportPage() {
             !row.createdBlackbaudConstituentId,
         ).length
       : 0;
+  const importRows = Array.isArray(preview?.rows) ? preview.rows : [];
+  const reviewQueueRows = preview?.savedRun ? getReviewQueueRows(importRows) : [];
+  const reviewNavigationRows = reviewQueueRows.length ? reviewQueueRows : importRows;
+  const focusedReviewRow =
+    reviewNavigationRows.find((row) => String(row.id) === String(focusedRowId)) ||
+    reviewNavigationRows[0] ||
+    null;
+  const focusedReviewRowIndex = focusedReviewRow
+    ? reviewNavigationRows.findIndex((row) => String(row.id) === String(focusedReviewRow.id))
+    : -1;
+  const visiblePreviewRows =
+    preview?.savedRun && reviewMode && focusedReviewRow ? [focusedReviewRow] : importRows;
 
   useEffect(() => {
     if (loading) return;
@@ -1658,6 +1691,8 @@ export default function ConstituencyImportPage() {
     setSaveMessage("");
     setCompletionMessage("");
     setPreview(null);
+    setFocusedRowId("");
+    setReviewMode(false);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setSourceFilename(file.name || "");
@@ -1707,6 +1742,9 @@ export default function ConstituencyImportPage() {
     setParseMessage("");
     setPreview(null);
     setSelectedApplyRowIds([]);
+    setFocusedRowId("");
+    setShowBatchTools(false);
+    setReviewMode(true);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setError("");
@@ -1753,6 +1791,8 @@ export default function ConstituencyImportPage() {
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
+      setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
+      setReviewMode(true);
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -1776,13 +1816,52 @@ export default function ConstituencyImportPage() {
     setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
   }
 
-  async function applySavedRun() {
-    const runId = preview?.savedRun?.id;
-    if (!runId || applyingRun || !selectedApplyRows.length) return;
+  function focusImportRow(rowId) {
+    if (!rowId) return;
+    setFocusedRowId(String(rowId));
+    setReviewMode(true);
+    window.setTimeout(() => {
+      document
+        .getElementById("constituency-import-current-row")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
 
-    const shouldApply = window.confirm(
-      `Import ${selectedApplyRows.length} selected row${selectedApplyRows.length === 1 ? "" : "s"} and ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`,
+  function navigateImportRows(direction) {
+    if (!reviewNavigationRows.length) return;
+    const currentIndex = Math.max(0, focusedReviewRowIndex);
+    const targetIndex =
+      (currentIndex + direction + reviewNavigationRows.length) % reviewNavigationRows.length;
+    focusImportRow(reviewNavigationRows[targetIndex]?.id);
+  }
+
+  function focusNextUnresolvedRow(rowsToReview, currentRowId) {
+    const allRows = Array.isArray(rowsToReview) ? rowsToReview : [];
+    const currentIndex = allRows.findIndex((row) => String(row.id) === String(currentRowId));
+    for (let offset = 1; offset <= allRows.length; offset += 1) {
+      const candidate = allRows[(Math.max(currentIndex, -1) + offset) % allRows.length];
+      if (candidate && isUnresolvedImportRow(candidate)) {
+        focusImportRow(candidate.id);
+        return;
+      }
+    }
+    focusImportRow(allRows[currentIndex]?.id || allRows[0]?.id);
+  }
+
+  async function applyRowsToNxt(rowsToApply, { singleRecord = false } = {}) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || applyingRun || !rowsToApply.length) return;
+
+    const writeCount = rowsToApply.reduce(
+      (count, row) => count + (Array.isArray(row.writePlan) ? row.writePlan.length : 0),
+      0,
     );
+    const displayName = getImportRowLabel(rowsToApply[0]);
+    const message = singleRecord
+      ? `Send ${displayName} to Raiser's Edge NXT now? This will apply ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"}. The write result and audit trail will stay in import run #${runId}.`
+      : `Import ${rowsToApply.length} selected row${rowsToApply.length === 1 ? "" : "s"} and ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`;
+
+    const shouldApply = window.confirm(message);
     if (!shouldApply) return;
 
     setApplyingRun(true);
@@ -1792,7 +1871,7 @@ export default function ConstituencyImportPage() {
       const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowIds: selectedApplyRows.map((row) => String(row.id)) }),
+        body: JSON.stringify({ rowIds: rowsToApply.map((row) => String(row.id)) }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1813,11 +1892,18 @@ export default function ConstituencyImportPage() {
         manualRequired === 0 &&
         failed === 0 &&
         payload?.savedRun?.status === "applied";
+      const singleRecordApplied =
+        singleRecord && applied > 0 && manualRequired === 0 && failed === 0;
 
       setPreview(payload);
       setSelectedApplyRowIds([]);
+      if (singleRecordApplied) {
+        focusNextUnresolvedRow(payload?.rows, rowsToApply[0]?.id);
+      }
       setSaveMessage(
-        fullyApplied
+        singleRecordApplied
+          ? `${displayName} was updated in Raiser's Edge NXT. Its write result and audit trail remain in import run #${runId}.`
+          : fullyApplied
           ? `Import complete. ${applied} row${applied === 1 ? " was" : "s were"} updated in Raiser's Edge NXT. You can optionally verify the imported rows against current NXT data.`
           : payload?.applySummary?.message || `Applied import run #${runId}.`,
       );
@@ -1831,12 +1917,23 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function reconcileAppliedRows() {
+  async function applySavedRun() {
+    await applyRowsToNxt(selectedApplyRows);
+  }
+
+  async function applySingleRow(row) {
+    if (row?.status !== "Ready" || row?.appliedAt) return;
+    await applyRowsToNxt([row], { singleRecord: true });
+  }
+
+  async function reconcileRows(rowsToVerify, { singleRecord = false } = {}) {
     const runId = preview?.savedRun?.id;
-    if (!runId || reconcilingRun || !unverifiedReconciliationRows.length) return;
+    if (!runId || reconcilingRun || !rowsToVerify.length) return;
 
     const shouldVerify = window.confirm(
-      `Verify ${unverifiedReconciliationRows.length} imported row${unverifiedReconciliationRows.length === 1 ? "" : "s"} against current Raiser's Edge NXT data? This only reads NXT and records a JUMGOGPT verification audit; it will not write or change any constituent record.`,
+      singleRecord
+        ? `Verify ${getImportRowLabel(rowsToVerify[0])} against current Raiser's Edge NXT data? This only reads NXT and records the result in import run #${runId}; it will not make any NXT changes.`
+        : `Verify ${rowsToVerify.length} imported row${rowsToVerify.length === 1 ? "" : "s"} against current Raiser's Edge NXT data? This only reads NXT and records a JUMGOGPT verification audit; it will not write or change any constituent record.`,
     );
     if (!shouldVerify) return;
 
@@ -1847,7 +1944,7 @@ export default function ConstituencyImportPage() {
       const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/reconcile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowIds: unverifiedReconciliationRows.map((row) => String(row.id)) }),
+        body: JSON.stringify({ rowIds: rowsToVerify.map((row) => String(row.id)) }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1876,7 +1973,11 @@ export default function ConstituencyImportPage() {
             }
           : current,
       );
-      setSaveMessage(payload?.reconciliationSummary?.message || "NXT verification completed.");
+      setSaveMessage(
+        singleRecord
+          ? `${getImportRowLabel(rowsToVerify[0])} was checked against current NXT data. The verification audit remains in import run #${runId}.`
+          : payload?.reconciliationSummary?.message || "NXT verification completed.",
+      );
     } catch (reconciliationError) {
       setError(
         reconciliationError instanceof Error
@@ -1886,6 +1987,15 @@ export default function ConstituencyImportPage() {
     } finally {
       setReconcilingRun(false);
     }
+  }
+
+  async function reconcileAppliedRows() {
+    await reconcileRows(unverifiedReconciliationRows);
+  }
+
+  async function reconcileSingleRow(row) {
+    if (!row?.appliedAt || row?.blackbaudResult?.reconciliation?.verifiedAt) return;
+    await reconcileRows([row], { singleRecord: true });
   }
 
   async function createReviewedNxtRecord(row) {
@@ -2016,6 +2126,9 @@ export default function ConstituencyImportPage() {
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
+      setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
+      setReviewMode(Boolean(payload?.savedRun));
+      setShowBatchTools(false);
       setContactDecisionsDirty(false);
       window.setTimeout(() => {
         document
@@ -3666,6 +3779,81 @@ export default function ConstituencyImportPage() {
                   </div>
                 </div>
 
+                {reviewNavigationRows.length ? (
+                  <section
+                    style={{
+                      borderTop: "1px solid #A7F3D0",
+                      paddingTop: "10px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ color: "#1D4ED8", fontSize: "13px", fontWeight: 900 }}>
+                      Review one record at a time
+                    </div>
+                    <div style={{ color: "#1E3A8A", fontSize: "14px" }}>
+                      {reviewQueueRows.length
+                        ? `Record ${focusedReviewRowIndex + 1} of ${reviewNavigationRows.length} needs your review or action.`
+                        : `All rows are applied or skipped. Browse the ${reviewNavigationRows.length} recorded row${reviewNavigationRows.length === 1 ? "" : "s"} in this batch.`}
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => navigateImportRows(-1)}
+                        disabled={reviewNavigationRows.length < 2}
+                        style={{
+                          border: "1px solid #93C5FD",
+                          borderRadius: "999px",
+                          backgroundColor: "white",
+                          color: "#1D4ED8",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: reviewNavigationRows.length < 2 ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Previous record
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigateImportRows(1)}
+                        disabled={reviewNavigationRows.length < 2}
+                        style={{
+                          border: "1px solid #1D4ED8",
+                          borderRadius: "999px",
+                          backgroundColor: reviewNavigationRows.length < 2 ? "#DBEAFE" : "#1D4ED8",
+                          color: reviewNavigationRows.length < 2 ? "#1E40AF" : "white",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: reviewNavigationRows.length < 2 ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Next record
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (reviewMode) {
+                            setReviewMode(false);
+                            return;
+                          }
+                          focusImportRow(focusedReviewRow?.id);
+                        }}
+                        style={{
+                          border: "1px solid #C7D2FE",
+                          borderRadius: "999px",
+                          backgroundColor: "white",
+                          color: "#4338CA",
+                          padding: "9px 14px",
+                          fontWeight: 900,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {reviewMode ? "Show all batch rows" : "Resume one-record review"}
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+
                 {readySavedRows ? (
                   <section
                     style={{
@@ -3676,18 +3864,15 @@ export default function ConstituencyImportPage() {
                     }}
                   >
                     <div style={{ color: "#065F46", fontSize: "13px", fontWeight: 900 }}>
-                      1. Choose reviewed rows to import
+                      Optional batch action
                     </div>
                     <div style={{ color: "#047857", fontSize: "14px" }}>
-                      {selectedApplyRows.length
-                        ? `${selectedApplyRows.length} row${selectedApplyRows.length === 1 ? "" : "s"} selected · ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"}.`
-                        : "Select rows below, or select every ready row."}
+                      Review and apply the current record below by default. Use batch actions only when every selected row is ready to send.
                     </div>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
                         type="button"
-                        onClick={selectAllReadyRows}
-                        disabled={applyingRun}
+                        onClick={() => setShowBatchTools((current) => !current)}
                         style={{
                           border: "1px solid #6EE7B7",
                           borderRadius: "999px",
@@ -3695,12 +3880,37 @@ export default function ConstituencyImportPage() {
                           color: "#047857",
                           padding: "9px 14px",
                           fontWeight: 900,
-                          cursor: applyingRun ? "not-allowed" : "pointer",
+                          cursor: "pointer",
                         }}
                       >
-                        Select all ready
+                        {showBatchTools ? "Hide batch tools" : "Use batch actions"}
                       </button>
-                      {selectedApplyRows.length ? (
+                    </div>
+                    {showBatchTools ? (
+                      <div style={{ display: "grid", gap: "8px", paddingTop: "4px" }}>
+                        <div style={{ color: "#047857", fontSize: "14px" }}>
+                          {selectedApplyRows.length
+                            ? `${selectedApplyRows.length} row${selectedApplyRows.length === 1 ? "" : "s"} selected · ${selectedApplyWriteCount} staged NXT write${selectedApplyWriteCount === 1 ? "" : "s"}.`
+                            : "Select individual rows below, or select every ready row."}
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={selectAllReadyRows}
+                            disabled={applyingRun}
+                            style={{
+                              border: "1px solid #6EE7B7",
+                              borderRadius: "999px",
+                              backgroundColor: "white",
+                              color: "#047857",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: applyingRun ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            Select all ready
+                          </button>
+                          {selectedApplyRows.length ? (
                         <button
                           type="button"
                           onClick={() => setSelectedApplyRowIds([])}
@@ -3717,8 +3927,8 @@ export default function ConstituencyImportPage() {
                         >
                           Clear selection
                         </button>
-                      ) : null}
-                      <button
+                          ) : null}
+                          <button
                         type="button"
                         onClick={applySavedRun}
                         disabled={!selectedApplyRows.length || applyingRun}
@@ -3736,7 +3946,9 @@ export default function ConstituencyImportPage() {
                           ? "Importing to NXT..."
                           : `Import ${selectedApplyRows.length || "selected"} row${selectedApplyRows.length === 1 ? "" : "s"} to NXT`}
                       </button>
-                    </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </section>
                 ) : null}
 
@@ -3789,7 +4001,7 @@ export default function ConstituencyImportPage() {
 
           {preview?.rows?.length ? (
             <div style={{ display: "grid", gap: "12px" }}>
-              {preview.rows.map((row) => {
+              {visiblePreviewRows.map((row) => {
                 const colors = statusTone(row.status);
                 const profileWrites = (row.writePlan || []).filter(
                   (write) => write.type === "constituent_profile",
@@ -3806,12 +4018,20 @@ export default function ConstituencyImportPage() {
                 const canApplyRow = Boolean(
                   preview?.savedRun && row.status === "Ready" && !row.appliedAt,
                 );
+                const canVerifyRow = Boolean(
+                  preview?.savedRun &&
+                    row.status === "Applied" &&
+                    row.appliedAt &&
+                    !row.blackbaudResult?.reconciliation?.verifiedAt,
+                );
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
+                const isFocusedRow = String(row.id) === String(focusedReviewRow?.id);
                 return (
                   <article
                     key={row.rowNumber}
+                    id={isFocusedRow ? "constituency-import-current-row" : undefined}
                     style={{
-                      border: `1px solid ${colors.border}`,
+                      border: `${isFocusedRow ? "2px" : "1px"} solid ${isFocusedRow ? "#818CF8" : colors.border}`,
                       borderLeft: `6px solid ${colors.fg}`,
                       borderRadius: "16px",
                       padding: "16px",
@@ -3867,7 +4087,7 @@ export default function ConstituencyImportPage() {
                             {row.intentDisposition.label}
                           </Pill>
                         ) : null}
-                        {canApplyRow ? (
+                        {canApplyRow && showBatchTools ? (
                           <label
                             style={{
                               display: "inline-flex",
@@ -3894,6 +4114,76 @@ export default function ConstituencyImportPage() {
                         ) : null}
                       </div>
                     </div>
+
+                    {preview?.savedRun ? (
+                      <section
+                        style={{
+                          border: "1px solid #C7D2FE",
+                          borderRadius: "12px",
+                          backgroundColor: "#F5F3FF",
+                          padding: "12px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div style={{ display: "grid", gap: "3px" }}>
+                          <div style={{ color: "#3730A3", fontWeight: 900 }}>Record action</div>
+                          <div style={{ color: "#4F46E5", fontSize: "14px", lineHeight: 1.4 }}>
+                            Any NXT result and verification remain in import run #{preview.savedRun.id}.
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          {canApplyRow ? (
+                            <button
+                              type="button"
+                              onClick={() => applySingleRow(row)}
+                              disabled={applyingRun}
+                              style={{
+                                border: "1px solid #047857",
+                                borderRadius: "999px",
+                                backgroundColor: applyingRun ? "#D1FAE5" : "#047857",
+                                color: applyingRun ? "#047857" : "white",
+                                padding: "9px 14px",
+                                fontWeight: 900,
+                                cursor: applyingRun ? "not-allowed" : "pointer",
+                              }}
+                            >
+                              {applyingRun ? "Sending to NXT..." : "Apply this record to NXT"}
+                            </button>
+                          ) : null}
+                          {canVerifyRow ? (
+                            <button
+                              type="button"
+                              onClick={() => reconcileSingleRow(row)}
+                              disabled={reconcilingRun}
+                              style={{
+                                border: "1px solid #0369A1",
+                                borderRadius: "999px",
+                                backgroundColor: reconcilingRun ? "#E0F2FE" : "#0369A1",
+                                color: reconcilingRun ? "#0369A1" : "white",
+                                padding: "9px 14px",
+                                fontWeight: 900,
+                                cursor: reconcilingRun ? "not-allowed" : "pointer",
+                              }}
+                            >
+                              {reconcilingRun ? "Verifying NXT..." : "Verify this record in NXT"}
+                            </button>
+                          ) : null}
+                          {!canApplyRow && !canVerifyRow ? (
+                            <span style={{ color: "#4F46E5", fontSize: "14px", fontWeight: 800 }}>
+                              {row.status === "Failed"
+                                ? "Resolve or retry the failed write below."
+                                : row.intentDisposition?.key === "potential_new"
+                                  ? "Review the new-record decision below."
+                                  : "Review the details below before continuing."}
+                            </span>
+                          ) : null}
+                        </div>
+                      </section>
+                    ) : null}
 
                     <div
                       style={{
@@ -4204,7 +4494,7 @@ export default function ConstituencyImportPage() {
                         {row.createdBlackbaudLookupId
                           ? ` · Lookup ID ${row.createdBlackbaudLookupId}`
                           : ""}
-                        . Review the staged writes, then use “Apply ready rows” to add them.
+                        . Review the staged writes, then use “Apply this record to NXT” above to add them.
                       </div>
                     ) : null}
                     {row.intentDisposition?.key === "potential_new" ? (
