@@ -351,6 +351,16 @@ const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
 }, {});
 
 const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "birthDate", "suffix"];
+const NAME_FORMAT_FIELD_KEYS = ["addressee", "salutation"];
+const EMAIL_FIELD_KEYS = ["email", "email2"];
+const PHONE_FIELD_KEYS = ["phoneNumber", "phone2Number"];
+const ADDRESS_FIELD_KEYS = ["addressLine1", "addressLine2", "city", "state", "postalCode", "country"];
+
+function getDetectedHeaders(headerSet, fieldKeys) {
+  return fieldKeys
+    .map((key) => FIELD_BY_KEY[key]?.header)
+    .filter((header) => headerSet.has(header));
+}
 
 const DEFAULT_ACTIVE_FIELDS = {
   blackbaudConstituentId: false,
@@ -1428,9 +1438,19 @@ export default function ConstituencyImportPage() {
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
     const parsedHeaderSet = new Set(parsed.headers);
-    const detectedIndividualProfileHeaders = INDIVIDUAL_PROFILE_FIELD_KEYS.map(
-      (key) => FIELD_BY_KEY[key]?.header,
-    ).filter((header) => parsedHeaderSet.has(header));
+    const detectedIndividualProfileHeaders = getDetectedHeaders(
+      parsedHeaderSet,
+      INDIVIDUAL_PROFILE_FIELD_KEYS,
+    );
+    const detectedNameFormatHeaders = getDetectedHeaders(parsedHeaderSet, NAME_FORMAT_FIELD_KEYS);
+    const detectedEmailHeaders = getDetectedHeaders(parsedHeaderSet, EMAIL_FIELD_KEYS);
+    const detectedPhoneHeaders = getDetectedHeaders(parsedHeaderSet, PHONE_FIELD_KEYS);
+    const detectedAddressHeaders = getDetectedHeaders(parsedHeaderSet, ADDRESS_FIELD_KEYS);
+    const hasDirectNxtIdentifier = Boolean(
+      FIELD_BY_KEY.blackbaudConstituentId &&
+        parsedHeaderSet.has(FIELD_BY_KEY.blackbaudConstituentId.header),
+    ) || Boolean(FIELD_BY_KEY.lookupId && parsedHeaderSet.has(FIELD_BY_KEY.lookupId.header));
+    const detectedOperations = [];
     setRows(parsed.rows);
     setHeaders(parsed.headers);
     setActiveFields((current) => {
@@ -1448,6 +1468,29 @@ export default function ConstituencyImportPage() {
     // be present to match a record. Selecting the review operation lets the user preview them.
     if (detectedIndividualProfileHeaders.length) {
       setUpdateIndividualProfileFields(true);
+      detectedOperations.push("individual profile updates");
+    }
+    if (detectedNameFormatHeaders.length) {
+      setUpdateNameFormatFields(true);
+      detectedOperations.push("addressee and salutation updates");
+    }
+    // Email, phone, and address can be used to find a record. Only select their update
+    // operations automatically when the same CSV has a direct NXT identifier.
+    if (hasDirectNxtIdentifier && detectedEmailHeaders.length) {
+      setUpdateEmailFields(true);
+      detectedOperations.push("email updates");
+    }
+    if (hasDirectNxtIdentifier && detectedPhoneHeaders.length) {
+      setUpdatePhoneFields(true);
+      detectedOperations.push("phone updates");
+    }
+    if (hasDirectNxtIdentifier && detectedAddressHeaders.length) {
+      setUpdateAddressFields(true);
+      detectedOperations.push("address updates");
+    }
+    if (hasDirectNxtIdentifier && parsedHeaderSet.has(FIELD_BY_KEY.preferredName.header)) {
+      setUpdateNameFields(true);
+      detectedOperations.push("preferred-name updates");
     }
     setPreview(null);
     setSaveMessage("");
@@ -1456,8 +1499,8 @@ export default function ConstituencyImportPage() {
     } else {
       setParseMessage(
         parsed.rows.length
-          ? detectedIndividualProfileHeaders.length
-            ? `Parsed ${parsed.rows.length} rows. Selected individual-profile updates for ${detectedIndividualProfileHeaders.join(", ")}.`
+          ? detectedOperations.length
+            ? `Parsed ${parsed.rows.length} rows. Auto-selected ${detectedOperations.join(", ")} from the CSV headers.`
             : `Parsed ${parsed.rows.length} rows.`
           : "",
       );
