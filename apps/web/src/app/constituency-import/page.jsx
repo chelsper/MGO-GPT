@@ -785,7 +785,6 @@ export default function ConstituencyImportPage() {
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
-  const [rawCsv, setRawCsv] = useState("");
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
@@ -900,8 +899,8 @@ export default function ConstituencyImportPage() {
     };
   }, [loading]);
 
-  useEffect(() => {
-    const parsed = parseCsv(rawCsv);
+  function loadCsvPreviewData(csvText) {
+    const parsed = parseCsv(csvText);
     const parsedHeaderSet = new Set(parsed.headers);
     setRows(parsed.rows);
     setHeaders(parsed.headers);
@@ -923,7 +922,7 @@ export default function ConstituencyImportPage() {
     } else {
       setParseMessage(parsed.rows.length ? `Parsed ${parsed.rows.length} rows.` : "");
     }
-  }, [rawCsv]);
+  }
 
   useEffect(() => {
     if (!isReviewer) return;
@@ -989,9 +988,8 @@ export default function ConstituencyImportPage() {
     setPreview(null);
     setSourceFilename(file.name || "");
     const reader = new FileReader();
-    reader.onload = () => setRawCsv(String(reader.result || ""));
+    reader.onload = () => loadCsvPreviewData(String(reader.result || ""));
     reader.onerror = () => {
-      setRawCsv("");
       setRows([]);
       setHeaders([]);
       setError("The selected CSV could not be read. Please save it as a UTF-8 CSV and try again.");
@@ -1000,7 +998,6 @@ export default function ConstituencyImportPage() {
   }
 
   function clearUploadedCsv() {
-    setRawCsv("");
     setRows([]);
     setHeaders([]);
     setSourceFilename("");
