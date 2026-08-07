@@ -116,6 +116,10 @@ function getEducationSchool(value) {
   return cleanText(school?.name || school?.description || school?.value);
 }
 
+function getEducationId(value) {
+  return cleanText(value?.id || value?.education_id);
+}
+
 function getEducationValueText(value) {
   if (typeof value === "string" || typeof value === "number") return cleanText(value);
   return cleanText(value?.name || value?.description || value?.value || value?.degree || value?.major);
@@ -399,7 +403,11 @@ async function reconcileWrite({ write, applyResult, reader }) {
   }
 
   if (write.type === "education_relationship") {
-    const match = (await reader.educations()).find((education) => educationMatchesWrite(write, education));
+    const educations = await reader.educations();
+    const targetEducationId = cleanText(write?.targetEducationId);
+    const match = targetEducationId
+      ? educations.find((education) => getEducationId(education) === targetEducationId)
+      : educations.find((education) => educationMatchesWrite(write, education));
     if (!match) {
       return needsReview(write, "The imported education relationship was not found on the current NXT record.");
     }

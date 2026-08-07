@@ -482,6 +482,10 @@ function getEducationSchool(value) {
   return cleanText(school?.name || school?.description || school?.value);
 }
 
+function getEducationId(value) {
+  return cleanText(value?.id || value?.education_id);
+}
+
 function getEducationValueText(value) {
   if (typeof value === "string" || typeof value === "number") return cleanText(value);
   return cleanText(value?.name || value?.description || value?.value || value?.degree || value?.major);
@@ -537,10 +541,8 @@ function manualEducationResult(action, message) {
   return { status: "manual_required", type: "education_relationship", action, message };
 }
 
-async function applyEducationRelationshipAdd({ request, user, row, write }) {
-  const constituentId = getMatchedConstituentId(row);
-  const action = cleanText(write?.action) || "add";
-  const recordType = normalizeText(write?.recordType);
+function buildEducationPayload({ constituentId, write, includeConstituentId = false }) {
+  const payload = {};
   const institution = cleanText(write?.institution);
   const degree = cleanText(write?.degree);
   const major = cleanText(write?.major);
@@ -551,6 +553,50 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
   const gpa = cleanText(write?.gpa);
   const classYear = cleanText(write?.classYear);
   const status = cleanText(write?.status);
+  const dateGraduated = cleanText(write?.dateGraduated);
+  const dateEntered = cleanText(write?.dateEntered);
+  const dateLeft = cleanText(write?.dateLeft);
+  const dates = {
+    dateGraduated: dateGraduated ? parseBirthDate(dateGraduated) : null,
+    dateEntered: dateEntered ? parseBirthDate(dateEntered) : null,
+    dateLeft: dateLeft ? parseBirthDate(dateLeft) : null,
+  };
+  const invalidDate = [
+    ["Education Date Graduated", dateGraduated, dates.dateGraduated],
+    ["Education Date Entered", dateEntered, dates.dateEntered],
+    ["Education Date Left", dateLeft, dates.dateLeft],
+  ].find(([, value, parsed]) => value && !parsed);
+  if (invalidDate) {
+    return {
+      error: `${invalidDate[0]} must use MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD before it can be imported.`,
+    };
+  }
+
+  if (includeConstituentId) payload.constituent_id = String(constituentId);
+  if (institution) payload.school = institution;
+  if (degree) payload.degree = degree;
+  if (major) payload.majors = [major];
+  if (minor) payload.minors = [minor];
+  if (schoolType) payload.type = schoolType;
+  if (campus) payload.campus = campus;
+  if (fraternitySorority) payload.social_organization = fraternitySorority;
+  if (gpa) payload.gpa = Number(gpa);
+  if (classYear) payload.class_of = Number(classYear);
+  if (status) payload.status = status;
+  if (dates.dateGraduated) payload.date_graduated = dates.dateGraduated;
+  if (dates.dateEntered) payload.date_entered = dates.dateEntered;
+  if (dates.dateLeft) payload.date_left = dates.dateLeft;
+  if (parseBoolean(write?.makePrimary)) payload.primary = true;
+  return { payload };
+}
+
+async function applyEducationRelationshipAdd({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const action = cleanText(write?.action) || "add";
+  const recordType = normalizeText(write?.recordType);
+  const institution = cleanText(write?.institution);
+  const gpa = cleanText(write?.gpa);
+  const classYear = cleanText(write?.classYear);
   const dateGraduated = cleanText(write?.dateGraduated);
   const dateEntered = cleanText(write?.dateEntered);
   const dateLeft = cleanText(write?.dateLeft);
@@ -613,23 +659,9 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
     );
   }
 
-  const payload = {
-    constituent_id: String(constituentId),
-    school: institution,
-  };
-  if (degree) payload.degree = degree;
-  if (major) payload.majors = [major];
-  if (minor) payload.minors = [minor];
-  if (schoolType) payload.type = schoolType;
-  if (campus) payload.campus = campus;
-  if (fraternitySorority) payload.social_organization = fraternitySorority;
-  if (gpa) payload.gpa = Number(gpa);
-  if (classYear) payload.class_of = Number(classYear);
-  if (status) payload.status = status;
-  if (parsedEducationDates.dateGraduated) payload.date_graduated = parsedEducationDates.dateGraduated;
-  if (parsedEducationDates.dateEntered) payload.date_entered = parsedEducationDates.dateEntered;
-  if (parsedEducationDates.dateLeft) payload.date_left = parsedEducationDates.dateLeft;
-  if (parseBoolean(write?.makePrimary)) payload.primary = true;
+  const builtPayload = buildEducationPayload({ constituentId, write, includeConstituentId: true });
+  if (builtPayload.error) return manualEducationResult(action, builtPayload.error);
+  const { payload } = builtPayload;
 
   const result = await blackbaudApiFetch("/constituent/v1/educations", {
     userId: user.id,
@@ -644,6 +676,54 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
     type: "education_relationship",
     action: "add",
     message: `Added ${institution} as an NXT education relationship.`,
+    blackbaudResult: result || null,
+  };
+}
+
+async function applyEducationRelationshipUpdate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const action = cleanText(write?.action) || "update";
+  const targetEducationId = cleanText(write?.targetEducationId);
+  const institution = cleanText(write?.institution);
+  if (!constituentId || !targetEducationId || !institution) {
+    return manualEducationResult(
+      action,
+      "A matched NXT constituent, a reviewed education-row ID, and Education Institution are required before an education relationship can be updated.",
+    );
+  }
+  if (normalizeText(write?.recordType) !== "individual") {
+    return manualEducationResult(
+      action,
+      "Education imports require a confirmed matched individual NXT constituent. Refresh the preview before applying.",
+    );
+  }
+
+  const currentEducations = await fetchCurrentEducations({ request, user, constituentId });
+  const target = currentEducations.find((education) => getEducationId(education) === targetEducationId);
+  if (!target || normalizeText(getEducationSchool(target)) !== normalizeText(institution)) {
+    return manualEducationResult(
+      action,
+      "The reviewed NXT education row changed after preview. Refresh the preview before applying.",
+    );
+  }
+
+  const builtPayload = buildEducationPayload({ constituentId, write });
+  if (builtPayload.error) return manualEducationResult(action, builtPayload.error);
+  const result = await blackbaudApiFetch(
+    `/constituent/v1/educations/${encodeURIComponent(targetEducationId)}`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "PATCH",
+      body: builtPayload.payload,
+    },
+  );
+  return {
+    status: "applied",
+    type: "education_relationship",
+    action: "update",
+    message: `Updated the reviewed ${institution} education relationship in NXT.`,
     blackbaudResult: result || null,
   };
 }
@@ -1430,6 +1510,9 @@ async function applyWrite({ request, user, row, write }) {
   ) {
     return applyEducationRelationshipAdd({ request, user, row, write });
   }
+  if (write?.type === "education_relationship" && write?.action === "update") {
+    return applyEducationRelationshipUpdate({ request, user, row, write });
+  }
   if (
     write?.type === "organization_relationship" &&
     ["add", "skip_existing"].includes(write?.action)
@@ -1462,7 +1545,7 @@ async function applyWrite({ request, user, row, write }) {
       type: "education_relationship",
       action: write?.action || "review",
       message:
-        "Only add-only education relationship imports are automated. Existing education relationships are not edited by this import.",
+        "This education relationship needs review before NXT can identify one existing row to update.",
     };
   }
 

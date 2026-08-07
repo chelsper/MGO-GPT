@@ -1178,11 +1178,13 @@ describe("constituency import run apply route", () => {
     expect(payload.savedRun.needsReviewCount).toBe(1);
   });
 
-  it("keeps legacy education update writes in manual review", async () => {
+  it("updates the reviewed existing education row", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "education_relationship",
       action: "update",
+      recordType: "Individual",
+      targetEducationId: "education-1",
       institution: "Jacksonville University",
       degree: "Bachelor of Science",
     };
@@ -1205,20 +1207,36 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([makeRun()])
       .mockResolvedValueOnce([row])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        makeRun({ status: "partially_applied", ready_count: 0, needs_review_count: 1 }),
+        makeRun({ status: "applied", ready_count: 0, applied_count: 1 }),
       ])
-      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }]);
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [{ id: "education-1", school: "Jacksonville University" }],
+      })
+      .mockResolvedValueOnce({ id: "education-1" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
-    expect(payload.applySummary.manualRequired).toBe(1);
-    expect(payload.savedRun.needsReviewCount).toBe(1);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/constituent/v1/constituents/123/educations",
+      expect.objectContaining({ userId: 7, authUserId: 7 }),
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/constituent/v1/educations/education-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: { school: "Jacksonville University", degree: "Bachelor of Science" },
+      }),
+    );
+    expect(payload.applySummary.applied).toBe(1);
   });
 
   it("records a partial NXT failure without discarding an earlier successful write", async () => {

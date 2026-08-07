@@ -711,7 +711,7 @@ describe("constituency import preview route", () => {
     ]);
   });
 
-  it("stages add-only education and organization relationship writes", async () => {
+  it("stages education and organization relationship writes", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({
       blackbaudConstituentId: "789",
@@ -767,7 +767,7 @@ describe("constituency import preview route", () => {
           organizationRelationshipType: "Organization Relationship Type",
           organizationTitle: "Organization Title",
         },
-        defaults: { educationRelationshipAction: "update" },
+        defaults: { educationRelationshipAction: "add" },
       }),
     );
     const payload = await response.json();
@@ -876,6 +876,110 @@ describe("constituency import preview route", () => {
         existingEducation: expect.objectContaining({ id: "education-1" }),
       }),
     ]);
+  });
+
+  it("stages a uniquely matched education row for review and update", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "789",
+      lookupId: "A789",
+      name: "Student Dolphin",
+      raw: { type: "Individual" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [
+        {
+          id: "education-1",
+          school: "Jacksonville University",
+          degree: "Bachelor of Science",
+          majors: ["Nursing"],
+          class_of: 2026,
+          status: "Student",
+        },
+      ],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "789",
+            "Education Institution": "Jacksonville University",
+            "Education Degree": "Bachelor of Science",
+            "Education Major": "Nursing",
+            "Education Class Year": "2026",
+            "Education Status": "Graduated",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          educationInstitution: "Education Institution",
+          educationDegree: "Education Degree",
+          educationMajor: "Education Major",
+          educationClassYear: "Education Class Year",
+          educationStatus: "Education Status",
+        },
+        defaults: { educationRelationshipAction: "review-update" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "education_relationship",
+        action: "update",
+        targetEducationId: "education-1",
+        existingEducation: expect.objectContaining({ status: "Student" }),
+      }),
+    ]);
+  });
+
+  it("keeps ambiguous education updates in review without choosing an NXT row", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "789",
+      lookupId: "A789",
+      name: "Student Dolphin",
+      raw: { type: "Individual" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [
+        { id: "education-1", school: "Jacksonville University" },
+        { id: "education-2", school: "Jacksonville University" },
+      ],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "789",
+            "Education Institution": "Jacksonville University",
+            "Education Status": "Graduated",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          educationInstitution: "Education Institution",
+          educationStatus: "Education Status",
+        },
+        defaults: { educationRelationshipAction: "review-update" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Needs Review");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "education_relationship",
+        action: "review_existing",
+        requiresReview: true,
+      }),
+    ]);
+    expect(payload.rows[0].writePlan[0].targetEducationId).toBeUndefined();
   });
 
   it("saves preview runs and row-level preview results when requested", async () => {

@@ -589,6 +589,12 @@ const EDUCATION_RELATIONSHIP_ACTIONS = [
     description:
       "Add a new education relationship only. Existing NXT education rows are never changed, and matching entries are skipped.",
   },
+  {
+    value: "review-update",
+    label: "Review and Update Existing Education Relationship",
+    description:
+      "Update one existing NXT education row only when the preview identifies a single, unambiguous match. Ambiguous or missing matches stay in review and are never changed automatically.",
+  },
 ];
 
 function makeTemplateRows(fields) {
@@ -968,7 +974,11 @@ function formatWritePlanItem(write) {
     const action =
       write.action === "skip_existing"
         ? "Matching education relationship already exists"
-        : "Add education relationship";
+        : write.action === "update"
+          ? "Update reviewed education relationship"
+          : write.action === "review_existing"
+            ? "Education relationship needs review"
+            : "Add education relationship";
     const details = [
       write.institution,
       write.degree,
@@ -986,7 +996,8 @@ function formatWritePlanItem(write) {
     ]
       .filter(Boolean)
       .join(" / ");
-    return `${action}: ${details || "details supplied in row"}`;
+    const target = write.targetEducationId ? ` (NXT education ID ${write.targetEducationId})` : "";
+    return `${action}${target}: ${details || "details supplied in row"}`;
   }
 
   if (write.type === "organization_relationship") {
@@ -2600,7 +2611,7 @@ export default function ConstituencyImportPage() {
           defaults: {
             importIntent,
             defaultAction: constituencyAction,
-            educationRelationshipAction: "add",
+            educationRelationshipAction,
             useHierarchy,
             updateNameFields,
             updateIndividualProfileFields,
@@ -3357,9 +3368,9 @@ export default function ConstituencyImportPage() {
                                 lineHeight: 1.45,
                               }}
                             >
-                              This import adds a new education relationship only. It never edits or
-                              end-dates an existing NXT education row, and it safely skips an
-                              identical education relationship.
+                              {educationRelationshipAction === "review-update"
+                                ? "The preview will update an existing NXT education row only when it finds one unambiguous match. If no matching row or more than one possible row is found, it stays in review for you to resolve."
+                                : "This import adds a new education relationship only. It never edits or end-dates an existing NXT education row, and it safely skips an identical education relationship."}
                             </p>
                           </div>
                           <div
@@ -3933,7 +3944,9 @@ export default function ConstituencyImportPage() {
                 </Pill>
               ) : null}
               {educationRelationshipFieldsActive ? (
-                <Pill tone="blue">Education: Add New Only</Pill>
+                <Pill tone="blue">
+                  Education: {educationRelationshipAction === "review-update" ? "Review and Update" : "Add New Only"}
+                </Pill>
               ) : null}
               {organizationRelationshipFieldsActive ? (
                 <Pill tone="blue">Organization: Add Additional</Pill>

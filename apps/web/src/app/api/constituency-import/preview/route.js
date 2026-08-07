@@ -177,9 +177,10 @@ function buildNameFormatValue(kind, pattern, values) {
 
 function getRowInput(row, mappings, defaults = {}) {
   const defaultAction = cleanText(defaults.defaultAction) || "replace";
-  // Education imports are intentionally add-only until a separately reviewed
-  // update workflow exists. Never infer an existing relationship to edit.
-  const defaultEducationAction = "add";
+  const defaultEducationAction =
+    cleanText(defaults.educationRelationshipAction) === "review-update"
+      ? "review-update"
+      : "add";
   const firstName = getMappedValue(row, mappings, "firstName");
   const lastName = getMappedValue(row, mappings, "lastName");
   const preferredName = getMappedValue(row, mappings, "preferredName");
@@ -752,13 +753,96 @@ function educationMatchesWrite(write, education) {
   );
 }
 
+function educationMatchesAllSuppliedWriteFields(write, education) {
+  if (!educationMatchesWrite(write, education)) return false;
+
+  const matchesValue = (expected, actual) => {
+    const normalizedExpected = normalizeText(expected);
+    return !normalizedExpected || normalizedExpected === normalizeText(actual);
+  };
+  const matchesListValue = (expected, values) => {
+    const normalizedExpected = normalizeText(expected);
+    return (
+      !normalizedExpected ||
+      values.some((value) => normalizeText(value) === normalizedExpected)
+    );
+  };
+  const matchesDate = (expected, actual) => {
+    const normalizedExpected = formatEducationDate(expected);
+    return !normalizedExpected || normalizedExpected === formatEducationDate(actual);
+  };
+
+  return (
+    matchesListValue(
+      write?.minor,
+      getEducationValues(education, "minors", ["minor", "minor_name"]),
+    ) &&
+    matchesValue(
+      write?.schoolType,
+      getEducationValueText(education?.type ?? education?.school_type),
+    ) &&
+    matchesValue(write?.campus, getEducationValueText(education?.campus)) &&
+    matchesValue(
+      write?.fraternitySorority,
+      getEducationValueText(
+        education?.social_organization ?? education?.fraternity_sorority,
+      ),
+    ) &&
+    matchesValue(write?.gpa, cleanText(education?.gpa)) &&
+    matchesValue(write?.status, getEducationValueText(education?.status)) &&
+    matchesDate(
+      write?.dateGraduated,
+      education?.date_graduated ?? education?.graduation_date,
+    ) &&
+    matchesDate(write?.dateEntered, education?.date_entered) &&
+    matchesDate(write?.dateLeft, education?.date_left) &&
+    (parseBoolean(write?.makePrimary) === null ||
+      parseBoolean(write?.makePrimary) ===
+        parseBoolean(education?.primary ?? education?.is_primary))
+  );
+}
+
+function findEducationUpdateCandidate(write, currentEducations) {
+  const sameSchool = (Array.isArray(currentEducations) ? currentEducations : []).filter(
+    (education) =>
+      normalizeText(write?.institution) === normalizeText(getEducationSchool(education)),
+  );
+  if (sameSchool.length === 0) return { status: "missing" };
+
+  let candidates = sameSchool;
+  const narrowBy = (expected, getValues) => {
+    const normalizedExpected = normalizeText(expected);
+    if (!normalizedExpected) return;
+    candidates = candidates.filter((education) =>
+      getValues(education).some((value) => normalizeText(value) === normalizedExpected),
+    );
+  };
+
+  narrowBy(write?.degree, (education) =>
+    getEducationValues(education, "degrees", ["degree", "degree_name"]),
+  );
+  narrowBy(write?.major, (education) =>
+    getEducationValues(education, "majors", ["major", "major_name"]),
+  );
+  narrowBy(write?.classYear, (education) => [getEducationClassYear(education)]);
+
+  if (candidates.length === 0) return { status: "missing" };
+
+  const identified = candidates.filter((education) => getEducationId(education));
+  if (identified.length === 1) return { status: "matched", education: identified[0] };
+  return { status: "ambiguous", count: candidates.length || sameSchool.length };
+}
+
 function buildEducationRelationshipWrite(input, match, currentEducations) {
   if (!input.educationRelationship) return null;
 
   const write = {
     type: "education_relationship",
-    action: "add",
-    duplicatePolicy: "skip_if_matching",
+    action: cleanText(input.educationRelationship.action) || "add",
+    duplicatePolicy:
+      cleanText(input.educationRelationship.action) === "review-update"
+        ? "review_and_update_unique"
+        : "skip_if_matching",
     recordType: cleanText(match?.raw?.type),
     institution: cleanText(input.educationRelationship.institution),
     degree: cleanText(input.educationRelationship.degree),
@@ -807,12 +891,37 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
     return write;
   }
 
-  const existing = (Array.isArray(currentEducations) ? currentEducations : []).find((education) =>
-    educationMatchesWrite(write, education),
-  );
-  if (existing) {
-    write.action = "skip_existing";
-    write.existingEducation = serializeEducation(existing);
+  if (write.action === "review-update") {
+    const existing = (Array.isArray(currentEducations) ? currentEducations : []).find(
+      (education) => educationMatchesAllSuppliedWriteFields(write, education),
+    );
+    if (existing) {
+      write.action = "skip_existing";
+      write.existingEducation = serializeEducation(existing);
+      return write;
+    }
+
+    const target = findEducationUpdateCandidate(write, currentEducations);
+    if (target.status === "matched") {
+      write.action = "update";
+      write.targetEducationId = getEducationId(target.education);
+      write.existingEducation = serializeEducation(target.education);
+    } else {
+      write.requiresReview = true;
+      write.action = "review_existing";
+      write.validationMessage =
+        target.status === "ambiguous"
+          ? `Found ${target.count} possible NXT education rows for ${write.institution}. Add degree, major, or class year to choose one before importing.`
+          : `No current NXT education row matches the supplied school, degree, major, and class year. Choose Add New Education Relationship to create it.`;
+    }
+  } else {
+    const existing = (Array.isArray(currentEducations) ? currentEducations : []).find(
+      (education) => educationMatchesWrite(write, education),
+    );
+    if (existing) {
+      write.action = "skip_existing";
+      write.existingEducation = serializeEducation(existing);
+    }
   }
 
   return write;
@@ -1751,7 +1860,9 @@ export async function POST(request) {
         ...changePreview.reasons,
         ...(input.educationRelationship
           ? [
-              "Education relationship data is staged as a new NXT education record. Existing education records are never replaced or end-dated, and an identical record is skipped.",
+              input.educationRelationship.action === "review-update"
+                ? "Education relationship data is staged for review. JUMGOGPT updates an existing NXT education row only when it identifies one unambiguous row; ambiguous or missing matches remain in review."
+                : "Education relationship data is staged as a new NXT education record. Existing education records are never replaced or end-dated, and an identical record is skipped.",
             ]
           : []),
         ...(input.organizationRelationship
