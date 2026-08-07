@@ -114,6 +114,66 @@ function hasConstituencyChange(input) {
   return Boolean(cleanText(input.sourceConstituency) || cleanText(input.targetConstituency));
 }
 
+function parseBirthDate(value) {
+  const normalized = cleanText(value);
+  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return { y: year, m: month, d: day };
+}
+
+function formatBirthDate(value) {
+  if (!value) return "";
+  if (typeof value === "string") return cleanText(value);
+  const year = Number(value.y ?? value.year);
+  const month = Number(value.m ?? value.month);
+  const day = Number(value.d ?? value.day);
+  if (!year || !month || !day) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function joinNameParts(parts) {
+  return parts.map(cleanText).filter(Boolean).join(" ");
+}
+
+function buildNameFormatValue(kind, pattern, values) {
+  const firstName = cleanText(values?.firstName);
+  const preferredName = cleanText(values?.preferredName) || firstName;
+  const lastName = cleanText(values?.lastName);
+  const title = cleanText(values?.title);
+  const suffix = cleanText(values?.suffix);
+
+  if (kind === "salutation") {
+    const salutationName = pattern === "first" ? firstName : preferredName;
+    if (!salutationName) return "";
+    if (pattern === "preferred") return salutationName;
+    return `Dear ${salutationName}`;
+  }
+
+  if (pattern === "preferred-last") {
+    return joinNameParts([preferredName, lastName]);
+  }
+  if (pattern === "first-last") {
+    return joinNameParts([firstName, lastName]);
+  }
+  if (pattern === "title-first-last-suffix") {
+    return joinNameParts([title, firstName, lastName, suffix]);
+  }
+  return joinNameParts([title, preferredName, lastName, suffix]);
+}
+
 function getRowInput(row, mappings, defaults = {}) {
   const defaultAction = cleanText(defaults.defaultAction) || "replace";
   const defaultEducationAction = normalizeRelationshipAction(
@@ -123,6 +183,10 @@ function getRowInput(row, mappings, defaults = {}) {
   const firstName = getMappedValue(row, mappings, "firstName");
   const lastName = getMappedValue(row, mappings, "lastName");
   const preferredName = getMappedValue(row, mappings, "preferredName");
+  const title = getMappedValue(row, mappings, "title");
+  const gender = getMappedValue(row, mappings, "gender");
+  const birthDate = getMappedValue(row, mappings, "birthDate");
+  const suffix = getMappedValue(row, mappings, "suffix");
   const legacyConstituentName = getMappedValue(row, mappings, "constituentName");
   const derivedName =
     legacyConstituentName ||
@@ -133,6 +197,10 @@ function getRowInput(row, mappings, defaults = {}) {
     firstName,
     lastName,
     preferredName,
+    title,
+    gender,
+    birthDate,
+    suffix,
     constituentName: derivedName,
     blackbaudConstituentId: getMappedValue(row, mappings, "blackbaudConstituentId"),
     lookupId: getMappedValue(row, mappings, "lookupId"),
@@ -182,6 +250,33 @@ function getRowInput(row, mappings, defaults = {}) {
       firstName,
       lastName,
       preferredName,
+    };
+  }
+  if (
+    defaults.updateIndividualProfileFields === true &&
+    [title, gender, birthDate, suffix].some(Boolean)
+  ) {
+    input.individualProfileUpdate = { title, gender, birthDate, suffix };
+  }
+
+  const csvAddressee = getMappedValue(row, mappings, "addressee");
+  const csvSalutation = getMappedValue(row, mappings, "salutation");
+  const canBuildNameFormats = defaults.buildNameFormats === true;
+  const addressee =
+    csvAddressee ||
+    (canBuildNameFormats
+      ? buildNameFormatValue("addressee", defaults.addresseeFormat, input)
+      : "");
+  const salutation =
+    csvSalutation ||
+    (canBuildNameFormats
+      ? buildNameFormatValue("salutation", defaults.salutationFormat, input)
+      : "");
+  if (defaults.updateNameFormatFields === true && (addressee || salutation)) {
+    input.nameFormatUpdate = {
+      addressee,
+      salutation,
+      source: csvAddressee || csvSalutation ? "CSV" : "file default",
     };
   }
   if (defaults.updateEmailFields === true) {
@@ -250,6 +345,99 @@ function getMatchedNameValues(match) {
     lastName: cleanText(raw.last || raw.last_name),
     preferredName: cleanText(raw.preferred_name || raw.preferredName),
   };
+}
+
+function getMatchedIndividualValues(match) {
+  const raw = match?.raw && typeof match.raw === "object" ? match.raw : {};
+  return {
+    title: cleanText(raw.title),
+    gender: cleanText(raw.gender),
+    birthDate: formatBirthDate(raw.birthdate || raw.birth_date),
+    suffix: cleanText(raw.suffix),
+  };
+}
+
+function buildIndividualProfileWrite(input, match) {
+  if (!input.individualProfileUpdate || !match) return null;
+
+  const current = getMatchedIndividualValues(match);
+  const requestedBirthDate = cleanText(input.individualProfileUpdate.birthDate);
+  const parsedBirthDate = requestedBirthDate ? parseBirthDate(requestedBirthDate) : null;
+  const changes = {
+    title:
+      cleanText(input.individualProfileUpdate.title) &&
+      normalizeText(input.individualProfileUpdate.title) !== normalizeText(current.title)
+        ? cleanText(input.individualProfileUpdate.title)
+        : "",
+    gender:
+      cleanText(input.individualProfileUpdate.gender) &&
+      normalizeText(input.individualProfileUpdate.gender) !== normalizeText(current.gender)
+        ? cleanText(input.individualProfileUpdate.gender)
+        : "",
+    suffix:
+      cleanText(input.individualProfileUpdate.suffix) &&
+      normalizeText(input.individualProfileUpdate.suffix) !== normalizeText(current.suffix)
+        ? cleanText(input.individualProfileUpdate.suffix)
+        : "",
+    birthDate:
+      requestedBirthDate &&
+      parsedBirthDate &&
+      formatBirthDate(parsedBirthDate) !== formatBirthDate(current.birthDate)
+        ? formatBirthDate(parsedBirthDate)
+        : "",
+  };
+
+  if (!Object.values(changes).some(Boolean) && !(requestedBirthDate && !parsedBirthDate)) return null;
+
+  const write = {
+    type: "constituent_profile",
+    action: "update",
+    recordType: cleanText(match?.raw?.type),
+    ...changes,
+    current,
+    blankValuePolicy: "leave_unchanged",
+  };
+  if (requestedBirthDate && !parsedBirthDate) {
+    write.requiresReview = true;
+    write.validationMessage = "Birth Date must use a valid YYYY-MM-DD value before it can be imported.";
+  }
+  return write;
+}
+
+function serializeNameFormat(value) {
+  if (!value || typeof value !== "object") return { id: "", value: "" };
+  return {
+    id: cleanText(value.id || value.name_format_id),
+    value: cleanText(value.formatted_name || value.name || value.value),
+  };
+}
+
+function buildNameFormatWrites(input, currentNameFormats) {
+  if (!input.nameFormatUpdate) return [];
+
+  return ["addressee", "salutation"]
+    .map((kind) => {
+      const value = cleanText(input.nameFormatUpdate[kind]);
+      if (!value) return null;
+      const current = currentNameFormats?.[kind] || { id: "", value: "" };
+      if (normalizeText(value) === normalizeText(current.value)) return null;
+      const write = {
+        type: "constituent_name_format",
+        action: "update_primary",
+        kind,
+        value,
+        targetId: current.id || "",
+        currentValue: current.value || "",
+        source: input.nameFormatUpdate.source || "CSV",
+        blankValuePolicy: "leave_unchanged",
+      };
+      if (!write.targetId) {
+        write.requiresReview = true;
+        write.validationMessage = `Could not identify the current primary ${kind} format in NXT.`;
+      }
+      return write;
+    })
+    .filter(Boolean);
 }
 
 function buildNameUpdateWrite(input, match) {
@@ -452,7 +640,14 @@ function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
   ];
 }
 
-function buildWritePlan(input, changePreview, match = null, currentContacts = null, contactDecisions = {}) {
+function buildWritePlan(
+  input,
+  changePreview,
+  match = null,
+  currentContacts = null,
+  contactDecisions = {},
+  currentNameFormats = null,
+) {
   const writes = [];
 
   if (changePreview.status === STATUS.ready && cleanText(input.targetConstituency)) {
@@ -501,6 +696,13 @@ function buildWritePlan(input, changePreview, match = null, currentContacts = nu
   if (nameUpdateWrite) {
     writes.push(nameUpdateWrite);
   }
+
+  const individualProfileWrite = buildIndividualProfileWrite(input, match);
+  if (individualProfileWrite) {
+    writes.push(individualProfileWrite);
+  }
+
+  writes.push(...buildNameFormatWrites(input, currentNameFormats));
 
   writes.push(...buildContactUpdateWrites(input, currentContacts, contactDecisions));
 
@@ -870,17 +1072,40 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId,
   return { contacts: serializeContactSnapshot(contacts), errors };
 }
 
-function deriveStatus(matchResult, codeFetchError, contactFetchErrors, changePreview, writePlan = []) {
+async function fetchCurrentNameFormats({ userId, authUserId, origin, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/nameformats`,
+    { userId, authUserId, origin },
+  );
+  const primaryAddressee = serializeNameFormat(
+    payload?.primary_addressee || payload?.primaryAddressee,
+  );
+  const primarySalutation = serializeNameFormat(
+    payload?.primary_salutation || payload?.primarySalutation,
+  );
+  return { addressee: primaryAddressee, salutation: primarySalutation };
+}
+
+function deriveStatus(
+  matchResult,
+  codeFetchError,
+  contactFetchErrors,
+  nameFormatFetchError,
+  changePreview,
+  writePlan = [],
+) {
   const hasWritePlan = Array.isArray(writePlan) && writePlan.length > 0;
   const hasConstituentCodeWrite = writePlan.some((write) => write.type === "constituent_code");
   const hasContactWrite = writePlan.some((write) =>
     ["email_address", "phone", "address"].includes(write.type),
   );
+  const hasNameFormatWrite = writePlan.some((write) => write.type === "constituent_name_format");
 
   if (changePreview.status === STATUS.conflict) return STATUS.conflict;
   if (matchResult.status !== "matched") return STATUS.needsReview;
   if (codeFetchError && hasConstituentCodeWrite) return STATUS.needsReview;
   if (contactFetchErrors.length && hasContactWrite) return STATUS.needsReview;
+  if (nameFormatFetchError && hasNameFormatWrite) return STATUS.needsReview;
   if (writePlan.some((write) => write.requiresReview)) return STATUS.needsReview;
   if (hasWritePlan) return STATUS.ready;
   if (changePreview.status === STATUS.skipped) return STATUS.skipped;
@@ -1086,6 +1311,11 @@ export async function POST(request) {
       let codeFetchError = "";
       let currentContacts = { emails: [], phones: [], addresses: [] };
       let contactFetchErrors = [];
+      let currentNameFormats = {
+        addressee: { id: "", value: "" },
+        salutation: { id: "", value: "" },
+      };
+      let nameFormatFetchError = "";
 
       try {
         matchResult = await resolveMatch({
@@ -1120,6 +1350,29 @@ export async function POST(request) {
 
       if (
         matchResult.match?.blackbaudConstituentId &&
+        (input.nameUpdate || input.individualProfileUpdate || input.nameFormatUpdate)
+      ) {
+        try {
+          const detailedMatch = await getBlackbaudConstituentById({
+            userId: user.id,
+            authUserId,
+            origin,
+            constituentId: matchResult.match.blackbaudConstituentId,
+          });
+          if (detailedMatch && typeof detailedMatch === "object") {
+            matchResult.match = {
+              ...matchResult.match,
+              ...detailedMatch,
+              raw: detailedMatch.raw || matchResult.match.raw || null,
+            };
+          }
+        } catch {
+          // Retain the matched record when a supplemental detail fetch is unavailable.
+        }
+      }
+
+      if (
+        matchResult.match?.blackbaudConstituentId &&
         (input.emailUpdates?.length || input.phoneUpdates?.length || input.addressUpdates?.length)
       ) {
         const contactPreview = await fetchCurrentContacts({
@@ -1133,6 +1386,20 @@ export async function POST(request) {
         contactFetchErrors = contactPreview.errors;
       }
 
+      if (matchResult.match?.blackbaudConstituentId && input.nameFormatUpdate) {
+        try {
+          currentNameFormats = await fetchCurrentNameFormats({
+            userId: user.id,
+            authUserId,
+            origin,
+            constituentId: matchResult.match.blackbaudConstituentId,
+          });
+        } catch (error) {
+          nameFormatFetchError =
+            error instanceof Error ? error.message : "Could not load the current primary name formats.";
+        }
+      }
+
       const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
       const writePlan = buildWritePlan(
         input,
@@ -1140,11 +1407,15 @@ export async function POST(request) {
         matchResult.match,
         currentContacts,
         contactDecisions[String(index + 1)] || {},
+        currentNameFormats,
       );
       const reasons = [
         ...matchResult.notes,
         ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
         ...contactFetchErrors,
+        ...(nameFormatFetchError
+          ? [`Could not load current NXT addressee and salutation formats: ${nameFormatFetchError}`]
+          : []),
         ...changePreview.reasons,
         ...(input.educationRelationship
           ? [
@@ -1159,6 +1430,16 @@ export async function POST(request) {
         ...(writePlan.some((write) => write.type === "constituent_name")
           ? [
               "Selected name fields are staged to update the matched NXT constituent. Blank name cells will be left unchanged.",
+            ]
+          : []),
+        ...(writePlan.some((write) => write.type === "constituent_profile")
+          ? [
+              "Selected title, gender, birth date, and suffix values are staged for the matched individual constituent. Blank CSV cells will be left unchanged.",
+            ]
+          : []),
+        ...(writePlan.some((write) => write.type === "constituent_name_format")
+          ? [
+              "Primary addressee and salutation values are staged as custom NXT name formats. Review the current and proposed values before applying.",
             ]
           : []),
         ...(writePlan.some((write) => write.type === "email_address")
@@ -1187,6 +1468,7 @@ export async function POST(request) {
           matchResult,
           codeFetchError,
           contactFetchErrors,
+          nameFormatFetchError,
           changePreview,
           writePlan,
         ),
@@ -1204,6 +1486,7 @@ export async function POST(request) {
           : null,
         currentCodes: currentCodes.map((code) => code.label),
         currentContacts,
+        currentNameFormats,
         proposedCodes: changePreview.proposedCodes,
         writePlan,
         reasons,

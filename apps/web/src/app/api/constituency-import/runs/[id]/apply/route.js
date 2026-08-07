@@ -94,6 +94,25 @@ function formatDateForBlackbaud(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function parseBirthDate(value) {
+  const normalized = cleanText(value);
+  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return { y: year, m: month, d: day };
+}
+
 function getConstituencyLabel(value) {
   if (!value) return "";
   if (typeof value === "string") return cleanText(value);
@@ -271,6 +290,109 @@ async function applyConstituentNameUpdate({ request, user, row, write }) {
     type: "constituent_name",
     action: "update",
     message: `Updated NXT ${fields}.`,
+    blackbaudResult: result || null,
+  };
+}
+
+async function applyConstituentProfileUpdate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const recordType = normalizeText(write?.recordType);
+  const title = cleanText(write?.title);
+  const gender = cleanText(write?.gender);
+  const suffix = cleanText(write?.suffix);
+  const birthDate = cleanText(write?.birthDate);
+  const payload = {};
+
+  if (title) payload.title = title;
+  if (gender) payload.gender = gender;
+  if (suffix) payload.suffix = suffix;
+  if (birthDate) {
+    const parsedBirthDate = parseBirthDate(birthDate);
+    if (!parsedBirthDate) {
+      return {
+        status: "manual_required",
+        type: "constituent_profile",
+        action: "update",
+        message: "Birth Date must use a valid YYYY-MM-DD value before it can be imported.",
+      };
+    }
+    payload.birthdate = parsedBirthDate;
+  }
+
+  if (!constituentId || Object.keys(payload).length === 0) {
+    return {
+      status: "manual_required",
+      type: "constituent_profile",
+      action: "update",
+      message: "A matched NXT constituent ID and at least one populated profile field are required.",
+    };
+  }
+  if (recordType.includes("organization")) {
+    return {
+      status: "manual_required",
+      type: "constituent_profile",
+      action: "update",
+      message: "Title, gender, birth date, and suffix imports are limited to individual constituents.",
+    };
+  }
+
+  const result = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "PATCH",
+      body: payload,
+    },
+  );
+  const fields = [title && "title", gender && "gender", birthDate && "birth date", suffix && "suffix"]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    status: "applied",
+    type: "constituent_profile",
+    action: "update",
+    message: `Updated NXT ${fields}.`,
+    blackbaudResult: result || null,
+  };
+}
+
+async function applyConstituentNameFormatUpdate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const targetId = cleanText(write?.targetId);
+  const value = cleanText(write?.value);
+  const kind = cleanText(write?.kind) || "name";
+
+  if (!constituentId || !targetId || !value) {
+    return {
+      status: "manual_required",
+      type: "constituent_name_format",
+      action: "update_primary",
+      message: `A matched NXT constituent, current primary ${kind} format, and proposed value are required.`,
+    };
+  }
+
+  const result = await blackbaudApiFetch(
+    `/constituent/v1/nameformats/${encodeURIComponent(String(targetId))}`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "PATCH",
+      body: {
+        custom_format: true,
+        formatted_name: value,
+      },
+    },
+  );
+
+  return {
+    status: "applied",
+    type: "constituent_name_format",
+    action: "update_primary",
+    message: `Updated the primary NXT ${kind} to ${value}.`,
     blackbaudResult: result || null,
   };
 }
@@ -867,6 +989,12 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
 async function applyWrite({ request, user, row, write }) {
   if (write?.type === "constituent_name" && write?.action === "update") {
     return applyConstituentNameUpdate({ request, user, row, write });
+  }
+  if (write?.type === "constituent_profile" && write?.action === "update") {
+    return applyConstituentProfileUpdate({ request, user, row, write });
+  }
+  if (write?.type === "constituent_name_format" && write?.action === "update_primary") {
+    return applyConstituentNameFormatUpdate({ request, user, row, write });
   }
   if (
     write?.type === "email_address" &&

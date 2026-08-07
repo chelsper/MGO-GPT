@@ -48,6 +48,48 @@ const IMPORT_FIELDS = [
     description: "Optional, but can update the matched NXT preferred name when it differs from the current value.",
   },
   {
+    key: "title",
+    header: "Title",
+    label: "Title",
+    group: "Individual profile fields",
+    description: "Optional NXT title, such as Dr., Mr., Ms., or Rev.",
+  },
+  {
+    key: "gender",
+    header: "Gender",
+    label: "Gender",
+    group: "Individual profile fields",
+    description: "Optional NXT gender value. The CSV value is reviewed against the current record before import.",
+  },
+  {
+    key: "birthDate",
+    header: "Birth Date",
+    label: "Birth Date",
+    group: "Individual profile fields",
+    description: "Optional full birth date in YYYY-MM-DD format. Partial dates are not imported automatically.",
+  },
+  {
+    key: "suffix",
+    header: "Suffix",
+    label: "Suffix",
+    group: "Individual profile fields",
+    description: "Optional NXT suffix, such as Jr., Sr., III, or Ph.D.",
+  },
+  {
+    key: "addressee",
+    header: "Addressee",
+    label: "Addressee",
+    group: "Addressee and salutation fields",
+    description: "Optional custom primary NXT addressee. A file-wide builder can supply a default when this column is blank.",
+  },
+  {
+    key: "salutation",
+    header: "Salutation",
+    label: "Salutation",
+    group: "Addressee and salutation fields",
+    description: "Optional custom primary NXT salutation. A file-wide builder can supply a default when this column is blank.",
+  },
+  {
     key: "email",
     header: "Email Address",
     label: "Email Address",
@@ -314,6 +356,12 @@ const DEFAULT_ACTIVE_FIELDS = {
   firstName: true,
   lastName: true,
   preferredName: false,
+  title: false,
+  gender: false,
+  birthDate: false,
+  suffix: false,
+  addressee: false,
+  salutation: false,
   email: true,
   emailType: false,
   emailMakePrimary: false,
@@ -354,6 +402,8 @@ const DEFAULT_ACTIVE_FIELDS = {
 const FIELD_GROUP_ORDER = [
   "Match fields",
   "Name fields",
+  "Individual profile fields",
+  "Addressee and salutation fields",
   "Email fields",
   "Phone fields",
   "Address fields",
@@ -365,6 +415,8 @@ const FIELD_GROUP_ORDER = [
 const FIELD_GROUP_HELP = {
   "Match fields": "Use one or more strong identifiers to avoid duplicate records.",
   "Name fields": "Name columns can match records and, when selected, update the matched NXT name fields.",
+  "Individual profile fields": "Optional title, gender, birth date, and suffix values for individual constituents.",
+  "Addressee and salutation fields": "Optionally import custom primary NXT formats or build consistent values for an entire file.",
   "Email fields": "Email columns, including the optional primary flag.",
   "Phone fields": "Phone columns, including the optional primary flag.",
   "Address fields": "Address columns, including the optional primary flag.",
@@ -376,6 +428,8 @@ const FIELD_GROUP_HELP = {
 const DEFAULT_OPEN_FIELD_GROUPS = {
   "Match fields": true,
   "Name fields": true,
+  "Individual profile fields": true,
+  "Addressee and salutation fields": true,
   "Constituent code fields": true,
 };
 
@@ -705,6 +759,23 @@ function formatWritePlanItem(write) {
     return `Update NXT ${fields || "name fields"}`;
   }
 
+  if (write.type === "constituent_profile") {
+    const fields = [
+      write.title && `title to ${write.title}`,
+      write.gender && `gender to ${write.gender}`,
+      write.birthDate && `birth date to ${write.birthDate}`,
+      write.suffix && `suffix to ${write.suffix}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return `Update NXT ${fields || "individual profile fields"}`;
+  }
+
+  if (write.type === "constituent_name_format") {
+    const label = write.kind === "salutation" ? "salutation" : "addressee";
+    return `Set primary NXT ${label} to ${write.value || "unspecified"}`;
+  }
+
   if (write.type === "email_address") {
     if (write.action === "replace") {
       return `Replace selected email: ${write.address || "unspecified"}`;
@@ -772,6 +843,12 @@ function formatApplyResultItem(result) {
     }
     if (result.type === "constituent_name") {
       return result.message || "Updated matched NXT name fields.";
+    }
+    if (result.type === "constituent_profile") {
+      return result.message || "Updated matched NXT individual profile fields.";
+    }
+    if (result.type === "constituent_name_format") {
+      return result.message || "Updated the matched NXT primary name format.";
     }
     if (result.type === "email_address") {
       return result.message || "Applied the staged NXT email update.";
@@ -1053,6 +1130,11 @@ export default function ConstituencyImportPage() {
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
   const [useHierarchy, setUseHierarchy] = useState(true);
   const [updateNameFields, setUpdateNameFields] = useState(false);
+  const [updateIndividualProfileFields, setUpdateIndividualProfileFields] = useState(false);
+  const [updateNameFormatFields, setUpdateNameFormatFields] = useState(false);
+  const [buildNameFormats, setBuildNameFormats] = useState(false);
+  const [addresseeFormat, setAddresseeFormat] = useState("title-preferred-last-suffix");
+  const [salutationFormat, setSalutationFormat] = useState("dear-preferred");
   const [updateEmailFields, setUpdateEmailFields] = useState(false);
   const [updatePhoneFields, setUpdatePhoneFields] = useState(false);
   const [updateAddressFields, setUpdateAddressFields] = useState(false);
@@ -1114,6 +1196,9 @@ export default function ConstituencyImportPage() {
   const nameFieldsActive = Boolean(
     activeFields.firstName || activeFields.lastName || activeFields.preferredName,
   );
+  const individualProfileFieldsActive = Boolean(
+    activeFields.title || activeFields.gender || activeFields.birthDate || activeFields.suffix,
+  );
   const emailFieldsActive = Boolean(activeFields.email || activeFields.email2);
   const phoneFieldsActive = Boolean(activeFields.phoneNumber || activeFields.phone2Number);
   const addressFieldsActive = Boolean(activeFields.addressLine1);
@@ -1122,6 +1207,22 @@ export default function ConstituencyImportPage() {
       (hasUploadedHeader("firstName") ||
         hasUploadedHeader("lastName") ||
         hasUploadedHeader("preferredName")),
+  );
+  const mappedIndividualProfileUpdate = Boolean(
+    updateIndividualProfileFields &&
+      (hasUploadedHeader("title") ||
+        hasUploadedHeader("gender") ||
+        hasUploadedHeader("birthDate") ||
+        hasUploadedHeader("suffix")),
+  );
+  const mappedNameFormatUpdate = Boolean(
+    updateNameFormatFields &&
+      (hasUploadedHeader("addressee") ||
+        hasUploadedHeader("salutation") ||
+        (buildNameFormats &&
+          (hasUploadedHeader("firstName") ||
+            hasUploadedHeader("lastName") ||
+            hasUploadedHeader("preferredName")))),
   );
   const mappedEmailUpdate = Boolean(
     updateEmailFields &&
@@ -1139,6 +1240,8 @@ export default function ConstituencyImportPage() {
       educationRelationshipFieldsActive ||
       organizationRelationshipFieldsActive ||
       updateNameFields ||
+      updateIndividualProfileFields ||
+      updateNameFormatFields ||
       updateEmailFields ||
       updatePhoneFields ||
       updateAddressFields,
@@ -1160,6 +1263,8 @@ export default function ConstituencyImportPage() {
       hasUploadedHeader("organizationRelationshipType") ||
       hasUploadedHeader("organizationTitle") ||
       mappedNameUpdate ||
+      mappedIndividualProfileUpdate ||
+      mappedNameFormatUpdate ||
       mappedEmailUpdate ||
       mappedPhoneUpdate ||
       mappedAddressUpdate,
@@ -1174,10 +1279,10 @@ export default function ConstituencyImportPage() {
     mappedIdentityField ? "" : "Include at least one active matching column in the CSV, such as NXT System ID, NXT Lookup ID, Email Address, Address Line 1, or First Name + Last Name.",
     hasImportOperation
       ? ""
-      : "Select at least one import operation, such as a constituent code, relationship, name update, or contact update.",
+      : "Select at least one import operation, such as a constituent code, relationship, individual update, name-format update, or contact update.",
     mappedImportOperation
       ? ""
-      : "Include at least one active change column in the CSV, such as Email Address, Phone Number, Address Line 1, New Constituent Code, Education Institution, or Organization Name.",
+      : "Include at least one active change column in the CSV, such as Title, Email Address, Addressee, Phone Number, Address Line 1, New Constituent Code, Education Institution, or Organization Name.",
   ].filter(Boolean);
   const readySavedRows =
     preview?.savedRun && Array.isArray(preview?.rows)
@@ -1437,7 +1542,7 @@ export default function ConstituencyImportPage() {
     if (!runId || applyingRun) return;
 
     const shouldApply = window.confirm(
-      "Apply ready rows to NXT now? This may update constituent codes, selected name fields, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Education and organization relationship rows will stay staged for manual review.",
+      "Apply ready rows to NXT now? This may update constituent codes, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Education and organization relationship rows will stay staged for manual review.",
     );
     if (!shouldApply) return;
 
@@ -1488,6 +1593,11 @@ export default function ConstituencyImportPage() {
             educationRelationshipAction,
             useHierarchy,
             updateNameFields,
+            updateIndividualProfileFields,
+            updateNameFormatFields,
+            buildNameFormats,
+            addresseeFormat,
+            salutationFormat,
             updateEmailFields,
             updatePhoneFields,
             updateAddressFields,
@@ -1535,6 +1645,14 @@ export default function ConstituencyImportPage() {
         firstName: row.input?.firstName || "",
         lastName: row.input?.lastName || "",
         preferredName: row.input?.preferredName || "",
+        title: row.input?.title || "",
+        gender: row.input?.gender || "",
+        birthDate: row.input?.birthDate || "",
+        suffix: row.input?.suffix || "",
+        addressee: row.input?.nameFormatUpdate?.addressee || "",
+        salutation: row.input?.nameFormatUpdate?.salutation || "",
+        currentAddressee: row.currentNameFormats?.addressee?.value || "",
+        currentSalutation: row.currentNameFormats?.salutation?.value || "",
         inputLookupId: row.input?.lookupId || "",
         inputSystemId: row.input?.blackbaudConstituentId || "",
         matchedName: row.match?.name || "",
@@ -1656,7 +1774,7 @@ export default function ConstituencyImportPage() {
         >
           This version is template-first: choose the fields you are importing, use the exact CSV
           headers shown here, then upload the file. You can now save preview runs for review, but
-          this still does not write to NXT.
+          saving a preview never writes to NXT; only a saved run's explicit Apply ready rows action does.
         </section>
 
         <section
@@ -2086,6 +2204,190 @@ export default function ConstituencyImportPage() {
                               </span>
                             </span>
                           </label>
+                        </div>
+                      ) : null}
+                      {group === "Individual profile fields" && individualProfileFieldsActive ? (
+                        <div
+                          style={{
+                            border: "1px solid #C7D2FE",
+                            borderRadius: "16px",
+                            backgroundColor: "#EEF2FF",
+                            padding: "14px",
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: "#111827",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="updateMatchedNxtIndividualProfileFields"
+                              checked={updateIndividualProfileFields}
+                              onChange={(event) => {
+                                setUpdateIndividualProfileFields(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Review and update matched individual fields
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  color: "#4338CA",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                Compare title, gender, birth date, and suffix against the current
+                                NXT record before applying. Only populated CSV cells are staged;
+                                blank cells never clear a value. Birth dates must be complete
+                                YYYY-MM-DD values.
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+                      ) : null}
+                      {group === "Addressee and salutation fields" ? (
+                        <div
+                          style={{
+                            border: "1px solid #C7D2FE",
+                            borderRadius: "16px",
+                            backgroundColor: "#EEF2FF",
+                            padding: "14px",
+                            display: "grid",
+                            gap: "12px",
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: "#111827",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="updateMatchedNxtNameFormats"
+                              checked={updateNameFormatFields}
+                              onChange={(event) => {
+                                setUpdateNameFormatFields(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Review and update primary addressee and salutation
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  color: "#4338CA",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                Values entered in the CSV are compared with the current primary
+                                NXT formats. Applying this creates a custom primary format; it
+                                does not modify a constituent's legal name.
+                              </span>
+                            </span>
+                          </label>
+
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "10px",
+                              color: updateNameFormatFields ? "#111827" : "#94A3B8",
+                              cursor: updateNameFormatFields ? "pointer" : "not-allowed",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="buildDefaultNameFormats"
+                              disabled={!updateNameFormatFields}
+                              checked={buildNameFormats}
+                              onChange={(event) => {
+                                setBuildNameFormats(event.target.checked);
+                                setPreview(null);
+                              }}
+                              style={{ marginTop: "4px" }}
+                            />
+                            <span>
+                              <span style={{ display: "block", fontWeight: 900 }}>
+                                Build default values for rows without a CSV format value
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  marginTop: "4px",
+                                  fontSize: "14px",
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                Useful for a file of new people or a consistent correction. An
+                                explicit Addressee or Salutation CSV value always takes priority.
+                              </span>
+                            </span>
+                          </label>
+
+                          {updateNameFormatFields && buildNameFormats ? (
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                gap: "12px",
+                              }}
+                            >
+                              <label style={{ display: "grid", gap: "6px", color: "#312E81", fontWeight: 900 }}>
+                                Default addressee
+                                <select
+                                  name="defaultAddresseeFormat"
+                                  value={addresseeFormat}
+                                  onChange={(event) => {
+                                    setAddresseeFormat(event.target.value);
+                                    setPreview(null);
+                                  }}
+                                  style={{ border: "1px solid #A5B4FC", borderRadius: "10px", backgroundColor: "white", color: "#111827", padding: "10px" }}
+                                >
+                                  <option value="title-preferred-last-suffix">Title + preferred name + last name + suffix</option>
+                                  <option value="title-first-last-suffix">Title + first name + last name + suffix</option>
+                                  <option value="preferred-last">Preferred name + last name</option>
+                                  <option value="first-last">First name + last name</option>
+                                </select>
+                              </label>
+                              <label style={{ display: "grid", gap: "6px", color: "#312E81", fontWeight: 900 }}>
+                                Default salutation
+                                <select
+                                  name="defaultSalutationFormat"
+                                  value={salutationFormat}
+                                  onChange={(event) => {
+                                    setSalutationFormat(event.target.value);
+                                    setPreview(null);
+                                  }}
+                                  style={{ border: "1px solid #A5B4FC", borderRadius: "10px", backgroundColor: "white", color: "#111827", padding: "10px" }}
+                                >
+                                  <option value="dear-preferred">Dear + preferred name</option>
+                                  <option value="dear-first">Dear + first name</option>
+                                  <option value="preferred">Preferred name only</option>
+                                  <option value="first">First name only</option>
+                                </select>
+                              </label>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                       {group === "Email fields" && emailFieldsActive ? (
@@ -2819,6 +3121,12 @@ export default function ConstituencyImportPage() {
             <div style={{ display: "grid", gap: "12px" }}>
               {preview.rows.map((row) => {
                 const colors = statusTone(row.status);
+                const profileWrites = (row.writePlan || []).filter(
+                  (write) => write.type === "constituent_profile",
+                );
+                const nameFormatWrites = (row.writePlan || []).filter(
+                  (write) => write.type === "constituent_name_format",
+                );
                 return (
                   <article
                     key={row.rowNumber}
@@ -2908,6 +3216,56 @@ export default function ConstituencyImportPage() {
                         </div>
                       </div>
                     </div>
+
+                    {profileWrites.length || nameFormatWrites.length ? (
+                      <section
+                        style={{
+                          border: "1px solid #BFDBFE",
+                          borderRadius: "12px",
+                          backgroundColor: "#EFF6FF",
+                          padding: "12px",
+                          display: "grid",
+                          gap: "10px",
+                        }}
+                      >
+                        <div style={{ color: "#1D4ED8", fontWeight: 900 }}>
+                          Individual and name-format review
+                        </div>
+                        {profileWrites.map((write, index) => (
+                          <div
+                            key={`profile-${index}`}
+                            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}
+                          >
+                            {[
+                              ["Title", write.current?.title, write.title],
+                              ["Gender", write.current?.gender, write.gender],
+                              ["Birth Date", write.current?.birthDate, write.birthDate],
+                              ["Suffix", write.current?.suffix, write.suffix],
+                            ]
+                              .filter(([, , proposed]) => proposed)
+                              .map(([label, current, proposed]) => (
+                                <div key={label} style={{ border: "1px solid #BFDBFE", borderRadius: "10px", backgroundColor: "white", padding: "9px" }}>
+                                  <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
+                                  <div style={{ marginTop: "4px", color: "#475569", fontSize: "13px" }}>Current: {current || "Not set"}</div>
+                                  <div style={{ marginTop: "3px", color: "#0F172A", fontWeight: 900 }}>CSV: {proposed}</div>
+                                </div>
+                              ))}
+                          </div>
+                        ))}
+                        {nameFormatWrites.map((write, index) => (
+                          <div
+                            key={`name-format-${index}`}
+                            style={{ border: "1px solid #BFDBFE", borderRadius: "10px", backgroundColor: "white", padding: "9px" }}
+                          >
+                            <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>
+                              Primary {write.kind === "salutation" ? "salutation" : "addressee"}
+                            </div>
+                            <div style={{ marginTop: "4px", color: "#475569", fontSize: "13px" }}>Current: {write.currentValue || "Not set"}</div>
+                            <div style={{ marginTop: "3px", color: "#0F172A", fontWeight: 900 }}>Proposed: {write.value}</div>
+                          </div>
+                        ))}
+                      </section>
+                    ) : null}
 
                     <ContactReviewPanel
                       row={row}

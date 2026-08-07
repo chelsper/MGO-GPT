@@ -253,6 +253,107 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan[0].lastName).toBe("");
   });
 
+  it("stages individual profile changes without treating blank cells as clears", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "A123",
+      name: "Jane Dolphin",
+      raw: {
+        type: "Individual",
+        title: "Ms.",
+        gender: "Female",
+        suffix: "",
+        birthdate: { y: 1980, m: 7, d: 23 },
+      },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "123",
+            Title: "Dr.",
+            Gender: "Female",
+            "Birth Date": "1980-07-23",
+            Suffix: "Ph.D.",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          title: "Title",
+          gender: "Gender",
+          birthDate: "Birth Date",
+          suffix: "Suffix",
+        },
+        defaults: { updateIndividualProfileFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "constituent_profile",
+        action: "update",
+        title: "Dr.",
+        gender: "",
+        birthDate: "",
+        suffix: "Ph.D.",
+        current: expect.objectContaining({ title: "Ms.", gender: "Female" }),
+      }),
+    ]);
+  });
+
+  it("stages custom primary name formats from the file-wide builder", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "A123",
+      name: "Jane Dolphin",
+      raw: { type: "Individual", first: "Jane", last: "Dolphin", preferred_name: "Jane" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      primary_addressee: { id: "addressee-1", formatted_name: "Jane Dolphin" },
+      primary_salutation: { id: "salutation-1", formatted_name: "Dear Jane" },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123", "First Name": "Jane", "Last Name": "Dolphin", Title: "Dr." }],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+          title: "Title",
+        },
+        defaults: {
+          updateNameFormatFields: true,
+          buildNameFormats: true,
+          addresseeFormat: "title-preferred-last-suffix",
+          salutationFormat: "dear-preferred",
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toContainEqual(
+      expect.objectContaining({
+        type: "constituent_name_format",
+        kind: "addressee",
+        targetId: "addressee-1",
+        currentValue: "Jane Dolphin",
+        value: "Dr. Jane Dolphin",
+      }),
+    );
+    expect(payload.rows[0].writePlan).not.toContainEqual(
+      expect.objectContaining({ type: "constituent_name_format", kind: "salutation" }),
+    );
+  });
+
   it("treats an explicitly selected email address as an import change", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
