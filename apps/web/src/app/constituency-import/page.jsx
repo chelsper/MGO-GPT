@@ -591,6 +591,26 @@ function makeTemplateRows(fields) {
   return Papa.unparse([headers, rowOne, rowTwo]);
 }
 
+function ensureCsvFilename(filename) {
+  const safeFilename = String(filename || "constituency-import.csv").trim();
+  return /\.csv$/i.test(safeFilename) ? safeFilename : `${safeFilename}.csv`;
+}
+
+function downloadCsv(csv, filename) {
+  const content = String(csv || "");
+  const csvContent = content.startsWith("\ufeff") ? content : `\ufeff${content}`;
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = ensureCsvFilename(filename);
+  link.setAttribute("type", "text/csv");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function parseCsv(text) {
   const parsed = Papa.parse(text, {
     header: true,
@@ -922,13 +942,7 @@ export default function ConstituencyImportPage() {
 
   function downloadTemplateCsv() {
     const csv = makeTemplateRows(selectedFields);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "constituency-import-template.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(csv, "constituency-import-template.csv");
   }
 
   function handleFileUpload(event) {
@@ -1083,13 +1097,7 @@ export default function ConstituencyImportPage() {
         reasons: (row.reasons || []).join(" | "),
       })),
     );
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "constituency-import-preview.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(csv, "constituency-import-preview.csv");
   }
 
   if (loading || loadingProfile) {
