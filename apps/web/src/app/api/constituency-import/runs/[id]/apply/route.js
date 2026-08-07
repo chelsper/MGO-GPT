@@ -1416,6 +1416,130 @@ async function applyWrite({ request, user, row, write }) {
   };
 }
 
+function getWriteItems(row, retryFailedOnly = false) {
+  const writePlan = getWritePlan(row);
+  const items = writePlan.map((write, writeIndex) => ({ write, writeIndex }));
+  if (!retryFailedOnly) return items;
+
+  const priorResults = Array.isArray(row?.blackbaud_result?.results)
+    ? row.blackbaud_result.results
+    : [];
+  const failedIndexes = new Set(
+    priorResults
+      .filter((result) => result?.status === "failed" && Number.isInteger(result?.writeIndex))
+      .map((result) => result.writeIndex),
+  );
+
+  return items.filter((item) => failedIndexes.has(item.writeIndex));
+}
+
+function getPriorAttempts(row) {
+  const priorResult = row?.blackbaud_result;
+  if (!priorResult || typeof priorResult !== "object") return [];
+  if (Array.isArray(priorResult.attempts)) return priorResult.attempts;
+  if (!Array.isArray(priorResult.results)) return [];
+
+  return [
+    {
+      attemptedAt: priorResult.appliedAt || null,
+      appliedByUserId: priorResult.appliedByUserId || null,
+      appliedByEmail: priorResult.appliedByEmail || "",
+      retryFailedOnly: false,
+      results: priorResult.results,
+    },
+  ];
+}
+
+function buildApplyAudit({ row, user, results, retryFailedOnly }) {
+  const priorResult =
+    row?.blackbaud_result && typeof row.blackbaud_result === "object"
+      ? row.blackbaud_result
+      : {};
+  const { results: _priorResults, attempts: _priorAttempts, ...priorAudit } = priorResult;
+  const attemptedAt = new Date().toISOString();
+  const attempt = {
+    attemptedAt,
+    appliedByUserId: user.id,
+    appliedByEmail: user.email,
+    retryFailedOnly,
+    results,
+  };
+
+  return {
+    ...priorAudit,
+    appliedByUserId: user.id,
+    appliedByEmail: user.email,
+    appliedAt: attemptedAt,
+    retryFailedOnly,
+    results,
+    attempts: [...getPriorAttempts(row), attempt],
+  };
+}
+
+function createFailedWriteResult(write, writeIndex, error) {
+  return {
+    status: "failed",
+    type: write?.type || "unknown",
+    action: write?.action || "apply",
+    writeIndex,
+    message: error instanceof Error ? error.message : "NXT rejected this staged write.",
+  };
+}
+
+async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
+  const writeItems = getWriteItems(row, retryFailedOnly);
+  if (retryFailedOnly && writeItems.length === 0) {
+    return {
+      retryUnavailable: true,
+      message:
+        "This failure does not include a write-level retry record. Re-preview the source row and review NXT before applying it again.",
+    };
+  }
+
+  const results = [];
+  for (const { write, writeIndex } of writeItems) {
+    try {
+      const result = await applyWrite({ request, user, row, write });
+      results.push({ ...result, writeIndex });
+    } catch (error) {
+      results.push(createFailedWriteResult(write, writeIndex, error));
+    }
+  }
+
+  const appliedWrites = results.filter((result) => result.status === "applied");
+  const manualWrites = results.filter((result) => result.status === "manual_required");
+  const failedWrites = results.filter((result) => result.status === "failed");
+  const nextStatus = failedWrites.length
+    ? "Failed"
+    : manualWrites.length
+      ? "Needs Review"
+      : "Applied";
+  const failureMessage = failedWrites.map((result) => result.message).filter(Boolean).join(" ");
+
+  await sql`
+    UPDATE constituency_import_rows
+    SET
+      status = ${nextStatus},
+      blackbaud_result = ${JSON.stringify(
+        buildApplyAudit({ row, user, results, retryFailedOnly }),
+      )}::jsonb,
+      blackbaud_error = ${failureMessage || null},
+      applied_at = CASE
+        WHEN ${appliedWrites.length}::INTEGER > 0 THEN COALESCE(applied_at, NOW())
+        ELSE applied_at
+      END,
+      updated_at = NOW()
+    WHERE id = ${row.id}
+  `;
+
+  return {
+    applied: appliedWrites.length > 0,
+    manualRequired: manualWrites.length > 0,
+    failed: failedWrites.length > 0,
+    results,
+  };
+}
+
 function summarizeRows(rows) {
   return rows.reduce(
     (acc, row) => {
@@ -1480,6 +1604,12 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Invalid import run ID" }, { status: 400 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const retryRowId = cleanText(searchParams.get("retryRowId"));
+    if (retryRowId && !/^\d+$/.test(retryRowId)) {
+      return Response.json({ error: "Invalid import row ID" }, { status: 400 });
+    }
+
     const runs = await sql`
       SELECT *
       FROM constituency_import_runs
@@ -1491,14 +1621,23 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Import run not found" }, { status: 404 });
     }
 
-    const candidateRows = await sql`
-      SELECT *
-      FROM constituency_import_rows
-      WHERE run_id = ${runId}
-        AND status = 'Ready'
-        AND applied_at IS NULL
-      ORDER BY row_number ASC
-    `;
+    const candidateRows = retryRowId
+      ? await sql`
+          SELECT *
+          FROM constituency_import_rows
+          WHERE run_id = ${runId}
+            AND id = ${retryRowId}
+            AND status = 'Failed'
+          LIMIT 1
+        `
+      : await sql`
+          SELECT *
+          FROM constituency_import_rows
+          WHERE run_id = ${runId}
+            AND status = 'Ready'
+            AND applied_at IS NULL
+          ORDER BY row_number ASC
+        `;
 
     if (!candidateRows.length) {
       const payload = await fetchRunWithRows(runId);
@@ -1508,7 +1647,9 @@ export async function POST(request, { params }) {
           applied: 0,
           manualRequired: 0,
           failed: 0,
-          message: "No ready unapplied rows were available to apply.",
+          message: retryRowId
+            ? "That row is no longer eligible for a failed-write retry. Refresh the saved run before trying again."
+            : "No ready unapplied rows were available to apply.",
         },
       });
     }
@@ -1518,55 +1659,32 @@ export async function POST(request, { params }) {
     let failed = 0;
 
     for (const row of candidateRows) {
-      const writePlan = getWritePlan(row);
+      const result = await applyRowWrites({
+        request,
+        user: authResult.user,
+        row,
+        retryFailedOnly: Boolean(retryRowId),
+      });
 
-      try {
-        const results = [];
-        for (const write of writePlan) {
-          results.push(await applyWrite({ request, user: authResult.user, row, write }));
-        }
-
-        const appliedWrites = results.filter((result) => result.status === "applied");
-        const manualWrites = results.filter((result) => result.status === "manual_required");
-        const nextStatus = manualWrites.length ? "Needs Review" : "Applied";
-
-        if (appliedWrites.length) applied += 1;
-        if (manualWrites.length) manualRequired += 1;
-
-        await sql`
-          UPDATE constituency_import_rows
-          SET
-            status = ${nextStatus},
-            blackbaud_result = ${JSON.stringify({
-              appliedByUserId: authResult.user.id,
-              appliedByEmail: authResult.user.email,
-              appliedAt: new Date().toISOString(),
-              results,
-            })}::jsonb,
-            blackbaud_error = NULL,
-            applied_at = CASE
-              WHEN ${appliedWrites.length}::INTEGER > 0 THEN NOW()
-              ELSE applied_at
-            END,
-            updated_at = NOW()
-          WHERE id = ${row.id}
-        `;
-      } catch (rowError) {
-        failed += 1;
-        await sql`
-          UPDATE constituency_import_rows
-          SET
-            status = 'Failed',
-            blackbaud_error = ${rowError instanceof Error ? rowError.message : "Failed to apply row"},
-            blackbaud_result = ${JSON.stringify({
-              appliedByUserId: authResult.user.id,
-              appliedByEmail: authResult.user.email,
-              failedAt: new Date().toISOString(),
-            })}::jsonb,
-            updated_at = NOW()
-          WHERE id = ${row.id}
-        `;
+      if (result.retryUnavailable) {
+        const payload = await fetchRunWithRows(runId);
+        return Response.json(
+          {
+            ...payload,
+            applySummary: {
+              applied: 0,
+              manualRequired: 1,
+              failed: 0,
+              message: result.message,
+            },
+          },
+          { status: 409 },
+        );
       }
+
+      if (result.applied) applied += 1;
+      if (result.manualRequired) manualRequired += 1;
+      if (result.failed) failed += 1;
     }
 
     const updatedRows = await sql`
@@ -1606,7 +1724,9 @@ export async function POST(request, { params }) {
         applied,
         manualRequired,
         failed,
-        message: `Applied ${applied} row${applied === 1 ? "" : "s"}; ${manualRequired} need manual review; ${failed} failed.`,
+        message: retryRowId
+          ? `Retried failed NXT writes for ${candidateRows.length} row${candidateRows.length === 1 ? "" : "s"}; ${applied} completed; ${manualRequired} need manual review; ${failed} still failed.`
+          : `Applied ${applied} row${applied === 1 ? "" : "s"}; ${manualRequired} need manual review; ${failed} failed.`,
       },
     });
   } catch (error) {

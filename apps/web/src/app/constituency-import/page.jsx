@@ -883,6 +883,9 @@ function formatApplyResultItem(result) {
   if (result.status === "manual_required") {
     return `Manual review: ${result.message || "This staged write is not automated yet."}`;
   }
+  if (result.status === "failed") {
+    return `NXT write failed: ${result.message || "No error detail was returned."}`;
+  }
   return result.message || result.status || "Apply result recorded.";
 }
 
@@ -1179,6 +1182,7 @@ export default function ConstituencyImportPage() {
   const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
+  const [retryingRowId, setRetryingRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -1737,6 +1741,51 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setCreatingRowId("");
+    }
+  }
+
+  async function retryFailedWrites(row) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || retryingRowId) return;
+
+    const failedWrites = Array.isArray(row.blackbaudResult?.results)
+      ? row.blackbaudResult.results.filter(
+          (result) => result?.status === "failed" && Number.isInteger(result?.writeIndex),
+        )
+      : [];
+    if (!failedWrites.length) {
+      setError(
+        "This failed row does not have a write-level retry record. Re-preview the source row and compare it with NXT before applying it again.",
+      );
+      return;
+    }
+
+    const displayName = row.input?.constituentName || "this constituent";
+    const confirmed = window.confirm(
+      `Retry ${failedWrites.length} failed NXT write${failedWrites.length === 1 ? "" : "s"} for ${displayName}? Writes that previously succeeded will not be run again.`,
+    );
+    if (!confirmed) return;
+
+    setRetryingRowId(String(row.id));
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/apply?retryRowId=${encodeURIComponent(row.id)}`,
+        { method: "POST" },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.applySummary?.message || payload?.error || "Failed to retry the NXT write");
+      }
+      setPreview(payload);
+      setSaveMessage(payload?.applySummary?.message || `Retried failed writes for ${displayName}.`);
+      fetchSavedRuns();
+    } catch (retryError) {
+      await loadSavedRun(runId);
+      setError(retryError instanceof Error ? retryError.message : "Failed to retry the NXT write");
+    } finally {
+      setRetryingRowId("");
     }
   }
 
@@ -3421,6 +3470,12 @@ export default function ConstituencyImportPage() {
                 const nameFormatWrites = (row.writePlan || []).filter(
                   (write) => write.type === "constituent_name_format",
                 );
+                const failedWriteResults = Array.isArray(row.blackbaudResult?.results)
+                  ? row.blackbaudResult.results.filter(
+                      (result) =>
+                        result?.status === "failed" && Number.isInteger(result?.writeIndex),
+                    )
+                  : [];
                 return (
                   <article
                     key={row.rowNumber}
@@ -3623,7 +3678,8 @@ export default function ConstituencyImportPage() {
                       >
                         NXT apply failed: {row.blackbaudError}
                       </div>
-                    ) : Array.isArray(row.blackbaudResult?.results) &&
+                    ) : null}
+                    {Array.isArray(row.blackbaudResult?.results) &&
                       row.blackbaudResult.results.length ? (
                       <div
                         style={{
@@ -3649,11 +3705,56 @@ export default function ConstituencyImportPage() {
                         {row.blackbaudResult.results.map((result, resultIndex) => (
                           <div
                             key={`${result.type || "result"}-${resultIndex}`}
-                            style={{ color: "#0C4A6E", fontWeight: 800, lineHeight: 1.4 }}
+                            style={{
+                              color: result.status === "failed" ? "#991B1B" : "#0C4A6E",
+                              fontWeight: 800,
+                              lineHeight: 1.4,
+                            }}
                           >
                             {formatApplyResultItem(result)}
                           </div>
                         ))}
+                      </div>
+                    ) : null}
+                    {row.status === "Failed" ? (
+                      <div
+                        style={{
+                          border: "1px solid #FCA5A5",
+                          borderRadius: "12px",
+                          backgroundColor: "#FFF7ED",
+                          padding: "12px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={{ color: "#9A3412", fontWeight: 800, lineHeight: 1.45 }}>
+                          {failedWriteResults.length
+                            ? `${failedWriteResults.length} staged NXT write${failedWriteResults.length === 1 ? "" : "s"} failed. Successful writes will not be repeated.`
+                            : "This failed before JUMGOGPT could safely identify a single write to retry. Re-preview this row before trying again."}
+                        </span>
+                        {failedWriteResults.length ? (
+                          <button
+                            type="button"
+                            onClick={() => retryFailedWrites(row)}
+                            disabled={Boolean(retryingRowId)}
+                            style={{
+                              border: "1px solid #C2410C",
+                              borderRadius: "999px",
+                              backgroundColor: retryingRowId ? "#FFEDD5" : "#C2410C",
+                              color: retryingRowId ? "#9A3412" : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: retryingRowId ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {retryingRowId === String(row.id)
+                              ? "Retrying failed write..."
+                              : "Retry failed NXT write"}
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
 

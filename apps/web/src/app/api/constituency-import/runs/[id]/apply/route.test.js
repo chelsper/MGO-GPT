@@ -26,8 +26,8 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
 }));
 
-function makeRequest() {
-  return new Request("https://example.com/api/constituency-import/runs/42/apply", {
+function makeRequest(search = "") {
+  return new Request(`https://example.com/api/constituency-import/runs/42/apply${search}`, {
     method: "POST",
   });
 }
@@ -1150,5 +1150,176 @@ describe("constituency import run apply route", () => {
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
     expect(payload.applySummary.manualRequired).toBe(1);
     expect(payload.savedRun.needsReviewCount).toBe(1);
+  });
+
+  it("records a partial NXT failure without discarding an earlier successful write", async () => {
+    const { POST } = await import("./route.js");
+    const nameWrite = {
+      type: "constituent_name",
+      action: "update",
+      recordType: "Individual",
+      preferredName: "Janie",
+    };
+    const profileWrite = {
+      type: "constituent_profile",
+      action: "update",
+      recordType: "Individual",
+      title: "Dr.",
+    };
+    const savedResult = {
+      results: [
+        {
+          status: "applied",
+          type: "constituent_name",
+          action: "update",
+          writeIndex: 0,
+          message: "Updated NXT preferred name.",
+        },
+        {
+          status: "failed",
+          type: "constituent_profile",
+          action: "update",
+          writeIndex: 1,
+          message: "Blackbaud 500 Internal Server Error",
+        },
+      ],
+    };
+    const row = {
+      id: "30",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [nameWrite, profileWrite],
+      preview: {
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [nameWrite, profileWrite],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Failed", blackbaud_result: savedResult }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "partially_applied", failed_count: 1 })])
+      .mockResolvedValueOnce([{ ...row, status: "Failed", blackbaud_result: savedResult }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ id: "123", preferred_name: "Janie" })
+      .mockRejectedValueOnce(new Error("Blackbaud 500 Internal Server Error"));
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
+    expect(payload.applySummary.applied).toBe(1);
+    expect(payload.applySummary.failed).toBe(1);
+    expect(payload.rows[0].blackbaudResult.results).toEqual(savedResult.results);
+  });
+
+  it("retries only the staged NXT write that previously failed", async () => {
+    const { POST } = await import("./route.js");
+    const nameWrite = {
+      type: "constituent_name",
+      action: "update",
+      recordType: "Individual",
+      preferredName: "Janie",
+    };
+    const profileWrite = {
+      type: "constituent_profile",
+      action: "update",
+      recordType: "Individual",
+      title: "Dr.",
+    };
+    const priorResult = {
+      results: [
+        {
+          status: "applied",
+          type: "constituent_name",
+          action: "update",
+          writeIndex: 0,
+          message: "Updated NXT preferred name.",
+        },
+        {
+          status: "failed",
+          type: "constituent_profile",
+          action: "update",
+          writeIndex: 1,
+          message: "Blackbaud 500 Internal Server Error",
+        },
+      ],
+    };
+    const retriedResult = {
+      results: [
+        {
+          status: "applied",
+          type: "constituent_profile",
+          action: "update",
+          writeIndex: 1,
+          message: "Updated NXT title.",
+        },
+      ],
+      attempts: [
+        { ...priorResult, retryFailedOnly: false },
+        {
+          retryFailedOnly: true,
+          results: [
+            {
+              status: "applied",
+              type: "constituent_profile",
+              action: "update",
+              writeIndex: 1,
+              message: "Updated NXT title.",
+            },
+          ],
+        },
+      ],
+    };
+    const row = {
+      id: "30",
+      run_id: "42",
+      row_number: 1,
+      status: "Failed",
+      matched_blackbaud_constituent_id: "123",
+      blackbaud_result: priorResult,
+      requested_writes: [nameWrite, profileWrite],
+      preview: {
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [nameWrite, profileWrite],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun({ failed_count: 1 })])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", blackbaud_result: retriedResult }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, failed_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", blackbaud_result: retriedResult }]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({ id: "123", title: "Dr." });
+
+    const response = await POST(makeRequest("?retryRowId=30"), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/123",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+        method: "PATCH",
+        body: { title: "Dr." },
+      },
+    );
+    expect(payload.applySummary.applied).toBe(1);
+    expect(payload.applySummary.failed).toBe(0);
+    expect(payload.rows[0].blackbaudResult.results).toEqual(retriedResult.results);
   });
 });
