@@ -18,8 +18,11 @@ export const useUser = () => {
 		return session?.user ?? null;
 	}, []);
 
-	const refetchUser = React.useCallback(() => {
-		setLoading(true);
+	const refetchUser = React.useCallback((options = {}) => {
+		const { showLoading = true } = options;
+		if (showLoading) {
+			setLoading(true);
+		}
 		fetchUser()
 			.then(setUser)
 			.catch(() => {
@@ -31,12 +34,14 @@ export const useUser = () => {
 	}, [fetchUser]);
 
 	React.useEffect(() => {
-		refetchUser();
+		refetchUser({ showLoading: true });
 	}, [refetchUser]);
 
 	React.useEffect(() => {
 		const handleFocus = () => {
-			refetchUser();
+			// File pickers and other browser dialogs briefly remove focus. Refresh the
+			// session in the background so they do not unmount in-progress forms.
+			refetchUser({ showLoading: false });
 		};
 
 		window.addEventListener('focus', handleFocus);
