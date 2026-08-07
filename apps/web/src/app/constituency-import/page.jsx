@@ -1178,6 +1178,7 @@ export default function ConstituencyImportPage() {
   const [saveMessage, setSaveMessage] = useState("");
   const [completionMessage, setCompletionMessage] = useState("");
   const [applyingRun, setApplyingRun] = useState(false);
+  const [creatingRowId, setCreatingRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -1319,6 +1320,14 @@ export default function ConstituencyImportPage() {
   const readySavedRows =
     preview?.savedRun && Array.isArray(preview?.rows)
       ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt).length
+      : 0;
+  const potentialNewRows =
+    preview?.savedRun && Array.isArray(preview?.rows)
+      ? preview.rows.filter(
+          (row) =>
+            row.intentDisposition?.key === "potential_new" &&
+            !row.createdBlackbaudConstituentId,
+        ).length
       : 0;
 
   useEffect(() => {
@@ -1689,6 +1698,45 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setApplyingRun(false);
+    }
+  }
+
+  async function createReviewedNxtRecord(row) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || creatingRowId) return;
+
+    const displayName = row.input?.constituentName || "this individual";
+    const approved = window.confirm(
+      `Create a new individual NXT record for ${displayName}? This is a one-record action. JUMGOGPT will run one final duplicate check before creating the constituent. Contact, constituency, education, and relationship changes will remain staged until you separately apply them.`,
+    );
+    if (!approved) return;
+
+    setCreatingRowId(String(row.id));
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/create`,
+        { method: "POST" },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to create the NXT record");
+      }
+
+      await loadSavedRun(runId);
+      setSaveMessage(
+        payload?.message ||
+          `Created the NXT record for ${displayName}. Review and apply its staged updates separately.`,
+      );
+      fetchSavedRuns();
+    } catch (createError) {
+      await loadSavedRun(runId);
+      setError(
+        createError instanceof Error ? createError.message : "Failed to create the NXT record",
+      );
+    } finally {
+      setCreatingRowId("");
     }
   }
 
@@ -3339,8 +3387,10 @@ export default function ConstituencyImportPage() {
             >
               <span>
                 Saved import run #{preview.savedRun.id}. {readySavedRows} ready confirmed update
-                {readySavedRows === 1 ? "" : "s"} can be applied to NXT. Potential new records
-                remain in review and are not included in this action.
+                {readySavedRows === 1 ? "" : "s"} can be applied to NXT.
+                {potentialNewRows
+                  ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} individual review and a separate one-record creation confirmation.`
+                  : " No unreviewed potential new records remain."}
               </span>
               <button
                 type="button"
@@ -3633,6 +3683,68 @@ export default function ConstituencyImportPage() {
                       >
                         {row.intentDisposition.message}
                       </div>
+                    ) : null}
+                    {row.createdBlackbaudConstituentId ? (
+                      <div
+                        style={{
+                          border: "1px solid #86EFAC",
+                          borderRadius: "12px",
+                          padding: "10px 12px",
+                          color: "#166534",
+                          backgroundColor: "#F0FDF4",
+                          fontWeight: 800,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        NXT individual record created
+                        {row.createdBlackbaudLookupId
+                          ? ` · Lookup ID ${row.createdBlackbaudLookupId}`
+                          : ""}
+                        . Review the staged writes, then use “Apply ready rows” to add them.
+                      </div>
+                    ) : null}
+                    {row.intentDisposition?.key === "potential_new" ? (
+                      preview?.savedRun ? (
+                        <div
+                          style={{
+                            border: "1px solid #BFDBFE",
+                            borderRadius: "12px",
+                            backgroundColor: "#EFF6FF",
+                            padding: "12px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <span style={{ color: "#1E3A8A", fontWeight: 800, lineHeight: 1.45 }}>
+                            Create only after reviewing this unmatched individual. A final duplicate check will run immediately before NXT changes.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => createReviewedNxtRecord(row)}
+                            disabled={Boolean(creatingRowId)}
+                            style={{
+                              border: "1px solid #1D4ED8",
+                              borderRadius: "999px",
+                              backgroundColor: creatingRowId ? "#DBEAFE" : "#1D4ED8",
+                              color: creatingRowId ? "#1E40AF" : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: creatingRowId ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {creatingRowId === String(row.id)
+                              ? "Creating NXT record..."
+                              : "Create reviewed NXT record"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ color: "#1E3A8A", fontWeight: 800 }}>
+                          Save this preview run before approving a new NXT constituent.
+                        </div>
+                      )
                     ) : null}
                   </article>
                 );

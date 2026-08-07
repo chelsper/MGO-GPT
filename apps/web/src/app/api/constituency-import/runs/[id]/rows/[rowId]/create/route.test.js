@@ -1,0 +1,167 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const authMock = vi.fn();
+const ensureAppSchemaMock = vi.fn();
+const getWorkspaceUserMock = vi.fn();
+const sqlMock = vi.fn();
+const blackbaudApiFetchMock = vi.fn();
+const searchBlackbaudConstituentsMock = vi.fn();
+
+vi.mock("@/auth", () => ({
+  auth: authMock,
+}));
+
+vi.mock("@/app/api/utils/ensureAppSchema", () => ({
+  default: ensureAppSchemaMock,
+}));
+
+vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
+  default: getWorkspaceUserMock,
+}));
+
+vi.mock("@/app/api/utils/sql", () => ({
+  default: sqlMock,
+}));
+
+vi.mock("@/app/api/utils/blackbaud", () => ({
+  blackbaudApiFetch: blackbaudApiFetchMock,
+  searchBlackbaudConstituents: searchBlackbaudConstituentsMock,
+}));
+
+function makeRequest() {
+  return new Request(
+    "https://example.com/api/constituency-import/runs/42/rows/9/create",
+    { method: "POST" },
+  );
+}
+
+function makeRow(overrides = {}) {
+  return {
+    id: "9",
+    run_id: "42",
+    status: "Needs Review",
+    preview: {
+      rowNumber: 1,
+      intentDisposition: { key: "potential_new" },
+      input: {
+        firstName: "Jane",
+        lastName: "Dolphin",
+        preferredName: "Janie",
+        title: "Dr.",
+        gender: "Female",
+        birthDate: "07/23/80",
+        suffix: "Ph.D.",
+        email: "jane@example.com",
+      },
+      writePlan: [
+        {
+          type: "constituent_code",
+          action: "add",
+          targetConstituency: "Alumni - Graduate Degree",
+        },
+      ],
+      reasons: [],
+    },
+    requested_writes: [
+      {
+        type: "constituent_code",
+        action: "add",
+        targetConstituency: "Alumni - Graduate Degree",
+      },
+    ],
+    created_blackbaud_constituent_id: null,
+    ...overrides,
+  };
+}
+
+describe("constituency import new-record create route", () => {
+  beforeEach(() => {
+    authMock.mockReset();
+    ensureAppSchemaMock.mockReset();
+    getWorkspaceUserMock.mockReset();
+    sqlMock.mockReset();
+    blackbaudApiFetchMock.mockReset();
+    searchBlackbaudConstituentsMock.mockReset();
+
+    authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
+    ensureAppSchemaMock.mockResolvedValue();
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: {
+        id: 7,
+        name: "Reviewer",
+        email: "reviewer@example.com",
+        role: "reviewer",
+      },
+    });
+  });
+
+  it("creates one reviewed individual record only after a final duplicate check", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456", lookup_id: "NEW-456" });
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(searchBlackbaudConstituentsMock).toHaveBeenCalledWith({
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      query: "Jane Dolphin",
+    });
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents", {
+      userId: 7,
+      authUserId: 7,
+      origin: "https://example.com",
+      method: "POST",
+      body: {
+        type: "Individual",
+        first: "Jane",
+        last: "Dolphin",
+        preferred_name: "Janie",
+        title: "Dr.",
+        gender: "Female",
+        suffix: "Ph.D.",
+        birthdate: { y: 1980, m: 7, d: 23 },
+      },
+    });
+    expect(payload.createdConstituentId).toBe("456");
+    expect(payload.createdLookupId).toBe("NEW-456");
+  });
+
+  it("returns a final duplicate candidate to review without creating a record", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Needs Review" }])
+      .mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([
+      {
+        blackbaudConstituentId: "123",
+        lookupId: "DUP-123",
+        name: "Jane Dolphin",
+        email: "jane@example.com",
+      },
+    ]);
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("likely NXT duplicate");
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+});

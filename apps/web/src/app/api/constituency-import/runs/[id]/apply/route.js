@@ -66,6 +66,12 @@ function serializeImportRow(row) {
     blackbaudError: row.blackbaud_error || "",
     writePlan: Array.isArray(preview.writePlan) ? preview.writePlan : requestedWrites,
     appliedAt: row.applied_at || null,
+    createApprovedAt: row.create_approved_at || null,
+    createApprovedByUserId: row.create_approved_by_user_id
+      ? String(row.create_approved_by_user_id)
+      : null,
+    createdBlackbaudConstituentId: row.created_blackbaud_constituent_id || null,
+    createdBlackbaudLookupId: row.created_blackbaud_lookup_id || null,
   };
 }
 

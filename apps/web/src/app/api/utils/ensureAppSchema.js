@@ -1629,6 +1629,10 @@ export default async function ensureAppSchema() {
         blackbaud_result JSONB,
         blackbaud_error TEXT,
         applied_at TIMESTAMPTZ,
+        create_approved_at TIMESTAMPTZ,
+        create_approved_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_blackbaud_constituent_id TEXT,
+        created_blackbaud_lookup_id TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -1715,6 +1719,22 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS create_approved_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS create_approved_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS created_blackbaud_constituent_id TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS created_blackbaud_lookup_id TEXT
+    `;
+    await sql`
+      ALTER TABLE constituency_import_rows
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     `;
     await sql`
@@ -1728,6 +1748,10 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_constituency_import_rows_status
       ON constituency_import_rows (run_id, status)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_constituency_import_rows_create_approval
+      ON constituency_import_rows (run_id, create_approved_at)
     `;
 
     await sql`
