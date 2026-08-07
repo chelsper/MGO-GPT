@@ -296,6 +296,16 @@ function HydratedRouteBody({ children }: { children: ReactNode }) {
   return <ErrorBoundaryWrapper>{children}</ErrorBoundaryWrapper>;
 }
 
+function ClientDocumentIntegrations({ isMobile }: { isMobile: boolean }) {
+  return (
+    <>
+      <Toaster position={isMobile ? 'top-center' : 'bottom-right'} />
+      <Analytics />
+      <script src="https://kit.fontawesome.com/2c15cc0cc7.js" crossOrigin="anonymous" async />
+    </>
+  );
+}
+
 /**
  * useHmrConnection()
  * ------------------
@@ -481,11 +491,10 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <HydratedRouteBody>{children}</HydratedRouteBody>
-        <Toaster position={isMobile ? 'top-center' : 'bottom-right'} />
-        <Analytics />
+        {/* These integrations require browser APIs or can mutate the document before React hydrates. */}
+        <ClientOnly loader={() => <ClientDocumentIntegrations isMobile={isMobile} />} />
         <ScrollRestoration />
         <Scripts />
-        <script src="https://kit.fontawesome.com/2c15cc0cc7.js" crossOrigin="anonymous" async />
       </body>
     </html>
   );
