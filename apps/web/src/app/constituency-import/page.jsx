@@ -364,9 +364,9 @@ function getDetectedHeaders(headerSet, fieldKeys) {
 
 const DEFAULT_ACTIVE_FIELDS = {
   blackbaudConstituentId: false,
-  lookupId: true,
-  firstName: true,
-  lastName: true,
+  lookupId: false,
+  firstName: false,
+  lastName: false,
   preferredName: false,
   title: false,
   gender: false,
@@ -374,7 +374,7 @@ const DEFAULT_ACTIVE_FIELDS = {
   suffix: false,
   addressee: false,
   salutation: false,
-  email: true,
+  email: false,
   emailType: false,
   emailMakePrimary: false,
   email2: false,
@@ -395,8 +395,8 @@ const DEFAULT_ACTIVE_FIELDS = {
   country: false,
   addressMakePrimary: false,
   sourceConstituency: false,
-  targetConstituency: true,
-  startDate: true,
+  targetConstituency: false,
+  startDate: false,
   endDate: false,
   educationInstitution: false,
   educationDegree: false,
@@ -1211,7 +1211,7 @@ export default function ConstituencyImportPage() {
   const [importIntent, setImportIntent] = useState("updates");
   const [constituencyAction, setConstituencyAction] = useState("add");
   const [educationRelationshipAction, setEducationRelationshipAction] = useState("add");
-  const [useHierarchy, setUseHierarchy] = useState(true);
+  const [useHierarchy, setUseHierarchy] = useState(false);
   const [updateNameFields, setUpdateNameFields] = useState(false);
   const [updateIndividualProfileFields, setUpdateIndividualProfileFields] = useState(false);
   const [updateNameFormatFields, setUpdateNameFormatFields] = useState(false);
@@ -1560,24 +1560,6 @@ export default function ConstituencyImportPage() {
 
   function selectImportIntent(nextIntent) {
     setImportIntent(nextIntent);
-    setActiveFields((current) => {
-      if (nextIntent === "new") {
-        return {
-          ...current,
-          firstName: true,
-          lastName: true,
-        };
-      }
-      if (nextIntent === "mixed") {
-        return {
-          ...current,
-          lookupId: true,
-          firstName: true,
-          lastName: true,
-        };
-      }
-      return current;
-    });
     setPreview(null);
     setContactDecisions({});
     setContactDecisionsDirty(false);
@@ -1614,7 +1596,7 @@ export default function ConstituencyImportPage() {
       sourceConstituency: nextAction === "replace" ? true : current.sourceConstituency,
     }));
     if (nextAction !== "add") {
-      setUseHierarchy(true);
+      setUseHierarchy(false);
     }
     setPreview(null);
   }
