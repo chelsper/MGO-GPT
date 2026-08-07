@@ -60,6 +60,12 @@ describe("constituency import run apply route", () => {
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
     getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: {
+        id: 7,
+        name: "Reviewer",
+        email: "reviewer@example.com",
+        role: "reviewer",
+      },
       workspaceUser: {
         id: 7,
         name: "Reviewer",

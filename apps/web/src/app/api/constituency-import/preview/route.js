@@ -693,10 +693,8 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { sessionUser, workspaceUser: user, isActing } = await getWorkspaceUser(
-      session,
-      request,
-    );
+    const { sessionUser } = await getWorkspaceUser(session, request);
+    const user = sessionUser;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -727,7 +725,7 @@ export async function POST(request) {
     const useHierarchy = defaults.useHierarchy !== false;
     const saveRun = Boolean(body?.saveRun);
     const origin = new URL(request.url).origin;
-    const authUserId = isActing ? sessionUser?.id : user.id;
+    const authUserId = user.id;
 
     const previewRows = [];
     for (let index = 0; index < rowsToPreview.length; index += 1) {
@@ -811,7 +809,7 @@ export async function POST(request) {
     const summary = summarize(previewRows, warnings);
     const savedRun = saveRun
       ? await savePreviewRun({
-          sessionUser,
+          sessionUser: user,
           workspaceUser: user,
           sourceFilename: body?.sourceFilename,
           mappings,

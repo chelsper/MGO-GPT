@@ -153,7 +153,7 @@ async function requireReviewer(request) {
     return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const { workspaceUser: user } = await getWorkspaceUser(session, request);
+  const { sessionUser: user } = await getWorkspaceUser(session, request);
   if (!user) {
     return { error: Response.json({ error: "User not found" }, { status: 404 }) };
   }

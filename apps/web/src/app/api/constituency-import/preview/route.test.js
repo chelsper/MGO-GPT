@@ -104,6 +104,32 @@ describe("constituency import preview route", () => {
     expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
   });
 
+  it("allows an Advancement Services admin who is viewing an MGO workspace", async () => {
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 7, email: "reviewer@example.com", role: "admin" },
+      workspaceUser: { id: 12, email: "mgo@example.com", role: "mgo" },
+      isActing: true,
+    });
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "Lookup ID": "440085" }],
+        mappings: { lookupId: "Lookup ID" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(findBlackbaudConstituentByLookupIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ lookupId: "440085", userId: 7, authUserId: 7 }),
+    );
+  });
+
   it("previews a strong ID replacement as ready", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({
