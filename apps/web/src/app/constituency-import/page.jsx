@@ -1343,6 +1343,157 @@ function ContactReviewPanel({ row, decisions, onDecisionChange }) {
   );
 }
 
+function EducationTargetReviewPanel({
+  row,
+  candidates,
+  loading,
+  saving,
+  onLoadCandidates,
+  onSelectCandidate,
+}) {
+  const write = (row.writePlan || []).find(
+    (item) =>
+      item?.type === "education_relationship" && item?.action === "review_existing",
+  );
+  if (!write) return null;
+
+  const csvDetails = [
+    write.institution,
+    write.degree,
+    write.major,
+    write.classYear && `Class of ${write.classYear}`,
+    write.status,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const hasLoadedCandidates = Array.isArray(candidates);
+
+  return (
+    <section
+      style={{
+        border: "1px solid #FCD34D",
+        borderRadius: "14px",
+        backgroundColor: "#FFFBEB",
+        padding: "14px",
+        display: "grid",
+        gap: "12px",
+      }}
+    >
+      <div>
+        <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Education update review
+        </div>
+        <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
+          This CSV change could match more than one NXT education row. Choose the exact current
+          row to update. Choosing a row records the decision in this import run; it does not
+          write to NXT until you apply this record.
+        </p>
+      </div>
+
+      <div
+        style={{
+          border: "1px solid #FDE68A",
+          borderRadius: "10px",
+          backgroundColor: "white",
+          padding: "10px",
+        }}
+      >
+        <div style={{ color: "#92400E", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>
+          CSV education change
+        </div>
+        <div style={{ marginTop: "5px", color: "#111827", fontWeight: 800 }}>
+          {csvDetails || "Education details supplied in this CSV row"}
+        </div>
+      </div>
+
+      {!hasLoadedCandidates ? (
+        <button
+          type="button"
+          onClick={() => onLoadCandidates(row)}
+          disabled={loading || saving}
+          style={{
+            width: "fit-content",
+            border: "1px solid #B45309",
+            borderRadius: "999px",
+            backgroundColor: loading ? "#FEF3C7" : "#B45309",
+            color: loading ? "#92400E" : "white",
+            padding: "9px 14px",
+            fontWeight: 900,
+            cursor: loading || saving ? "not-allowed" : "pointer",
+          }}
+        >
+          {loading ? "Loading current NXT rows..." : "Review current NXT education rows"}
+        </button>
+      ) : candidates.length ? (
+        <div style={{ display: "grid", gap: "9px" }}>
+          <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
+            Current NXT candidates
+          </div>
+          {candidates.map((candidate) => {
+            const details = [
+              candidate.degrees?.join(", "),
+              candidate.majors?.length ? `Major: ${candidate.majors.join(", ")}` : "",
+              candidate.classYear ? `Class of ${candidate.classYear}` : "",
+              candidate.status,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div
+                key={candidate.id}
+                style={{
+                  border: "1px solid #FDE68A",
+                  borderRadius: "11px",
+                  backgroundColor: "white",
+                  padding: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div style={{ color: "#111827", fontWeight: 900 }}>
+                    {candidate.school || "Education row"}
+                  </div>
+                  <div style={{ marginTop: "3px", color: "#6B7280", fontSize: "14px" }}>
+                    {details || "No additional education details found"}
+                  </div>
+                  <div style={{ marginTop: "4px", color: "#92400E", fontSize: "12px", fontWeight: 800 }}>
+                    NXT education ID {candidate.id}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSelectCandidate(row, candidate.id)}
+                  disabled={saving || loading}
+                  style={{
+                    border: "1px solid #B45309",
+                    borderRadius: "999px",
+                    backgroundColor: saving ? "#FEF3C7" : "white",
+                    color: "#92400E",
+                    padding: "8px 12px",
+                    fontWeight: 900,
+                    cursor: saving || loading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "Saving selection..." : "Use this NXT row"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ color: "#92400E", fontWeight: 800 }}>
+          No current NXT education rows match this CSV change. Refresh the preview or change this
+          import to add a new education relationship.
+        </div>
+      )}
+    </section>
+  );
+}
+
 function HeaderCode({ children }) {
   return (
     <code
@@ -1662,6 +1813,9 @@ export default function ConstituencyImportPage() {
   const [editingRowDraft, setEditingRowDraft] = useState({});
   const [tableSuggestions, setTableSuggestions] = useState({});
   const [loadingSuggestionFieldKey, setLoadingSuggestionFieldKey] = useState("");
+  const [educationCandidatesByRowId, setEducationCandidatesByRowId] = useState({});
+  const [loadingEducationCandidateRowId, setLoadingEducationCandidateRowId] = useState("");
+  const [savingEducationTargetRowId, setSavingEducationTargetRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -2221,6 +2375,7 @@ export default function ConstituencyImportPage() {
       setEditingPreviewRowNumber(null);
       setEditingRowDraft({});
       setTableSuggestions({});
+      setEducationCandidatesByRowId({});
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -2432,6 +2587,74 @@ export default function ConstituencyImportPage() {
   async function applySingleRow(row) {
     if (row?.status !== "Ready" || row?.appliedAt) return;
     await applyRowsToNxt([row], { singleRecord: true });
+  }
+
+  async function loadEducationCandidates(row) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || loadingEducationCandidateRowId || savingEducationTargetRowId) return;
+
+    setLoadingEducationCandidateRowId(String(row.id));
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/education-target`,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not load current NXT education rows.");
+      }
+      setEducationCandidatesByRowId((current) => ({
+        ...current,
+        [String(row.id)]: Array.isArray(payload?.candidates) ? payload.candidates : [],
+      }));
+    } catch (candidateError) {
+      setError(
+        candidateError instanceof Error
+          ? candidateError.message
+          : "Could not load current NXT education rows.",
+      );
+    } finally {
+      setLoadingEducationCandidateRowId("");
+    }
+  }
+
+  async function selectEducationTarget(row, educationId) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || !educationId || savingEducationTargetRowId) return;
+
+    setSavingEducationTargetRowId(String(row.id));
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/education-target`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ educationId }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not save the NXT education-row selection.");
+      }
+
+      setEducationCandidatesByRowId({});
+      await loadSavedRun(runId);
+      setSaveMessage(
+        payload?.message ||
+          "Saved the NXT education-row selection. Review the record action to continue.",
+      );
+      fetchSavedRuns();
+    } catch (selectionError) {
+      setError(
+        selectionError instanceof Error
+          ? selectionError.message
+          : "Could not save the NXT education-row selection.",
+      );
+    } finally {
+      setSavingEducationTargetRowId("");
+    }
   }
 
   async function reconcileRows(rowsToVerify, { singleRecord = false } = {}) {
@@ -4849,6 +5072,17 @@ export default function ConstituencyImportPage() {
                       decisions={contactDecisions}
                       onDecisionChange={updateContactDecision}
                     />
+
+                    {preview?.savedRun ? (
+                      <EducationTargetReviewPanel
+                        row={row}
+                        candidates={educationCandidatesByRowId[String(row.id)]}
+                        loading={loadingEducationCandidateRowId === String(row.id)}
+                        saving={savingEducationTargetRowId === String(row.id)}
+                        onLoadCandidates={loadEducationCandidates}
+                        onSelectCandidate={selectEducationTarget}
+                      />
+                    ) : null}
 
                     {row.writePlan?.length ? (
                       <div
