@@ -6,7 +6,7 @@ This repo is being handed off while the app is active in production. Treat chang
 
 - Production URL: `https://www.jumgogpt.app`
 - Production branch: `main`
-- Latest verified production commit at handoff: `954e499`
+- Latest verified production commit at handoff: `43fa832`
 - Production host: Vercel
 - Production app directory: `apps/web`
 - Database: Neon/Postgres via `DATABASE_URL`
@@ -106,7 +106,7 @@ Snapshot date: July 24, 2026.
 - Add or strengthen tests for list request status changes and Advancement Services/MGO tracker display behavior. The list-request clarification response API now has route tests.
 - Consider formal database migrations instead of relying only on `ensureAppSchema()` as the app stabilizes.
 - Keep improving NXT data loading performance. The summaries are external-API heavy and may benefit from better queueing, caching, and one-at-a-time lazy loading.
-- Do a dependency/security cleanup in a dedicated branch. Do not run `npm audit fix --force` directly on `main`; several warnings are transitive or could introduce breaking upgrades.
+- Follow `docs/dependency-security-maintenance.md` for the staged dependency/security remediation plan. Do not run `npm audit fix --force` directly on `main`; the currently proposed automatic fix requires a newer Node runtime and includes breaking Auth.js and PDF upgrades.
 
 ## Fragile Areas
 
@@ -123,8 +123,8 @@ Route-level tests live under `apps/web/src/app/api/**/*.test.js`.
 
 Current route-level coverage at handoff:
 
-- 17 Vitest files
-- 74 passing tests
+- 27 Vitest files
+- 156 passing tests
 - Recent coverage includes prospect pool solicitor assignment, action logging, opportunity create/edit, prospect reorder, Blackbaud summary language, portfolio solicitor removal, data requests, and list-request clarification responses.
 
 High-risk manual smoke test after deploy:
