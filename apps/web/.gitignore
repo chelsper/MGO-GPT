@@ -4,6 +4,7 @@
 node_modules/
 build/
 .vitest/
+.react-router/
 
 # Editor and OS artifacts
 *.swp

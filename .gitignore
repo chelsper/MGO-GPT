@@ -1,5 +1,8 @@
 FundLayerDemo/
 
+# Workspace dependencies are installed locally and are never source files.
+node_modules/
+
 # Local environment files. Keep real credentials in Vercel or a password manager.
 .env
 .env.*
