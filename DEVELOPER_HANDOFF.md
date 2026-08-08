@@ -55,6 +55,9 @@ npm run typecheck
 ## Release Flow
 
 Use the checklist in `docs/production-deploy-checklist.md`.
+Pull requests to `main` are also validated by the `Web CI` workflow; see
+`docs/github-repository-governance.md` for the recommended GitHub protection
+rule.
 
 Minimum release flow:
 
