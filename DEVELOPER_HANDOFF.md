@@ -9,6 +9,8 @@ This repo is being handed off while the app is active in production. Treat chang
 - Latest verified production commit at handoff: `43fa832`
 - Production host: Vercel
 - Production app directory: `apps/web`
+- Production runtime: Node `24.x` (verify this remains aligned before any
+  dependency or build-tooling work)
 - Database: Neon/Postgres via `DATABASE_URL`
 - Auth: Okta/Auth.js
 - External CRM: Blackbaud SKY API / Raiser's Edge NXT
@@ -31,6 +33,9 @@ Do not grant broad admin access unless it is needed. Start with collaborator/dev
 ## Local Development
 
 The web app runs from `apps/web`.
+
+Use Node 24 locally for dependency maintenance and release validation; this
+matches the current Vercel production runtime.
 
 ```bash
 cd apps/web

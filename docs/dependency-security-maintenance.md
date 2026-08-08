@@ -9,6 +9,7 @@ It was prepared on August 8, 2026 while production was serving commit
 ## Baseline
 
 - Local runtime used for the assessment: Node `20.19.1`, npm `10.8.2`
+- Verified Vercel production runtime: Node `24.x` / `nodejs24.x`
 - Production application package: `apps/web`
 - `npm audit --omit=dev`: 24 findings (2 critical, 14 high, 8 moderate)
 - Current installed direct versions include:
@@ -34,10 +35,11 @@ lockfile, installed dependencies, Vercel project settings, or production.
 
 Vercel supports Node 22 for builds and Functions. See the
 [Vercel Node.js version documentation](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
-This confirms application compatibility, but not an authenticated production
-smoke test. Before making Node 22 the project runtime, set it on a preview
-deployment first and verify Okta, Blackbaud reads, and one low-risk Blackbaud
-write with real project environment variables.
+The live `mgo-gpt` project was subsequently verified to be running Node
+`24.x` / `nodejs24.x` on August 8, 2026. Node 22 compatibility therefore
+confirms the minimum runtime required by the proposed router update; no
+production runtime change is needed. Use Node 24 for future local dependency
+work and preview testing so it matches production.
 
 ## Why Automated Fixes Are Not Safe Yet
 
@@ -62,10 +64,10 @@ an upstream update.
 
 ## Safe Remediation Order
 
-1. **Runtime rollout**: Node `22.20.0` is locally compatible and Vercel supports
-   Node 22. Before adopting it, use a preview deployment to verify the
-   authenticated runtime paths with real environment variables. Only then
-   configure the Vercel project and package `engines` field to require Node 22.
+1. **Runtime consistency**: production already runs Node 24. Use Node 24 for
+   local dependency work and preview validation. Do not add a lower Node
+   version to `package.json`; it could override the Vercel project setting and
+   inadvertently downgrade a later deployment.
 2. **Router/server batch**: update React Router, React Router DOM,
    `react-router-hono-server`, Hono, and their closely coupled transitive
    dependencies together only after the runtime decision. Verify every server

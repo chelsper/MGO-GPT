@@ -2,9 +2,6 @@
 	"name": "web",
 	"private": true,
 	"type": "module",
-	"engines": {
-		"node": "22.x"
-	},
 	"scripts": {
 		"dev": "react-router dev",
 		"build": "react-router build",
