@@ -20,6 +20,25 @@ It was prepared on August 8, 2026 while production was serving commit
   - `lodash-es@4.17.23`
   - `ws@8.19.0`
 
+## Node 22 Compatibility Check
+
+On August 8, 2026, the current application was copied to an isolated temporary
+directory and checked with Node `22.20.0`. This did not change the repository,
+lockfile, installed dependencies, Vercel project settings, or production.
+
+- A clean `npm ci` completed successfully.
+- All 27 Vitest files and 156 tests passed.
+- `react-router build` completed successfully.
+- The build emitted the same non-blocking sourcemap warnings seen under Node
+  20; no Node 22-specific errors occurred.
+
+Vercel supports Node 22 for builds and Functions. See the
+[Vercel Node.js version documentation](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
+This confirms application compatibility, but not an authenticated production
+smoke test. Before making Node 22 the project runtime, set it on a preview
+deployment first and verify Okta, Blackbaud reads, and one low-risk Blackbaud
+write with real project environment variables.
+
 ## Why Automated Fixes Are Not Safe Yet
 
 `npm audit fix --dry-run --omit=dev` proposes 55 package changes, 124 added
@@ -43,9 +62,10 @@ an upstream update.
 
 ## Safe Remediation Order
 
-1. **Runtime readiness**: confirm the intended Node version is supported by
-   Vercel and local developer tooling before adopting a package that requires
-   Node `>=22.20.0`.
+1. **Runtime rollout**: Node `22.20.0` is locally compatible and Vercel supports
+   Node 22. Before adopting it, use a preview deployment to verify the
+   authenticated runtime paths with real environment variables. Only then
+   configure the Vercel project and package `engines` field to require Node 22.
 2. **Router/server batch**: update React Router, React Router DOM,
    `react-router-hono-server`, Hono, and their closely coupled transitive
    dependencies together only after the runtime decision. Verify every server
