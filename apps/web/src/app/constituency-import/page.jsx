@@ -557,7 +557,7 @@ const CONSTITUENCY_ACTIONS = [
   {
     value: "replace",
     label: "Replace Existing",
-    description: "Requires Current Constituent Code so the preview knows what would be replaced.",
+    description: "Requires Current Constituent Code so the import review can identify what would be replaced.",
   },
 ];
 
@@ -578,7 +578,7 @@ const IMPORT_INTENTS = [
     value: "mixed",
     label: "A mix of new records and updates",
     description:
-      "The preview separates confirmed updates, potential new records, and rows needing resolution.",
+      "The import review separates confirmed updates, potential new records, and rows needing resolution.",
   },
 ];
 
@@ -593,7 +593,7 @@ const EDUCATION_RELATIONSHIP_ACTIONS = [
     value: "review-update",
     label: "Review and Update Existing Education Relationship",
     description:
-      "Update one existing NXT education row only when the preview identifies a single, unambiguous match. Ambiguous or missing matches stay in review and are never changed automatically.",
+      "Update one existing NXT education row only when the import review identifies a single, unambiguous match. Ambiguous or missing matches stay in review and are never changed automatically.",
   },
 ];
 
@@ -1739,7 +1739,7 @@ function EducationTargetReviewPanel({
         </div>
       ) : (
         <div style={{ color: "#92400E", fontWeight: 800 }}>
-          No current NXT education rows match this CSV change. Refresh the preview or change this
+          No current NXT education rows match this CSV change. Refresh the import review or change this
           import to add a new education relationship.
         </div>
       )}
@@ -1787,7 +1787,7 @@ function EducationClassYearReviewPanel({
         </div>
         <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
           Your NXT configuration accepts both two- and four-digit class years. Confirm the CSV value
-          below to clear this older preview warning. This records the review decision only; it does
+          below to clear this older review warning. This records the review decision only; it does
           not write to NXT until you send the record.
         </p>
       </div>
@@ -1955,9 +1955,9 @@ function CsvRowEditor({
       }}
     >
       <div>
-        <div style={{ color: "#4338CA", fontWeight: 900 }}>Edit CSV values for this preview</div>
+        <div style={{ color: "#4338CA", fontWeight: 900 }}>Edit CSV values for this import review</div>
         <div style={{ marginTop: "4px", color: "#5B21B6", fontSize: "14px", lineHeight: 1.45 }}>
-          Changes stay local to this import session. Save them to rebuild this preview against NXT before any import run is saved.
+          Changes stay local to this import session. Save them to refresh this import review against NXT before any import run is saved.
         </div>
       </div>
       <div
@@ -2065,7 +2065,7 @@ function CsvRowEditor({
             cursor: saving ? "not-allowed" : "pointer",
           }}
         >
-          {saving ? "Rebuilding preview..." : "Save changes and rebuild preview"}
+          {saving ? "Refreshing import review..." : "Save changes and refresh review"}
         </button>
         <button
           type="button"
@@ -2780,14 +2780,14 @@ export default function ConstituencyImportPage() {
       const response = await fetch("/api/constituency-import/runs?limit=8");
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load saved import previews");
+        throw new Error(payload?.error || "Failed to load saved import runs");
       }
       setSavedRuns(Array.isArray(payload?.runs) ? payload.runs : []);
     } catch (savedRunError) {
       setError(
         savedRunError instanceof Error
           ? savedRunError.message
-          : "Failed to load saved import previews",
+          : "Failed to load saved import runs",
       );
     } finally {
       setLoadingSavedRuns(false);
@@ -2802,7 +2802,7 @@ export default function ConstituencyImportPage() {
       const response = await fetch(`/api/constituency-import/runs?id=${encodeURIComponent(runId)}`);
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load saved import preview");
+        throw new Error(payload?.error || "Failed to load saved import run");
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
@@ -2816,7 +2816,7 @@ export default function ConstituencyImportPage() {
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
-        loadError instanceof Error ? loadError.message : "Failed to load saved import preview",
+        loadError instanceof Error ? loadError.message : "Failed to load saved import run",
       );
     } finally {
       setLoadingRunId("");
@@ -2877,13 +2877,13 @@ export default function ConstituencyImportPage() {
 
   function beginPreviewRowEdit(row) {
     if (preview?.savedRun) {
-      setError("Saved import runs are immutable. Upload the CSV again to make a corrected preview while keeping this run as the audit record.");
+      setError("Saved import runs are immutable. Upload the CSV again to make a corrected import review while keeping this run as the audit record.");
       return;
     }
     const rowNumber = Number(row?.rowNumber);
     const sourceRow = Number.isInteger(rowNumber) ? rows[rowNumber - 1] : null;
     if (!sourceRow) {
-      setError("This CSV row is no longer available to edit. Upload the file again and create a new preview.");
+      setError("This CSV row is no longer available to edit. Upload the file again and create a new import review.");
       return;
     }
     setError("");
@@ -2951,7 +2951,7 @@ export default function ConstituencyImportPage() {
     setRows(nextRows);
     await requestPreview({
       rowsOverride: nextRows,
-      successMessage: `Updated row ${rowNumber} and rebuilt the preview against current NXT data. Review the new staged writes before saving an import run.`,
+      successMessage: `Updated row ${rowNumber} and refreshed the import review against current NXT data. Review the new staged writes before saving an import run.`,
     });
   }
 
@@ -3338,7 +3338,7 @@ export default function ConstituencyImportPage() {
       : [];
     if (!failedWrites.length) {
       setError(
-        "This failed row does not have a write-level retry record. Re-preview the source row and compare it with NXT before applying it again.",
+        "This failed row does not have a write-level retry record. Refresh the source row and compare it with NXT before applying it again.",
       );
       return;
     }
@@ -3418,7 +3418,7 @@ export default function ConstituencyImportPage() {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to preview constituency import");
+        throw new Error(payload?.error || "Failed to review constituency import");
       }
       setPreview(payload);
       setSelectedApplyRowIds([]);
@@ -3448,7 +3448,7 @@ export default function ConstituencyImportPage() {
       setError(
         previewError instanceof Error
           ? previewError.message
-          : "Failed to preview constituency import",
+          : "Failed to review constituency import",
       );
       return null;
     } finally {
@@ -3495,13 +3495,13 @@ export default function ConstituencyImportPage() {
         reasons: (row.reasons || []).join(" | "),
       })),
     );
-    downloadCsv(csv, `${importIntent}-constituency-import-preview.csv`);
+    downloadCsv(csv, `${importIntent}-constituency-import-review.csv`);
   }
 
   if (loading || loadingProfile) {
     return (
       <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#6B7280" }}>
-        Loading import preview...
+        Loading import review...
       </main>
     );
   }
@@ -3537,7 +3537,7 @@ export default function ConstituencyImportPage() {
               Constituency imports need reviewer access
             </h1>
             <p style={{ color: "#6B7280", lineHeight: 1.5 }}>
-              This preview tool is intentionally limited to Advancement Services and workspace
+              This import tool is intentionally limited to Advancement Services and workspace
               admins because it inspects NXT constituency data.
             </p>
           </section>
@@ -3577,15 +3577,15 @@ export default function ConstituencyImportPage() {
             </a>
             <div>
               <h1 style={{ margin: 0, fontSize: "30px", color: "#111827" }}>
-                Constituency Import Preview
+                Constituency Import
               </h1>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Classify each CSV row, preview NXT matches, and safely review proposed updates.
+                Classify each CSV row, check NXT matches, and review proposed changes before they are sent to NXT.
               </p>
             </div>
           </div>
           <Pill tone={preview?.savedRun ? "green" : "blue"}>
-            {preview?.savedRun ? "Saved run: guarded NXT apply" : "Preview only: no NXT writes"}
+            {preview?.savedRun ? "Import run ready for NXT actions" : "Import review: no NXT writes"}
           </Pill>
         </header>
 
@@ -3601,9 +3601,9 @@ export default function ConstituencyImportPage() {
           }}
         >
           Choose what the file contains before selecting its fields. Every row is checked against
-          NXT before it can be updated. Potential new records remain in controlled review; saving
-          a preview never writes to NXT, and only a saved run's explicit Apply ready rows action
-          can update confirmed existing records.
+          NXT before it can be updated. Potential new records remain in controlled review. Import
+          review never writes to NXT; only an explicit Confirm and send to NXT action updates a
+          confirmed record.
         </section>
 
         <section
@@ -3684,7 +3684,7 @@ export default function ConstituencyImportPage() {
               </div>
               <div style={{ marginTop: "4px", color: "#64748B", lineHeight: 1.4 }}>
                 {sourceFilename
-                  ? "Headers were mapped automatically. Review the highlighted fields below before previewing."
+                  ? "Headers were mapped automatically. Review the highlighted fields below before checking the import."
                   : "Choose one CSV file to begin the import review."}
               </div>
             </div>
@@ -3771,7 +3771,7 @@ export default function ConstituencyImportPage() {
               2. What does this file contain?
             </h2>
             <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-              This determines how the preview classifies each row. A missing NXT match never
+              This determines how the import review classifies each row. A missing NXT match never
               creates a constituent automatically.
             </p>
           </div>
@@ -4108,7 +4108,7 @@ export default function ConstituencyImportPage() {
                                           lineHeight: 1.4,
                                         }}
                                       >
-                                        When enabled, the preview places the new code according to
+                                        When enabled, the import review places the new code according to
                                         the configured constituency hierarchy.
                                       </span>
                                     </span>
@@ -4122,7 +4122,7 @@ export default function ConstituencyImportPage() {
                                     }}
                                   >
                                     Replace Existing automatically requires the Current Constituent
-                                    Code field so the preview can identify the code to replace.
+                                    Code field so the import review can identify the code to replace.
                                   </p>
                                 )}
                               </div>
@@ -4162,7 +4162,7 @@ export default function ConstituencyImportPage() {
                               }}
                             >
                               {educationRelationshipAction === "review-update"
-                                ? "The preview will update an existing NXT education row only when it finds one unambiguous match. If no matching row or more than one possible row is found, it stays in review for you to resolve."
+                                ? "The import review will update an existing NXT education row only when it finds one unambiguous match. If no matching row or more than one possible row is found, it stays in review for you to resolve."
                                 : "This import adds a new education relationship only. It never edits or end-dates an existing NXT education row, and it safely skips an identical education relationship."}
                             </p>
                           </div>
@@ -4490,9 +4490,9 @@ export default function ConstituencyImportPage() {
                                 }}
                               >
                                 A real NXT system ID or lookup ID allows automatic application.
-                                Without one, the preview can propose a match from name, email, and
+                                Without one, the import review can propose a match from name, email, and
                                 address evidence, but it stays in review until a person confirms it.
-                                Each preview will show the current NXT email addresses beside the
+                                Each import review will show the current NXT email addresses beside the
                                 CSV value. You can add a new address or replace one selected NXT
                                 address before the run is saved.
                               </span>
@@ -4541,7 +4541,7 @@ export default function ConstituencyImportPage() {
                                   lineHeight: 1.45,
                                 }}
                               >
-                                The preview compares each CSV phone number with current NXT phone
+                                The import review compares each CSV phone number with current NXT phone
                                 numbers. Choose whether to add it or replace a selected NXT value
                                 before saving the run.
                               </span>
@@ -4590,7 +4590,7 @@ export default function ConstituencyImportPage() {
                                   lineHeight: 1.45,
                                 }}
                               >
-                                The preview compares the CSV address with current NXT addresses.
+                                The import review compares the CSV address with current NXT addresses.
                                 Adding preserves current address values; replacing keeps the
                                 selected NXT address type and primary setting. Address Valid From
                                 is included when supplied.
@@ -4656,7 +4656,7 @@ export default function ConstituencyImportPage() {
                 </h2>
                 <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                   These active fields are expected in the uploaded CSV. Extra columns are ignored
-                  in the preview, and missing optional active headers are ignored.
+                  in the import review, and missing optional active headers are ignored.
                 </p>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
@@ -4698,7 +4698,7 @@ export default function ConstituencyImportPage() {
           >
             <div>
               <h2 style={{ margin: 0, fontSize: "20px", color: "#111827" }}>
-                Preview checklist
+                Import review checklist
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
                 Nothing on this page writes to NXT.
@@ -4763,14 +4763,14 @@ export default function ConstituencyImportPage() {
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: "16px", color: "#111827" }}>
-                  Saved preview runs
+                  Saved import runs
                 </h3>
                 <p style={{ margin: "4px 0 0", color: "#6B7280", lineHeight: 1.4 }}>
-                  Reopen a prior preview without rechecking NXT.
+                  Reopen a prior import review without rechecking NXT.
                 </p>
               </div>
               {loadingSavedRuns ? (
-                <span style={{ color: "#6B7280" }}>Loading saved previews...</span>
+                <span style={{ color: "#6B7280" }}>Loading saved import runs...</span>
               ) : savedRuns.length ? (
                 <div style={{ display: "grid", gap: "8px" }}>
                   {savedRuns.map((run) => (
@@ -4790,7 +4790,7 @@ export default function ConstituencyImportPage() {
                       }}
                     >
                       <span style={{ display: "block", fontWeight: 900 }}>
-                        Run #{run.id} · {run.sourceFilename || "CSV preview"}
+                        Run #{run.id} · {run.sourceFilename || "CSV import"}
                       </span>
                       <span
                         style={{
@@ -4809,7 +4809,7 @@ export default function ConstituencyImportPage() {
                   ))}
                 </div>
               ) : (
-                <span style={{ color: "#6B7280" }}>No saved import previews yet.</span>
+                <span style={{ color: "#6B7280" }}>No saved import runs yet.</span>
               )}
             </div>
           </aside>
@@ -4829,11 +4829,11 @@ export default function ConstituencyImportPage() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
-                4. Review and create preview
+                4. Review import
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                Confirm the auto-mapped fields and review the validation checklist before creating
-                a safe, read-only preview of {sourceFilename || "the uploaded CSV"}.
+                Confirm the auto-mapped fields and review the validation checklist. This checks
+                {` ${sourceFilename || "the uploaded CSV"} `}against NXT but does not write to NXT.
               </p>
             </div>
           </div>
@@ -4848,7 +4848,7 @@ export default function ConstituencyImportPage() {
                 fontWeight: 800,
               }}
             >
-              Active fields not found in this CSV will be ignored for preview:{" "}
+              Active fields not found in this CSV will be ignored for this import review:{" "}
               {missingHeaders.join(", ")}
             </div>
           ) : null}
@@ -4863,7 +4863,7 @@ export default function ConstituencyImportPage() {
                 fontWeight: 800,
               }}
             >
-              Extra CSV headers will be ignored in this preview: {extraHeaders.join(", ")}
+              Extra CSV headers will be ignored in this import review: {extraHeaders.join(", ")}
             </div>
           ) : null}
           {error ? (
@@ -4879,7 +4879,7 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Preview could not be created: {error}
+              Import review could not be created: {error}
             </div>
           ) : null}
           {previewBlockers.length ? (
@@ -4894,7 +4894,7 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Preview needs: {previewBlockers.join(" ")}
+              Import review needs: {previewBlockers.join(" ")}
             </div>
           ) : (
             <button
@@ -4913,7 +4913,7 @@ export default function ConstituencyImportPage() {
                 cursor: previewing ? "not-allowed" : "pointer",
               }}
             >
-              {previewing ? "Creating preview..." : "Preview uploaded CSV"}
+              {previewing ? "Checking import..." : "Review uploaded CSV"}
             </button>
           )}
 
@@ -4979,7 +4979,7 @@ export default function ConstituencyImportPage() {
                   <div style={{ color: "#475569", fontSize: "13px", lineHeight: 1.4 }}>
                     {preview?.savedRun
                       ? `Import run #${preview.savedRun.id}. Confirm a record only after its review choices are correct.`
-                      : "This is a draft preview. Nothing has been written to Raiser's Edge NXT."}
+                      : "This is a draft import review. Nothing has been written to Raiser's Edge NXT."}
                   </div>
                 </div>
                 {focusedReviewRow ? (
@@ -5120,7 +5120,7 @@ export default function ConstituencyImportPage() {
                   cursor: "pointer",
                 }}
               >
-                <FileText size={16} /> Export preview CSV
+                <FileText size={16} /> Export import review CSV
               </button>
             </div>
           ) : null}
@@ -5137,7 +5137,7 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Review choices changed. Refresh the preview to rebuild the exact NXT write plan before saving this run.
+              Review choices changed. Refresh the import review to rebuild the exact NXT write plan before saving this run.
             </div>
           ) : null}
 
@@ -5663,7 +5663,7 @@ export default function ConstituencyImportPage() {
                       </div>
                       <div>
                         <div style={{ color: "#6B7280", fontSize: "12px", fontWeight: 900, textTransform: "uppercase" }}>
-                          Proposed preview
+                          Proposed change
                         </div>
                         <div style={{ marginTop: "6px", color: "#111827" }}>
                           {renderList(row.proposedCodes)}
@@ -6107,7 +6107,7 @@ export default function ConstituencyImportPage() {
                         <span style={{ color: "#9A3412", fontWeight: 800, lineHeight: 1.45 }}>
                           {failedWriteResults.length
                             ? `${failedWriteResults.length} staged NXT write${failedWriteResults.length === 1 ? "" : "s"} failed. Successful writes will not be repeated.`
-                            : "This failed before JUMGOGPT could safely identify a single write to retry. Re-preview this row before trying again."}
+                            : "This failed before JUMGOGPT could safely identify a single write to retry. Refresh this row before trying again."}
                         </span>
                         {failedWriteResults.length ? (
                           <button
@@ -6217,7 +6217,7 @@ export default function ConstituencyImportPage() {
                         </div>
                       ) : (
                         <div style={{ color: "#1E3A8A", fontWeight: 800 }}>
-                          Save this preview run before approving a new NXT constituent.
+                          Save this import run before approving a new NXT constituent.
                         </div>
                       )
                     ) : null}
@@ -6235,7 +6235,7 @@ export default function ConstituencyImportPage() {
                 color: "#64748B",
               }}
             >
-              Preview results will appear here after you upload matching headers and run the preview.
+              Import review results will appear here after you upload matching headers and review the import.
             </div>
           )}
         </section>
