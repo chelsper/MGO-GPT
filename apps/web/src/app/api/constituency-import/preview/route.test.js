@@ -557,6 +557,122 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan).toEqual([]);
   });
 
+  it("stages an explicit existing email primary change without changing the email value", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
+          { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT Lookup ID": "440085" }],
+        mappings: { lookupId: "NXT Lookup ID" },
+        defaults: { updateEmailFields: true },
+        contactDecisions: {
+          1: {
+            email: {
+              __section: {
+                existingPrimaryTargetId: "email-other",
+                demotedPrimaryType: "Former email",
+              },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "email_address",
+        action: "set_primary",
+        targetId: "email-other",
+        existingPrimaryId: "email-primary",
+        demoteExistingPrimary: true,
+        demotedPrimaryType: "Former email",
+      }),
+    ]);
+  });
+
+  it("stages a prior-address transition only after an address add is selected", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "address-home",
+            address_lines: ["10 Elm St."],
+            city: "Jacksonville",
+            state: "FL",
+            postal_code: "32211",
+            type: "Home",
+            primary: true,
+          },
+        ],
+      });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Address Line 1": "2800 University Blvd N",
+            "Address Type": "Business",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          addressLine1: "Address Line 1",
+          addressType: "Address Type",
+        },
+        defaults: { updateAddressFields: true },
+        contactDecisions: {
+          1: {
+            address: {
+              __section: {
+                previousAddressTargetId: "address-home",
+                previousAddressEndDate: "08/08/2026",
+              },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({ type: "address", action: "add", addressLine1: "2800 University Blvd N" }),
+      expect.objectContaining({
+        type: "address",
+        action: "mark_previous",
+        targetId: "address-home",
+        addressType: "Previous Address",
+        validTo: "2026-08-08",
+        requiresSuccessfulAddressAdd: true,
+      }),
+    ]);
+  });
+
   it("omits an individual text update when the reviewer selects take no action", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({

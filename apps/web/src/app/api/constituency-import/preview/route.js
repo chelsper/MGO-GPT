@@ -585,6 +585,7 @@ function serializeContactSnapshot(payload = {}) {
   const mapAddresses = (payload.addresses || []).map((address) => {
     const lines = getAddressLines(address);
     const validFrom = formatEducationDate(address?.valid_from || address?.validFrom || address?.date_from);
+    const validTo = formatEducationDate(address?.valid_to || address?.validTo || address?.date_to);
     return {
       id: getContactId(address, "address"),
       type: getContactType(address),
@@ -595,6 +596,7 @@ function serializeContactSnapshot(payload = {}) {
       postalCode: cleanText(address?.postal_code || address?.postalCode || address?.zip),
       country: cleanText(address?.country),
       ...(validFrom ? { validFrom } : {}),
+      ...(validTo ? { validTo } : {}),
       primary: isPrimaryContact(address),
     };
   }).filter((address) => address.id || address.addressLine1);
@@ -605,6 +607,19 @@ function serializeContactSnapshot(payload = {}) {
 function getDecision(decisions, kind, index) {
   const value = decisions?.[kind]?.[String(index)] || decisions?.[kind]?.[index];
   return value && typeof value === "object" ? value : {};
+}
+
+function getSectionDecision(decisions, kind) {
+  const value = decisions?.[kind]?.__section;
+  return value && typeof value === "object" ? value : {};
+}
+
+function hasContactSectionAction(decisions) {
+  return Boolean(
+    cleanText(getSectionDecision(decisions, "email").existingPrimaryTargetId) ||
+      cleanText(getSectionDecision(decisions, "phone").existingPrimaryTargetId) ||
+      cleanText(getSectionDecision(decisions, "address").previousAddressTargetId),
+  );
 }
 
 function getExistingPrimary(contacts) {
@@ -683,30 +698,134 @@ function buildContactWrites({
   }).filter(Boolean);
 }
 
+function buildExistingPrimaryWrite({ kind, contacts = [], decisions = {}, contactWrites = [] }) {
+  if (!["email", "phone"].includes(kind)) return null;
+
+  // A CSV contact selected as primary takes precedence over a separate existing-contact choice.
+  if (contactWrites.some((write) => write.action === "add" && write.makePrimary === true)) {
+    return null;
+  }
+
+  const decision = getSectionDecision(decisions, kind);
+  const targetId = cleanText(decision.existingPrimaryTargetId);
+  if (!targetId) return null;
+
+  const currentPrimary = getExistingPrimary(contacts);
+  const target = contacts.find((contact) => contact.id === targetId);
+  const type = kind === "email" ? "email_address" : "phone";
+  if (!target) {
+    return {
+      type,
+      action: "set_primary",
+      targetId,
+      requiresReview: true,
+      validationMessage: `The selected current NXT ${kind} value is no longer available. Refresh the preview before applying.`,
+    };
+  }
+  if (target.primary) return null;
+
+  return {
+    type,
+    action: "set_primary",
+    targetId,
+    existingPrimaryId: currentPrimary?.id || "",
+    demoteExistingPrimary: Boolean(currentPrimary?.id && currentPrimary.id !== targetId),
+    demotedPrimaryType: cleanText(decision.demotedPrimaryType),
+    blankValuePolicy: "leave_unchanged",
+  };
+}
+
+function buildPreviousAddressWrite({ contacts = [], decisions = {}, addressWrites = [] }) {
+  const decision = getSectionDecision(decisions, "address");
+  const targetId = cleanText(decision.previousAddressTargetId);
+  if (!targetId) return null;
+
+  // An old address can only be closed when this same preview adds a new address.
+  if (!addressWrites.some((write) => write.action === "add" && !write.requiresReview)) {
+    return null;
+  }
+
+  const target = contacts.find((contact) => contact.id === targetId);
+  const requestedValidTo = cleanText(decision.previousAddressEndDate);
+  const parsedValidTo = requestedValidTo ? parseBirthDate(requestedValidTo) : null;
+  if (!target) {
+    return {
+      type: "address",
+      action: "mark_previous",
+      targetId,
+      requiresReview: true,
+      validationMessage: "The selected current NXT address is no longer available. Refresh the preview before applying.",
+    };
+  }
+  if (!requestedValidTo || !parsedValidTo) {
+    return {
+      type: "address",
+      action: "mark_previous",
+      targetId,
+      requiresReview: true,
+      validationMessage: "Enter a valid end date for the current address before marking it Previous Address.",
+    };
+  }
+
+  return {
+    type: "address",
+    action: "mark_previous",
+    targetId,
+    addressType: "Previous Address",
+    validTo: formatBirthDate(parsedValidTo),
+    requiresSuccessfulAddressAdd: true,
+    blankValuePolicy: "leave_unchanged",
+  };
+}
+
 function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
+  const emailWrites = buildContactWrites({
+    input,
+    kind: "email",
+    values: input.emailUpdates,
+    contacts: currentContacts?.emails,
+    decisions: contactDecisions,
+  });
+  const phoneWrites = buildContactWrites({
+    input,
+    kind: "phone",
+    values: input.phoneUpdates,
+    contacts: currentContacts?.phones,
+    decisions: contactDecisions,
+  });
+  const addressWrites = buildContactWrites({
+    input,
+    kind: "address",
+    values: input.addressUpdates,
+    contacts: currentContacts?.addresses,
+    decisions: contactDecisions,
+  });
+  const emailPrimaryWrite = buildExistingPrimaryWrite({
+    kind: "email",
+    contacts: currentContacts?.emails,
+    decisions: contactDecisions,
+    contactWrites: emailWrites,
+  });
+  const phonePrimaryWrite = buildExistingPrimaryWrite({
+    kind: "phone",
+    contacts: currentContacts?.phones,
+    decisions: contactDecisions,
+    contactWrites: phoneWrites,
+  });
+  const previousAddressWrite = buildPreviousAddressWrite({
+    contacts: currentContacts?.addresses,
+    decisions: contactDecisions,
+    addressWrites,
+  });
+
   return [
-    ...buildContactWrites({
-      input,
-      kind: "email",
-      values: input.emailUpdates,
-      contacts: currentContacts?.emails,
-      decisions: contactDecisions,
-    }),
-    ...buildContactWrites({
-      input,
-      kind: "phone",
-      values: input.phoneUpdates,
-      contacts: currentContacts?.phones,
-      decisions: contactDecisions,
-    }),
-    ...buildContactWrites({
-      input,
-      kind: "address",
-      values: input.addressUpdates,
-      contacts: currentContacts?.addresses,
-      decisions: contactDecisions,
-    }),
-  ];
+    ...emailWrites,
+    emailPrimaryWrite,
+    ...phoneWrites,
+    phonePrimaryWrite,
+    ...addressWrites,
+    previousAddressWrite,
+  ].filter(Boolean);
 }
 
 function getEducationId(value) {
@@ -1827,7 +1946,12 @@ export async function POST(request) {
 
       if (
         matchResult.match?.blackbaudConstituentId &&
-        (input.emailUpdates?.length || input.phoneUpdates?.length || input.addressUpdates?.length)
+        (
+          input.emailUpdates?.length ||
+          input.phoneUpdates?.length ||
+          input.addressUpdates?.length ||
+          hasContactSectionAction(contactDecisions[String(index + 1)] || {})
+        )
       ) {
         const contactPreview = await fetchCurrentContacts({
           userId: user.id,

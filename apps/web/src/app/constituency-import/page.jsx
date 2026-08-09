@@ -1119,6 +1119,10 @@ function getContactDecision(decisions, rowNumber, kind, index) {
   return decisions?.[String(rowNumber)]?.[kind]?.[String(index)] || {};
 }
 
+function getContactSectionDecision(decisions, rowNumber, kind) {
+  return decisions?.[String(rowNumber)]?.[kind]?.__section || {};
+}
+
 function getPreviewFieldDecision(decisions, rowNumber, writeType, field) {
   return decisions?.[String(rowNumber)]?.[writeType]?.[field] || {};
 }
@@ -1133,9 +1137,11 @@ function getContactValue(contact, kind) {
   const address = [contact?.addressLine1, contact?.addressLine2, contact?.city, contact?.state, contact?.postalCode]
     .filter(Boolean)
     .join(", ");
-  return contact?.validFrom
-    ? `${address}${address ? " · " : ""}Valid from ${formatBirthDateForDisplay(contact.validFrom)}`
-    : address;
+  const dates = [
+    contact?.validFrom ? `Valid from ${formatBirthDateForDisplay(contact.validFrom)}` : "",
+    contact?.validTo ? `Valid through ${formatBirthDateForDisplay(contact.validTo)}` : "",
+  ].filter(Boolean);
+  return dates.length ? `${address}${address ? " · " : ""}${dates.join(" · ")}` : address;
 }
 
 function getIncomingContactValue(contact, kind) {
@@ -1149,7 +1155,7 @@ function getIncomingContactValue(contact, kind) {
     : address;
 }
 
-function ContactReviewPanel({ row, decisions, onDecisionChange }) {
+function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisionChange }) {
   const sections = [
     { kind: "email", label: "Email addresses", values: row.input?.emailUpdates || [], contacts: row.currentContacts?.emails || [] },
     { kind: "phone", label: "Phone numbers", values: row.input?.phoneUpdates || [], contacts: row.currentContacts?.phones || [] },
@@ -1183,6 +1189,22 @@ function ContactReviewPanel({ row, decisions, onDecisionChange }) {
         const primary = section.contacts.find((contact) => contact.primary) || null;
         const typeOptions = [...new Set(section.contacts.map((contact) => contact.type).filter(Boolean))];
         const defaultPrimaryIndex = section.values.findIndex((value) => value.makePrimary === true);
+        const sectionDecision = getContactSectionDecision(decisions, row.rowNumber, section.kind);
+        const hasIncomingPrimary = ["email", "phone"].includes(section.kind) && section.values.some((value, index) => {
+          const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
+          const mode = decision.mode === "replace" ? "replace" : decision.mode === "skip" ? "skip" : "add";
+          const makePrimary = decision.makePrimary === undefined
+            ? index === defaultPrimaryIndex
+            : decision.makePrimary === true;
+          return mode === "add" && makePrimary;
+        });
+        const hasIncomingAddress = section.kind === "address" && section.values.some((value, index) => {
+          const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
+          return decision.mode !== "replace" && decision.mode !== "skip";
+        });
+        const selectedExistingPrimary = section.contacts.find(
+          (contact) => contact.id === sectionDecision.existingPrimaryTargetId,
+        );
 
         return (
           <div key={section.kind} style={{ display: "grid", gap: "10px" }}>
@@ -1212,6 +1234,105 @@ function ContactReviewPanel({ row, decisions, onDecisionChange }) {
                 <div style={{ marginTop: "7px", color: "#6B7280" }}>No current NXT {section.label.toLowerCase()} found.</div>
               )}
             </div>
+
+            {["email", "phone"].includes(section.kind) && section.contacts.length > 1 ? (
+              hasIncomingPrimary ? (
+                <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                  A CSV value is selected as primary below. Clear that selection before choosing an existing NXT {section.kind === "email" ? "email address" : "phone number"} as primary.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: "8px", border: "1px solid #BBF7D0", borderRadius: "12px", backgroundColor: "#F7FEF9", padding: "11px" }}>
+                  <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
+                    Primary {section.kind === "email" ? "email address" : "phone number"}
+                    <select
+                      name={`existing-primary-${row.rowNumber}-${section.kind}`}
+                      value={sectionDecision.existingPrimaryTargetId || ""}
+                      onChange={(event) =>
+                        onSectionDecisionChange(row.rowNumber, section.kind, {
+                          existingPrimaryTargetId: event.target.value,
+                        })
+                      }
+                      style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
+                    >
+                      <option value="">Keep {primary ? `${getContactValue(primary, section.kind)} as primary` : "the current primary setting"}</option>
+                      {section.contacts.filter((contact) => !contact.primary).map((contact) => (
+                        <option key={contact.id} value={contact.id}>
+                          Make {getContactValue(contact, section.kind)} primary{contact.type ? ` (${contact.type})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {selectedExistingPrimary && primary ? (
+                    <>
+                      <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                        {getContactValue(selectedExistingPrimary, section.kind)} will become primary. {getContactValue(primary, section.kind)} will remain on the record as non-primary.
+                      </div>
+                      <label style={{ display: "grid", gap: "4px", color: "#166534", fontSize: "14px" }}>
+                        Change the former primary's type (optional)
+                        <select
+                          name={`existing-primary-demoted-type-${row.rowNumber}-${section.kind}`}
+                          value={sectionDecision.demotedPrimaryType || ""}
+                          onChange={(event) =>
+                            onSectionDecisionChange(row.rowNumber, section.kind, {
+                              demotedPrimaryType: event.target.value,
+                            })
+                          }
+                          style={{ border: "1px solid #86EFAC", borderRadius: "8px", backgroundColor: "white", padding: "8px 9px", color: "#111827" }}
+                        >
+                          <option value="">Keep {primary.type || "the current type"}</option>
+                          {typeOptions.map((type) => <option key={type} value={type}>{type}</option>)}
+                        </select>
+                      </label>
+                    </>
+                  ) : null}
+                </div>
+              )
+            ) : null}
+
+            {section.kind === "address" && hasIncomingAddress && section.contacts.length ? (
+              <div style={{ display: "grid", gap: "8px", border: "1px solid #BBF7D0", borderRadius: "12px", backgroundColor: "#F7FEF9", padding: "11px" }}>
+                <div style={{ color: "#374151", fontWeight: 800 }}>Close a prior address (optional)</div>
+                <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                  After the new address is added, you can change one current NXT address to Previous Address and set its end date. If the new address is not added, the prior address will not be changed.
+                </div>
+                <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
+                  Mark which current NXT address as Previous Address?
+                  <select
+                    name={`previous-address-${row.rowNumber}`}
+                    value={sectionDecision.previousAddressTargetId || ""}
+                    onChange={(event) =>
+                      onSectionDecisionChange(row.rowNumber, "address", {
+                        previousAddressTargetId: event.target.value,
+                      })
+                    }
+                    style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
+                  >
+                    <option value="">Do not change any current address</option>
+                    {section.contacts.map((contact) => (
+                      <option key={contact.id} value={contact.id}>
+                        {getContactValue(contact, "address")}{contact.type ? ` (${contact.type})` : ""}{contact.primary ? " - Primary" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {sectionDecision.previousAddressTargetId ? (
+                  <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
+                    Previous Address end date
+                    <input
+                      type="date"
+                      name={`previous-address-end-date-${row.rowNumber}`}
+                      value={sectionDecision.previousAddressEndDate || ""}
+                      onChange={(event) =>
+                        onSectionDecisionChange(row.rowNumber, "address", {
+                          previousAddressEndDate: event.target.value,
+                        })
+                      }
+                      style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
+                    />
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
 
             {!section.values.length ? (
               <div style={{ color: "#6B7280", fontSize: "14px", lineHeight: 1.4 }}>
@@ -2297,6 +2418,29 @@ export default function ConstituencyImportPage() {
         [rowKey]: {
           ...rowDecisions,
           [kind]: nextKindDecisions,
+        },
+      };
+    });
+    setContactDecisionsDirty(true);
+    setSaveMessage("");
+  }
+
+  function updateContactSectionDecision(rowNumber, kind, change) {
+    setContactDecisions((current) => {
+      const rowKey = String(rowNumber);
+      const rowDecisions = current[rowKey] || {};
+      const kindDecisions = rowDecisions[kind] || {};
+      return {
+        ...current,
+        [rowKey]: {
+          ...rowDecisions,
+          [kind]: {
+            ...kindDecisions,
+            __section: {
+              ...(kindDecisions.__section || {}),
+              ...change,
+            },
+          },
         },
       };
     });
@@ -5206,6 +5350,7 @@ export default function ConstituencyImportPage() {
                       row={row}
                       decisions={contactDecisions}
                       onDecisionChange={updateContactDecision}
+                      onSectionDecisionChange={updateContactSectionDecision}
                     />
 
                     {preview?.savedRun ? (

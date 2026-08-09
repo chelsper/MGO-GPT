@@ -993,12 +993,81 @@ async function demoteExistingPrimary({ request, user, kind, contacts, write }) {
   return updateExistingContact({ request, user, path: endpoint, payload });
 }
 
+function getContactEndpoint(kind, id) {
+  const encodedId = encodeURIComponent(id);
+  if (kind === "email") return `/constituent/v1/emailaddresses/${encodedId}`;
+  if (kind === "phone") return `/constituent/v1/phones/${encodedId}`;
+  return `/constituent/v1/addresses/${encodedId}`;
+}
+
+function getContactLabel(contact, kind) {
+  if (kind === "email") return getEmailAddress(contact);
+  if (kind === "phone") return getPhoneNumber(contact);
+  return getAddressLines(contact)[0] || "the selected address";
+}
+
+async function applyExistingContactPrimary({ request, user, row, write, kind }) {
+  const constituentId = getMatchedConstituentId(row);
+  const targetId = cleanText(write?.targetId);
+  const type = kind === "email" ? "email_address" : "phone";
+  if (!constituentId || !targetId) {
+    return manualContactResult(type, "set_primary", "A matched NXT constituent and selected current contact are required.");
+  }
+
+  const contacts =
+    kind === "email"
+      ? await fetchEmailAddresses({ request, user, constituentId })
+      : await fetchContactValues({ request, user, constituentId, kind: "phone" });
+  const target = contacts.find((contact) => getContactId(contact, kind) === targetId);
+  if (!target) {
+    return manualContactResult(
+      type,
+      "set_primary",
+      `The selected current NXT ${kind} is no longer available. Refresh the preview before applying.`,
+    );
+  }
+  if (isPrimaryContact(target)) {
+    return {
+      status: "applied",
+      type,
+      action: "set_primary",
+      message: `${getContactLabel(target, kind)} is already the primary ${kind === "email" ? "email address" : "phone number"}.`,
+    };
+  }
+
+  const demotion = await demoteExistingPrimary({ request, user, kind, contacts, write });
+  if (demotion?.stale) {
+    return manualContactResult(
+      type,
+      "set_primary",
+      `The NXT primary ${kind} changed after preview. Refresh the preview before applying.`,
+    );
+  }
+  const result = await updateExistingContact({
+    request,
+    user,
+    path: getContactEndpoint(kind, targetId),
+    payload: { primary: true },
+  });
+  return {
+    status: "applied",
+    type,
+    action: "set_primary",
+    message: `${getContactLabel(target, kind)} is now the primary ${kind === "email" ? "email address" : "phone number"}.`,
+    blackbaudResult: result || null,
+  };
+}
+
 async function applyEmailAddressUpdate({ request, user, row, write }) {
   const constituentId = getMatchedConstituentId(row);
   const address = cleanText(write?.address);
   const emailType = cleanText(write?.emailType);
   const makePrimary = parseBoolean(write?.makePrimary);
   const action = cleanText(write?.action) || "add_if_new";
+
+  if (action === "set_primary") {
+    return applyExistingContactPrimary({ request, user, row, write, kind: "email" });
+  }
 
   if (!constituentId || !address) {
     return {
@@ -1061,23 +1130,18 @@ async function applyEmailAddressUpdate({ request, user, row, write }) {
   if (existing) {
     const existingId = cleanText(existing?.id || existing?.email_address_id);
     if (makePrimary && existingId && !isPrimaryEmail(existing)) {
-      const result = await blackbaudApiFetch(
-        `/constituent/v1/emailaddresses/${encodeURIComponent(existingId)}`,
-        {
-          userId: user.id,
-          authUserId: user.id,
-          origin: new URL(request.url).origin,
-          method: "PATCH",
-          body: { primary: true },
+      return applyExistingContactPrimary({
+        request,
+        user,
+        row,
+        write: {
+          ...write,
+          action: "set_primary",
+          targetId: existingId,
+          demoteExistingPrimary: true,
         },
-      );
-      return {
-        status: "applied",
-        type: "email_address",
-        action: "set_primary",
-        message: `${address} already existed and is now the primary email address.`,
-        blackbaudResult: result || null,
-      };
+        kind: "email",
+      });
     }
 
     return {
@@ -1148,6 +1212,9 @@ async function applyPhoneUpdate({ request, user, row, write }) {
   const number = cleanText(write?.number);
   const phoneType = cleanText(write?.phoneType);
   const action = cleanText(write?.action) || "add";
+  if (action === "set_primary") {
+    return applyExistingContactPrimary({ request, user, row, write, kind: "phone" });
+  }
   if (!constituentId || !number) {
     return manualContactResult("phone", action, "A matched NXT constituent ID and phone number are required.");
   }
@@ -1181,7 +1248,23 @@ async function applyPhoneUpdate({ request, user, row, write }) {
       blackbaudResult: result || null,
     };
   }
-  if (phones.some((phone) => getPhoneNumber(phone) === number)) {
+  const existing = phones.find((phone) => getPhoneNumber(phone) === number);
+  if (existing) {
+    const existingId = getContactId(existing, "phone");
+    if (parseBoolean(write?.makePrimary) && existingId && !isPrimaryContact(existing)) {
+      return applyExistingContactPrimary({
+        request,
+        user,
+        row,
+        write: {
+          ...write,
+          action: "set_primary",
+          targetId: existingId,
+          demoteExistingPrimary: true,
+        },
+        kind: "phone",
+      });
+    }
     return { status: "applied", type: "phone", action: "skip_existing", message: `${number} is already present in NXT; no duplicate phone was added.` };
   }
   const demotion = await demoteExistingPrimary({ request, user, kind: "phone", contacts: phones, write });
@@ -1276,6 +1359,52 @@ async function applyAddressUpdate({ request, user, row, write }) {
     type: "address",
     action: "add",
     message: `Added ${addressLine1} to the NXT record${parseBoolean(write?.makePrimary) ? " as the primary address" : ""}${validFrom ? `, valid from ${formatDateForBlackbaud(validFrom)}` : ""}.`,
+    blackbaudResult: result || null,
+  };
+}
+
+async function applyAddressPreviousUpdate({ request, user, row, write }) {
+  const constituentId = getMatchedConstituentId(row);
+  const targetId = cleanText(write?.targetId);
+  const validTo = cleanText(write?.validTo);
+  if (!constituentId || !targetId || !validTo) {
+    return manualContactResult(
+      "address",
+      "mark_previous",
+      "A matched NXT constituent, selected current address, and end date are required before an address can be marked Previous Address.",
+    );
+  }
+  if (!parseBirthDate(validTo)) {
+    return manualContactResult(
+      "address",
+      "mark_previous",
+      "The Previous Address end date must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value.",
+    );
+  }
+
+  const addresses = await fetchContactValues({ request, user, constituentId, kind: "address" });
+  const target = addresses.find((address) => getContactId(address, "address") === targetId);
+  if (!target) {
+    return manualContactResult(
+      "address",
+      "mark_previous",
+      "The selected current NXT address is no longer available. Refresh the preview before applying.",
+    );
+  }
+  const result = await updateExistingContact({
+    request,
+    user,
+    path: getContactEndpoint("address", targetId),
+    payload: {
+      type: "Previous Address",
+      valid_to: formatDateForBlackbaud(validTo),
+    },
+  });
+  return {
+    status: "applied",
+    type: "address",
+    action: "mark_previous",
+    message: `Marked ${getContactLabel(target, "address")} as Previous Address through ${formatDateForBlackbaud(validTo)}.`,
     blackbaudResult: result || null,
   };
 }
@@ -1494,15 +1623,18 @@ async function applyWrite({ request, user, row, write }) {
   }
   if (
     write?.type === "email_address" &&
-    ["add_if_new", "add", "replace"].includes(write?.action)
+    ["add_if_new", "add", "replace", "set_primary"].includes(write?.action)
   ) {
     return applyEmailAddressUpdate({ request, user, row, write });
   }
-  if (write?.type === "phone" && ["add", "replace"].includes(write?.action)) {
+  if (write?.type === "phone" && ["add", "replace", "set_primary"].includes(write?.action)) {
     return applyPhoneUpdate({ request, user, row, write });
   }
   if (write?.type === "address" && ["add", "replace"].includes(write?.action)) {
     return applyAddressUpdate({ request, user, row, write });
+  }
+  if (write?.type === "address" && write?.action === "mark_previous") {
+    return applyAddressPreviousUpdate({ request, user, row, write });
   }
   if (
     write?.type === "education_relationship" &&
@@ -1649,6 +1781,21 @@ async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
 
   const results = [];
   for (const { write, writeIndex } of writeItems) {
+    if (
+      write?.requiresSuccessfulAddressAdd &&
+      !results.some(
+        (result) => result.type === "address" && result.action === "add" && result.status === "applied",
+      )
+    ) {
+      results.push({
+        status: "manual_required",
+        type: "address",
+        action: "mark_previous",
+        writeIndex,
+        message: "The new address was not added, so the selected prior address was left unchanged.",
+      });
+      continue;
+    }
     try {
       const result = await applyWrite({ request, user, row, write });
       results.push({ ...result, writeIndex });
