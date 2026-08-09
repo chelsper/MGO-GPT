@@ -18,6 +18,8 @@ const LIST_REQUESTS_TAB = "listRequests";
 const IMPORTS_TAB = "imports";
 const NXT_EXCEPTIONS_TAB = "nxtExceptions";
 const ACTIVITY_LOG_TAB = "activityLog";
+const TRIAGE_TAB = "triage";
+const TRIAGE_AGING_DAYS = 5;
 
 const DATA_REQUEST_STATUSES = ["Open", "In Progress", "Completed", "Declined"];
 
@@ -195,6 +197,38 @@ function getListRequestStatus(status) {
 
 function isListRequestComplete(request) {
   return getListRequestStatus(request?.status) === "Complete";
+}
+
+function getAgeInDays(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86_400_000));
+}
+
+function isAgingDataRequest(request) {
+  const status = String(request?.status || "Open").trim();
+  if (!["Open", "In Progress"].includes(status)) return false;
+  const ageInDays = getAgeInDays(request?.updated_at || request?.created_at);
+  return ageInDays !== null && ageInDays >= TRIAGE_AGING_DAYS;
+}
+
+function getListRequestAttentionReason(request) {
+  if (isListRequestComplete(request)) return null;
+  if (getListRequestStatus(request?.status) === "Needs Clarification") {
+    return "Waiting on requester clarification";
+  }
+  if (Number(request?.queue_priority || 2) === 1) return "Urgent priority";
+
+  const dateNeeded = request?.date_needed ? new Date(request.date_needed) : null;
+  if (dateNeeded && !Number.isNaN(dateNeeded.getTime()) && dateNeeded.getTime() < Date.now()) {
+    return "Past requested date";
+  }
+  return null;
+}
+
+function isListRequestNeedingAttention(request) {
+  return Boolean(getListRequestAttentionReason(request));
 }
 
 function isResearchDataRequest(request) {
@@ -427,7 +461,13 @@ export default function SubmissionsPage() {
 
     if (
       !isReviewer &&
-      [DATA_UPDATES_TAB, RESEARCH_TAB, IMPORTS_TAB, NXT_EXCEPTIONS_TAB].includes(activeTab)
+      [
+        TRIAGE_TAB,
+        DATA_UPDATES_TAB,
+        RESEARCH_TAB,
+        IMPORTS_TAB,
+        NXT_EXCEPTIONS_TAB,
+      ].includes(activeTab)
     ) {
       setActiveTab(ACTIVITY_LOG_TAB);
     }
@@ -630,16 +670,136 @@ export default function SubmissionsPage() {
     }, {});
   }, [isReviewer, nxtExceptionSubmissions]);
 
+  const agingDataUpdateRequests = useMemo(
+    () => dataUpdateRequests.filter(isAgingDataRequest),
+    [dataUpdateRequests],
+  );
+
+  const agingResearchRequests = useMemo(
+    () => researchRequests.filter(isAgingDataRequest),
+    [researchRequests],
+  );
+
+  const attentionListRequests = useMemo(
+    () => listRequests.filter(isListRequestNeedingAttention),
+    [listRequests],
+  );
+
+  const attentionImportRuns = useMemo(
+    () =>
+      importRuns.filter((run) =>
+        ["Needs attention", "Needs review"].includes(getImportRunState(run)),
+      ),
+    [importRuns],
+  );
+
+  const triageItemCount = useMemo(
+    () =>
+      agingDataUpdateRequests.length +
+      agingResearchRequests.length +
+      attentionListRequests.length +
+      attentionImportRuns.length +
+      nxtExceptionSubmissions.length,
+    [
+      agingDataUpdateRequests.length,
+      agingResearchRequests.length,
+      attentionImportRuns.length,
+      attentionListRequests.length,
+      nxtExceptionSubmissions.length,
+    ],
+  );
+
+  const triageQueues = useMemo(
+    () => [
+      {
+        id: "data-updates",
+        title: "Aging data updates",
+        description: `Open or in-progress for ${TRIAGE_AGING_DAYS}+ days without a queue update.`,
+        actionLabel: "Open data updates",
+        tab: DATA_UPDATES_TAB,
+        filter: "Aging 5+ days",
+        filterType: "data",
+        items: agingDataUpdateRequests.map((request) => ({
+          id: `data:${request.id}`,
+          title: request.constituent_name || "Unknown constituent",
+          detail: `${request.status || "Open"} · ${getAgeInDays(request.updated_at || request.created_at)} days since last queue update`,
+        })),
+      },
+      {
+        id: "research",
+        title: "Aging research",
+        description: `Open or in-progress for ${TRIAGE_AGING_DAYS}+ days without a queue update.`,
+        actionLabel: "Open research",
+        tab: RESEARCH_TAB,
+        filter: "Aging 5+ days",
+        filterType: "data",
+        items: agingResearchRequests.map((request) => ({
+          id: `research:${request.id}`,
+          title: request.constituent_name || "Unknown constituent",
+          detail: `${request.status || "Open"} · ${getAgeInDays(request.updated_at || request.created_at)} days since last queue update`,
+        })),
+      },
+      {
+        id: "list-requests",
+        title: "List requests",
+        description: "Urgent, past-due, or waiting on requester clarification.",
+        actionLabel: "Open list requests",
+        tab: LIST_REQUESTS_TAB,
+        filter: "Needs attention",
+        filterType: "list",
+        items: attentionListRequests.map((request) => ({
+          id: `list:${request.id}`,
+          title: getListRequestTitle(request),
+          detail: getListRequestAttentionReason(request) || "Needs attention",
+        })),
+      },
+      {
+        id: "imports",
+        title: "Import review",
+        description: "Saved import runs with unresolved review, conflict, or failure work.",
+        actionLabel: "Open imports",
+        tab: IMPORTS_TAB,
+        items: attentionImportRuns.map((run) => ({
+          id: `import:${run.id}`,
+          title: run.sourceFilename || `Import run #${run.id}`,
+          detail: `${getImportRunState(run)}${formatImportRunSummary(run.summary) ? ` · ${formatImportRunSummary(run.summary)}` : ""}`,
+        })),
+      },
+      {
+        id: "nxt-exceptions",
+        title: "NXT exceptions",
+        description: "Automated NXT activity that failed and needs follow-up.",
+        actionLabel: "Open NXT exceptions",
+        tab: NXT_EXCEPTIONS_TAB,
+        items: nxtExceptionSubmissions.map((submission) => ({
+          id: `exception:${submission.id}`,
+          title: getSubmissionDisplayName(submission),
+          detail: submission.blackbaud_sync_error || "NXT sync requires follow-up",
+        })),
+      },
+    ],
+    [
+      agingDataUpdateRequests,
+      agingResearchRequests,
+      attentionImportRuns,
+      attentionListRequests,
+      nxtExceptionSubmissions,
+    ],
+  );
+
   const visibleDataRequests = useMemo(() => {
     let next = [...activeDataRequests];
 
-    if (isReviewer && dataRequestFilter !== "All") {
+    if (isReviewer && dataRequestFilter === "Aging 5+ days") {
+      next = next.filter(isAgingDataRequest);
+    } else if (isReviewer && dataRequestFilter !== "All") {
       next = next.filter((request) => (request.status || "Open") === dataRequestFilter);
     }
 
     return next.sort((a, b) => {
       const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
       const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      if (dataRequestFilter === "Aging 5+ days") return aDate - bDate;
       return bDate - aDate;
     });
   }, [activeDataRequests, dataRequestFilter, isReviewer]);
@@ -780,7 +940,9 @@ export default function SubmissionsPage() {
   const visibleListRequests = useMemo(() => {
     let next = [...listRequests];
 
-    if (isReviewer && listRequestFilter !== "All") {
+    if (isReviewer && listRequestFilter === "Needs attention") {
+      next = next.filter(isListRequestNeedingAttention);
+    } else if (isReviewer && listRequestFilter !== "All") {
       next = next.filter((request) => getListRequestStatus(request.status) === listRequestFilter);
     }
 
@@ -795,6 +957,26 @@ export default function SubmissionsPage() {
   }, [isReviewer, listRequests, listRequestFilter]);
 
   const taskCards = useMemo(() => {
+    if (activeTab === TRIAGE_TAB && isReviewer) {
+      return [
+        {
+          label: "Aging data work",
+          value: agingDataUpdateRequests.length + agingResearchRequests.length,
+          detail: `Open or in-progress for ${TRIAGE_AGING_DAYS}+ days without a queue update`,
+        },
+        {
+          label: "List work",
+          value: attentionListRequests.length,
+          detail: "Urgent, past-due, or waiting on clarification",
+        },
+        {
+          label: "NXT follow-up",
+          value: nxtExceptionSubmissions.length,
+          detail: "Automated NXT writes that need attention",
+        },
+      ];
+    }
+
     if ([DATA_UPDATES_TAB, RESEARCH_TAB].includes(activeTab) && isReviewer) {
       const isResearchQueue = activeTab === RESEARCH_TAB;
       return [
@@ -950,8 +1132,12 @@ export default function SubmissionsPage() {
   }, [
     activeTab,
     activeDataRequestCounts,
+    agingDataUpdateRequests.length,
+    agingResearchRequests.length,
+    attentionListRequests.length,
     isReviewer,
     importQueueCounts,
+    nxtExceptionSubmissions.length,
     reviewerCounts,
     reviewerExceptionCounts,
     reviewerListRequestCounts,
@@ -1485,6 +1671,11 @@ export default function SubmissionsPage() {
               isReviewer
                 ? [
                     {
+                      id: TRIAGE_TAB,
+                      label: "Needs Attention",
+                      count: triageItemCount,
+                    },
+                    {
                       id: DATA_UPDATES_TAB,
                       label: "Data Updates",
                       count:
@@ -1573,9 +1764,15 @@ export default function SubmissionsPage() {
                   Filter {activeTab === RESEARCH_TAB ? "research" : "data update"} queue
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {["Open", "In Progress", "Completed", "Declined", "All"].map(
+                  {["Open", "In Progress", "Aging 5+ days", "Completed", "Declined", "All"].map(
                     (status) => {
                       const selected = dataRequestFilter === status;
+                      const count =
+                        status === "Aging 5+ days"
+                          ? activeTab === RESEARCH_TAB
+                            ? agingResearchRequests.length
+                            : agingDataUpdateRequests.length
+                          : activeDataRequestCounts[status] || 0;
                       return (
                         <button
                           key={status}
@@ -1592,7 +1789,7 @@ export default function SubmissionsPage() {
                             cursor: "pointer",
                           }}
                         >
-                          {status} ({activeDataRequestCounts[status] || 0})
+                          {status} ({count})
                         </button>
                       );
                     },
@@ -1624,6 +1821,12 @@ export default function SubmissionsPage() {
                 <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
                   <div>Open: {activeDataRequestCounts.Open || 0}</div>
                   <div>In Progress: {activeDataRequestCounts["In Progress"] || 0}</div>
+                  <div>
+                    Aging {TRIAGE_AGING_DAYS}+ days:{" "}
+                    {activeTab === RESEARCH_TAB
+                      ? agingResearchRequests.length
+                      : agingDataUpdateRequests.length}
+                  </div>
                   <div>Completed: {activeDataRequestCounts.Completed || 0}</div>
                   <div>Total: {activeDataRequestCounts.All || 0}</div>
                 </div>
@@ -1765,9 +1968,13 @@ export default function SubmissionsPage() {
                   Filter list queue
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {["Pending", "Needs Clarification", "Complete", "All"].map(
+                  {["Needs attention", "Pending", "Needs Clarification", "Complete", "All"].map(
                     (status) => {
                       const selected = listRequestFilter === status;
+                      const count =
+                        status === "Needs attention"
+                          ? attentionListRequests.length
+                          : reviewerListRequestCounts[status] || 0;
                       return (
                         <button
                           key={status}
@@ -1784,7 +1991,7 @@ export default function SubmissionsPage() {
                             cursor: "pointer",
                           }}
                         >
-                          {status} ({reviewerListRequestCounts[status] || 0})
+                          {status} ({count})
                         </button>
                       );
                     },
@@ -1816,6 +2023,7 @@ export default function SubmissionsPage() {
                 <div style={{ fontSize: "14px", color: "#111827", lineHeight: 1.7 }}>
                   <div>Pending: {reviewerListRequestCounts.Pending || 0}</div>
                   <div>Needs Clarification: {reviewerListRequestCounts["Needs Clarification"] || 0}</div>
+                  <div>Needs attention: {attentionListRequests.length}</div>
                   <div>Complete: {reviewerListRequestCounts.Complete || 0}</div>
                   <div>Total: {reviewerListRequestCounts.All || 0}</div>
                 </div>
@@ -1823,7 +2031,158 @@ export default function SubmissionsPage() {
             </div>
           ) : null}
 
-          {[DATA_UPDATES_TAB, RESEARCH_TAB].includes(activeTab) ? (
+          {activeTab === TRIAGE_TAB && isReviewer ? (
+            <div style={{ display: "grid", gap: "16px" }}>
+              <div
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  border: "1px solid #FDE68A",
+                  backgroundColor: "#FFFBEB",
+                  color: "#78350F",
+                  fontSize: "14px",
+                  lineHeight: 1.6,
+                }}
+              >
+                This is a triage view only. It surfaces existing work that may need attention;
+                it does not change queue status, request ownership, or NXT data.
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {triageQueues.map((queue) => (
+                  <section
+                    key={queue.id}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "16px",
+                      padding: "16px",
+                      backgroundColor: "#FFFFFF",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "12px",
+                      }}
+                    >
+                      <div>
+                        <h2 style={{ margin: 0, fontSize: "18px", color: "#111827" }}>
+                          {queue.title}
+                        </h2>
+                        <p
+                          style={{
+                            margin: "6px 0 0",
+                            color: "#6B7280",
+                            fontSize: "13px",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {queue.description}
+                        </p>
+                      </div>
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          padding: "5px 10px",
+                          borderRadius: "999px",
+                          backgroundColor: queue.items.length ? "#FEF3C7" : "#ECFDF5",
+                          color: queue.items.length ? "#92400E" : "#166534",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {queue.items.length}
+                      </span>
+                    </div>
+
+                    {queue.items.length ? (
+                      <div style={{ display: "grid", gap: "8px", marginTop: "14px" }}>
+                        {queue.items.slice(0, 3).map((item) => (
+                          <div
+                            key={item.id}
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "10px",
+                              backgroundColor: "#F9FAFB",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
+                            <div style={{ color: "#111827", fontSize: "14px", fontWeight: 700 }}>
+                              {item.title}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: "3px",
+                                color: "#6B7280",
+                                fontSize: "12px",
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              {item.detail}
+                            </div>
+                          </div>
+                        ))}
+                        {queue.items.length > 3 ? (
+                          <div style={{ color: "#6B7280", fontSize: "12px", fontWeight: 600 }}>
+                            {queue.items.length - 3} more in this queue
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          marginTop: "14px",
+                          color: "#6B7280",
+                          fontSize: "13px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        Nothing currently needs attention in this queue.
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(queue.tab);
+                        if (queue.filterType === "data") {
+                          setDataRequestFilter(queue.filter);
+                        }
+                        if (queue.filterType === "list") {
+                          setListRequestFilter(queue.filter);
+                        }
+                        if (queue.tab === NXT_EXCEPTIONS_TAB) {
+                          setReviewFilter("All");
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        marginTop: "14px",
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #C7D2FE",
+                        backgroundColor: "#EEF2FF",
+                        color: "#4338CA",
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {queue.actionLabel}
+                    </button>
+                  </section>
+                ))}
+              </div>
+            </div>
+          ) : [DATA_UPDATES_TAB, RESEARCH_TAB].includes(activeTab) ? (
             dataRequestsLoading ? (
               <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
                 Loading {activeTab === RESEARCH_TAB ? "research requests" : "data updates"}...
