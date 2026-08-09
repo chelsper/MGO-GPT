@@ -384,7 +384,16 @@ function getMatchedIndividualValues(match) {
   };
 }
 
-function buildIndividualProfileWrite(input, match) {
+function getFieldDecision(decisions, writeType, field) {
+  const value = decisions?.[writeType]?.[field];
+  return value && typeof value === "object" ? value : {};
+}
+
+function shouldSkipField(decisions, writeType, field) {
+  return getFieldDecision(decisions, writeType, field).mode === "skip";
+}
+
+function buildIndividualProfileWrite(input, match, fieldDecisions = {}) {
   if (!input.individualProfileUpdate || !match) return null;
 
   const current = getMatchedIndividualValues(match);
@@ -392,26 +401,31 @@ function buildIndividualProfileWrite(input, match) {
   const parsedBirthDate = requestedBirthDate ? parseBirthDate(requestedBirthDate) : null;
   const changes = {
     title:
+      !shouldSkipField(fieldDecisions, "constituent_profile", "title") &&
       cleanText(input.individualProfileUpdate.title) &&
       normalizeText(input.individualProfileUpdate.title) !== normalizeText(current.title)
         ? cleanText(input.individualProfileUpdate.title)
         : "",
     gender:
+      !shouldSkipField(fieldDecisions, "constituent_profile", "gender") &&
       cleanText(input.individualProfileUpdate.gender) &&
       normalizeText(input.individualProfileUpdate.gender) !== normalizeText(current.gender)
         ? cleanText(input.individualProfileUpdate.gender)
         : "",
     ethnicity:
+      !shouldSkipField(fieldDecisions, "constituent_profile", "ethnicity") &&
       cleanText(input.individualProfileUpdate.ethnicity) &&
       normalizeText(input.individualProfileUpdate.ethnicity) !== normalizeText(current.ethnicity)
         ? cleanText(input.individualProfileUpdate.ethnicity)
         : "",
     suffix:
+      !shouldSkipField(fieldDecisions, "constituent_profile", "suffix") &&
       cleanText(input.individualProfileUpdate.suffix) &&
       normalizeText(input.individualProfileUpdate.suffix) !== normalizeText(current.suffix)
         ? cleanText(input.individualProfileUpdate.suffix)
         : "",
     birthDate:
+      !shouldSkipField(fieldDecisions, "constituent_profile", "birthDate") &&
       requestedBirthDate &&
       parsedBirthDate &&
       formatBirthDate(parsedBirthDate) !== formatBirthDate(current.birthDate)
@@ -419,7 +433,16 @@ function buildIndividualProfileWrite(input, match) {
         : "",
   };
 
-  if (!Object.values(changes).some(Boolean) && !(requestedBirthDate && !parsedBirthDate)) return null;
+  if (
+    !Object.values(changes).some(Boolean) &&
+    !(
+      requestedBirthDate &&
+      !parsedBirthDate &&
+      !shouldSkipField(fieldDecisions, "constituent_profile", "birthDate")
+    )
+  ) {
+    return null;
+  }
 
   const write = {
     type: "constituent_profile",
@@ -444,11 +467,12 @@ function serializeNameFormat(value) {
   };
 }
 
-function buildNameFormatWrites(input, currentNameFormats) {
+function buildNameFormatWrites(input, currentNameFormats, fieldDecisions = {}) {
   if (!input.nameFormatUpdate) return [];
 
   return ["addressee", "salutation"]
     .map((kind) => {
+      if (shouldSkipField(fieldDecisions, "constituent_name_format", kind)) return null;
       const value = cleanText(input.nameFormatUpdate[kind]);
       if (!value) return null;
       const current = currentNameFormats?.[kind] || { id: "", value: "" };
@@ -472,22 +496,25 @@ function buildNameFormatWrites(input, currentNameFormats) {
     .filter(Boolean);
 }
 
-function buildNameUpdateWrite(input, match) {
+function buildNameUpdateWrite(input, match, fieldDecisions = {}) {
   if (!input.nameUpdate || !match) return null;
 
   const current = getMatchedNameValues(match);
   const changes = {
     firstName:
+      !shouldSkipField(fieldDecisions, "constituent_name", "firstName") &&
       cleanText(input.nameUpdate.firstName) &&
       normalizeText(input.nameUpdate.firstName) !== normalizeText(current.firstName)
         ? cleanText(input.nameUpdate.firstName)
         : "",
     lastName:
+      !shouldSkipField(fieldDecisions, "constituent_name", "lastName") &&
       cleanText(input.nameUpdate.lastName) &&
       normalizeText(input.nameUpdate.lastName) !== normalizeText(current.lastName)
         ? cleanText(input.nameUpdate.lastName)
         : "",
     preferredName:
+      !shouldSkipField(fieldDecisions, "constituent_name", "preferredName") &&
       cleanText(input.nameUpdate.preferredName) &&
       normalizeText(input.nameUpdate.preferredName) !== normalizeText(current.preferredName)
         ? cleanText(input.nameUpdate.preferredName)
@@ -604,6 +631,7 @@ function buildContactWrites({
 
   return values.map((value, index) => {
     const decision = getDecision(decisions, kind, index);
+    if (decision.mode === "skip") return null;
     const action = decision.mode === "replace" ? "replace" : "add";
     const targetId = cleanText(decision.targetId);
     const makePrimary =
@@ -652,7 +680,7 @@ function buildContactWrites({
     }
 
     return write;
-  });
+  }).filter(Boolean);
 }
 
 function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
@@ -965,6 +993,7 @@ function buildWritePlan(
   match = null,
   currentContacts = null,
   contactDecisions = {},
+  fieldDecisions = {},
   currentNameFormats = null,
   currentEducations = null,
 ) {
@@ -996,17 +1025,17 @@ function buildWritePlan(
     writes.push(organizationRelationshipWrite);
   }
 
-  const nameUpdateWrite = buildNameUpdateWrite(input, match);
+  const nameUpdateWrite = buildNameUpdateWrite(input, match, fieldDecisions);
   if (nameUpdateWrite) {
     writes.push(nameUpdateWrite);
   }
 
-  const individualProfileWrite = buildIndividualProfileWrite(input, match);
+  const individualProfileWrite = buildIndividualProfileWrite(input, match, fieldDecisions);
   if (individualProfileWrite) {
     writes.push(individualProfileWrite);
   }
 
-  writes.push(...buildNameFormatWrites(input, currentNameFormats));
+  writes.push(...buildNameFormatWrites(input, currentNameFormats, fieldDecisions));
 
   writes.push(...buildContactUpdateWrites(input, currentContacts, contactDecisions));
 
@@ -1710,6 +1739,10 @@ export async function POST(request) {
       body?.contactDecisions && typeof body.contactDecisions === "object"
         ? body.contactDecisions
         : {};
+    const fieldDecisions =
+      body?.fieldDecisions && typeof body.fieldDecisions === "object"
+        ? body.fieldDecisions
+        : {};
     const useHierarchy = defaults.useHierarchy !== false;
     const importIntent = normalizeImportIntent(defaults.importIntent);
     const saveRun = Boolean(body?.saveRun);
@@ -1844,6 +1877,7 @@ export async function POST(request) {
         matchResult.match,
         currentContacts,
         contactDecisions[String(index + 1)] || {},
+        fieldDecisions[String(index + 1)] || {},
         currentNameFormats,
         currentEducations,
       );
@@ -1938,6 +1972,11 @@ export async function POST(request) {
             }
           : null,
         currentCodes: currentCodes.map((code) => code.label),
+        currentCodeDetails: currentCodes.map((code) => ({
+          label: code.label,
+          startDate: code.startDate || "",
+          endDate: code.endDate || "",
+        })),
         currentContacts,
         currentNameFormats,
         currentEducations: currentEducations.map(serializeEducation),

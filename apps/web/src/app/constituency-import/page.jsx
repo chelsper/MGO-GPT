@@ -1119,6 +1119,14 @@ function getContactDecision(decisions, rowNumber, kind, index) {
   return decisions?.[String(rowNumber)]?.[kind]?.[String(index)] || {};
 }
 
+function getPreviewFieldDecision(decisions, rowNumber, writeType, field) {
+  return decisions?.[String(rowNumber)]?.[writeType]?.[field] || {};
+}
+
+function formatConstituencyDate(value) {
+  return value ? formatBirthDateForDisplay(value) || value : "Not set";
+}
+
 function getContactValue(contact, kind) {
   if (kind === "email") return contact?.address || "";
   if (kind === "phone") return contact?.number || "";
@@ -1213,7 +1221,7 @@ function ContactReviewPanel({ row, decisions, onDecisionChange }) {
 
             {section.values.map((incoming, index) => {
               const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
-              const mode = decision.mode === "replace" ? "replace" : "add";
+              const mode = decision.mode === "replace" ? "replace" : decision.mode === "skip" ? "skip" : "add";
               const selectedTarget = section.contacts.find((contact) => contact.id === decision.targetId) || null;
               const makePrimary =
                 mode === "add" &&
@@ -1260,10 +1268,15 @@ function ContactReviewPanel({ row, decisions, onDecisionChange }) {
                     >
                       <option value="add">Add as an additional {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"}</option>
                       <option value="replace" disabled={!section.contacts.length}>Replace a selected current NXT value</option>
+                      <option value="skip">Take no action (leave NXT unchanged)</option>
                     </select>
                   </label>
 
-                  {mode === "replace" ? (
+                  {mode === "skip" ? (
+                    <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                      This CSV value will be ignored. No {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"} write will be sent to NXT.
+                    </div>
+                  ) : mode === "replace" ? (
                     <>
                       <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
                         Replace which current NXT value?
@@ -1340,6 +1353,54 @@ function ContactReviewPanel({ row, decisions, onDecisionChange }) {
         );
       })}
     </section>
+  );
+}
+
+function FieldReviewCard({
+  rowNumber,
+  writeType,
+  field,
+  label,
+  current,
+  proposed,
+  decisions,
+  onDecisionChange,
+}) {
+  const decision = getPreviewFieldDecision(decisions, rowNumber, writeType, field);
+  const mode = decision.mode === "skip" ? "skip" : "apply";
+
+  return (
+    <div
+      style={{
+        border: "1px solid #BFDBFE",
+        borderRadius: "10px",
+        backgroundColor: "white",
+        padding: "9px",
+        display: "grid",
+        gap: "7px",
+      }}
+    >
+      <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ color: "#475569", fontSize: "13px" }}>Current: {current || "Not set"}</div>
+      <div style={{ color: "#0F172A", fontWeight: 900 }}>CSV: {proposed}</div>
+      <label style={{ display: "grid", gap: "4px", color: "#334155", fontSize: "13px", fontWeight: 800 }}>
+        Review action
+        <select
+          name={`field-action-${rowNumber}-${writeType}-${field}`}
+          value={mode}
+          onChange={(event) => onDecisionChange(rowNumber, writeType, field, { mode: event.target.value })}
+          style={{ border: "1px solid #93C5FD", borderRadius: "8px", backgroundColor: "white", padding: "8px 9px", color: "#111827" }}
+        >
+          <option value="apply">Update NXT from CSV</option>
+          <option value="skip">Take no action (leave NXT unchanged)</option>
+        </select>
+      </label>
+      {mode === "skip" ? (
+        <div style={{ color: "#1D4ED8", fontSize: "12px", lineHeight: 1.35 }}>
+          This value will not be included in the NXT write plan.
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1784,6 +1845,8 @@ export default function ConstituencyImportPage() {
   const [updateAddressFields, setUpdateAddressFields] = useState(false);
   const [contactDecisions, setContactDecisions] = useState({});
   const [contactDecisionsDirty, setContactDecisionsDirty] = useState(false);
+  const [fieldDecisions, setFieldDecisions] = useState({});
+  const [fieldDecisionsDirty, setFieldDecisionsDirty] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
@@ -2238,6 +2301,27 @@ export default function ConstituencyImportPage() {
       };
     });
     setContactDecisionsDirty(true);
+    setSaveMessage("");
+  }
+
+  function updateFieldDecision(rowNumber, writeType, field, change) {
+    setFieldDecisions((current) => {
+      const rowKey = String(rowNumber);
+      return {
+        ...current,
+        [rowKey]: {
+          ...(current[rowKey] || {}),
+          [writeType]: {
+            ...(current[rowKey]?.[writeType] || {}),
+            [field]: {
+              ...(current[rowKey]?.[writeType]?.[field] || {}),
+              ...change,
+            },
+          },
+        },
+      };
+    });
+    setFieldDecisionsDirty(true);
     setSaveMessage("");
   }
 
@@ -2847,6 +2931,7 @@ export default function ConstituencyImportPage() {
             updateAddressFields,
           },
           contactDecisions,
+          fieldDecisions,
           sourceFilename,
           saveRun,
         }),
@@ -2861,6 +2946,7 @@ export default function ConstituencyImportPage() {
       setReviewMode(Boolean(payload?.savedRun));
       setShowBatchTools(false);
       setContactDecisionsDirty(false);
+      setFieldDecisionsDirty(false);
       setEditingPreviewRowNumber(null);
       setEditingRowDraft({});
       setTableSuggestions({});
@@ -4387,7 +4473,7 @@ export default function ConstituencyImportPage() {
 
           {preview?.rows?.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
-              {contactDecisionsDirty ? (
+              {contactDecisionsDirty || fieldDecisionsDirty ? (
                 <button
                   type="button"
                   onClick={() => requestPreview()}
@@ -4402,27 +4488,27 @@ export default function ConstituencyImportPage() {
                     cursor: previewing ? "not-allowed" : "pointer",
                   }}
                 >
-                  {previewing ? "Refreshing contact plan..." : "Refresh contact plan"}
+                  {previewing ? "Refreshing review plan..." : "Refresh review plan"}
                 </button>
               ) : null}
               <button
                 type="button"
                 onClick={() => requestPreview({ saveRun: true })}
-                disabled={savingRun || contactDecisionsDirty}
+                disabled={savingRun || contactDecisionsDirty || fieldDecisionsDirty}
                 style={{
                   border: "1px solid #A7F3D0",
                   borderRadius: "14px",
-                  backgroundColor: savingRun || contactDecisionsDirty ? "#E5E7EB" : "#ECFDF5",
-                  color: savingRun || contactDecisionsDirty ? "#64748B" : "#047857",
+                  backgroundColor: savingRun || contactDecisionsDirty || fieldDecisionsDirty ? "#E5E7EB" : "#ECFDF5",
+                  color: savingRun || contactDecisionsDirty || fieldDecisionsDirty ? "#64748B" : "#047857",
                   padding: "12px 16px",
                   fontWeight: 900,
-                  cursor: savingRun || contactDecisionsDirty ? "not-allowed" : "pointer",
+                  cursor: savingRun || contactDecisionsDirty || fieldDecisionsDirty ? "not-allowed" : "pointer",
                 }}
               >
                 {savingRun
                   ? "Saving reviewed import..."
-                  : contactDecisionsDirty
-                    ? "Refresh contact plan before saving"
+                  : contactDecisionsDirty || fieldDecisionsDirty
+                    ? "Refresh review plan before saving"
                     : "Save reviewed import"}
               </button>
               <button
@@ -4447,7 +4533,7 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
-          {contactDecisionsDirty ? (
+          {contactDecisionsDirty || fieldDecisionsDirty ? (
             <div
               style={{
                 border: "1px solid #C7D2FE",
@@ -4459,7 +4545,7 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Contact choices changed. Refresh the preview to rebuild the exact NXT write plan before saving this run.
+              Review choices changed. Refresh the preview to rebuild the exact NXT write plan before saving this run.
             </div>
           ) : null}
 
@@ -4752,6 +4838,9 @@ export default function ConstituencyImportPage() {
             <div style={{ display: "grid", gap: "12px" }}>
               {visiblePreviewRows.map((row) => {
                 const colors = statusTone(row.status);
+                const nameWrites = (row.writePlan || []).filter(
+                  (write) => write.type === "constituent_name",
+                );
                 const profileWrites = (row.writePlan || []).filter(
                   (write) => write.type === "constituent_profile",
                 );
@@ -4993,7 +5082,20 @@ export default function ConstituencyImportPage() {
                           Current NXT constituencies
                         </div>
                         <div style={{ marginTop: "6px", color: "#111827" }}>
-                          {renderList(row.currentCodes)}
+                          {row.currentCodeDetails?.length ? (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {row.currentCodeDetails.map((code, index) => (
+                                <div key={`${code.label}-${index}`} style={{ lineHeight: 1.35 }}>
+                                  <strong>{code.label}</strong>
+                                  <div style={{ color: "#64748B", fontSize: "13px" }}>
+                                    Start: {formatConstituencyDate(code.startDate)} · End: {code.endDate ? formatConstituencyDate(code.endDate) : "Active"}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            renderList(row.currentCodes)
+                          )}
                         </div>
                       </div>
                       <div>
@@ -5006,7 +5108,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
-                    {profileWrites.length || nameFormatWrites.length ? (
+                    {nameWrites.length || profileWrites.length || nameFormatWrites.length ? (
                       <section
                         style={{
                           border: "1px solid #BFDBFE",
@@ -5018,51 +5120,84 @@ export default function ConstituencyImportPage() {
                         }}
                       >
                         <div style={{ color: "#1D4ED8", fontWeight: 900 }}>
-                          Individual and name-format review
+                          Name, profile, and format review
                         </div>
+                        {nameWrites.map((write, index) => (
+                          <div
+                            key={`name-${index}`}
+                            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "8px" }}
+                          >
+                            {[
+                              ["firstName", "First Name", write.current?.firstName, write.firstName],
+                              ["lastName", "Last Name", write.current?.lastName, write.lastName],
+                              ["preferredName", "Preferred Name", write.current?.preferredName, write.preferredName],
+                            ]
+                              .filter(([, , , proposed]) => proposed)
+                              .map(([field, label, current, proposed]) => (
+                                <FieldReviewCard
+                                  key={field}
+                                  rowNumber={row.rowNumber}
+                                  writeType="constituent_name"
+                                  field={field}
+                                  label={label}
+                                  current={current}
+                                  proposed={proposed}
+                                  decisions={fieldDecisions}
+                                  onDecisionChange={updateFieldDecision}
+                                />
+                              ))}
+                          </div>
+                        ))}
                         {profileWrites.map((write, index) => (
                           <div
                             key={`profile-${index}`}
                             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}
                           >
                             {[
-                              ["Title", write.current?.title, write.title],
-                              ["Gender", write.current?.gender, write.gender],
-                              ["Ethnicity", write.current?.ethnicity, write.ethnicity],
-                              ["Birth Date", write.current?.birthDate, write.birthDate],
-                              ["Suffix", write.current?.suffix, write.suffix],
+                              ["title", "Title", write.current?.title, write.title],
+                              ["gender", "Gender", write.current?.gender, write.gender],
+                              ["ethnicity", "Ethnicity", write.current?.ethnicity, write.ethnicity],
+                              ["birthDate", "Birth Date", write.current?.birthDate, write.birthDate],
+                              ["suffix", "Suffix", write.current?.suffix, write.suffix],
                             ]
-                              .filter(([, , proposed]) => proposed)
-                              .map(([label, current, proposed]) => {
+                              .filter(([, , , proposed]) => proposed)
+                              .map(([field, label, current, proposed]) => {
                                 const displayCurrent =
-                                  label === "Birth Date"
+                                  field === "birthDate"
                                     ? formatBirthDateForDisplay(current)
                                     : current;
                                 const displayProposed =
-                                  label === "Birth Date"
+                                  field === "birthDate"
                                     ? formatBirthDateForDisplay(proposed)
                                     : proposed;
                                 return (
-                                <div key={label} style={{ border: "1px solid #BFDBFE", borderRadius: "10px", backgroundColor: "white", padding: "9px" }}>
-                                  <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
-                                  <div style={{ marginTop: "4px", color: "#475569", fontSize: "13px" }}>Current: {displayCurrent || "Not set"}</div>
-                                  <div style={{ marginTop: "3px", color: "#0F172A", fontWeight: 900 }}>CSV: {displayProposed}</div>
-                                </div>
+                                  <FieldReviewCard
+                                    key={field}
+                                    rowNumber={row.rowNumber}
+                                    writeType="constituent_profile"
+                                    field={field}
+                                    label={label}
+                                    current={displayCurrent}
+                                    proposed={displayProposed}
+                                    decisions={fieldDecisions}
+                                    onDecisionChange={updateFieldDecision}
+                                  />
                                 );
                               })}
                           </div>
                         ))}
                         {nameFormatWrites.map((write, index) => (
-                          <div
+                          <FieldReviewCard
                             key={`name-format-${index}`}
-                            style={{ border: "1px solid #BFDBFE", borderRadius: "10px", backgroundColor: "white", padding: "9px" }}
-                          >
-                            <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>
-                              Primary {write.kind === "salutation" ? "salutation" : "addressee"}
-                            </div>
-                            <div style={{ marginTop: "4px", color: "#475569", fontSize: "13px" }}>Current: {write.currentValue || "Not set"}</div>
-                            <div style={{ marginTop: "3px", color: "#0F172A", fontWeight: 900 }}>Proposed: {write.value}</div>
-                          </div>
+                            rowNumber={row.rowNumber}
+                            writeType="constituent_name_format"
+                            field={write.kind}
+                            label={`Primary ${write.kind === "salutation" ? "salutation" : "addressee"}`}
+                            current={write.currentValue}
+                            proposed={write.value}
+                            decisions={fieldDecisions}
+                            onDecisionChange={updateFieldDecision}
+                          />
                         ))}
                       </section>
                     ) : null}

@@ -139,7 +139,10 @@ describe("constituency import preview route", () => {
       email: "jane@example.com",
     });
     blackbaudApiFetchMock.mockResolvedValue({
-      value: [{ description: "Student" }, { description: "Friend" }],
+      value: [
+        { description: "Student", date_from: "2020-08-15", date_to: "2024-05-04" },
+        { description: "Friend" },
+      ],
     });
 
     const response = await POST(
@@ -163,6 +166,10 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].status).toBe("Ready");
     expect(payload.rows[0].matchMethod).toBe("NXT system ID");
     expect(payload.rows[0].currentCodes).toEqual(["Student", "Friend"]);
+    expect(payload.rows[0].currentCodeDetails).toEqual([
+      { label: "Student", startDate: "2020-08-15", endDate: "2024-05-04" },
+      { label: "Friend", startDate: "", endDate: "" },
+    ]);
     expect(payload.rows[0].proposedCodes).toEqual([
       "Alumni - Bachelor's Degree",
       "Friend",
@@ -505,6 +512,79 @@ describe("constituency import preview route", () => {
         makePrimary: false,
       }),
     ]);
+  });
+
+  it("omits a contact write when the reviewer selects take no action", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Email Address": "chelsea.updated@example.com",
+            "Email Type": "Preferred Email 1",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          email: "Email Address",
+          emailType: "Email Type",
+        },
+        defaults: { updateEmailFields: true },
+        contactDecisions: {
+          1: {
+            email: {
+              0: { mode: "skip" },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Skipped");
+    expect(payload.rows[0].writePlan).toEqual([]);
+  });
+
+  it("omits an individual text update when the reviewer selects take no action", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "A123",
+      name: "Jane Dolphin",
+      raw: { type: "Individual", title: "Ms." },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123", Title: "Dr." }],
+        mappings: { blackbaudConstituentId: "NXT ID", title: "Title" },
+        defaults: { updateIndividualProfileFields: true },
+        fieldDecisions: {
+          1: {
+            constituent_profile: {
+              title: { mode: "skip" },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Skipped");
+    expect(payload.rows[0].writePlan).toEqual([]);
   });
 
   it("holds ID-less name and address matches for review", async () => {
