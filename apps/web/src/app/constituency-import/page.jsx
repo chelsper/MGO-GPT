@@ -2080,6 +2080,17 @@ function getRowReviewRequirements(row) {
   return [...new Set(reasons)];
 }
 
+function getRowReviewTargetKey(requirements) {
+  const requirementText = requirements.join(" ").toLowerCase();
+  if (requirementText.includes("education class year")) return "education-class-year";
+  if (requirementText.includes("education")) return "education-target";
+  if (/email|phone|address/.test(requirementText)) return "contact-review";
+  if (/first name|last name|preferred name|title|gender|ethnicity|birth date|suffix|addressee|salutation/.test(requirementText)) {
+    return "profile-review";
+  }
+  return "review-summary";
+}
+
 function getReviewQueueRows(rows) {
   return Array.isArray(rows) ? rows.filter(isUnresolvedImportRow) : [];
 }
@@ -2341,6 +2352,7 @@ export default function ConstituencyImportPage() {
   const importRows = Array.isArray(preview?.rows) ? preview.rows : [];
   const reviewQueueRows = preview?.savedRun ? getReviewQueueRows(importRows) : [];
   const reviewNavigationRows = reviewQueueRows.length ? reviewQueueRows : importRows;
+  const rowsNeedingAttention = reviewQueueRows.filter((row) => row.status !== "Ready").length;
   const focusedReviewRow =
     reviewNavigationRows.find((row) => String(row.id) === String(focusedRowId)) ||
     reviewNavigationRows[0] ||
@@ -2790,6 +2802,13 @@ export default function ConstituencyImportPage() {
       document
         .getElementById("constituency-import-current-row")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function focusRowReviewTarget(row, targetKey) {
+    const targetId = `constituency-import-row-${row.id}-${targetKey}`;
+    window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 0);
   }
 
@@ -5052,8 +5071,8 @@ export default function ConstituencyImportPage() {
                       ? `${readySavedRows} reviewed update${readySavedRows === 1 ? " is" : "s are"} ready to send to Raiser's Edge NXT. Open a record below to send it now, or use batch actions to send several together.`
                       : appliedReconciliationRows.length
                         ? `All reviewed updates from this run have been imported to Raiser's Edge NXT.`
-                        : reviewQueueRows.length
-                          ? `${reviewQueueRows.length} record${reviewQueueRows.length === 1 ? " needs" : "s need"} review before anything can be sent to NXT. Open the highlighted record below to see what is blocking it.`
+                        : rowsNeedingAttention
+                          ? `${rowsNeedingAttention} record${rowsNeedingAttention === 1 ? " needs" : "s need"} attention before anything can be sent to NXT. Open the highlighted record below to resolve the required review.`
                           : "No reviewed updates are ready to send from this run."}
                     {potentialNewRows
                       ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} separate individual review below.`
@@ -5317,12 +5336,16 @@ export default function ConstituencyImportPage() {
                   !preview?.savedRun && (contactDecisionsDirty || fieldDecisionsDirty),
                 );
                 const reviewRequirements = getRowReviewRequirements(row);
+                const reviewTargetKey = getRowReviewTargetKey(reviewRequirements);
+                const reviewTargetId = `constituency-import-row-${row.id}-${reviewTargetKey}`;
                 const canVerifyRow = Boolean(
                   preview?.savedRun &&
                     row.status === "Applied" &&
                     row.appliedAt &&
                     !row.blackbaudResult?.reconciliation?.verifiedAt,
                 );
+                const rowReadyToSend = canApplyRow || canDirectSendPreviewRow;
+                const rowNeedsReviewAction = !rowReadyToSend && !canVerifyRow;
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
                 const isFocusedRow = String(row.id) === String(focusedReviewRow?.id);
                 const isEditingThisRow =
@@ -5342,6 +5365,7 @@ export default function ConstituencyImportPage() {
                     }}
                   >
                     <div
+                      id={`constituency-import-row-${row.id}-review-summary`}
                       style={{
                         display: "flex",
                         alignItems: "start",
@@ -5452,141 +5476,6 @@ export default function ConstituencyImportPage() {
                       />
                     ) : null}
 
-                    {preview?.savedRun ? (
-                      <section
-                        style={{
-                          border: "1px solid #C7D2FE",
-                          borderRadius: "12px",
-                          backgroundColor: "#F5F3FF",
-                          padding: "12px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div style={{ display: "grid", gap: "3px" }}>
-                          <div style={{ color: "#3730A3", fontWeight: 900 }}>Send this record to NXT</div>
-                          <div style={{ color: "#4F46E5", fontSize: "14px", lineHeight: 1.4 }}>
-                            This updates only this record. Its NXT result and verification remain in import run #{preview.savedRun.id}.
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          {canApplyRow ? (
-                            <button
-                              type="button"
-                              onClick={() => applySingleRow(row)}
-                              disabled={applyingRun}
-                              style={{
-                                border: "1px solid #047857",
-                                borderRadius: "999px",
-                                backgroundColor: applyingRun ? "#D1FAE5" : "#047857",
-                                color: applyingRun ? "#047857" : "white",
-                                padding: "9px 14px",
-                                fontWeight: 900,
-                                cursor: applyingRun ? "not-allowed" : "pointer",
-                              }}
-                            >
-                              {applyingRun ? "Sending to NXT..." : "Confirm and send to NXT"}
-                            </button>
-                          ) : null}
-                          {canVerifyRow ? (
-                            <button
-                              type="button"
-                              onClick={() => reconcileSingleRow(row)}
-                              disabled={reconcilingRun}
-                              style={{
-                                border: "1px solid #0369A1",
-                                borderRadius: "999px",
-                                backgroundColor: reconcilingRun ? "#E0F2FE" : "#0369A1",
-                                color: reconcilingRun ? "#0369A1" : "white",
-                                padding: "9px 14px",
-                                fontWeight: 900,
-                                cursor: reconcilingRun ? "not-allowed" : "pointer",
-                              }}
-                            >
-                              {reconcilingRun ? "Verifying NXT..." : "Verify this record in NXT"}
-                            </button>
-                          ) : null}
-                          {!canApplyRow && !canVerifyRow ? (
-                            <div style={{ display: "grid", gap: "5px", color: "#92400E", fontSize: "14px", fontWeight: 800, maxWidth: "650px" }}>
-                              <span>
-                                {row.status === "Failed"
-                                  ? "Resolve or retry the failed write below."
-                                  : row.intentDisposition?.key === "potential_new"
-                                    ? "Review the new-record decision below."
-                                    : "This record cannot be sent until the required review is resolved."}
-                              </span>
-                              {reviewRequirements.slice(0, 3).map((requirement) => (
-                                <span key={requirement} style={{ fontWeight: 700 }}>
-                                  - {requirement}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </section>
-                    ) : !isEditingThisRow ? (
-                      <section
-                        style={{
-                          border: "1px solid #C7D2FE",
-                          borderRadius: "12px",
-                          backgroundColor: "#F5F3FF",
-                          padding: "12px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div style={{ display: "grid", gap: "3px" }}>
-                          <div style={{ color: "#3730A3", fontWeight: 900 }}>Review and send this record</div>
-                          <div style={{ color: "#4F46E5", fontSize: "14px", lineHeight: 1.4, maxWidth: "700px" }}>
-                            Confirming saves an auditable import run and sends only this row to NXT. The rest of the CSV remains available for later review or a batch import.
-                          </div>
-                        </div>
-                        {canDirectSendPreviewRow ? (
-                          <button
-                            type="button"
-                            onClick={() => confirmAndSendPreviewRow(row)}
-                            disabled={Boolean(directSendingRowNumber) || savingRun || applyingRun}
-                            style={{
-                              border: "1px solid #047857",
-                              borderRadius: "999px",
-                              backgroundColor: directSendingRowNumber ? "#D1FAE5" : "#047857",
-                              color: directSendingRowNumber ? "#047857" : "white",
-                              padding: "9px 14px",
-                              fontWeight: 900,
-                              cursor: directSendingRowNumber || savingRun || applyingRun ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            {Number(directSendingRowNumber) === Number(row.rowNumber)
-                              ? "Saving review and sending..."
-                              : "Confirm and send to NXT"}
-                          </button>
-                        ) : (
-                          <div style={{ display: "grid", gap: "5px", color: "#92400E", fontSize: "14px", fontWeight: 800, maxWidth: "650px" }}>
-                            <span>
-                              {needsFreshPreview
-                                ? "Refresh the review plan after changing a decision before this row can be sent."
-                                : row.status === "Ready"
-                                  ? "Finish editing this CSV row before confirming the NXT write."
-                                  : row.intentDisposition?.key === "potential_new"
-                                    ? "Review the new-record decision below before this row can be sent."
-                                    : "Resolve the required review below before this row can be sent."}
-                            </span>
-                            {reviewRequirements.slice(0, 3).map((requirement) => (
-                              <span key={requirement} style={{ fontWeight: 700 }}>
-                                - {requirement}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    ) : null}
-
                     <div
                       style={{
                         display: "grid",
@@ -5636,6 +5525,7 @@ export default function ConstituencyImportPage() {
 
                     {nameWrites.length || profileWrites.length || nameFormatWrites.length ? (
                       <section
+                        id={`constituency-import-row-${row.id}-profile-review`}
                         style={{
                           border: "1px solid #BFDBFE",
                           borderRadius: "12px",
@@ -5728,39 +5618,46 @@ export default function ConstituencyImportPage() {
                       </section>
                     ) : null}
 
-                    <ContactReviewPanel
-                      row={row}
-                      decisions={contactDecisions}
-                      onDecisionChange={updateContactDecision}
-                      onSectionDecisionChange={updateContactSectionDecision}
-                    />
+                    <div id={`constituency-import-row-${row.id}-contact-review`}>
+                      <ContactReviewPanel
+                        row={row}
+                        decisions={contactDecisions}
+                        onDecisionChange={updateContactDecision}
+                        onSectionDecisionChange={updateContactSectionDecision}
+                      />
+                    </div>
 
                     {preview?.savedRun ? (
-                      <EducationClassYearReviewPanel
-                        row={row}
-                        draftValue={
-                          educationClassYearDrafts[String(row.id)] ??
-                          String(getEducationClassYearReviewWrite(row)?.classYear || "")
-                        }
-                        saving={savingEducationClassYearRowId === String(row.id)}
-                        onDraftChange={updateEducationClassYearDraft}
-                        onSave={saveEducationClassYear}
-                      />
+                      <div id={`constituency-import-row-${row.id}-education-class-year`}>
+                        <EducationClassYearReviewPanel
+                          row={row}
+                          draftValue={
+                            educationClassYearDrafts[String(row.id)] ??
+                            String(getEducationClassYearReviewWrite(row)?.classYear || "")
+                          }
+                          saving={savingEducationClassYearRowId === String(row.id)}
+                          onDraftChange={updateEducationClassYearDraft}
+                          onSave={saveEducationClassYear}
+                        />
+                      </div>
                     ) : null}
 
                     {preview?.savedRun ? (
-                      <EducationTargetReviewPanel
-                        row={row}
-                        candidates={educationCandidatesByRowId[String(row.id)]}
-                        loading={loadingEducationCandidateRowId === String(row.id)}
-                        saving={savingEducationTargetRowId === String(row.id)}
-                        onLoadCandidates={loadEducationCandidates}
-                        onSelectCandidate={selectEducationTarget}
-                      />
+                      <div id={`constituency-import-row-${row.id}-education-target`}>
+                        <EducationTargetReviewPanel
+                          row={row}
+                          candidates={educationCandidatesByRowId[String(row.id)]}
+                          loading={loadingEducationCandidateRowId === String(row.id)}
+                          saving={savingEducationTargetRowId === String(row.id)}
+                          onLoadCandidates={loadEducationCandidates}
+                          onSelectCandidate={selectEducationTarget}
+                        />
+                      </div>
                     ) : null}
 
                     {row.writePlan?.length ? (
                       <div
+                        id={`constituency-import-row-${row.id}-staged-writes`}
                         style={{
                           border: "1px solid #C7D2FE",
                           borderRadius: "12px",
@@ -5794,12 +5691,26 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {!isEditingThisRow && (canApplyRow || canDirectSendPreviewRow) ? (
+                    {!isEditingThisRow ? (
                       <section
                         style={{
-                          border: "1px solid #6EE7B7",
+                          border: `1px solid ${
+                            rowReadyToSend
+                              ? "#6EE7B7"
+                              : canVerifyRow
+                                ? "#7DD3FC"
+                                : row.status === "Failed"
+                                  ? "#FCA5A5"
+                                  : "#FCD34D"
+                          }`,
                           borderRadius: "12px",
-                          backgroundColor: "#F0FDF4",
+                          backgroundColor: rowReadyToSend
+                            ? "#F0FDF4"
+                            : canVerifyRow
+                              ? "#F0F9FF"
+                              : row.status === "Failed"
+                                ? "#FFF7ED"
+                                : "#FFFBEB",
                           padding: "12px",
                           display: "flex",
                           alignItems: "center",
@@ -5808,47 +5719,137 @@ export default function ConstituencyImportPage() {
                           flexWrap: "wrap",
                         }}
                       >
-                        <div style={{ display: "grid", gap: "3px", color: "#166534" }}>
-                          <strong>Reviewed this record?</strong>
-                          <span style={{ fontSize: "14px", lineHeight: 1.4 }}>
-                            {preview?.savedRun
-                              ? `Send only this record to NXT. Its outcome stays in import run #${preview.savedRun.id}.`
-                              : "Confirming saves the audit run, then sends only this reviewed record to NXT."}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            preview?.savedRun
-                              ? applySingleRow(row)
-                              : confirmAndSendPreviewRow(row)
-                          }
-                          disabled={Boolean(directSendingRowNumber) || savingRun || applyingRun}
+                        <div
                           style={{
-                            border: "1px solid #047857",
-                            borderRadius: "999px",
-                            backgroundColor:
-                              directSendingRowNumber || savingRun || applyingRun
-                                ? "#D1FAE5"
-                                : "#047857",
-                            color:
-                              directSendingRowNumber || savingRun || applyingRun
-                                ? "#047857"
-                                : "white",
-                            padding: "9px 14px",
-                            fontWeight: 900,
-                            cursor:
-                              directSendingRowNumber || savingRun || applyingRun
-                                ? "not-allowed"
-                                : "pointer",
+                            display: "grid",
+                            gap: "5px",
+                            color: rowReadyToSend
+                              ? "#166534"
+                              : canVerifyRow
+                                ? "#075985"
+                                : row.status === "Failed"
+                                  ? "#9A3412"
+                                  : "#92400E",
                           }}
                         >
-                          {Number(directSendingRowNumber) === Number(row.rowNumber)
-                            ? "Saving review and sending..."
-                            : applyingRun
-                              ? "Sending to NXT..."
-                              : "Confirm and send to NXT"}
-                        </button>
+                          <strong>
+                            {rowReadyToSend
+                              ? "Review complete: ready to send"
+                              : canVerifyRow
+                                ? "NXT update complete"
+                                : row.status === "Failed"
+                                  ? "NXT write needs attention"
+                                  : needsFreshPreview
+                                    ? "Review choices changed"
+                                    : "Action required before this record can be sent"}
+                          </strong>
+                          <span style={{ fontSize: "14px", lineHeight: 1.4 }}>
+                            {rowReadyToSend
+                              ? preview?.savedRun
+                                ? `Send only this record to NXT. Its outcome stays in import run #${preview.savedRun.id}.`
+                                : "Confirming saves the audit run, then sends only this reviewed record to NXT."
+                              : canVerifyRow
+                                ? "The NXT write is recorded in this import run. Recheck this record only if you want an immediate verification result."
+                                : row.status === "Failed"
+                                  ? "Review the failed-write result below before retrying the affected NXT changes."
+                                  : needsFreshPreview
+                                    ? "Refresh the review plan after changing a contact or profile decision, then confirm the refreshed row."
+                                    : "Resolve the required review below before sending this record to NXT."}
+                          </span>
+                          {rowNeedsReviewAction &&
+                          row.status !== "Failed" &&
+                          reviewRequirements.length ? (
+                            <span style={{ fontSize: "13px", lineHeight: 1.4 }}>
+                              {reviewRequirements.slice(0, 3).join(" ")}
+                            </span>
+                          ) : null}
+                        </div>
+                        {rowReadyToSend ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              preview?.savedRun
+                                ? applySingleRow(row)
+                                : confirmAndSendPreviewRow(row)
+                            }
+                            disabled={Boolean(directSendingRowNumber) || savingRun || applyingRun}
+                            style={{
+                              border: "1px solid #047857",
+                              borderRadius: "999px",
+                              backgroundColor:
+                                directSendingRowNumber || savingRun || applyingRun
+                                  ? "#D1FAE5"
+                                  : "#047857",
+                              color:
+                                directSendingRowNumber || savingRun || applyingRun
+                                  ? "#047857"
+                                  : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor:
+                                directSendingRowNumber || savingRun || applyingRun
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            {Number(directSendingRowNumber) === Number(row.rowNumber)
+                              ? "Saving review and sending..."
+                              : applyingRun
+                                ? "Sending to NXT..."
+                                : "Confirm and send to NXT"}
+                          </button>
+                        ) : canVerifyRow ? (
+                          <button
+                            type="button"
+                            onClick={() => reconcileSingleRow(row)}
+                            disabled={reconcilingRun}
+                            style={{
+                              border: "1px solid #0369A1",
+                              borderRadius: "999px",
+                              backgroundColor: reconcilingRun ? "#E0F2FE" : "#0369A1",
+                              color: reconcilingRun ? "#075985" : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: reconcilingRun ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {reconcilingRun ? "Verifying NXT..." : "Verify this record in NXT"}
+                          </button>
+                        ) : needsFreshPreview ? (
+                          <button
+                            type="button"
+                            onClick={requestPreview}
+                            disabled={previewing}
+                            style={{
+                              border: "1px solid #B45309",
+                              borderRadius: "999px",
+                              backgroundColor: previewing ? "#FEF3C7" : "#B45309",
+                              color: previewing ? "#92400E" : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: previewing ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {previewing ? "Refreshing review plan..." : "Refresh review plan"}
+                          </button>
+                        ) : rowNeedsReviewAction && row.status !== "Failed" ? (
+                          <button
+                            type="button"
+                            aria-controls={reviewTargetId}
+                            onClick={() => focusRowReviewTarget(row, reviewTargetKey)}
+                            style={{
+                              border: "1px solid #B45309",
+                              borderRadius: "999px",
+                              backgroundColor: "white",
+                              color: "#92400E",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Go to required review
+                          </button>
+                        ) : null}
                       </section>
                     ) : null}
 
