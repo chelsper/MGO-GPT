@@ -47,8 +47,10 @@ export async function GET(request) {
     const canSeedBootstrapAdmin =
       isBootstrapAdminEmail(workspaceUser?.email) &&
       Boolean(workspaceUser?.blackbaud_constituent_id);
+    const portfolioSyncEligible =
+      workspaceUser?.role === "mgo" || canSeedBootstrapAdmin;
 
-    if (shouldBootstrapPortfolio && (workspaceUser?.role === "mgo" || canSeedBootstrapAdmin)) {
+    if (shouldBootstrapPortfolio && portfolioSyncEligible) {
       const hasBlackbaudConnection = await getValidBlackbaudConnection(authUserId, origin).catch(
         () => null,
       );
@@ -96,9 +98,28 @@ export async function GET(request) {
           `
         )[0] || workspaceUser;
 
+    const accountRows = await sql`
+      SELECT DISTINCT a.provider
+      FROM auth_accounts a
+      INNER JOIN auth_users au ON au.id = a."userId"
+      WHERE au.email = ${session.user.email}
+    `;
+    const providers = accountRows
+      .map((account) => String(account.provider || "").trim())
+      .filter(Boolean);
+    const isSsoManaged = providers.some((provider) => provider !== "credentials");
+    const canManageDirectAccount = providers.includes("credentials") && !isSsoManaged;
+
     const response = Response.json({
       user: refreshedUser[0] || user,
       workspaceUser: refreshedWorkspaceUser,
+      authentication: {
+        providers,
+        isSsoManaged,
+        canEditProfile: canManageDirectAccount,
+        canChangePassword: canManageDirectAccount,
+      },
+      portfolioSyncEligible,
       portfolioSync,
       actingAsUser: context.isActing
         ? {
@@ -135,6 +156,26 @@ export async function PATCH(request) {
     const session = await auth();
     if (!session || !session.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const accountRows = await sql`
+      SELECT DISTINCT a.provider
+      FROM auth_accounts a
+      INNER JOIN auth_users au ON au.id = a."userId"
+      WHERE au.email = ${session.user.email}
+    `;
+    const isSsoManaged = accountRows.some(
+      (account) => String(account.provider || "").trim() !== "credentials",
+    );
+
+    if (isSsoManaged) {
+      return Response.json(
+        {
+          error:
+            "This profile is managed by your single sign-on provider. Update your account details through Jacksonville University Okta.",
+        },
+        { status: 403 },
+      );
     }
 
     const body = await request.json();

@@ -42,14 +42,29 @@ export async function POST(request) {
 
     const authUser = users[0];
     const accounts = await sql`
-      SELECT id, password
+      SELECT id, provider, password
       FROM auth_accounts
       WHERE "userId" = ${authUser.id}
-        AND provider = 'credentials'
-      LIMIT 1
     `;
+    const isSsoManaged = accounts.some(
+      (account) => String(account.provider || "").trim() !== "credentials",
+    );
 
-    if (accounts.length === 0 || !accounts[0].password) {
+    if (isSsoManaged) {
+      return Response.json(
+        {
+          error:
+            "This password is managed by your single sign-on provider. Update it through Jacksonville University Okta.",
+        },
+        { status: 403 },
+      );
+    }
+
+    const credentialsAccount = accounts.find(
+      (account) => account.provider === "credentials",
+    );
+
+    if (!credentialsAccount?.password) {
       return Response.json(
         { error: "This account does not support password changes." },
         { status: 400 },
@@ -57,7 +72,7 @@ export async function POST(request) {
     }
 
     const { verify, hash } = await import("argon2");
-    const isValid = await verify(accounts[0].password, currentPassword);
+    const isValid = await verify(credentialsAccount.password, currentPassword);
     if (!isValid) {
       return Response.json(
         { error: "Current password is incorrect." },
@@ -69,7 +84,7 @@ export async function POST(request) {
     await sql`
       UPDATE auth_accounts
       SET password = ${hashedPassword}
-      WHERE id = ${accounts[0].id}
+      WHERE id = ${credentialsAccount.id}
     `;
 
     return Response.json({ success: true });

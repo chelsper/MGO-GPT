@@ -167,12 +167,6 @@ const ADMIN_WORKSPACE_ITEMS = [
     description: "Manage workspace users, roles, invitations, and access.",
   },
   {
-    label: "Workspace Settings",
-    href: "/settings",
-    section: "Admin & Workspace",
-    description: "Review account settings and workspace-level admin controls.",
-  },
-  {
     label: "Giving Societies",
     href: "/organization-configurations",
     section: "Admin & Workspace",
@@ -863,7 +857,7 @@ export default function Page() {
                   }}
                 >
                   <Settings size={16} color="#6B7280" />
-                  Settings
+                  My Account &amp; Connections
                 </a>
 
                 <a
