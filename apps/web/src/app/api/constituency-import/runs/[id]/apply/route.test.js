@@ -1076,7 +1076,7 @@ describe("constituency import run apply route", () => {
     expect(payload.applySummary.manualRequired).toBe(1);
   });
 
-  it("adds a new education relationship after rechecking NXT for duplicates", async () => {
+  it("adds a new education relationship with a configured two-digit class year", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "education_relationship",
@@ -1090,7 +1090,7 @@ describe("constituency import run apply route", () => {
       campus: "Main Campus",
       fraternitySorority: "Alpha Delta Pi",
       gpa: "3.8",
-      classYear: "2026",
+      classYear: "26",
       status: "Graduated",
       dateGraduated: "05/01/2026",
       dateEntered: "08/15/2022",
@@ -1152,7 +1152,7 @@ describe("constituency import run apply route", () => {
         campus: "Main Campus",
         social_organization: "Alpha Delta Pi",
         gpa: 3.8,
-        class_of: 2026,
+        class_of: 26,
         status: "Graduated",
         date_graduated: { y: 2026, m: 5, d: 1 },
         date_entered: { y: 2022, m: 8, d: 15 },

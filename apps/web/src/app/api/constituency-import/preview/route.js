@@ -1044,9 +1044,9 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
     write.validationMessage = "Education imports require a confirmed matched individual NXT constituent.";
     return write;
   }
-  if (write.classYear && !/^\d{4}$/.test(write.classYear)) {
+  if (write.classYear && !/^\d{2}(\d{2})?$/.test(write.classYear)) {
     write.requiresReview = true;
-    write.validationMessage = "Education Class Year must be a four-digit year before it can be imported.";
+    write.validationMessage = "Education Class Year must use either two or four digits before it can be imported.";
     return write;
   }
   if (write.gpa && (!Number.isFinite(Number(write.gpa)) || Number(write.gpa) < 0)) {
@@ -1678,7 +1678,7 @@ function classifyImportRow(importIntent, matchResult, status) {
     message:
       status === STATUS.ready
         ? "An existing NXT record was confirmed and the requested update is ready for the guarded apply step."
-        : "This row requires an existing NXT match before it can be updated.",
+        : "An existing NXT record was confirmed, but a staged change needs review before it can be updated.",
   };
 }
 

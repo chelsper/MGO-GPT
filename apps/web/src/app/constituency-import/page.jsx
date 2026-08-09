@@ -1722,6 +1722,96 @@ function EducationTargetReviewPanel({
   );
 }
 
+function getEducationClassYearReviewWrite(row) {
+  return (row?.writePlan || []).find(
+    (item) =>
+      item?.type === "education_relationship" &&
+      item?.requiresReview &&
+      /Education Class Year must .*digits before it can be imported\./i.test(
+        String(item?.validationMessage || ""),
+      ),
+  );
+}
+
+function EducationClassYearReviewPanel({
+  row,
+  draftValue,
+  saving,
+  onDraftChange,
+  onSave,
+}) {
+  const write = getEducationClassYearReviewWrite(row);
+  if (!write) return null;
+
+  const validClassYear = /^\d{2}(\d{2})?$/.test(String(draftValue || "").trim());
+
+  return (
+    <section
+      style={{
+        border: "1px solid #FCD34D",
+        borderRadius: "14px",
+        backgroundColor: "#FFFBEB",
+        padding: "14px",
+        display: "grid",
+        gap: "11px",
+      }}
+    >
+      <div>
+        <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Education class year review
+        </div>
+        <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
+          Your NXT configuration accepts both two- and four-digit class years. Confirm the CSV value
+          below to clear this older preview warning. This records the review decision only; it does
+          not write to NXT until you send the record.
+        </p>
+      </div>
+
+      <label style={{ display: "grid", gap: "6px", color: "#78350F", fontWeight: 900 }}>
+        Confirm class year
+        <input
+          name={`education-class-year-${row.id}`}
+          value={draftValue}
+          inputMode="numeric"
+          pattern="[0-9]{2}([0-9]{2})?"
+          minLength={2}
+          maxLength={4}
+          placeholder="26 or 2026"
+          onChange={(event) => onDraftChange(row, event.target.value)}
+          disabled={saving}
+          style={{
+            maxWidth: "220px",
+            border: "1px solid #F59E0B",
+            borderRadius: "8px",
+            backgroundColor: "white",
+            padding: "9px 10px",
+            color: "#111827",
+            fontWeight: 800,
+          }}
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={() => onSave(row, draftValue)}
+        disabled={saving || !validClassYear}
+        style={{
+          width: "fit-content",
+          border: "1px solid #B45309",
+          borderRadius: "999px",
+          backgroundColor: saving || !validClassYear ? "#FEF3C7" : "#B45309",
+          color: saving || !validClassYear ? "#92400E" : "white",
+          padding: "9px 14px",
+          fontWeight: 900,
+          cursor: saving || !validClassYear ? "not-allowed" : "pointer",
+        }}
+      >
+        {saving ? "Saving review..." : "Save review and unlock NXT send"}
+      </button>
+    </section>
+  );
+}
+
 function HeaderCode({ children }) {
   return (
     <code
@@ -2060,6 +2150,8 @@ export default function ConstituencyImportPage() {
   const [educationCandidatesByRowId, setEducationCandidatesByRowId] = useState({});
   const [loadingEducationCandidateRowId, setLoadingEducationCandidateRowId] = useState("");
   const [savingEducationTargetRowId, setSavingEducationTargetRowId] = useState("");
+  const [educationClassYearDrafts, setEducationClassYearDrafts] = useState({});
+  const [savingEducationClassYearRowId, setSavingEducationClassYearRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -2555,6 +2647,7 @@ export default function ConstituencyImportPage() {
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
     setTableSuggestions({});
+    setEducationClassYearDrafts({});
     setLoadingSuggestionFieldKey("");
     setContactDecisions({});
     setContactDecisionsDirty(false);
@@ -2609,6 +2702,7 @@ export default function ConstituencyImportPage() {
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
     setTableSuggestions({});
+    setEducationClassYearDrafts({});
     setLoadingSuggestionFieldKey("");
     setShowBatchTools(false);
     setReviewMode(true);
@@ -2664,6 +2758,7 @@ export default function ConstituencyImportPage() {
       setEditingRowDraft({});
       setTableSuggestions({});
       setEducationCandidatesByRowId({});
+      setEducationClassYearDrafts({});
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
       setError(
@@ -3001,6 +3096,62 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setSavingEducationTargetRowId("");
+    }
+  }
+
+  function updateEducationClassYearDraft(row, value) {
+    if (!row?.id) return;
+    setEducationClassYearDrafts((current) => ({
+      ...current,
+      [String(row.id)]: String(value || ""),
+    }));
+  }
+
+  async function saveEducationClassYear(row, classYear) {
+    const runId = preview?.savedRun?.id;
+    const normalizedClassYear = String(classYear || "").trim();
+    if (
+      !runId ||
+      !row?.id ||
+      !/^\d{2}(\d{2})?$/.test(normalizedClassYear) ||
+      savingEducationClassYearRowId
+    ) {
+      return;
+    }
+
+    setSavingEducationClassYearRowId(String(row.id));
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/education-class-year`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ classYear: normalizedClassYear }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not save the Education Class Year review.");
+      }
+
+      setEducationClassYearDrafts((current) => {
+        const next = { ...current };
+        delete next[String(row.id)];
+        return next;
+      });
+      await loadSavedRun(runId);
+      setSaveMessage(payload?.message || "Saved the Education Class Year review.");
+      fetchSavedRuns();
+    } catch (classYearError) {
+      setError(
+        classYearError instanceof Error
+          ? classYearError.message
+          : "Could not save the Education Class Year review.",
+      );
+    } finally {
+      setSavingEducationClassYearRowId("");
     }
   }
 
@@ -5583,6 +5734,19 @@ export default function ConstituencyImportPage() {
                       onDecisionChange={updateContactDecision}
                       onSectionDecisionChange={updateContactSectionDecision}
                     />
+
+                    {preview?.savedRun ? (
+                      <EducationClassYearReviewPanel
+                        row={row}
+                        draftValue={
+                          educationClassYearDrafts[String(row.id)] ??
+                          String(getEducationClassYearReviewWrite(row)?.classYear || "")
+                        }
+                        saving={savingEducationClassYearRowId === String(row.id)}
+                        onDraftChange={updateEducationClassYearDraft}
+                        onSave={saveEducationClassYear}
+                      />
+                    ) : null}
 
                     {preview?.savedRun ? (
                       <EducationTargetReviewPanel

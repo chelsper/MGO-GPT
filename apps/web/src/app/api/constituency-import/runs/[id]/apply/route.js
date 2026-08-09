@@ -613,10 +613,10 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
       "Education imports require a confirmed matched individual NXT constituent. Refresh the preview before applying.",
     );
   }
-  if (classYear && !/^\d{4}$/.test(classYear)) {
+  if (classYear && !/^\d{2}(\d{2})?$/.test(classYear)) {
     return manualEducationResult(
       action,
-      "Education Class Year must be a four-digit year before it can be imported.",
+      "Education Class Year must use either two or four digits before it can be imported.",
     );
   }
   if (gpa && (!Number.isFinite(Number(gpa)) || Number(gpa) < 0)) {
