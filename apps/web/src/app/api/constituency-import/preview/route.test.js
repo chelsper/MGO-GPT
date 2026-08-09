@@ -176,6 +176,31 @@ describe("constituency import preview route", () => {
     ]);
   });
 
+  it("serializes partial NXT constituency dates for the preview", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "A123",
+      name: "Jane Dolphin",
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [{ description: "Student", date_from: { y: 2020 }, date_to: { y: 2024, m: 5 } }],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123", "Current Constituency": "Student", "New Constituency": "Alumni - Bachelor's Degree" }],
+        mappings,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].currentCodeDetails).toEqual([
+      { label: "Student", startDate: "2020", endDate: "2024-05" },
+    ]);
+  });
+
   it("previews the minimal uploaded CSV headers used by the import screen", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

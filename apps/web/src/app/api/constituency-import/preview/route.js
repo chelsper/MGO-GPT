@@ -136,6 +136,33 @@ function formatBirthDate(value) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+// NXT can return partial dates such as { y: 2026 } for constituency history.
+// Keep them as scalar display values in preview payloads so React never receives
+// a structured date object as a child.
+function formatPreviewDate(value) {
+  if (!value) return "";
+  if (typeof value !== "object") return cleanText(value);
+
+  const nestedValue =
+    value.date ||
+    value.value ||
+    value.date_value ||
+    value.formatted_value ||
+    value.formatted ||
+    value.iso ||
+    value.text;
+  if (nestedValue && nestedValue !== value) return formatPreviewDate(nestedValue);
+
+  const year = Number(value.y ?? value.year);
+  const month = Number(value.m ?? value.month);
+  const day = Number(value.d ?? value.day);
+  if (year && month && day) {
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+  if (year && month) return `${year}-${String(month).padStart(2, "0")}`;
+  return year ? String(year) : "";
+}
+
 function formatEducationDate(value) {
   const source = typeof value === "object" ? formatBirthDate(value) : cleanText(value);
   const parsed = parseBirthDate(source);
@@ -2098,8 +2125,8 @@ export async function POST(request) {
         currentCodes: currentCodes.map((code) => code.label),
         currentCodeDetails: currentCodes.map((code) => ({
           label: code.label,
-          startDate: code.startDate || "",
-          endDate: code.endDate || "",
+          startDate: formatPreviewDate(code.startDate),
+          endDate: formatPreviewDate(code.endDate),
         })),
         currentContacts,
         currentNameFormats,

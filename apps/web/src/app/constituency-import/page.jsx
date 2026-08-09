@@ -922,6 +922,8 @@ function getDateText(value) {
   if (year && month && day) {
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
+  if (year && month) return `${year}-${String(month).padStart(2, "0")}`;
+  if (year) return String(year);
 
   return "";
 }
@@ -1152,7 +1154,25 @@ function getPreviewFieldDecision(decisions, rowNumber, writeType, field) {
 }
 
 function formatConstituencyDate(value) {
-  return value ? formatBirthDateForDisplay(value) || value : "Not set";
+  return value ? formatBirthDateForDisplay(value) || getDateText(value) || "Not set" : "Not set";
+}
+
+function getDisplayText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "object") return String(value).trim();
+
+  return (
+    getDateText(value) ||
+    getDisplayText(
+      value.name ||
+        value.description ||
+        value.label ||
+        value.value ||
+        value.text ||
+        value.formatted_value ||
+        value.formatted,
+    )
+  );
 }
 
 function getContactValue(contact, kind) {
@@ -1513,6 +1533,8 @@ function FieldReviewCard({
 }) {
   const decision = getPreviewFieldDecision(decisions, rowNumber, writeType, field);
   const mode = decision.mode === "skip" ? "skip" : "apply";
+  const currentText = getDisplayText(current);
+  const proposedText = getDisplayText(proposed);
 
   return (
     <div
@@ -1526,8 +1548,8 @@ function FieldReviewCard({
       }}
     >
       <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
-      <div style={{ color: "#475569", fontSize: "13px" }}>Current: {current || "Not set"}</div>
-      <div style={{ color: "#0F172A", fontWeight: 900 }}>CSV: {proposed}</div>
+      <div style={{ color: "#475569", fontSize: "13px" }}>Current: {currentText || "Not set"}</div>
+      <div style={{ color: "#0F172A", fontWeight: 900 }}>CSV: {proposedText || "Not set"}</div>
       <label style={{ display: "grid", gap: "4px", color: "#334155", fontSize: "13px", fontWeight: 800 }}>
         Review action
         <select
