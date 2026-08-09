@@ -1550,18 +1550,43 @@ function FieldReviewCard({
       <div style={{ color: "#64748B", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
       <div style={{ color: "#475569", fontSize: "13px" }}>Current: {currentText || "Not set"}</div>
       <div style={{ color: "#0F172A", fontWeight: 900 }}>CSV: {proposedText || "Not set"}</div>
-      <label style={{ display: "grid", gap: "4px", color: "#334155", fontSize: "13px", fontWeight: 800 }}>
-        Review action
-        <select
-          name={`field-action-${rowNumber}-${writeType}-${field}`}
-          value={mode}
-          onChange={(event) => onDecisionChange(rowNumber, writeType, field, { mode: event.target.value })}
-          style={{ border: "1px solid #93C5FD", borderRadius: "8px", backgroundColor: "white", padding: "8px 9px", color: "#111827" }}
-        >
-          <option value="apply">Update NXT from CSV</option>
-          <option value="skip">Take no action (leave NXT unchanged)</option>
-        </select>
-      </label>
+      <div style={{ display: "grid", gap: "6px", color: "#334155", fontSize: "13px", fontWeight: 800 }}>
+        <span>Choose a review action</span>
+        <div role="group" aria-label={`Review ${label}`} style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          <button
+            type="button"
+            aria-pressed={mode === "apply"}
+            onClick={() => onDecisionChange(rowNumber, writeType, field, { mode: "apply" })}
+            style={{
+              border: "1px solid #2563EB",
+              borderRadius: "999px",
+              backgroundColor: mode === "apply" ? "#2563EB" : "white",
+              color: mode === "apply" ? "white" : "#1D4ED8",
+              padding: "8px 11px",
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            Use CSV value
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "skip"}
+            onClick={() => onDecisionChange(rowNumber, writeType, field, { mode: "skip" })}
+            style={{
+              border: "1px solid #94A3B8",
+              borderRadius: "999px",
+              backgroundColor: mode === "skip" ? "#E2E8F0" : "white",
+              color: "#334155",
+              padding: "8px 11px",
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            Keep NXT value
+          </button>
+        </div>
+      </div>
       {mode === "skip" ? (
         <div style={{ color: "#1D4ED8", fontSize: "12px", lineHeight: 1.35 }}>
           This value will not be included in the NXT write plan.
@@ -2353,6 +2378,15 @@ export default function ConstituencyImportPage() {
   const reviewQueueRows = preview?.savedRun ? getReviewQueueRows(importRows) : [];
   const reviewNavigationRows = reviewQueueRows.length ? reviewQueueRows : importRows;
   const rowsNeedingAttention = reviewQueueRows.filter((row) => row.status !== "Ready").length;
+  const progressReviewRows = preview?.savedRun
+    ? reviewQueueRows
+    : importRows.filter(isUnresolvedImportRow);
+  const progressRowsNeedingAttention = progressReviewRows.filter(
+    (row) => row.status !== "Ready",
+  ).length;
+  const verifiedReconciliationRows = appliedReconciliationRows.filter(
+    (row) => row.blackbaudResult?.reconciliation?.verifiedAt,
+  );
   const focusedReviewRow =
     reviewNavigationRows.find((row) => String(row.id) === String(focusedRowId)) ||
     reviewNavigationRows[0] ||
@@ -2362,6 +2396,14 @@ export default function ConstituencyImportPage() {
     : -1;
   const visiblePreviewRows =
     preview?.savedRun && reviewMode && focusedReviewRow ? [focusedReviewRow] : importRows;
+  const readyProgressRows = preview?.savedRun
+    ? readySavedRows
+    : Number(preview?.summary?.ready || 0);
+  const nextProgressRow =
+    progressReviewRows.find((row) => row.status !== "Ready") ||
+    readyApplyRows[0] ||
+    reviewNavigationRows[0] ||
+    null;
 
   useEffect(() => {
     if (loading) return;
@@ -4912,6 +4954,112 @@ export default function ConstituencyImportPage() {
               </div>
             ))}
           </div>
+
+          {preview?.rows?.length ? (
+            <section
+              aria-label="Import progress"
+              style={{
+                position: "sticky",
+                top: "12px",
+                zIndex: 20,
+                border: "1px solid #C7D2FE",
+                borderRadius: "16px",
+                backgroundColor: "#F8FAFF",
+                boxShadow: "0 10px 26px rgba(30, 64, 175, 0.12)",
+                padding: "14px",
+                display: "grid",
+                gap: "12px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "12px", flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gap: "3px" }}>
+                  <div style={{ color: "#1E3A8A", fontSize: "14px", fontWeight: 900 }}>
+                    Import progress
+                  </div>
+                  <div style={{ color: "#475569", fontSize: "13px", lineHeight: 1.4 }}>
+                    {preview?.savedRun
+                      ? `Import run #${preview.savedRun.id}. Confirm a record only after its review choices are correct.`
+                      : "This is a draft preview. Nothing has been written to Raiser's Edge NXT."}
+                  </div>
+                </div>
+                {focusedReviewRow ? (
+                  <div style={{ color: "#3730A3", fontSize: "13px", fontWeight: 900 }}>
+                    Current: {focusedReviewRowIndex + 1} of {reviewNavigationRows.length}
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: "8px" }}>
+                {[
+                  ["Needs action", progressRowsNeedingAttention, "#92400E", "#FFFBEB"],
+                  ["Ready", readyProgressRows, "#047857", "#ECFDF5"],
+                  ["Imported", appliedReconciliationRows.length, "#1D4ED8", "#EFF6FF"],
+                  ["Verified", verifiedReconciliationRows.length, "#4338CA", "#EEF2FF"],
+                ].map(([label, value, color, backgroundColor]) => (
+                  <div
+                    key={label}
+                    style={{
+                      border: `1px solid ${color}33`,
+                      borderRadius: "10px",
+                      backgroundColor,
+                      color,
+                      padding: "8px 10px",
+                    }}
+                  >
+                    <div style={{ fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>{label}</div>
+                    <div style={{ marginTop: "2px", fontSize: "20px", fontWeight: 900 }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                {preview?.savedRun ? (
+                  <button
+                    type="button"
+                    onClick={() => focusImportRow(nextProgressRow?.id)}
+                    disabled={!nextProgressRow}
+                    style={{
+                      border: "1px solid #1D4ED8",
+                      borderRadius: "999px",
+                      backgroundColor: nextProgressRow ? "#1D4ED8" : "#DBEAFE",
+                      color: nextProgressRow ? "white" : "#1E40AF",
+                      padding: "9px 14px",
+                      fontWeight: 900,
+                      cursor: nextProgressRow ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    {progressRowsNeedingAttention
+                      ? "Review required record"
+                      : readyProgressRows
+                        ? "Open next ready record"
+                        : "Open import records"}
+                  </button>
+                ) : null}
+                {preview?.savedRun ? (
+                  <button
+                    type="button"
+                    onClick={() => setReviewMode((current) => !current)}
+                    style={{
+                      border: "1px solid #C7D2FE",
+                      borderRadius: "999px",
+                      backgroundColor: "white",
+                      color: "#4338CA",
+                      padding: "9px 14px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {reviewMode ? "Show all records" : "Review one record"}
+                  </button>
+                ) : null}
+                <span style={{ color: "#64748B", fontSize: "12px", lineHeight: 1.35 }}>
+                  {preview?.savedRun
+                    ? "No NXT changes are made until you use Confirm and send to NXT."
+                    : "Review the draft below, then use Confirm and send to NXT or save the run for batch work."}
+                </span>
+              </div>
+            </section>
+          ) : null}
 
           {preview?.rows?.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
