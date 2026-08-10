@@ -393,10 +393,102 @@ export async function PATCH(request) {
 
 export async function DELETE(request) {
   try {
-    const { error } = await requireAdminSession();
+    const { user: currentUser, error } = await requireAdminSession();
     if (error) return error;
 
     const url = new URL(request.url);
+    const userId = Number(url.searchParams.get("userId"));
+    if (Number.isInteger(userId) && userId > 0) {
+      const targetUsers = await sql`
+        SELECT id, name, email, active
+        FROM users
+        WHERE id = ${userId}
+        LIMIT 1
+      `;
+      const targetUser = targetUsers[0];
+
+      if (!targetUser) {
+        return Response.json({ error: "App user not found" }, { status: 404 });
+      }
+
+      if (Number(targetUser.id) === Number(currentUser.id)) {
+        return Response.json(
+          { error: "You cannot delete your own app account." },
+          { status: 403 },
+        );
+      }
+
+      if (targetUser.active) {
+        return Response.json(
+          { error: "Deactivate this app account before deleting it." },
+          { status: 400 },
+        );
+      }
+
+      const bootstrapEmails = getBootstrapAdminEmails().map((email) => normalizeEmail(email));
+      if (bootstrapEmails.includes(normalizeEmail(targetUser.email))) {
+        return Response.json(
+          { error: "Bootstrap administrator accounts cannot be deleted." },
+          { status: 403 },
+        );
+      }
+
+      const dependencyRows = await sql`
+        SELECT
+          (SELECT COUNT(*) FROM constituents WHERE user_id = ${userId}) AS constituents,
+          (SELECT COUNT(*) FROM submissions WHERE user_id = ${userId} OR reviewed_by = ${userId}) AS submissions,
+          (SELECT COUNT(*) FROM list_requests WHERE user_id = ${userId} OR reviewed_by = ${userId}) AS list_requests,
+          (SELECT COUNT(*) FROM prospect_pool WHERE assigned_user_id = ${userId} OR created_by = ${userId} OR assignment_updated_by = ${userId}) AS prospect_pool,
+          (SELECT COUNT(*) FROM data_change_requests WHERE requester_user_id = ${userId} OR owner_user_id = ${userId} OR reviewed_by = ${userId}) AS data_change_requests,
+          (SELECT COUNT(*) FROM prospect_pool_assignment_audits WHERE assigned_to_user_id = ${userId} OR assigned_by_user_id = ${userId}) AS assignment_audits,
+          (SELECT COUNT(*) FROM prospects WHERE user_id = ${userId}) AS prospects,
+          (SELECT COUNT(*) FROM pending_actions WHERE owner_user_id = ${userId}) AS pending_actions,
+          (SELECT COUNT(*) FROM discussion_items WHERE owner_user_id = ${userId} OR created_by = ${userId} OR assigned_user_id = ${userId}) AS discussion_items,
+          (SELECT COUNT(*) FROM discussion_item_participants WHERE user_id = ${userId}) AS discussion_participation,
+          (SELECT COUNT(*) FROM prospect_opportunity_gift_links WHERE created_by = ${userId}) AS opportunity_gift_links,
+          (SELECT COUNT(*) FROM constituency_import_runs WHERE created_by_user_id = ${userId} OR workspace_user_id = ${userId}) AS import_runs,
+          (SELECT COUNT(*) FROM constituency_import_rows WHERE create_approved_by_user_id = ${userId}) AS import_rows,
+          (SELECT COUNT(*) FROM knowledge_base_article_overrides WHERE owner_user_id = ${userId} OR reviewer_user_id = ${userId} OR created_by = ${userId} OR updated_by = ${userId}) AS knowledge_articles,
+          (SELECT COUNT(*) FROM knowledge_base_article_revisions WHERE created_by = ${userId}) AS knowledge_revisions,
+          (SELECT COUNT(*) FROM giving_society_configurations WHERE created_by = ${userId} OR updated_by = ${userId}) AS giving_societies,
+          (SELECT COUNT(*) FROM blackbaud_field_mappings WHERE reviewed_by = ${userId} OR updated_by = ${userId}) AS field_mappings
+      `;
+      const dependencies = Object.entries(dependencyRows[0] || {})
+        .filter(([, count]) => Number(count) > 0)
+        .map(([name, count]) => ({ name, count: Number(count) }));
+
+      if (dependencies.length > 0) {
+        return Response.json(
+          {
+            error:
+              "This inactive app account has app work or audit history and cannot be deleted. Keep it inactive instead.",
+            dependencies,
+          },
+          { status: 409 },
+        );
+      }
+
+      await sql`
+        DELETE FROM user_invitations
+        WHERE LOWER(email) = LOWER(${targetUser.email})
+      `;
+      const deletedUsers = await sql`
+        DELETE FROM users
+        WHERE id = ${userId}
+          AND active = FALSE
+        RETURNING id, name, email
+      `;
+
+      if (deletedUsers.length === 0) {
+        return Response.json(
+          { error: "App user could not be deleted. Refresh and try again." },
+          { status: 409 },
+        );
+      }
+
+      return Response.json({ success: true, user: deletedUsers[0] });
+    }
+
     const id = Number(url.searchParams.get("id"));
     if (!Number.isInteger(id) || id <= 0) {
       return Response.json({ error: "Invitation id is required" }, { status: 400 });

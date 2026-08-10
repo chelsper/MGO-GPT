@@ -171,6 +171,8 @@ export default function AccessManagementPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState(null);
+  const [deletingUserId, setDeletingUserId] = useState(null);
+  const [userStatusView, setUserStatusView] = useState("active");
   const [revokingInvitationId, setRevokingInvitationId] = useState(null);
   const [resendingInvitationId, setResendingInvitationId] = useState(null);
   const [editingUserId, setEditingUserId] = useState(null);
@@ -366,15 +368,27 @@ export default function AccessManagementPage() {
     [invitations],
   );
 
+  const activeUsers = useMemo(
+    () => users.filter((user) => user.active),
+    [users],
+  );
+
+  const inactiveUsers = useMemo(
+    () => users.filter((user) => !user.active),
+    [users],
+  );
+
+  const visibleUsers = userStatusView === "inactive" ? inactiveUsers : activeUsers;
+
   const mgoReadiness = useMemo(
     () =>
-      users
+      activeUsers
         .filter((user) => user.role === "mgo")
         .map((user) => ({
           user,
           readiness: getMgoReadiness(user),
         })),
-    [users],
+    [activeUsers],
   );
 
   const readinessCounts = useMemo(
@@ -703,6 +717,46 @@ export default function AccessManagementPage() {
     }
   }
 
+  async function handleDeleteInactiveUser(user) {
+    if (user.active) return;
+
+    const displayName = user.name || user.email || `User ${user.id}`;
+    const confirmed = window.confirm(
+      `Delete ${displayName} from JUMGOGPT?\n\n` +
+        "This permanently deletes only the inactive app account and its stored app connection. " +
+        "It does not delete or change a Blackbaud/NXT constituent record. " +
+        "Deletion is blocked if this account has any app work or audit history.",
+    );
+    if (!confirmed) return;
+
+    setDeletingUserId(user.id);
+    setStatusMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/access?userId=${user.id}`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to delete inactive app user");
+      }
+
+      setUsers((current) => current.filter((entry) => entry.id !== user.id));
+      setEditingUserId((current) => (current === user.id ? null : current));
+      setStatusMessage(`${displayName} was deleted from JUMGOGPT. No NXT record was changed.`);
+      setToast({ tone: "success", message: `${displayName} was deleted from JUMGOGPT.` });
+      await loadAccessState();
+    } catch (err) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : "Failed to delete inactive app user";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setDeletingUserId(null);
+    }
+  }
+
   if (loading || !sessionUser || profileLoading) {
     return (
       <div
@@ -894,7 +948,7 @@ export default function AccessManagementPage() {
                 MGO readiness
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.5 }}>
-                Confirm each MGO has app access, a linked NXT record, their own Blackbaud connection, required scopes, and a clean portfolio sync state.
+                Confirm each active MGO has app access, a linked NXT record, their own Blackbaud connection, required scopes, and a clean portfolio sync state.
               </p>
             </div>
             <button
@@ -923,7 +977,7 @@ export default function AccessManagementPage() {
             }}
           >
             {[
-              ["Total MGOs", readinessCounts.total],
+              ["Active MGOs", readinessCounts.total],
               ["Ready", readinessCounts.ready],
               ["Pending sync", readinessCounts.pending],
               ["Needs attention", readinessCounts.needsAttention],
@@ -1254,11 +1308,59 @@ export default function AccessManagementPage() {
         </form>
 
         <div style={cardStyle}>
-          <h2 style={{ margin: "0 0 16px", fontSize: "18px", color: "#111827" }}>
-            Active users
-          </h2>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "14px",
+              flexWrap: "wrap",
+              marginBottom: "16px",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, fontSize: "18px", color: "#111827" }}>
+                App users
+              </h2>
+              <p style={{ margin: "6px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.5 }}>
+                Active users can sign in. Inactive accounts are retained for history and can be safely removed only when they have no app work or audit records.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {[
+                ["active", `Active (${activeUsers.length})`],
+                ["inactive", `Inactive (${inactiveUsers.length})`],
+              ].map(([value, label]) => {
+                const selected = userStatusView === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setUserStatusView(value)}
+                    aria-pressed={selected}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "999px",
+                      border: selected ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+                      backgroundColor: selected ? "#EEF2FF" : "white",
+                      color: selected ? "#4338CA" : "#374151",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {visibleUsers.length === 0 ? (
+            <div style={{ color: "#6B7280", fontSize: "14px" }}>
+              {userStatusView === "inactive" ? "No inactive app users." : "No active app users."}
+            </div>
+          ) : (
           <div style={{ display: "grid", gap: "12px" }}>
-            {users.map((user) => {
+            {visibleUsers.map((user) => {
               const normalizedUserEmail = String(user.email || "").trim().toLowerCase();
               const isBootstrapAdmin =
                 bootstrapAdminEmails.includes(normalizedUserEmail) ||
@@ -1366,6 +1468,24 @@ export default function AccessManagementPage() {
                         >
                           {editingUserId === user.id ? "Close edit" : "Edit"}
                         </button>
+                        {!user.active && !isBootstrapAdmin && user.id !== profile?.id ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteInactiveUser(user)}
+                            disabled={deletingUserId === user.id}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid #FCA5A5",
+                              backgroundColor: "white",
+                              color: "#B91C1C",
+                              fontWeight: 700,
+                              cursor: deletingUserId === user.id ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {deletingUserId === user.id ? "Deleting..." : "Delete app user"}
+                          </button>
+                        ) : null}
                         {isBootstrapAdmin ? null : (
                           <button
                             type="button"
@@ -1555,6 +1675,7 @@ export default function AccessManagementPage() {
               );
             })}
           </div>
+          )}
         </div>
 
         <div style={cardStyle}>
