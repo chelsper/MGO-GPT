@@ -1345,7 +1345,7 @@ export default function ProspectPoolPage() {
         ) : null}
 
         <a
-          href="/my-top-prospects"
+          href={isReviewer ? "/" : "/my-top-prospects"}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -1358,7 +1358,7 @@ export default function ProspectPoolPage() {
           }}
         >
           <ArrowLeft size={16} />
-          Back to My Prospects
+          {isReviewer ? "Return to Advancement Services" : "Back to My Prospects"}
         </a>
 
         {!isReviewer ? (
