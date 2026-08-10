@@ -2473,6 +2473,7 @@ export default function ConstituencyImportPage() {
   const [reconcilingRun, setReconcilingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
   const [retryingRowId, setRetryingRowId] = useState("");
+  const [skippingRowId, setSkippingRowId] = useState("");
   const [editingPreviewRowNumber, setEditingPreviewRowNumber] = useState(null);
   const [editingRowDraft, setEditingRowDraft] = useState({});
   const [tableSuggestions, setTableSuggestions] = useState({});
@@ -3843,6 +3844,66 @@ export default function ConstituencyImportPage() {
       setError(retryError instanceof Error ? retryError.message : "Failed to retry the NXT write");
     } finally {
       setRetryingRowId("");
+    }
+  }
+
+  async function updateImportRowSkipState(row, action) {
+    if (!row || skippingRowId || savingRun || previewing) return;
+
+    const isRestore = action === "restore";
+    const displayName = row.input?.constituentName || "this record";
+    const approved = window.confirm(
+      isRestore
+        ? `Restore ${displayName} to this import review? No Raiser's Edge NXT data will be changed.`
+        : `Skip ${displayName} from this import run? No Raiser's Edge NXT data will be changed or deleted. You can restore the row later from this import run.`,
+    );
+    if (!approved) return;
+
+    setSkippingRowId(String(row.id || row.rowNumber));
+    setError("");
+    setSaveMessage("");
+
+    try {
+      let runId = preview?.savedRun?.id;
+      let savedRow = row;
+      if (!runId) {
+        const savedPayload = await requestPreview({ saveRun: true, scrollToResults: false });
+        runId = savedPayload?.savedRun?.id;
+        savedRow = findSavedRow(savedPayload, row);
+      }
+
+      if (!runId || !savedRow?.id) {
+        throw new Error("The import run could not be saved. Please try again before skipping this record.");
+      }
+
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(savedRow.id)}/skip`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: isRestore ? "restore" : "skip" }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to update the import row");
+      }
+
+      const refreshedPayload = await loadSavedRun(runId);
+      if (!refreshedPayload) {
+        throw new Error("The row was updated, but the import run could not be refreshed.");
+      }
+      if (!isRestore) {
+        focusNextUnresolvedRow(refreshedPayload.rows, savedRow.id);
+      } else {
+        focusImportRow(savedRow.id);
+      }
+      setSaveMessage(payload?.message || "Updated this import row.");
+      fetchSavedRuns();
+    } catch (skipError) {
+      setError(skipError instanceof Error ? skipError.message : "Failed to update the import row");
+    } finally {
+      setSkippingRowId("");
     }
   }
 
@@ -5975,8 +6036,15 @@ export default function ConstituencyImportPage() {
                     row.appliedAt &&
                     !row.blackbaudResult?.reconciliation?.verifiedAt,
                 );
+                const isSkippedRow = row.status === "Skipped";
+                const isManuallySkipped = Boolean(
+                  isSkippedRow && row.blackbaudResult?.type === "import_row_skipped",
+                );
+                const canSkipRow = ["Ready", "Needs Review", "Conflict"].includes(row.status);
+                const isSkippingThisRow =
+                  skippingRowId === String(row.id || row.rowNumber);
                 const rowReadyToSend = canApplyRow || canDirectSendPreviewRow;
-                const rowNeedsReviewAction = !rowReadyToSend && !canVerifyRow;
+                const rowNeedsReviewAction = !rowReadyToSend && !canVerifyRow && !isSkippedRow;
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
                 const isFocusedRow = String(row.id) === String(focusedReviewRow?.id);
                 const isEditingThisRow =
@@ -6345,6 +6413,8 @@ export default function ConstituencyImportPage() {
                               ? "#6EE7B7"
                               : canVerifyRow
                                 ? "#7DD3FC"
+                                : isSkippedRow
+                                  ? "#CBD5E1"
                                 : row.status === "Failed"
                                   ? "#FCA5A5"
                                   : "#FCD34D"
@@ -6354,6 +6424,8 @@ export default function ConstituencyImportPage() {
                             ? "#F0FDF4"
                             : canVerifyRow
                               ? "#F0F9FF"
+                              : isSkippedRow
+                                ? "#F8FAFC"
                               : row.status === "Failed"
                                 ? "#FFF7ED"
                                 : "#FFFBEB",
@@ -6373,6 +6445,8 @@ export default function ConstituencyImportPage() {
                               ? "#166534"
                               : canVerifyRow
                                 ? "#075985"
+                                : isSkippedRow
+                                  ? "#475569"
                                 : row.status === "Failed"
                                   ? "#9A3412"
                                   : "#92400E",
@@ -6383,6 +6457,8 @@ export default function ConstituencyImportPage() {
                               ? "Review complete: ready to send"
                               : canVerifyRow
                                 ? "NXT update complete"
+                                : isSkippedRow
+                                  ? "Skipped from this import run"
                                 : row.status === "Failed"
                                   ? "NXT write needs attention"
                                   : needsFreshPreview
@@ -6396,6 +6472,10 @@ export default function ConstituencyImportPage() {
                                 : "Confirming saves the audit run, then sends only this reviewed record to NXT."
                               : canVerifyRow
                                 ? "The NXT write is recorded in this import run. Recheck this record only if you want an immediate verification result."
+                                : isSkippedRow
+                                  ? isManuallySkipped
+                                    ? "No Raiser's Edge NXT data was changed. Restore this record if you want to review or import it later."
+                                    : "This row has no staged NXT changes and was skipped during import review."
                                 : row.status === "Failed"
                                   ? "Review the failed-write result below before retrying the affected NXT changes."
                                   : needsFreshPreview
@@ -6499,6 +6579,49 @@ export default function ConstituencyImportPage() {
                               : preview?.savedRun
                                 ? "Open required review"
                                 : "Save review and choose NXT records"}
+                          </button>
+                        ) : null}
+                        {canSkipRow || isManuallySkipped ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateImportRowSkipState(
+                                row,
+                                isManuallySkipped ? "restore" : "skip",
+                              )
+                            }
+                            disabled={Boolean(skippingRowId) || savingRun || previewing}
+                            style={{
+                              border: `1px solid ${isManuallySkipped ? "#2563EB" : "#64748B"}`,
+                              borderRadius: "999px",
+                              backgroundColor:
+                                isSkippingThisRow
+                                  ? "#E2E8F0"
+                                  : isManuallySkipped
+                                    ? "white"
+                                    : "#475569",
+                              color: isSkippingThisRow
+                                ? "#475569"
+                                : isManuallySkipped
+                                  ? "#1D4ED8"
+                                  : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor:
+                                skippingRowId || savingRun || previewing
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            {isSkippingThisRow
+                              ? isManuallySkipped
+                                ? "Restoring record..."
+                                : "Skipping record..."
+                              : isManuallySkipped
+                                ? "Restore record"
+                                : preview?.savedRun
+                                  ? "Skip record"
+                                  : "Save and skip record"}
                           </button>
                         ) : null}
                       </section>
