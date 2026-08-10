@@ -1606,9 +1606,11 @@ function FieldReviewCard({
 function EducationTargetReviewPanel({
   row,
   candidates,
+  selectedCandidateId,
   loading,
   saving,
   onLoadCandidates,
+  onCandidateChange,
   onSelectCandidate,
 }) {
   const pendingWrite = (row.writePlan || []).find(
@@ -1732,9 +1734,10 @@ function EducationTargetReviewPanel({
       ) : candidates.length ? (
         <div style={{ display: "grid", gap: "9px" }}>
           <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
-            Current NXT candidates
+            Select the current NXT education row to update
           </div>
           {candidates.map((candidate) => {
+            const isSelected = String(selectedCandidateId || "") === String(candidate.id);
             const details = [
               candidate.degrees?.join(", "),
               candidate.majors?.length ? `Major: ${candidate.majors.join(", ")}` : "",
@@ -1771,23 +1774,57 @@ function EducationTargetReviewPanel({
                 </div>
                 <button
                   type="button"
-                  onClick={() => onSelectCandidate(row, candidate.id)}
+                  aria-pressed={isSelected}
+                  onClick={() => onCandidateChange(row, candidate.id)}
                   disabled={saving || loading}
                   style={{
                     border: "1px solid #B45309",
                     borderRadius: "999px",
-                    backgroundColor: saving ? "#FEF3C7" : "white",
-                    color: "#92400E",
+                    backgroundColor: isSelected ? "#B45309" : saving ? "#FEF3C7" : "white",
+                    color: isSelected ? "white" : "#92400E",
                     padding: "8px 12px",
                     fontWeight: 900,
                     cursor: saving || loading ? "not-allowed" : "pointer",
                   }}
                 >
-                  {saving ? "Saving selection..." : "Use this NXT row"}
+                  {isSelected ? "Selected NXT row" : "Select this NXT row"}
                 </button>
               </div>
             );
           })}
+          <div
+            style={{
+              borderTop: "1px solid #FDE68A",
+              marginTop: "3px",
+              paddingTop: "12px",
+              display: "grid",
+              gap: "7px",
+              justifyItems: "start",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onSelectCandidate(row, selectedCandidateId)}
+              disabled={!selectedCandidateId || saving || loading}
+              style={{
+                border: "1px solid #92400E",
+                borderRadius: "999px",
+                backgroundColor:
+                  selectedCandidateId && !saving && !loading ? "#92400E" : "#FEF3C7",
+                color: selectedCandidateId && !saving && !loading ? "white" : "#92400E",
+                padding: "9px 14px",
+                fontWeight: 900,
+                cursor:
+                  selectedCandidateId && !saving && !loading ? "pointer" : "not-allowed",
+              }}
+            >
+              {saving ? "Confirming selected row..." : "Confirm selected NXT education row"}
+            </button>
+            <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 700 }}>
+              Confirming records this source row in the import audit. It does not write to NXT until
+              you send this record.
+            </div>
+          </div>
         </div>
       ) : (
         <div style={{ color: "#92400E", fontWeight: 800 }}>
@@ -2435,6 +2472,7 @@ export default function ConstituencyImportPage() {
   const [tableSuggestions, setTableSuggestions] = useState({});
   const [loadingSuggestionFieldKey, setLoadingSuggestionFieldKey] = useState("");
   const [educationCandidatesByRowId, setEducationCandidatesByRowId] = useState({});
+  const [selectedEducationCandidateByRowId, setSelectedEducationCandidateByRowId] = useState({});
   const [loadingEducationCandidateRowId, setLoadingEducationCandidateRowId] = useState("");
   const [savingEducationTargetRowId, setSavingEducationTargetRowId] = useState("");
   const [constituencyCandidatesByRowId, setConstituencyCandidatesByRowId] = useState({});
@@ -3066,6 +3104,7 @@ export default function ConstituencyImportPage() {
       setEditingRowDraft({});
       setTableSuggestions({});
       setEducationCandidatesByRowId({});
+      setSelectedEducationCandidateByRowId({});
       setEducationClassYearDrafts({});
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
     } catch (loadError) {
@@ -3092,6 +3131,17 @@ export default function ConstituencyImportPage() {
 
   function focusImportRow(rowId) {
     if (!rowId) return;
+    const row = (preview?.rows || []).find((candidate) => String(candidate.id) === String(rowId));
+    if (
+      row &&
+      !Array.isArray(educationCandidatesByRowId[String(row.id)]) &&
+      (row.writePlan || []).some(
+        (item) =>
+          item?.type === "education_relationship" && item?.action === "review_existing",
+      )
+    ) {
+      void loadEducationCandidates(row);
+    }
     setFocusedRowId(String(rowId));
     setReviewMode(true);
     window.setTimeout(() => {
@@ -3102,6 +3152,12 @@ export default function ConstituencyImportPage() {
   }
 
   function focusRowReviewTarget(row, targetKey) {
+    if (
+      targetKey === "education-target" &&
+      !Array.isArray(educationCandidatesByRowId[String(row?.id)])
+    ) {
+      void loadEducationCandidates(row);
+    }
     const targetId = `constituency-import-row-${row.id}-${targetKey}`;
     window.setTimeout(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -3364,6 +3420,10 @@ export default function ConstituencyImportPage() {
         ...current,
         [String(row.id)]: Array.isArray(payload?.candidates) ? payload.candidates : [],
       }));
+      setSelectedEducationCandidateByRowId((current) => ({
+        ...current,
+        [String(row.id)]: "",
+      }));
     } catch (candidateError) {
       setError(
         candidateError instanceof Error
@@ -3412,6 +3472,14 @@ export default function ConstituencyImportPage() {
     } finally {
       setSavingEducationTargetRowId("");
     }
+  }
+
+  function chooseEducationCandidate(row, educationId) {
+    if (!row?.id || !educationId) return;
+    setSelectedEducationCandidateByRowId((current) => ({
+      ...current,
+      [String(row.id)]: String(educationId),
+    }));
   }
 
   async function loadConstituencyCandidates(row) {
@@ -6133,9 +6201,11 @@ export default function ConstituencyImportPage() {
                         <EducationTargetReviewPanel
                           row={row}
                           candidates={educationCandidatesByRowId[String(row.id)]}
+                          selectedCandidateId={selectedEducationCandidateByRowId[String(row.id)]}
                           loading={loadingEducationCandidateRowId === String(row.id)}
                           saving={savingEducationTargetRowId === String(row.id)}
                           onLoadCandidates={loadEducationCandidates}
+                          onCandidateChange={chooseEducationCandidate}
                           onSelectCandidate={selectEducationTarget}
                         />
                       </div>
