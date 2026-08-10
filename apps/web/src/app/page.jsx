@@ -35,6 +35,12 @@ const MGO_ACTIONS = [
     section: "teamSupport",
   },
   {
+    title: "Find a Constituent",
+    href: "/constituent-lookup",
+    description: "Search Raiser's Edge NXT and open a constituent profile when needed.",
+    section: "teamSupport",
+  },
+  {
     title: "Submission Tracker",
     href: "/submissions",
     description: "Check clarification requests and review outcomes when you need them.",
@@ -104,6 +110,12 @@ const REVIEWER_ACTIONS = [
     section: "teamSupport",
   },
   {
+    title: "Find a Constituent",
+    href: "/constituent-lookup",
+    description: "Search Raiser's Edge NXT and open a constituent profile when needed.",
+    section: "teamSupport",
+  },
+  {
     title: "Edit Knowledge Base",
     href: "/knowledge-base/manage",
     description: "Update shared standards, examples, and guidance.",
@@ -136,6 +148,7 @@ const MGO_NAV_ITEMS = [
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
+  { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
   { label: "Request List from DevData", href: "/request-list", section: "Requests & Review" },
   { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
@@ -147,6 +160,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
+  { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
   { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
   { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
   { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
