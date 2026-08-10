@@ -136,7 +136,7 @@ describe("constituency import run apply route", () => {
       type: "constituent_code",
       action: "add",
       targetConstituency: "Alumni - Graduate Degree",
-      startDate: "2026-08-01",
+      startDate: "08/01/26",
     };
     const row = {
       id: "9",
@@ -192,6 +192,9 @@ describe("constituency import run apply route", () => {
         date_from: "2026-08-01",
       },
     });
+    expect(getSavedApplyAudit().results[0].message).toContain(
+      "start 2026-08-01",
+    );
     expect(payload.applySummary.applied).toBe(1);
     expect(payload.savedRun.appliedCount).toBe(1);
   });

@@ -123,9 +123,15 @@ function formatDateForBlackbaud(value) {
   }
   const text = cleanText(value);
   if (!text) return "";
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return text;
-  return date.toISOString().slice(0, 10);
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${String(isoMatch[2]).padStart(2, "0")}-${String(isoMatch[3]).padStart(2, "0")}`;
+  }
+  const parsedDate = parseBirthDate(text);
+  if (parsedDate) {
+    return `${parsedDate.y}-${String(parsedDate.m).padStart(2, "0")}-${String(parsedDate.d).padStart(2, "0")}`;
+  }
+  return text;
 }
 
 function parseBirthDate(value) {
@@ -1500,12 +1506,17 @@ async function applyConstituentCodeAdd({ request, user, row, write, currentCodes
     row,
     write,
   });
+  const startDate = formatDateForBlackbaud(write?.startDate ?? row.start_date);
+  const endDate = formatDateForBlackbaud(write?.endDate ?? row.end_date);
 
   return {
     status: "applied",
     type: "constituent_code",
     action: "add",
     targetConstituency,
+    startDate: startDate || null,
+    endDate: endDate || null,
+    message: `Added ${targetConstituency}${startDate || endDate ? ` (start ${startDate || "not set"}; end ${endDate || "not set"})` : " without dates"}.`,
     blackbaudResult: result || null,
   };
 }

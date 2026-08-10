@@ -951,7 +951,13 @@ function formatWritePlanItem(write) {
           ? " (selected current NXT row)"
           : " (select current NXT row)"
         : "";
-    return `${action} constituent code: ${from}${write.targetConstituency || "unspecified"}${reviewState}`;
+    const dates = [
+      write.startDate && `start ${formatBirthDateForDisplay(write.startDate)}`,
+      write.endDate && `end ${formatBirthDateForDisplay(write.endDate)}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return `${action} constituent code: ${from}${write.targetConstituency || "unspecified"}${reviewState}${dates ? ` (${dates})` : ""}`;
   }
 
   if (write.type === "constituent_name") {
@@ -3105,12 +3111,15 @@ export default function ConstituencyImportPage() {
       setTableSuggestions({});
       setEducationCandidatesByRowId({});
       setSelectedEducationCandidateByRowId({});
+      setConstituencyCandidatesByRowId({});
       setEducationClassYearDrafts({});
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
+      return payload;
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "Failed to load saved import run",
       );
+      return null;
     } finally {
       setLoadingRunId("");
     }
@@ -3132,16 +3141,7 @@ export default function ConstituencyImportPage() {
   function focusImportRow(rowId) {
     if (!rowId) return;
     const row = (preview?.rows || []).find((candidate) => String(candidate.id) === String(rowId));
-    if (
-      row &&
-      !Array.isArray(educationCandidatesByRowId[String(row.id)]) &&
-      (row.writePlan || []).some(
-        (item) =>
-          item?.type === "education_relationship" && item?.action === "review_existing",
-      )
-    ) {
-      void loadEducationCandidates(row);
-    }
+    if (row) preloadRequiredReviewChoices(row);
     setFocusedRowId(String(rowId));
     setReviewMode(true);
     window.setTimeout(() => {
@@ -3151,17 +3151,90 @@ export default function ConstituencyImportPage() {
     }, 0);
   }
 
-  function focusRowReviewTarget(row, targetKey) {
+  function preloadRequiredReviewChoices(row, runIdOverride = null) {
+    if (!row?.id) return;
+    const writePlan = Array.isArray(row.writePlan) ? row.writePlan : [];
+    if (
+      !Array.isArray(educationCandidatesByRowId[String(row.id)]) &&
+      writePlan.some(
+        (item) =>
+          item?.type === "education_relationship" && item?.action === "review_existing",
+      )
+    ) {
+      void loadEducationCandidates(row, runIdOverride);
+    }
+    if (
+      !Array.isArray(constituencyCandidatesByRowId[String(row.id)]) &&
+      writePlan.some(
+        (item) => item?.type === "constituent_code" && item?.action === "replace",
+      )
+    ) {
+      void loadConstituencyCandidates(row, runIdOverride);
+    }
+  }
+
+  function focusRowReviewTarget(row, targetKey, runIdOverride = null) {
+    if (!row?.id || !targetKey) return;
     if (
       targetKey === "education-target" &&
       !Array.isArray(educationCandidatesByRowId[String(row?.id)])
     ) {
-      void loadEducationCandidates(row);
+      void loadEducationCandidates(row, runIdOverride);
+    }
+    if (
+      targetKey === "constituency-target" &&
+      !Array.isArray(constituencyCandidatesByRowId[String(row?.id)])
+    ) {
+      void loadConstituencyCandidates(row, runIdOverride);
     }
     const targetId = `constituency-import-row-${row.id}-${targetKey}`;
     window.setTimeout(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 0);
+  }
+
+  function findSavedRow(savedPayload, sourceRow) {
+    return (savedPayload?.rows || []).find(
+      (candidate) => Number(candidate?.rowNumber) === Number(sourceRow?.rowNumber),
+    );
+  }
+
+  function openRemainingRequiredReview(row, runIdOverride = null) {
+    if (!row?.id) return;
+    preloadRequiredReviewChoices(row, runIdOverride);
+    const targetKey = getRowReviewTargetKey(getRowReviewRequirements(row));
+    if (targetKey) {
+      focusRowReviewTarget(row, targetKey, runIdOverride);
+    }
+  }
+
+  async function startRequiredReview(row, requestedTargetKey = "") {
+    if (!row || savingRun || previewing) return;
+
+    if (preview?.savedRun?.id) {
+      focusImportRow(row.id);
+      openRemainingRequiredReview(row);
+      return;
+    }
+
+    const savedPayload = await requestPreview({ saveRun: true, scrollToResults: false });
+    const savedRunId = savedPayload?.savedRun?.id;
+    const savedRow = findSavedRow(savedPayload, row);
+    if (!savedRunId || !savedRow?.id) {
+      setError(
+        "The review run could not be saved. Please try again before selecting the NXT rows to update.",
+      );
+      return;
+    }
+
+    setFocusedRowId(String(savedRow.id));
+    setReviewMode(true);
+    const targetKey = getRowReviewTargetKey(getRowReviewRequirements(savedRow)) || requestedTargetKey;
+    preloadRequiredReviewChoices(savedRow, savedRunId);
+    focusRowReviewTarget(savedRow, targetKey, savedRunId);
+    setSaveMessage(
+      `Saved import run #${savedRunId}. No NXT records were changed. Complete the required NXT row selections below before sending this record.`,
+    );
   }
 
   function navigateImportRows(direction) {
@@ -3402,8 +3475,8 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function loadEducationCandidates(row) {
-    const runId = preview?.savedRun?.id;
+  async function loadEducationCandidates(row, runIdOverride = null) {
+    const runId = runIdOverride || preview?.savedRun?.id;
     if (!runId || !row?.id || loadingEducationCandidateRowId || savingEducationTargetRowId) return;
 
     setLoadingEducationCandidateRowId(String(row.id));
@@ -3457,10 +3530,12 @@ export default function ConstituencyImportPage() {
       }
 
       setEducationCandidatesByRowId({});
-      await loadSavedRun(runId);
+      const savedPayload = await loadSavedRun(runId);
+      const savedRow = findSavedRow(savedPayload, row);
+      if (savedRow) openRemainingRequiredReview(savedRow, runId);
       setSaveMessage(
         payload?.message ||
-          "Saved the NXT education-row selection. Review the record action to continue.",
+          "Saved the NXT education-row selection. Continue with any remaining required review below.",
       );
       fetchSavedRuns();
     } catch (selectionError) {
@@ -3482,8 +3557,8 @@ export default function ConstituencyImportPage() {
     }));
   }
 
-  async function loadConstituencyCandidates(row) {
-    const runId = preview?.savedRun?.id;
+  async function loadConstituencyCandidates(row, runIdOverride = null) {
+    const runId = runIdOverride || preview?.savedRun?.id;
     if (
       !runId ||
       !row?.id ||
@@ -3540,10 +3615,12 @@ export default function ConstituencyImportPage() {
       }
 
       setConstituencyCandidatesByRowId({});
-      await loadSavedRun(runId);
+      const savedPayload = await loadSavedRun(runId);
+      const savedRow = findSavedRow(savedPayload, row);
+      if (savedRow) openRemainingRequiredReview(savedRow, runId);
       setSaveMessage(
         payload?.message ||
-          "Saved the current NXT constituent-code selection. Review the record action to continue.",
+          "Saved the current NXT constituent-code selection. Continue with any remaining required review below.",
       );
       fetchSavedRuns();
     } catch (selectionError) {
@@ -6405,18 +6482,23 @@ export default function ConstituencyImportPage() {
                           <button
                             type="button"
                             aria-controls={reviewTargetId}
-                            onClick={() => focusRowReviewTarget(row, reviewTargetKey)}
+                            onClick={() => startRequiredReview(row, reviewTargetKey)}
+                            disabled={savingRun || previewing}
                             style={{
                               border: "1px solid #B45309",
                               borderRadius: "999px",
-                              backgroundColor: "white",
+                              backgroundColor: savingRun || previewing ? "#FEF3C7" : "white",
                               color: "#92400E",
                               padding: "9px 14px",
                               fontWeight: 900,
-                              cursor: "pointer",
+                              cursor: savingRun || previewing ? "not-allowed" : "pointer",
                             }}
                           >
-                            Go to required review
+                            {savingRun
+                              ? "Saving review..."
+                              : preview?.savedRun
+                                ? "Open required review"
+                                : "Save review and choose NXT records"}
                           </button>
                         ) : null}
                       </section>
