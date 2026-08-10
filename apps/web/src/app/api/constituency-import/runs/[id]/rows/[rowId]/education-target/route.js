@@ -9,15 +9,6 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
-function normalizeText(value) {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/[’]/g, "'")
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
 function getCollection(payload) {
   return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
 }
@@ -109,29 +100,10 @@ function serializeEducation(value) {
   };
 }
 
-function findCandidateEducations(write, currentEducations) {
-  const sameSchool = currentEducations.filter(
-    (education) =>
-      normalizeText(write?.institution) === normalizeText(getEducationSchool(education)),
-  );
-  let candidates = sameSchool;
-  const narrowBy = (expected, getValues) => {
-    const normalizedExpected = normalizeText(expected);
-    if (!normalizedExpected) return;
-    candidates = candidates.filter((education) =>
-      getValues(education).some((value) => normalizeText(value) === normalizedExpected),
-    );
-  };
-
-  narrowBy(write?.degree, (education) =>
-    getEducationValues(education, "degrees", ["degree", "degree_name"]),
-  );
-  narrowBy(write?.major, (education) =>
-    getEducationValues(education, "majors", ["major", "major_name"]),
-  );
-  narrowBy(write?.classYear, (education) => [getEducationClassYear(education)]);
-
-  return candidates.filter((education) => getEducationId(education));
+function getSelectableEducations(currentEducations) {
+  // The CSV can correct any education detail, including the institution. Show every current
+  // education row and require an explicit source-row selection rather than guessing a match.
+  return currentEducations.filter((education) => getEducationId(education));
 }
 
 function summarizeRows(rows) {
@@ -224,7 +196,7 @@ async function loadReviewContext({ request, user, runId, rowId }) {
   );
   if (writeIndex < 0) {
     return {
-      error: "This import row does not have an ambiguous education relationship to review.",
+      error: "This import row does not have an education relationship awaiting source-row review.",
       status: 409,
     };
   }
@@ -245,11 +217,11 @@ async function loadReviewContext({ request, user, runId, rowId }) {
       origin: new URL(request.url).origin,
     },
   );
-  const candidates = findCandidateEducations(writePlan[writeIndex], getCollection(payload));
+  const candidates = getSelectableEducations(getCollection(payload));
   if (!candidates.length) {
     return {
       error:
-        "No current NXT education rows still match this CSV change. Refresh the import preview or choose Add New Education Relationship.",
+        "This constituent has no current NXT education relationship to update. Refresh the import review or choose Add Additional Relationship.",
       status: 409,
     };
   }
@@ -347,9 +319,10 @@ export async function POST(request, { params }) {
         ...(Array.isArray(preview.reasons) ? preview.reasons : []).filter(
           (reason) =>
             !/Education relationship data is staged for review\./i.test(reason) &&
-            !/possible NXT education rows/i.test(reason),
+            !/possible NXT education rows/i.test(reason) &&
+            !/Choose the exact current NXT education row/i.test(reason),
         ),
-        `Advancement Services selected NXT education ID ${targetEducationId} for this education update.`,
+        `Advancement Services selected current NXT education ID ${targetEducationId} as the source row for this education update.`,
         ...(hasRemainingReview
           ? ["Other staged changes still require review before this record can be applied."]
           : []),

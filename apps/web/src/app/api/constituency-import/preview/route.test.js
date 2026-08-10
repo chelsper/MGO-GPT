@@ -1126,7 +1126,7 @@ describe("constituency import preview route", () => {
     ]);
   });
 
-  it("stages a uniquely matched education row for review and update", async () => {
+  it("requires an explicit source-row selection before updating an education relationship", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({
       blackbaudConstituentId: "789",
@@ -1173,15 +1173,15 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].status).toBe("Needs Review");
     expect(payload.rows[0].writePlan).toEqual([
       expect.objectContaining({
         type: "education_relationship",
-        action: "update",
-        targetEducationId: "education-1",
-        existingEducation: expect.objectContaining({ status: "Student" }),
+        action: "review_existing",
+        requiresReview: true,
       }),
     ]);
+    expect(payload.rows[0].writePlan[0].targetEducationId).toBeUndefined();
   });
 
   it("keeps ambiguous education updates in review without choosing an NXT row", async () => {

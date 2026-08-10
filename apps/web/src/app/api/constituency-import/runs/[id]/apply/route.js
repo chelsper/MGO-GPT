@@ -727,6 +727,12 @@ async function applyEducationRelationshipUpdate({ request, user, row, write }) {
   const action = cleanText(write?.action) || "update";
   const targetEducationId = cleanText(write?.targetEducationId);
   const institution = cleanText(write?.institution);
+  if (!write?.reviewSelection?.selectedAt) {
+    return manualEducationResult(
+      action,
+      "Choose the exact current NXT education relationship before sending this education update to NXT.",
+    );
+  }
   if (!constituentId || !targetEducationId || !institution) {
     return manualEducationResult(
       action,
@@ -742,10 +748,10 @@ async function applyEducationRelationshipUpdate({ request, user, row, write }) {
 
   const currentEducations = await fetchCurrentEducations({ request, user, constituentId });
   const target = currentEducations.find((education) => getEducationId(education) === targetEducationId);
-  if (!target || normalizeText(getEducationSchool(target)) !== normalizeText(institution)) {
+  if (!target) {
     return manualEducationResult(
       action,
-      "The reviewed NXT education row changed after preview. Refresh the preview before applying.",
+      "The selected current NXT education row is no longer on this constituent. Refresh the import review before applying.",
     );
   }
 

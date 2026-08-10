@@ -1638,6 +1638,10 @@ describe("constituency import run apply route", () => {
       targetEducationId: "education-1",
       institution: "Jacksonville University",
       degree: "Bachelor of Science",
+      reviewSelection: {
+        selectedAt: "2026-08-10T15:00:00.000Z",
+        selectedByUserId: 7,
+      },
     };
     const row = {
       id: "10",
@@ -1688,6 +1692,53 @@ describe("constituency import run apply route", () => {
       }),
     );
     expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("does not update an education row without an explicit reviewer selection", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "education_relationship",
+      action: "update",
+      recordType: "Individual",
+      targetEducationId: "education-1",
+      institution: "Jacksonville University",
+      degree: "Bachelor of Science",
+    };
+    const row = {
+      id: "10",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Jane Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeRun({ status: "partially_applied", ready_count: 0, needs_review_count: 1 }),
+      ])
+      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }]);
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(payload.applySummary.manualRequired).toBe(1);
+    expect(getSavedApplyAudit()?.results?.[0]?.message).toContain(
+      "Choose the exact current NXT education relationship",
+    );
   });
 
   it("records a partial NXT failure without discarding an earlier successful write", async () => {

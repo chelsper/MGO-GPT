@@ -70,7 +70,7 @@ describe("constituency import education-target review route", () => {
     });
   });
 
-  it("returns only live NXT education candidates for an ambiguous row", async () => {
+  it("returns every current NXT education row so the reviewer can select the source row", async () => {
     const { GET } = await import("./route.js");
     sqlMock.mockResolvedValueOnce([makeRow()]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -85,8 +85,8 @@ describe("constituency import education-target review route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.candidateCount).toBe(2);
-    expect(payload.candidates.map((candidate) => candidate.id)).toEqual(["e-1", "e-2"]);
+    expect(payload.candidateCount).toBe(3);
+    expect(payload.candidates.map((candidate) => candidate.id)).toEqual(["e-1", "e-2", "e-3"]);
   });
 
   it("records the explicit target and makes the row Ready", async () => {
@@ -99,7 +99,7 @@ describe("constituency import education-target review route", () => {
     blackbaudApiFetchMock.mockResolvedValue({
       value: [
         { id: "e-1", school: "Jacksonville University", degree: "Bachelor of Science" },
-        { id: "e-2", school: "Jacksonville University", degree: "Bachelor of Science" },
+        { id: "e-2", school: "Florida State University", degree: "Bachelor of Science" },
       ],
     });
 

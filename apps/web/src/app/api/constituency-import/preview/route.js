@@ -976,37 +976,6 @@ function educationMatchesAllSuppliedWriteFields(write, education) {
   );
 }
 
-function findEducationUpdateCandidate(write, currentEducations) {
-  const sameSchool = (Array.isArray(currentEducations) ? currentEducations : []).filter(
-    (education) =>
-      normalizeText(write?.institution) === normalizeText(getEducationSchool(education)),
-  );
-  if (sameSchool.length === 0) return { status: "missing" };
-
-  let candidates = sameSchool;
-  const narrowBy = (expected, getValues) => {
-    const normalizedExpected = normalizeText(expected);
-    if (!normalizedExpected) return;
-    candidates = candidates.filter((education) =>
-      getValues(education).some((value) => normalizeText(value) === normalizedExpected),
-    );
-  };
-
-  narrowBy(write?.degree, (education) =>
-    getEducationValues(education, "degrees", ["degree", "degree_name"]),
-  );
-  narrowBy(write?.major, (education) =>
-    getEducationValues(education, "majors", ["major", "major_name"]),
-  );
-  narrowBy(write?.classYear, (education) => [getEducationClassYear(education)]);
-
-  if (candidates.length === 0) return { status: "missing" };
-
-  const identified = candidates.filter((education) => getEducationId(education));
-  if (identified.length === 1) return { status: "matched", education: identified[0] };
-  return { status: "ambiguous", count: candidates.length || sameSchool.length };
-}
-
 function buildEducationRelationshipWrite(input, match, currentEducations) {
   if (!input.educationRelationship) return null;
 
@@ -1015,7 +984,7 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
     action: cleanText(input.educationRelationship.action) || "add",
     duplicatePolicy:
       cleanText(input.educationRelationship.action) === "review-update"
-        ? "review_and_update_unique"
+        ? "review_and_update_selected"
         : "skip_if_matching",
     recordType: cleanText(match?.raw?.type),
     institution: cleanText(input.educationRelationship.institution),
@@ -1075,19 +1044,16 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
       return write;
     }
 
-    const target = findEducationUpdateCandidate(write, currentEducations);
-    if (target.status === "matched") {
-      write.action = "update";
-      write.targetEducationId = getEducationId(target.education);
-      write.existingEducation = serializeEducation(target.education);
-    } else {
-      write.requiresReview = true;
-      write.action = "review_existing";
-      write.validationMessage =
-        target.status === "ambiguous"
-          ? `Found ${target.count} possible NXT education rows for ${write.institution}. Add degree, major, or class year to choose one before importing.`
-          : `No current NXT education row matches the supplied school, degree, major, and class year. Choose Add New Education Relationship to create it.`;
-    }
+    // An education record can have similar degrees, majors, or class years. Never infer the
+    // source row from those values: the reviewer must select the exact NXT education row.
+    const availableSourceRows = (Array.isArray(currentEducations) ? currentEducations : []).filter(
+      (education) => getEducationId(education),
+    );
+    write.requiresReview = true;
+    write.action = "review_existing";
+    write.validationMessage = availableSourceRows.length
+      ? "Choose the exact current NXT education relationship to update. No education row is changed until a reviewer selects it and sends this record to NXT."
+      : "This constituent has no current NXT education relationship to update. Choose Add Additional Relationship to create this education row instead.";
   } else {
     const existing = (Array.isArray(currentEducations) ? currentEducations : []).find(
       (education) => educationMatchesWrite(write, education),
@@ -2086,7 +2052,7 @@ export async function POST(request) {
         ...(input.educationRelationship
           ? [
               input.educationRelationship.action === "review-update"
-                ? "Education relationship data is staged for review. JUMGOGPT updates an existing NXT education row only when it identifies one unambiguous row; ambiguous or missing matches remain in review."
+                ? "Education relationship data is staged for review. Choose the exact current NXT education row to update; no education relationship is changed automatically."
                 : "Education relationship data is staged as a new NXT education record. Existing education records are never replaced or end-dated, and an identical record is skipped.",
             ]
           : []),

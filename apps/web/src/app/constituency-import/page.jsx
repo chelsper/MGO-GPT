@@ -522,7 +522,7 @@ const FIELD_GROUP_HELP = {
   "Phone fields": "Phone columns, including the optional primary flag.",
   "Address fields": "Address columns, including type, valid-from date, and the optional primary flag.",
   "Constituent code fields": "Constituent-code add/replace options and optional dates.",
-  "Education relationship fields": "Education columns add new NXT education relationships only. Existing education rows are never edited or replaced, and matching entries are skipped.",
+  "Education relationship fields": "Education columns can add additional NXT education relationships or, after selecting one exact source row during review, update an existing relationship.",
   "Organization relationship fields": "Organization columns are staged as additional relationships so existing affiliations are not replaced.",
 };
 
@@ -586,15 +586,15 @@ const IMPORT_INTENTS = [
 const EDUCATION_RELATIONSHIP_ACTIONS = [
   {
     value: "add",
-    label: "Add New Education Relationship",
+    label: "Add Additional Relationship",
     description:
-      "Add a new education relationship only. Existing NXT education rows are never changed, and matching entries are skipped.",
+      "Create an additional NXT education relationship. Existing education rows are never changed, and matching entries are skipped.",
   },
   {
     value: "review-update",
-    label: "Review and Update Existing Education Relationship",
+    label: "Update Existing Relationship",
     description:
-      "Update one existing NXT education row only when the import review identifies a single, unambiguous match. Ambiguous or missing matches stay in review and are never changed automatically.",
+      "Choose the exact current NXT education row to update during review. Nothing is matched or changed automatically.",
   },
 ];
 
@@ -1611,10 +1611,17 @@ function EducationTargetReviewPanel({
   onLoadCandidates,
   onSelectCandidate,
 }) {
-  const write = (row.writePlan || []).find(
+  const pendingWrite = (row.writePlan || []).find(
     (item) =>
       item?.type === "education_relationship" && item?.action === "review_existing",
   );
+  const confirmedWrite = (row.writePlan || []).find(
+    (item) =>
+      item?.type === "education_relationship" &&
+      item?.action === "update" &&
+      item?.reviewSelection?.selectedAt,
+  );
+  const write = pendingWrite || confirmedWrite;
   if (!write) return null;
 
   const csvDetails = [
@@ -1627,6 +1634,44 @@ function EducationTargetReviewPanel({
     .filter(Boolean)
     .join(" · ");
   const hasLoadedCandidates = Array.isArray(candidates);
+
+  if (confirmedWrite) {
+    const source = confirmedWrite.existingEducation || {};
+    const sourceDetails = [
+      source.school,
+      source.degrees?.length ? source.degrees.join(", ") : "",
+      source.majors?.length ? `Major: ${source.majors.join(", ")}` : "",
+      source.classYear ? `Class of ${source.classYear}` : "",
+      source.status,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <section
+        style={{
+          border: "1px solid #86EFAC",
+          borderRadius: "14px",
+          backgroundColor: "#F0FDF4",
+          padding: "14px",
+          display: "grid",
+          gap: "8px",
+        }}
+      >
+        <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Education update confirmed
+        </div>
+        <div style={{ color: "#166534", lineHeight: 1.45 }}>
+          This CSV will update the selected current NXT education relationship when this record is sent to NXT. Other education rows will not change.
+        </div>
+        <div style={{ color: "#14532D", fontSize: "14px", fontWeight: 800 }}>
+          Source row: {sourceDetails || `NXT education ID ${confirmedWrite.targetEducationId}`}
+        </div>
+        <div style={{ color: "#166534", fontSize: "12px", fontWeight: 800 }}>
+          NXT education ID {confirmedWrite.targetEducationId}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -1644,9 +1689,9 @@ function EducationTargetReviewPanel({
           Education update review
         </div>
         <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
-          This CSV change could match more than one NXT education row. Choose the exact current
-          row to update. Choosing a row records the decision in this import run; it does not
-          write to NXT until you apply this record.
+          Choose the exact current NXT education row to update. Choosing a row records the
+          decision in this import run; it does not write to NXT until you send this record.
+          Every other education relationship remains unchanged.
         </p>
       </div>
 
@@ -1746,8 +1791,8 @@ function EducationTargetReviewPanel({
         </div>
       ) : (
         <div style={{ color: "#92400E", fontWeight: 800 }}>
-          No current NXT education rows match this CSV change. Refresh the import review or change this
-          import to add a new education relationship.
+          This constituent has no current NXT education relationships. Refresh the import review or
+          change this import to Add Additional Relationship.
         </div>
       )}
     </section>
@@ -4446,8 +4491,8 @@ export default function ConstituencyImportPage() {
                               }}
                             >
                               {educationRelationshipAction === "review-update"
-                                ? "The import review will update an existing NXT education row only when it finds one unambiguous match. If no matching row or more than one possible row is found, it stays in review for you to resolve."
-                                : "This import adds a new education relationship only. It never edits or end-dates an existing NXT education row, and it safely skips an identical education relationship."}
+                                ? "For each matched constituent, choose the exact current NXT education row that this CSV should update. No row is matched or changed automatically."
+                                : "This import creates an additional education relationship only. It never edits or end-dates an existing NXT education row, and it safely skips an identical education relationship."}
                             </p>
                           </div>
                           <div
@@ -5022,7 +5067,7 @@ export default function ConstituencyImportPage() {
               ) : null}
               {educationRelationshipFieldsActive ? (
                 <Pill tone="blue">
-                  Education: {educationRelationshipAction === "review-update" ? "Review and Update" : "Add New Only"}
+                  Education: {educationRelationshipAction === "review-update" ? "Update Existing" : "Add Additional"}
                 </Pill>
               ) : null}
               {organizationRelationshipFieldsActive ? (
