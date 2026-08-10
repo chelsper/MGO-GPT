@@ -1,5 +1,9 @@
 FundLayerDemo/
 
+# Root workspace dependencies and React Router generated types.
+/node_modules/
+/apps/web/.react-router/
+
 # Local environment files. Keep real credentials in Vercel or a password manager.
 .env
 .env.*
