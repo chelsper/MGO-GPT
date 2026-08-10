@@ -113,6 +113,14 @@ function getMatchedConstituentId(row) {
 }
 
 function formatDateForBlackbaud(value) {
+  if (value && typeof value === "object") {
+    const year = Number(value.y || value.year);
+    const month = Number(value.m || value.month);
+    const day = Number(value.d || value.day);
+    if (year && month && day) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
   const text = cleanText(value);
   if (!text) return "";
   const date = new Date(text);
@@ -255,8 +263,12 @@ async function createConstituentCode({
     constituent_id: String(constituentId),
     description: targetConstituency,
   };
-  const startDate = formatDateForBlackbaud(write.startDate || row.start_date);
-  const endDate = formatDateForBlackbaud(write.endDate || row.end_date);
+  // A blank CSV date deliberately remains blank. Do not fall back to source-row dates
+  // for a reviewed replacement, because that would carry dates to the new code.
+  const hasStartDate = Object.prototype.hasOwnProperty.call(write || {}, "startDate");
+  const hasEndDate = Object.prototype.hasOwnProperty.call(write || {}, "endDate");
+  const startDate = formatDateForBlackbaud(hasStartDate ? write.startDate : row.start_date);
+  const endDate = formatDateForBlackbaud(hasEndDate ? write.endDate : row.end_date);
   if (startDate) payload.date_from = startDate;
   if (includeEndDate && endDate) payload.date_to = endDate;
 
@@ -278,6 +290,18 @@ async function patchConstituentCode({ request, user, codeId, payload }) {
       origin: new URL(request.url).origin,
       method: "PATCH",
       body: payload,
+    },
+  );
+}
+
+async function deleteConstituentCode({ request, user, codeId }) {
+  return blackbaudApiFetch(
+    `/constituent/v1/constituentcodes/${encodeURIComponent(String(codeId))}`,
+    {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "DELETE",
     },
   );
 }
@@ -1542,7 +1566,9 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
   const constituentId = getMatchedConstituentId(row);
   const sourceConstituency = cleanText(write.sourceConstituency || row.source_constituency);
   const targetConstituency = cleanText(write.targetConstituency || row.target_constituency);
-  const startDate = formatDateForBlackbaud(write.startDate || row.start_date);
+  const sourceCodeId = cleanText(write.sourceCodeId);
+  const startDate = formatDateForBlackbaud(write.startDate);
+  const endDate = formatDateForBlackbaud(write.endDate);
 
   if (!constituentId || !sourceConstituency || !targetConstituency) {
     return {
@@ -1551,6 +1577,15 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
       action: "replace",
       message:
         "Matched NXT constituent ID, current constituent code, and new constituent code are required before replace can apply.",
+    };
+  }
+  if (!sourceCodeId) {
+    return {
+      status: "manual_required",
+      type: "constituent_code",
+      action: "replace",
+      message:
+        "Choose the exact current NXT constituent-code row before replacing it. Reload this import row and complete the constituency replacement review.",
     };
   }
 
@@ -1566,13 +1601,13 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
     };
   }
 
-  const sourceCode = findCurrentCode(liveCodes, sourceConstituency);
-  if (!sourceCode && findCode(liveCodes, sourceConstituency)) {
+  const sourceCode = liveCodes.find((code) => String(code.id) === sourceCodeId) || null;
+  if (sourceCode && normalizeText(sourceCode.label) !== normalizeText(sourceConstituency)) {
     return {
       status: "manual_required",
       type: "constituent_code",
       action: "replace",
-      message: `${sourceConstituency} is no longer current in NXT; review before replacing it.`,
+      message: `The selected NXT code no longer matches ${sourceConstituency}. Reload this import row and review the current NXT codes again.`,
     };
   }
   if (!sourceCode?.id) {
@@ -1594,16 +1629,44 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
     };
   }
 
-  // A replacement is one continuous code record, not an end-dated Student code plus a new Alumni code.
-  // Clear a future Student end date so the replacement remains active in NXT.
-  const payload = { description: targetConstituency, date_to: null };
-  if (startDate) payload.date_from = startDate;
-  const result = await patchConstituentCode({
-    request,
-    user,
-    codeId: sourceCode.id,
-    payload,
-  });
+  // Replacement is intentionally delete-and-create. Only the reviewed source ID is removed;
+  // every other NXT constituency code is left untouched.
+  await deleteConstituentCode({ request, user, codeId: sourceCode.id });
+
+  let result;
+  try {
+    result = await createConstituentCode({
+      request,
+      user,
+      constituentId,
+      targetConstituency,
+      row,
+      write: { ...write, startDate, endDate },
+    });
+  } catch (error) {
+    // Restore the removed row if the target cannot be created. If restoration also fails,
+    // surface both outcomes so Advancement Services can resolve the record safely.
+    try {
+      await createConstituentCode({
+        request,
+        user,
+        constituentId,
+        targetConstituency: sourceCode.label,
+        row,
+        write: {
+          startDate: sourceCode.startDate || "",
+          endDate: sourceCode.endDate || "",
+        },
+      });
+    } catch (restoreError) {
+      throw new Error(
+        `NXT removed the selected ${sourceConstituency} code but could not create ${targetConstituency} or restore ${sourceConstituency}. Original error: ${error instanceof Error ? error.message : "Unknown error"}. Restore error: ${restoreError instanceof Error ? restoreError.message : "Unknown error"}.`,
+      );
+    }
+    throw new Error(
+      `NXT could not create ${targetConstituency}; the selected ${sourceConstituency} code was restored with its original dates. ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
 
   return {
     status: "applied",
@@ -1611,8 +1674,14 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
     action: "replace",
     sourceConstituency,
     targetConstituency,
+    sourceCodeId: String(sourceCode.id),
+    removedSourceDates: {
+      startDate: formatDateForBlackbaud(sourceCode.startDate) || null,
+      endDate: formatDateForBlackbaud(sourceCode.endDate) || null,
+    },
     startDate: startDate || null,
-    message: `${sourceConstituency} was replaced with ${targetConstituency}; its end date was cleared${startDate ? ` and its start date was set to ${startDate}` : ""}.`,
+    endDate: endDate || null,
+    message: `Removed the selected ${sourceConstituency} constituent-code row${sourceCode.startDate || sourceCode.endDate ? ` (start ${formatDateForBlackbaud(sourceCode.startDate) || "not set"}; end ${formatDateForBlackbaud(sourceCode.endDate) || "not set"})` : ""} and created ${targetConstituency}${startDate || endDate ? ` (start ${startDate || "not set"}; end ${endDate || "not set"})` : " without dates"}. Other NXT constituent codes were not changed.`,
     blackbaudResult: result || null,
   };
 }

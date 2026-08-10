@@ -1145,8 +1145,15 @@ function buildWritePlan(
 ) {
   const writes = [];
 
-  if (changePreview.status === STATUS.ready && cleanText(input.targetConstituency)) {
-    writes.push({
+  const hasReplaceSourceCandidates =
+    input.action === "replace" && Array.isArray(changePreview.sourceCandidates) &&
+    changePreview.sourceCandidates.length > 0 &&
+    !changePreview.reasons?.some((reason) => /already present on the NXT record/i.test(reason));
+  if (
+    cleanText(input.targetConstituency) &&
+    (changePreview.status === STATUS.ready || hasReplaceSourceCandidates)
+  ) {
+    const write = {
       type: "constituent_code",
       action: input.action,
       duplicatePolicy: input.action === "add" ? "skip_if_present" : "review_before_apply",
@@ -1154,7 +1161,19 @@ function buildWritePlan(
       targetConstituency: input.targetConstituency || "",
       startDate: input.startDate || "",
       endDate: input.endDate || "",
-    });
+    };
+    if (input.action === "replace") {
+      // The reviewer must identify the exact live NXT row before a replace can delete it.
+      write.requiresReview = true;
+      write.validationMessage = "Choose the exact current NXT constituent-code row to replace.";
+      write.sourceCandidates = changePreview.sourceCandidates.map((code) => ({
+        id: code.id,
+        label: code.label,
+        startDate: code.startDate || null,
+        endDate: code.endDate || null,
+      }));
+    }
+    writes.push(write);
   }
 
   const educationRelationshipWrite = buildEducationRelationshipWrite(
@@ -1303,38 +1322,44 @@ export function previewConstituencyChange(input, currentCodes, options = {}) {
         proposedCodes: labels,
       };
     }
-    if (!findCode(currentCodes, source)) {
+    const sourceCandidates = currentCodes.filter((code) => labelsMatch(code.label, source));
+    if (!sourceCandidates.length) {
       return {
         status: STATUS.needsReview,
         reasons: [`Current constituency ${source} was not found on the NXT record.`],
         proposedCodes: labels,
       };
     }
-
-    const sourceCode = findCode(currentCodes, source);
-    const withoutSource = currentCodes.filter((code) => !labelsMatch(code.label, source));
-    if (findCode(withoutSource, target)) {
+    if (findCode(currentCodes, target)) {
       return {
         status: STATUS.needsReview,
         reasons: [
           `${target} is already present on the NXT record. Review the duplicate before replacing ${source}.`,
         ],
-        proposedCodes: sortByHierarchy(withoutSource).map((code) => code.label),
+        proposedCodes: labels,
+        sourceCandidates,
       };
     }
 
-    const replacement = {
-      ...sourceCode,
-      label: target,
-      startDate: input.startDate || sourceCode.startDate || null,
-      endDate: null,
-    };
-    const proposed = [...withoutSource, replacement];
+    // A reviewer chooses the exact source row later. We only show a proposed replacement
+    // when the label identifies one row unambiguously; this avoids implying that duplicate
+    // historical codes will all be removed.
+    const sourceCode = sourceCandidates.length === 1 ? sourceCandidates[0] : null;
+    const proposed = sourceCode
+      ? [
+          ...currentCodes.filter((code) => code.id !== sourceCode.id),
+          makeCode(target, input),
+        ]
+      : currentCodes;
 
     return {
       status: STATUS.ready,
-      reasons,
+      reasons: [
+        ...reasons,
+        "Choose the exact current NXT constituent-code row before this replacement can be applied.",
+      ],
       proposedCodes: sortByHierarchy(proposed).map((code) => code.label),
+      sourceCandidates,
     };
   }
 
@@ -2139,6 +2164,7 @@ export async function POST(request) {
           : null,
         currentCodes: currentCodes.map((code) => code.label),
         currentCodeDetails: currentCodes.map((code) => ({
+          id: code.id,
           label: code.label,
           startDate: formatPreviewDate(code.startDate),
           endDate: formatPreviewDate(code.endDate),

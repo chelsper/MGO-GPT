@@ -55,6 +55,16 @@ function makeRun(overrides = {}) {
   };
 }
 
+function getSavedApplyAudit() {
+  const updateCall = sqlMock.mock.calls.find((call) =>
+    Array.isArray(call[0]) && call[0].join(" ").includes("blackbaud_result"),
+  );
+  const serializedAudit = updateCall
+    ?.slice(1)
+    .find((value) => typeof value === "string" && value.includes('"results"'));
+  return serializedAudit ? JSON.parse(serializedAudit) : null;
+}
+
 describe("constituency import run apply route", () => {
   beforeEach(() => {
     authMock.mockReset();
@@ -903,14 +913,22 @@ describe("constituency import run apply route", () => {
     expect(payload.rows[0].blackbaudResult.results).toEqual(savedResult.results);
   });
 
-  it("applies replace rows by updating the current code in place", async () => {
+  it("deletes the reviewed source code and creates the target code", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "constituent_code",
       action: "replace",
       sourceConstituency: "Student",
       targetConstituency: "Alumni - Bachelor's Degree",
+      sourceCodeId: "student-code-1",
+      selectedSourceCode: {
+        id: "student-code-1",
+        label: "Student",
+        startDate: "2020-08-15",
+        endDate: "2027-05-03",
+      },
       startDate: "2026-08-01",
+      endDate: "",
     };
     const row = {
       id: "11",
@@ -940,9 +958,18 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-06T12:00:00Z" }]);
     blackbaudApiFetchMock
       .mockResolvedValueOnce({
-        value: [{ id: "student-code-1", description: "Student", date_to: "2027-05-03" }],
+        value: [
+          {
+            id: "student-code-1",
+            description: "Student",
+            date_from: "2020-08-15",
+            date_to: "2027-05-03",
+          },
+          { id: "friend-code-1", description: "Friend" },
+        ],
       })
-      .mockResolvedValueOnce({ id: "student-code-1", description: "Alumni - Bachelor's Degree" });
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ id: "alumni-code-1", description: "Alumni - Bachelor's Degree" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
@@ -955,25 +982,47 @@ describe("constituency import run apply route", () => {
         userId: 7,
         authUserId: 7,
         origin: "https://example.com",
-        method: "PATCH",
+        method: "DELETE",
+      },
+    );
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/constituent/v1/constituentcodes",
+      {
+        userId: 7,
+        authUserId: 7,
+        origin: "https://example.com",
+        method: "POST",
         body: {
+          constituent_id: "123",
           description: "Alumni - Bachelor's Degree",
           date_from: "2026-08-01",
-          date_to: null,
         },
       },
     );
-    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(3);
     expect(payload.applySummary.applied).toBe(1);
+    expect(getSavedApplyAudit().results[0].message).toContain(
+      "Other NXT constituent codes were not changed.",
+    );
   });
 
-  it("replaces a current code without requiring an end date", async () => {
+  it("does not copy source dates to a replacement when CSV dates are blank", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "constituent_code",
       action: "replace",
       sourceConstituency: "Student",
       targetConstituency: "Alumni - Bachelor's Degree",
+      sourceCodeId: "student-code-1",
+      selectedSourceCode: {
+        id: "student-code-1",
+        label: "Student",
+        startDate: "2020-08-15",
+        endDate: "2027-05-03",
+      },
+      startDate: "",
+      endDate: "",
     };
     const row = {
       id: "12",
@@ -1001,19 +1050,29 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([makeRun({ status: "applied", ready_count: 0, applied_count: 1 })])
       .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-06T12:00:00Z" }]);
     blackbaudApiFetchMock
-      .mockResolvedValueOnce({ value: [{ id: "student-code-1", description: "Student" }] })
-      .mockResolvedValueOnce({ id: "student-code-1", description: "Alumni - Bachelor's Degree" });
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "student-code-1",
+            description: "Student",
+            date_from: "2020-08-15",
+            date_to: "2027-05-03",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ id: "alumni-code-1", description: "Alumni - Bachelor's Degree" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
-      2,
-      "/constituent/v1/constituentcodes/student-code-1",
+      3,
+      "/constituent/v1/constituentcodes",
       expect.objectContaining({
-        method: "PATCH",
-        body: { description: "Alumni - Bachelor's Degree", date_to: null },
+        method: "POST",
+        body: { constituent_id: "123", description: "Alumni - Bachelor's Degree" },
       }),
     );
     expect(payload.applySummary.applied).toBe(1);
@@ -1026,6 +1085,7 @@ describe("constituency import run apply route", () => {
       action: "replace",
       sourceConstituency: "Student",
       targetConstituency: "Alumni - Bachelor's Degree",
+      sourceCodeId: "student-code-1",
       startDate: "2026-08-01",
       endDate: "2026-07-31",
     };
@@ -1075,6 +1135,113 @@ describe("constituency import run apply route", () => {
     expect(response.status).toBe(200);
     expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
     expect(payload.applySummary.manualRequired).toBe(1);
+  });
+
+  it("requires a reviewed source code ID before a replacement can be sent", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "constituent_code",
+      action: "replace",
+      sourceConstituency: "Student",
+      targetConstituency: "Alumni - Bachelor's Degree",
+      startDate: "2026-08-01",
+      endDate: "",
+    };
+    const row = {
+      id: "14",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: { rowNumber: 1, match: { blackbaudConstituentId: "123" }, writePlan: [write] },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "partially_applied", ready_count: 0, needs_review_count: 1 })])
+      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }]);
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(payload.applySummary.manualRequired).toBe(1);
+    expect(getSavedApplyAudit().results[0].message).toContain(
+      "Choose the exact current NXT constituent-code row",
+    );
+  });
+
+  it("restores the reviewed source code if target creation fails", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "constituent_code",
+      action: "replace",
+      sourceConstituency: "Student",
+      targetConstituency: "Alumni - Bachelor's Degree",
+      sourceCodeId: "student-code-1",
+      startDate: "2026-08-01",
+      endDate: "",
+    };
+    const row = {
+      id: "15",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: { rowNumber: 1, match: { blackbaudConstituentId: "123" }, writePlan: [write] },
+    };
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Failed" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "failed", ready_count: 0, failed_count: 1 })])
+      .mockResolvedValueOnce([{ ...row, status: "Failed" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "student-code-1",
+            description: "Student",
+            date_from: "2020-08-15",
+            date_to: "2027-05-03",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error("NXT rejected Alumni"))
+      .mockResolvedValueOnce({ id: "restored-student-code" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(4);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/constituent/v1/constituentcodes",
+      expect.objectContaining({
+        method: "POST",
+        body: {
+          constituent_id: "123",
+          description: "Student",
+          date_from: "2020-08-15",
+          date_to: "2027-05-03",
+        },
+      }),
+    );
+    expect(payload.applySummary.failed).toBe(1);
+    expect(getSavedApplyAudit().results[0].message).toContain(
+      "was restored with its original dates",
+    );
   });
 
   it("adds a new education relationship with a configured two-digit class year", async () => {

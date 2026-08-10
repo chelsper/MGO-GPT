@@ -271,7 +271,7 @@ const IMPORT_FIELDS = [
     label: "New Constituent Code Start Date",
     group: "Constituent code fields",
     description:
-      "Optional start date. For Add Additional, it starts the new code; for Replace Existing, it updates the selected current code. Leave blank to keep the current start date.",
+      "Optional start date for the new code. When replacing, the selected current code and its dates are removed; leave this blank to create the new code without a start date.",
   },
   {
     key: "endDate",
@@ -279,7 +279,7 @@ const IMPORT_FIELDS = [
     label: "New Constituent Code End Date",
     group: "Constituent code fields",
     description:
-      "Optional end date for Add Additional or End-Date actions. It is not used for Replace Existing.",
+      "Optional end date for the new code. When replacing, it applies only to the newly created code.",
   },
   {
     key: "educationInstitution",
@@ -945,7 +945,13 @@ function formatWritePlanItem(write) {
   if (write.type === "constituent_code") {
     const action = write.action === "replace" ? "Replace" : "Add";
     const from = write.sourceConstituency ? `${write.sourceConstituency} to ` : "";
-    return `${action} constituent code: ${from}${write.targetConstituency || "unspecified"}`;
+    const reviewState =
+      write.action === "replace"
+        ? write.sourceCodeId
+          ? " (selected current NXT row)"
+          : " (select current NXT row)"
+        : "";
+    return `${action} constituent code: ${from}${write.targetConstituency || "unspecified"}${reviewState}`;
   }
 
   if (write.type === "constituent_name") {
@@ -1748,6 +1754,204 @@ function EducationTargetReviewPanel({
   );
 }
 
+function ConstituencyReplaceReviewPanel({
+  row,
+  candidates,
+  loading,
+  saving,
+  onLoadCandidates,
+  onSelectCandidate,
+}) {
+  const write = (row.writePlan || []).find(
+    (item) => item?.type === "constituent_code" && item?.action === "replace",
+  );
+  if (!write) return null;
+
+  const formatCodeDate = (value) => formatBirthDateForDisplay(value) || "Not set";
+  const selectedSourceCode = write.selectedSourceCode;
+  const hasLoadedCandidates = Array.isArray(candidates);
+  const targetDetails = [
+    write.targetConstituency || "New constituent code",
+    `Start: ${formatCodeDate(write.startDate)}`,
+    `End: ${formatCodeDate(write.endDate)}`,
+  ];
+
+  if (write.sourceCodeId && selectedSourceCode) {
+    return (
+      <section
+        style={{
+          border: "1px solid #86EFAC",
+          borderRadius: "14px",
+          backgroundColor: "#F0FDF4",
+          padding: "14px",
+          display: "grid",
+          gap: "11px",
+        }}
+      >
+        <div>
+          <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Constituency replacement confirmed
+          </div>
+          <p style={{ margin: "5px 0 0", color: "#166534", lineHeight: 1.45 }}>
+            Sending this record to NXT will remove only the selected current code below, including
+            its start and end dates. It will then create the new code using the CSV dates. Every
+            other NXT constituency remains unchanged.
+          </p>
+        </div>
+        <div
+          style={{
+            border: "1px solid #BBF7D0",
+            borderRadius: "10px",
+            backgroundColor: "white",
+            padding: "10px",
+            display: "grid",
+            gap: "5px",
+          }}
+        >
+          <div style={{ color: "#166534", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>
+            Current NXT code to remove
+          </div>
+          <div style={{ color: "#111827", fontWeight: 900 }}>
+            {selectedSourceCode.label || write.sourceConstituency}
+          </div>
+          <div style={{ color: "#4B5563", fontSize: "14px" }}>
+            Start: {formatCodeDate(selectedSourceCode.startDate)} · End: {formatCodeDate(selectedSourceCode.endDate)}
+          </div>
+          <div style={{ color: "#166534", fontSize: "12px", fontWeight: 800 }}>
+            NXT constituent-code ID {selectedSourceCode.id || write.sourceCodeId}
+          </div>
+        </div>
+        <div
+          style={{
+            border: "1px solid #BBF7D0",
+            borderRadius: "10px",
+            backgroundColor: "white",
+            padding: "10px",
+          }}
+        >
+          <div style={{ color: "#166534", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>
+            New NXT code to create
+          </div>
+          <div style={{ marginTop: "5px", color: "#111827", fontWeight: 900 }}>
+            {targetDetails.join(" · ")}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      style={{
+        border: "1px solid #FCD34D",
+        borderRadius: "14px",
+        backgroundColor: "#FFFBEB",
+        padding: "14px",
+        display: "grid",
+        gap: "12px",
+      }}
+    >
+      <div>
+        <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Constituency replacement review
+        </div>
+        <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
+          Choose exactly which current NXT code row to remove. The selected row and its dates will
+          be deleted, then the new code below will be created using the CSV dates. Other
+          constituencies will not change.
+        </p>
+      </div>
+      <div
+        style={{
+          border: "1px solid #FDE68A",
+          borderRadius: "10px",
+          backgroundColor: "white",
+          padding: "10px",
+        }}
+      >
+        <div style={{ color: "#92400E", fontSize: "11px", fontWeight: 900, textTransform: "uppercase" }}>
+          New NXT code from CSV
+        </div>
+        <div style={{ marginTop: "5px", color: "#111827", fontWeight: 900 }}>
+          {targetDetails.join(" · ")}
+        </div>
+      </div>
+
+      {!hasLoadedCandidates ? (
+        <button
+          type="button"
+          onClick={() => onLoadCandidates(row)}
+          disabled={loading || saving}
+          style={{
+            width: "fit-content",
+            border: "1px solid #B45309",
+            borderRadius: "999px",
+            backgroundColor: loading ? "#FEF3C7" : "#B45309",
+            color: loading ? "#92400E" : "white",
+            padding: "9px 14px",
+            fontWeight: 900,
+            cursor: loading || saving ? "not-allowed" : "pointer",
+          }}
+        >
+          {loading ? "Loading current NXT code rows..." : `Review current ${write.sourceConstituency} code rows`}
+        </button>
+      ) : candidates.length ? (
+        <div style={{ display: "grid", gap: "9px" }}>
+          <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
+            Current NXT code candidates
+          </div>
+          {candidates.map((candidate) => (
+            <div
+              key={candidate.id}
+              style={{
+                border: "1px solid #FDE68A",
+                borderRadius: "11px",
+                backgroundColor: "white",
+                padding: "11px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div style={{ color: "#111827", fontWeight: 900 }}>{candidate.label}</div>
+                <div style={{ marginTop: "3px", color: "#6B7280", fontSize: "14px" }}>
+                  Start: {formatCodeDate(candidate.startDate)} · End: {formatCodeDate(candidate.endDate)}
+                </div>
+                <div style={{ marginTop: "4px", color: "#92400E", fontSize: "12px", fontWeight: 800 }}>
+                  NXT constituent-code ID {candidate.id}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onSelectCandidate(row, candidate.id)}
+                disabled={saving || loading}
+                style={{
+                  border: "1px solid #B45309",
+                  borderRadius: "999px",
+                  backgroundColor: saving ? "#FEF3C7" : "white",
+                  color: "#92400E",
+                  padding: "8px 12px",
+                  fontWeight: 900,
+                  cursor: saving || loading ? "not-allowed" : "pointer",
+                }}
+              >
+                {saving ? "Saving selection..." : "Use this NXT code"}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: "#92400E", fontWeight: 800 }}>
+          No current NXT {write.sourceConstituency} code rows remain. Refresh the import preview before continuing.
+        </div>
+      )}
+    </section>
+  );
+}
+
 function getEducationClassYearReviewWrite(row) {
   return (row?.writePlan || []).find(
     (item) =>
@@ -2108,6 +2312,7 @@ function getRowReviewRequirements(row) {
 
 function getRowReviewTargetKey(requirements) {
   const requirementText = requirements.join(" ").toLowerCase();
+  if (requirementText.includes("constituent-code row")) return "constituency-target";
   if (requirementText.includes("education class year")) return "education-class-year";
   if (requirementText.includes("education")) return "education-target";
   if (/email|phone|address/.test(requirementText)) return "contact-review";
@@ -2187,6 +2392,9 @@ export default function ConstituencyImportPage() {
   const [educationCandidatesByRowId, setEducationCandidatesByRowId] = useState({});
   const [loadingEducationCandidateRowId, setLoadingEducationCandidateRowId] = useState("");
   const [savingEducationTargetRowId, setSavingEducationTargetRowId] = useState("");
+  const [constituencyCandidatesByRowId, setConstituencyCandidatesByRowId] = useState({});
+  const [loadingConstituencyCandidateRowId, setLoadingConstituencyCandidateRowId] = useState("");
+  const [savingConstituencyTargetRowId, setSavingConstituencyTargetRowId] = useState("");
   const [educationClassYearDrafts, setEducationClassYearDrafts] = useState({});
   const [savingEducationClassYearRowId, setSavingEducationClassYearRowId] = useState("");
 
@@ -2970,7 +3178,7 @@ export default function ConstituencyImportPage() {
     const displayName = getImportRowLabel(rowsToApply[0]);
     const message = singleRecord
       ? `Send ${displayName} to Raiser's Edge NXT now? This will apply ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"}. The write result and audit trail will stay in import run #${runId}.`
-      : `Import ${rowsToApply.length} selected row${rowsToApply.length === 1 ? "" : "s"} and ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace constituent-code rows update the selected current code in place; end-date rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`;
+      : `Import ${rowsToApply.length} selected row${rowsToApply.length === 1 ? "" : "s"} and ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replacing a constituent code removes only the reviewed current NXT code row, including its dates, then creates the new code with the CSV dates; all other codes remain unchanged. End-date rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`;
 
     if (!skipConfirmation) {
       const shouldApply = window.confirm(message);
@@ -3158,6 +3366,81 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setSavingEducationTargetRowId("");
+    }
+  }
+
+  async function loadConstituencyCandidates(row) {
+    const runId = preview?.savedRun?.id;
+    if (
+      !runId ||
+      !row?.id ||
+      loadingConstituencyCandidateRowId ||
+      savingConstituencyTargetRowId
+    ) {
+      return;
+    }
+
+    setLoadingConstituencyCandidateRowId(String(row.id));
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/constituency-target`,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not load current NXT constituent-code rows.");
+      }
+      setConstituencyCandidatesByRowId((current) => ({
+        ...current,
+        [String(row.id)]: Array.isArray(payload?.candidates) ? payload.candidates : [],
+      }));
+    } catch (candidateError) {
+      setError(
+        candidateError instanceof Error
+          ? candidateError.message
+          : "Could not load current NXT constituent-code rows.",
+      );
+    } finally {
+      setLoadingConstituencyCandidateRowId("");
+    }
+  }
+
+  async function selectConstituencyTarget(row, constituentCodeId) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || !constituentCodeId || savingConstituencyTargetRowId) return;
+
+    setSavingConstituencyTargetRowId(String(row.id));
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/constituency-target`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ constituentCodeId }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not save the NXT constituent-code selection.");
+      }
+
+      setConstituencyCandidatesByRowId({});
+      await loadSavedRun(runId);
+      setSaveMessage(
+        payload?.message ||
+          "Saved the current NXT constituent-code selection. Review the record action to continue.",
+      );
+      fetchSavedRuns();
+    } catch (selectionError) {
+      setError(
+        selectionError instanceof Error
+          ? selectionError.message
+          : "Could not save the NXT constituent-code selection.",
+      );
+    } finally {
+      setSavingConstituencyTargetRowId("");
     }
   }
 
@@ -5468,8 +5751,17 @@ export default function ConstituencyImportPage() {
                         result?.status === "failed" && Number.isInteger(result?.writeIndex),
                     )
                   : [];
+                const hasUnselectedConstituencyReplacement = (row.writePlan || []).some(
+                  (write) =>
+                    write?.type === "constituent_code" &&
+                    write?.action === "replace" &&
+                    !write?.sourceCodeId,
+                );
                 const canApplyRow = Boolean(
-                  preview?.savedRun && row.status === "Ready" && !row.appliedAt,
+                  preview?.savedRun &&
+                    row.status === "Ready" &&
+                    !row.appliedAt &&
+                    !hasUnselectedConstituencyReplacement,
                 );
                 const canDirectSendPreviewRow = Boolean(
                   !preview?.savedRun &&
@@ -5800,6 +6092,19 @@ export default function ConstituencyImportPage() {
                           saving={savingEducationTargetRowId === String(row.id)}
                           onLoadCandidates={loadEducationCandidates}
                           onSelectCandidate={selectEducationTarget}
+                        />
+                      </div>
+                    ) : null}
+
+                    {preview?.savedRun ? (
+                      <div id={`constituency-import-row-${row.id}-constituency-target`}>
+                        <ConstituencyReplaceReviewPanel
+                          row={row}
+                          candidates={constituencyCandidatesByRowId[String(row.id)]}
+                          loading={loadingConstituencyCandidateRowId === String(row.id)}
+                          saving={savingConstituencyTargetRowId === String(row.id)}
+                          onLoadCandidates={loadConstituencyCandidates}
+                          onSelectCandidate={selectConstituencyTarget}
                         />
                       </div>
                     ) : null}

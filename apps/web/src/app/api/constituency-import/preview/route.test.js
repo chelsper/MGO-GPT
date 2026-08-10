@@ -130,7 +130,7 @@ describe("constituency import preview route", () => {
     );
   });
 
-  it("previews a strong ID replacement as ready", async () => {
+  it("requires explicit source-code review for a strong ID replacement", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({
       blackbaudConstituentId: "123",
@@ -140,8 +140,13 @@ describe("constituency import preview route", () => {
     });
     blackbaudApiFetchMock.mockResolvedValue({
       value: [
-        { description: "Student", date_from: "2020-08-15", date_to: "2024-05-04" },
-        { description: "Friend" },
+        {
+          id: "student-code-1",
+          description: "Student",
+          date_from: "2020-08-15",
+          date_to: "2024-05-04",
+        },
+        { id: "friend-code-1", description: "Friend" },
       ],
     });
 
@@ -162,18 +167,40 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.summary.ready).toBe(1);
-    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.summary.needsReview).toBe(1);
+    expect(payload.rows[0].status).toBe("Needs Review");
     expect(payload.rows[0].matchMethod).toBe("NXT system ID");
     expect(payload.rows[0].currentCodes).toEqual(["Student", "Friend"]);
     expect(payload.rows[0].currentCodeDetails).toEqual([
-      { label: "Student", startDate: "2020-08-15", endDate: "2024-05-04" },
-      { label: "Friend", startDate: "", endDate: "" },
+      {
+        id: "student-code-1",
+        label: "Student",
+        startDate: "2020-08-15",
+        endDate: "2024-05-04",
+      },
+      { id: "friend-code-1", label: "Friend", startDate: "", endDate: "" },
     ]);
     expect(payload.rows[0].proposedCodes).toEqual([
       "Alumni - Bachelor's Degree",
       "Friend",
     ]);
+    expect(payload.rows[0].writePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "constituent_code",
+          action: "replace",
+          requiresReview: true,
+          sourceCandidates: [
+            {
+              id: "student-code-1",
+              label: "Student",
+              startDate: "2020-08-15",
+              endDate: "2024-05-04",
+            },
+          ],
+        }),
+      ]),
+    );
   });
 
   it("serializes partial NXT constituency dates for the preview", async () => {
@@ -197,7 +224,7 @@ describe("constituency import preview route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.rows[0].currentCodeDetails).toEqual([
-      { label: "Student", startDate: "2020", endDate: "2024-05" },
+      { id: null, label: "Student", startDate: "2020", endDate: "2024-05" },
     ]);
   });
 
