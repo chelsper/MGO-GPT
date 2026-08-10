@@ -1311,10 +1311,25 @@ export function previewConstituencyChange(input, currentCodes, options = {}) {
       };
     }
 
+    const sourceCode = findCode(currentCodes, source);
     const withoutSource = currentCodes.filter((code) => !labelsMatch(code.label, source));
-    const proposed = findCode(withoutSource, target)
-      ? withoutSource
-      : [...withoutSource, makeCode(target, input)];
+    if (findCode(withoutSource, target)) {
+      return {
+        status: STATUS.needsReview,
+        reasons: [
+          `${target} is already present on the NXT record. Review the duplicate before replacing ${source}.`,
+        ],
+        proposedCodes: sortByHierarchy(withoutSource).map((code) => code.label),
+      };
+    }
+
+    const replacement = {
+      ...sourceCode,
+      label: target,
+      startDate: input.startDate || sourceCode.startDate || null,
+      endDate: null,
+    };
+    const proposed = [...withoutSource, replacement];
 
     return {
       status: STATUS.ready,

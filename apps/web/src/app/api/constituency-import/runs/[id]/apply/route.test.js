@@ -903,7 +903,7 @@ describe("constituency import run apply route", () => {
     expect(payload.rows[0].blackbaudResult.results).toEqual(savedResult.results);
   });
 
-  it("applies replace rows by end-dating the source code and adding the target code", async () => {
+  it("applies replace rows by updating the current code in place", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "constituent_code",
@@ -911,7 +911,6 @@ describe("constituency import run apply route", () => {
       sourceConstituency: "Student",
       targetConstituency: "Alumni - Bachelor's Degree",
       startDate: "2026-08-01",
-      endDate: "2026-07-31",
     };
     const row = {
       id: "11",
@@ -922,7 +921,6 @@ describe("constituency import run apply route", () => {
       source_constituency: "Student",
       target_constituency: "Alumni - Bachelor's Degree",
       start_date: "2026-08-01",
-      end_date: "2026-07-31",
       requested_writes: [write],
       preview: {
         rowNumber: 1,
@@ -941,9 +939,10 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([makeRun({ status: "applied", applied_count: 1, ready_count: 0 })])
       .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-06T12:00:00Z" }]);
     blackbaudApiFetchMock
-      .mockResolvedValueOnce({ value: [{ id: "student-code-1", description: "Student" }] })
-      .mockResolvedValueOnce({ id: "student-code-1" })
-      .mockResolvedValueOnce({ id: "alumni-code-1" });
+      .mockResolvedValueOnce({
+        value: [{ id: "student-code-1", description: "Student", date_to: "2027-05-03" }],
+      })
+      .mockResolvedValueOnce({ id: "student-code-1", description: "Alumni - Bachelor's Degree" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
@@ -957,24 +956,18 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
-        body: { date_to: "2026-07-31" },
+        body: {
+          description: "Alumni - Bachelor's Degree",
+          date_from: "2026-08-01",
+          date_to: null,
+        },
       },
     );
-    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(3, "/constituent/v1/constituentcodes", {
-      userId: 7,
-      authUserId: 7,
-      origin: "https://example.com",
-      method: "POST",
-      body: {
-        constituent_id: "123",
-        description: "Alumni - Bachelor's Degree",
-        date_from: "2026-08-01",
-      },
-    });
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
     expect(payload.applySummary.applied).toBe(1);
   });
 
-  it("requires an end date before applying replace rows", async () => {
+  it("replaces a current code without requiring an end date", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "constituent_code",
@@ -1003,22 +996,30 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([makeRun()])
       .mockResolvedValueOnce([row])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        makeRun({ status: "partially_applied", ready_count: 0, needs_review_count: 1 }),
-      ])
-      .mockResolvedValueOnce([{ ...row, status: "Needs Review" }]);
+      .mockResolvedValueOnce([makeRun({ status: "applied", ready_count: 0, applied_count: 1 })])
+      .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-06T12:00:00Z" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [{ id: "student-code-1", description: "Student" }] })
+      .mockResolvedValueOnce({ id: "student-code-1", description: "Alumni - Bachelor's Degree" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
-    expect(payload.applySummary.manualRequired).toBe(1);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/constituent/v1/constituentcodes/student-code-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: { description: "Alumni - Bachelor's Degree", date_to: null },
+      }),
+    );
+    expect(payload.applySummary.applied).toBe(1);
   });
 
-  it("keeps replace rows in manual review when the target code already exists with an end date", async () => {
+  it("keeps replace rows in manual review when the target code already exists", async () => {
     const { POST } = await import("./route.js");
     const write = {
       type: "constituent_code",

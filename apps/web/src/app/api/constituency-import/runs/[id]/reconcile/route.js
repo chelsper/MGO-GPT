@@ -392,9 +392,12 @@ async function reconcileWrite({ write, applyResult, reader }) {
     if (write.action === "replace") {
       const source = findCode(write.sourceConstituency);
       const target = findCode(write.targetConstituency);
-      return source && comparableDate(source.endDate) === comparableDate(write.endDate) && target
-        ? confirmed(write, "NXT reflects both sides of the constituent-code replacement.")
-        : needsReview(write, "NXT does not yet reflect both sides of the constituent-code replacement.");
+      const requestedStartDate = cleanText(write.startDate);
+      const startDateMatches =
+        !requestedStartDate || comparableDate(target?.startDate) === comparableDate(requestedStartDate);
+      return target && !source && !cleanText(target.endDate) && startDateMatches
+        ? confirmed(write, "NXT reflects the in-place constituent-code replacement.")
+        : needsReview(write, "NXT does not yet reflect the requested constituent-code replacement.");
     }
     const target = findCode(write.targetConstituency);
     return target && !cleanText(target.endDate)

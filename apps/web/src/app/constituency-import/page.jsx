@@ -270,7 +270,8 @@ const IMPORT_FIELDS = [
     header: "New Constituent Code Start Date",
     label: "New Constituent Code Start Date",
     group: "Constituent code fields",
-    description: "Optional start date for the new constituent code. This can be blank.",
+    description:
+      "Optional start date. For Add Additional, it starts the new code; for Replace Existing, it updates the selected current code. Leave blank to keep the current start date.",
   },
   {
     key: "endDate",
@@ -278,7 +279,7 @@ const IMPORT_FIELDS = [
     label: "New Constituent Code End Date",
     group: "Constituent code fields",
     description:
-      "Optional end date for add actions. For replace/end-date actions, this is the date used to end the current code.",
+      "Optional end date for Add Additional or End-Date actions. It is not used for Replace Existing.",
   },
   {
     key: "educationInstitution",
@@ -2969,7 +2970,7 @@ export default function ConstituencyImportPage() {
     const displayName = getImportRowLabel(rowsToApply[0]);
     const message = singleRecord
       ? `Send ${displayName} to Raiser's Edge NXT now? This will apply ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"}. The write result and audit trail will stay in import run #${runId}.`
-      : `Import ${rowsToApply.length} selected row${rowsToApply.length === 1 ? "" : "s"} and ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace and end-date constituent-code rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`;
+      : `Import ${rowsToApply.length} selected row${rowsToApply.length === 1 ? "" : "s"} and ${writeCount} staged NXT write${writeCount === 1 ? "" : "s"} to Raiser's Edge NXT now? This may update constituent codes, add-only education and organization relationships, selected individual fields, custom primary addressees/salutations, and reviewed contact information. Contact replacements preserve the selected NXT type and primary setting. Replace constituent-code rows update the selected current code in place; end-date rows require an end date. Organization relationships require one exact existing NXT organization; ambiguous or missing matches stay in review.`;
 
     if (!skipConfirmation) {
       const shouldApply = window.confirm(message);

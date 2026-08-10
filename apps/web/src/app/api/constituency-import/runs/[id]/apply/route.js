@@ -176,11 +176,29 @@ function isOpenConstituencyCode(code) {
   return !cleanText(code?.endDate);
 }
 
+function isCurrentConstituencyCode(code) {
+  const endDate = formatDateForBlackbaud(code?.endDate);
+  if (!endDate) return true;
+
+  const endTimestamp = Date.parse(`${endDate}T23:59:59.999Z`);
+  return Number.isNaN(endTimestamp) || endTimestamp >= Date.now();
+}
+
 function findOpenCode(codes, label) {
   const normalizedLabel = normalizeText(label);
   return (
     codes.find(
       (code) => normalizeText(code.label) === normalizedLabel && isOpenConstituencyCode(code),
+    ) || null
+  );
+}
+
+function findCurrentCode(codes, label) {
+  const normalizedLabel = normalizeText(label);
+  return (
+    codes.find(
+      (code) =>
+        normalizeText(code.label) === normalizedLabel && isCurrentConstituencyCode(code),
     ) || null
   );
 }
@@ -1524,7 +1542,7 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
   const constituentId = getMatchedConstituentId(row);
   const sourceConstituency = cleanText(write.sourceConstituency || row.source_constituency);
   const targetConstituency = cleanText(write.targetConstituency || row.target_constituency);
-  const endDate = formatDateForBlackbaud(write.endDate || row.end_date);
+  const startDate = formatDateForBlackbaud(write.startDate || row.start_date);
 
   if (!constituentId || !sourceConstituency || !targetConstituency) {
     return {
@@ -1535,23 +1553,26 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
         "Matched NXT constituent ID, current constituent code, and new constituent code are required before replace can apply.",
     };
   }
-  if (!endDate) {
+
+  const liveCodes = await fetchConstituencyCodes({ request, user, constituentId });
+  if (normalizeText(sourceConstituency) === normalizeText(targetConstituency)) {
     return {
-      status: "manual_required",
+      status: "applied",
       type: "constituent_code",
-      action: "replace",
-      message: `An end date is required before replacing ${sourceConstituency} in NXT.`,
+      action: "skip_existing",
+      sourceConstituency,
+      targetConstituency,
+      message: `${sourceConstituency} already matches the selected constituent code.`,
     };
   }
 
-  const liveCodes = await fetchConstituencyCodes({ request, user, constituentId });
-  const sourceCode = findOpenCode(liveCodes, sourceConstituency);
+  const sourceCode = findCurrentCode(liveCodes, sourceConstituency);
   if (!sourceCode && findCode(liveCodes, sourceConstituency)) {
     return {
       status: "manual_required",
       type: "constituent_code",
       action: "replace",
-      message: `${sourceConstituency} already has an end date in NXT; review before replacing it.`,
+      message: `${sourceConstituency} is no longer current in NXT; review before replacing it.`,
     };
   }
   if (!sourceCode?.id) {
@@ -1564,38 +1585,25 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
   }
 
   const targetAlreadyExists = findCode(liveCodes, targetConstituency);
-  if (targetAlreadyExists && !isOpenConstituencyCode(targetAlreadyExists)) {
+  if (targetAlreadyExists) {
     return {
       status: "manual_required",
       type: "constituent_code",
       action: "replace",
-      message: `${targetConstituency} already exists in NXT with an end date; review before adding another copy.`,
+      message: `${targetConstituency} already exists in NXT; review before replacing ${sourceConstituency} to avoid a duplicate constituent code.`,
     };
   }
 
-  const results = [];
-  results.push(
-    await patchConstituentCode({
-      request,
-      user,
-      codeId: sourceCode.id,
-      payload: { date_to: endDate },
-    }),
-  );
-
-  if (!targetAlreadyExists) {
-    results.push(
-      await createConstituentCode({
-        request,
-        user,
-        constituentId,
-        targetConstituency,
-        row,
-        write,
-        includeEndDate: false,
-      }),
-    );
-  }
+  // A replacement is one continuous code record, not an end-dated Student code plus a new Alumni code.
+  // Clear a future Student end date so the replacement remains active in NXT.
+  const payload = { description: targetConstituency, date_to: null };
+  if (startDate) payload.date_from = startDate;
+  const result = await patchConstituentCode({
+    request,
+    user,
+    codeId: sourceCode.id,
+    payload,
+  });
 
   return {
     status: "applied",
@@ -1603,11 +1611,9 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
     action: "replace",
     sourceConstituency,
     targetConstituency,
-    endDate,
-    message: targetAlreadyExists
-      ? `${sourceConstituency} was end-dated and ${targetConstituency} was already present.`
-      : `${sourceConstituency} was end-dated and ${targetConstituency} was added.`,
-    blackbaudResult: results,
+    startDate: startDate || null,
+    message: `${sourceConstituency} was replaced with ${targetConstituency}; its end date was cleared${startDate ? ` and its start date was set to ${startDate}` : ""}.`,
+    blackbaudResult: result || null,
   };
 }
 
