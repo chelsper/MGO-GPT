@@ -16,6 +16,52 @@ function getDefaultFY() {
   return `FY${String(fiscalYear).slice(-2)}`;
 }
 
+const MAX_CARD_IMAGE_DIMENSION = 1920;
+const MAX_CARD_IMAGE_DATA_URL_BYTES = 2_750_000;
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("The image could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function prepareBusinessCardImageForExtraction(file) {
+  const sourceDataUrl = await readFileAsDataUrl(file);
+  const image = new Image();
+
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = () => reject(new Error("The image could not be prepared for AI extraction."));
+    image.src = sourceDataUrl;
+  });
+
+  const scale = Math.min(
+    1,
+    MAX_CARD_IMAGE_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("The image could not be prepared for AI extraction.");
+  }
+
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  for (const quality of [0.9, 0.8, 0.7]) {
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    if (dataUrl.length <= MAX_CARD_IMAGE_DATA_URL_BYTES) {
+      return dataUrl;
+    }
+  }
+
+  throw new Error("The photo is too large for AI extraction. Try a closer or lower-resolution image.");
+}
+
 export default function NewConstituentPage() {
   const { data: user, loading } = useUser();
   const [upload, { loading: uploadLoading }] = useUpload();
@@ -30,6 +76,9 @@ export default function NewConstituentPage() {
   const [assignToMe, setAssignToMe] = useState("yes");
   const [businessCardUrl, setBusinessCardUrl] = useState(null);
   const [businessCardPreview, setBusinessCardPreview] = useState(null);
+  const [isExtractingBusinessCard, setIsExtractingBusinessCard] = useState(false);
+  const [businessCardExtractionMessage, setBusinessCardExtractionMessage] = useState("");
+  const [businessCardExtractionWarning, setBusinessCardExtractionWarning] = useState("");
   const [error, setError] = useState("");
   const [uploadWarning, setUploadWarning] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -184,6 +233,13 @@ export default function NewConstituentPage() {
     setError("");
     setUploadWarning("");
     setSuccessMessage("");
+    setBusinessCardExtractionMessage("");
+    setBusinessCardExtractionWarning("");
+
+    if (!file.type.startsWith("image/")) {
+      setUploadWarning("Choose an image file for the business card.");
+      return;
+    }
 
     const previewUrl = URL.createObjectURL(file);
     setBusinessCardPreview(previewUrl);
@@ -198,6 +254,59 @@ export default function NewConstituentPage() {
     }
 
     setBusinessCardUrl(url);
+
+    try {
+      setIsExtractingBusinessCard(true);
+      const imageDataUrl = await prepareBusinessCardImageForExtraction(file);
+      const extractionResponse = await fetch("/api/read-business-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl }),
+      });
+      const extractionData = await extractionResponse.json().catch(() => null);
+
+      if (!extractionResponse.ok) {
+        throw new Error(
+          extractionData?.error || "The card could not be read automatically.",
+        );
+      }
+
+      const fields = extractionData?.extractedFields;
+      if (!fields || typeof fields !== "object") {
+        setBusinessCardExtractionWarning(
+          "No readable contact details were found. The card is still attached for reviewer context.",
+        );
+        return;
+      }
+
+      if (typeof fields.name === "string" && fields.name.trim()) {
+        setName((current) => current.trim() || fields.name.trim());
+      }
+      if (typeof fields.organization === "string" && fields.organization.trim()) {
+        setOrganization((current) => current.trim() || fields.organization.trim());
+        setOrganizationTouched(true);
+      }
+      if (typeof fields.email === "string" && fields.email.trim()) {
+        setEmail((current) => current.trim() || fields.email.trim());
+      }
+      if (typeof fields.phone === "string" && fields.phone.trim()) {
+        setPhone((current) => current.trim() || fields.phone.trim());
+      }
+      if (typeof fields.notes === "string" && fields.notes.trim()) {
+        setNotes((current) => current.trim() || fields.notes.trim());
+      }
+
+      setBusinessCardExtractionMessage(
+        "AI details were added only to blank fields. Review and edit every field before submitting.",
+      );
+    } catch (extractionError) {
+      console.error("Business card extraction error:", extractionError);
+      setBusinessCardExtractionWarning(
+        `${extractionError instanceof Error ? extractionError.message : "The card could not be read automatically."} The card is still attached for reviewer context.`,
+      );
+    } finally {
+      setIsExtractingBusinessCard(false);
+    }
   };
 
   const handleUploadClick = () => {
@@ -267,6 +376,8 @@ export default function NewConstituentPage() {
       setBusinessCardUrl(null);
       setBusinessCardPreview(null);
       setUploadWarning("");
+      setBusinessCardExtractionMessage("");
+      setBusinessCardExtractionWarning("");
       setAddToProspects(false);
       setSelectedBlackbaudMatch(null);
 
@@ -428,6 +539,8 @@ export default function NewConstituentPage() {
             setBusinessCardUrl(null);
             setBusinessCardPreview(null);
             setUploadWarning("");
+            setBusinessCardExtractionMessage("");
+            setBusinessCardExtractionWarning("");
             setAddToProspects(false);
             setSelectedBlackbaudMatch(null);
             setDataUpdateDetails("");
@@ -468,7 +581,7 @@ export default function NewConstituentPage() {
     );
   }
 
-  const isProcessing = uploadLoading;
+  const isProcessing = uploadLoading || isExtractingBusinessCard;
 
   return (
     <div
@@ -783,14 +896,50 @@ export default function NewConstituentPage() {
                 marginBottom: "16px",
                 padding: "8px 10px",
                 borderRadius: "10px",
-                backgroundColor: "#F9FAFB",
-                color: "#6B7280",
+                backgroundColor: isExtractingBusinessCard ? "#EFF6FF" : "#F9FAFB",
+                color: isExtractingBusinessCard ? "#1D4ED8" : "#6B7280",
                 fontSize: "12px",
                 lineHeight: 1.5,
               }}
             >
-              AI autofill is unavailable right now. You can still attach a card image for reviewer context and submit the constituent manually.
+              {isExtractingBusinessCard
+                ? "Reading business card details..."
+                : "AI can suggest contact details from the card. Review and edit every suggestion before submitting."}
             </div>
+
+            {businessCardExtractionMessage ? (
+              <div
+                style={{
+                  marginBottom: "16px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  backgroundColor: "#ECFDF5",
+                  border: "1px solid #A7F3D0",
+                  color: "#166534",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {businessCardExtractionMessage}
+              </div>
+            ) : null}
+
+            {businessCardExtractionWarning ? (
+              <div
+                style={{
+                  marginBottom: "16px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  backgroundColor: "#FFFBEB",
+                  border: "1px solid #FDE68A",
+                  color: "#92400E",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {businessCardExtractionWarning}
+              </div>
+            ) : null}
 
             {/* Buttons */}
             <div style={{ display: "flex", gap: "12px" }}>

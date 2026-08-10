@@ -1,41 +1,56 @@
+import { auth } from "@/auth";
+
+export const runtime = "nodejs";
+
+const MAX_IMAGE_DATA_URL_BYTES = 2_750_000;
+
+function getValidatedImageDataUrl(imageDataUrl) {
+  if (typeof imageDataUrl !== "string" || !imageDataUrl.trim()) {
+    return null;
+  }
+
+  if (imageDataUrl.length > MAX_IMAGE_DATA_URL_BYTES) {
+    throw new Error("Business card image is too large for AI extraction");
+  }
+
+  const match = imageDataUrl.match(
+    /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/,
+  );
+  if (!match) {
+    throw new Error("Business card image must be a JPEG, PNG, or WebP image");
+  }
+
+  return imageDataUrl;
+}
+
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { imageUrl, imageDataUrl } = body;
+    const session = await auth();
+    if (!session?.user?.email) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (!imageUrl && !imageDataUrl) {
+    const body = await request.json();
+    const { imageDataUrl } = body;
+
+    if (!imageDataUrl) {
       return Response.json(
         { error: "No business card image was provided" },
         { status: 400 },
       );
     }
 
-    let base64DataUrl = imageDataUrl;
-
-    if (!base64DataUrl && imageUrl) {
-      const imageResponse = await fetch(imageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; BusinessCardReader/1.0)",
-        },
-      });
-      if (!imageResponse.ok) {
-        return Response.json(
-          { error: "Uploaded image could not be downloaded for scanning" },
-          { status: 400 },
-        );
-      }
-
-      const imageBuffer = await imageResponse.arrayBuffer();
-      const base64Image = Buffer.from(imageBuffer).toString("base64");
-
-      // Determine content type from response headers or default to jpeg
-      const contentType =
-        imageResponse.headers.get("content-type") || "image/jpeg";
-      base64DataUrl = `data:${contentType};base64,${base64Image}`;
-    }
-    if (!base64DataUrl) {
+    let base64DataUrl;
+    try {
+      base64DataUrl = getValidatedImageDataUrl(imageDataUrl);
+    } catch (validationError) {
       return Response.json(
-        { error: "Business card image could not be prepared for scanning" },
+        {
+          error:
+            validationError instanceof Error
+              ? validationError.message
+              : "Business card image is invalid",
+        },
         { status: 400 },
       );
     }
