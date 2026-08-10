@@ -3139,17 +3139,22 @@ export default function ConstituencyImportPage() {
     setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
   }
 
-  function focusImportRow(rowId) {
-    if (!rowId) return;
-    const row = (preview?.rows || []).find((candidate) => String(candidate.id) === String(rowId));
-    if (row) preloadRequiredReviewChoices(row);
-    setFocusedRowId(String(rowId));
+  function focusImportRowState(row) {
+    if (!row?.id) return;
+    preloadRequiredReviewChoices(row);
+    setFocusedRowId(String(row.id));
     setReviewMode(true);
     window.setTimeout(() => {
       document
         .getElementById("constituency-import-current-row")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 0);
+  }
+
+  function focusImportRow(rowId) {
+    if (!rowId) return;
+    const row = (preview?.rows || []).find((candidate) => String(candidate.id) === String(rowId));
+    focusImportRowState(row);
   }
 
   function preloadRequiredReviewChoices(row, runIdOverride = null) {
@@ -3252,11 +3257,11 @@ export default function ConstituencyImportPage() {
     for (let offset = 1; offset <= allRows.length; offset += 1) {
       const candidate = allRows[(Math.max(currentIndex, -1) + offset) % allRows.length];
       if (candidate && isUnresolvedImportRow(candidate)) {
-        focusImportRow(candidate.id);
+        focusImportRowState(candidate);
         return;
       }
     }
-    focusImportRow(allRows[currentIndex]?.id || allRows[0]?.id);
+    focusImportRowState(allRows[currentIndex] || allRows[0]);
   }
 
   function beginPreviewRowEdit(row) {
@@ -3862,6 +3867,8 @@ export default function ConstituencyImportPage() {
     setSkippingRowId(String(row.id || row.rowNumber));
     setError("");
     setSaveMessage("");
+    let previewBeforeSkip = null;
+    let savedRowForFocus = null;
 
     try {
       let runId = preview?.savedRun?.id;
@@ -3874,6 +3881,29 @@ export default function ConstituencyImportPage() {
 
       if (!runId || !savedRow?.id) {
         throw new Error("The import run could not be saved. Please try again before skipping this record.");
+      }
+
+      const savedRowId = String(savedRow.id);
+      savedRowForFocus = savedRow;
+      previewBeforeSkip = !isRestore && preview?.savedRun?.id ? preview : null;
+      let nextUnresolvedRow = null;
+
+      if (previewBeforeSkip) {
+        const rowsAfterSkip = previewBeforeSkip.rows.map((candidate) =>
+          String(candidate.id) === savedRowId ? { ...candidate, status: "Skipped" } : candidate,
+        );
+        const skippedIndex = rowsAfterSkip.findIndex((candidate) => String(candidate.id) === savedRowId);
+        nextUnresolvedRow = rowsAfterSkip.find(
+          (candidate, index) => index > skippedIndex && isUnresolvedImportRow(candidate),
+        ) || rowsAfterSkip.find(isUnresolvedImportRow);
+
+        setPreview({ ...previewBeforeSkip, rows: rowsAfterSkip });
+        setSelectedApplyRowIds((current) => current.filter((id) => id !== savedRowId));
+        if (nextUnresolvedRow) {
+          focusImportRowState(nextUnresolvedRow);
+        } else {
+          setFocusedRowId("");
+        }
       }
 
       const response = await fetch(
@@ -3889,18 +3919,27 @@ export default function ConstituencyImportPage() {
         throw new Error(payload?.error || "Failed to update the import row");
       }
 
-      const refreshedPayload = await loadSavedRun(runId);
-      if (!refreshedPayload) {
-        throw new Error("The row was updated, but the import run could not be refreshed.");
-      }
-      if (!isRestore) {
-        focusNextUnresolvedRow(refreshedPayload.rows, savedRow.id);
+      if (previewBeforeSkip) {
+        // Reconcile counts and audit data after the next record is already visible.
+        void loadSavedRun(runId);
       } else {
-        focusImportRow(savedRow.id);
+        const refreshedPayload = await loadSavedRun(runId);
+        if (!refreshedPayload) {
+          throw new Error("The row was updated, but the import run could not be refreshed.");
+        }
+        if (!isRestore) {
+          focusNextUnresolvedRow(refreshedPayload.rows, savedRow.id);
+        } else {
+          focusImportRow(savedRow.id);
+        }
       }
       setSaveMessage(payload?.message || "Updated this import row.");
       fetchSavedRuns();
     } catch (skipError) {
+      if (previewBeforeSkip) {
+        setPreview(previewBeforeSkip);
+        focusImportRow(savedRowForFocus?.id);
+      }
       setError(skipError instanceof Error ? skipError.message : "Failed to update the import row");
     } finally {
       setSkippingRowId("");

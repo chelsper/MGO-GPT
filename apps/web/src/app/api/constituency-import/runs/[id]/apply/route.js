@@ -117,7 +117,9 @@ function formatDateForBlackbaud(value) {
     const year = Number(value.y || value.year);
     const month = Number(value.m || value.month);
     const day = Number(value.d || value.day);
-    if (year && month && day) {
+    if (year) {
+      if (!month) return String(year);
+      if (!day) return `${year}-${String(month).padStart(2, "0")}`;
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
   }
@@ -132,6 +134,17 @@ function formatDateForBlackbaud(value) {
     return `${parsedDate.y}-${String(parsedDate.m).padStart(2, "0")}-${String(parsedDate.d).padStart(2, "0")}`;
   }
   return text;
+}
+
+function toBlackbaudFuzzyDate(value) {
+  const formatted = formatDateForBlackbaud(value);
+  const match = formatted.match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?$/);
+  if (!match) return null;
+
+  const fuzzyDate = { y: Number(match[1]) };
+  if (match[2]) fuzzyDate.m = Number(match[2]);
+  if (match[3]) fuzzyDate.d = Number(match[3]);
+  return fuzzyDate;
 }
 
 function parseBirthDate(value) {
@@ -175,8 +188,8 @@ function mapConstituencyCode(item) {
   return {
     id: item?.id || item?.constituent_code_id || item?.code_id || null,
     label: getConstituencyLabel(item),
-    startDate: item?.date_from || item?.start_date || item?.start || null,
-    endDate: item?.date_to || item?.end_date || item?.end || null,
+    startDate: item?.start || item?.date_from || item?.start_date || null,
+    endDate: item?.end || item?.date_to || item?.end_date || null,
     raw: item || null,
   };
 }
@@ -187,7 +200,7 @@ function findCode(codes, label) {
 }
 
 function isOpenConstituencyCode(code) {
-  return !cleanText(code?.endDate);
+  return !formatDateForBlackbaud(code?.endDate);
 }
 
 function isCurrentConstituencyCode(code) {
@@ -275,8 +288,10 @@ async function createConstituentCode({
   const hasEndDate = Object.prototype.hasOwnProperty.call(write || {}, "endDate");
   const startDate = formatDateForBlackbaud(hasStartDate ? write.startDate : row.start_date);
   const endDate = formatDateForBlackbaud(hasEndDate ? write.endDate : row.end_date);
-  if (startDate) payload.date_from = startDate;
-  if (includeEndDate && endDate) payload.date_to = endDate;
+  const start = toBlackbaudFuzzyDate(startDate);
+  const end = toBlackbaudFuzzyDate(endDate);
+  if (start) payload.start = start;
+  if (includeEndDate && end) payload.end = end;
 
   return blackbaudApiFetch("/constituent/v1/constituentcodes", {
     userId: user.id,
@@ -1566,7 +1581,7 @@ async function applyConstituentCodeEndDate({ request, user, row, write }) {
     request,
     user,
     codeId: sourceCode.id,
-    payload: { date_to: endDate },
+    payload: { end: toBlackbaudFuzzyDate(endDate) },
   });
 
   return {

@@ -189,7 +189,7 @@ describe("constituency import run apply route", () => {
       body: {
         constituent_id: "123",
         description: "Alumni - Graduate Degree",
-        date_from: "2026-08-01",
+        start: { y: 2026, m: 8, d: 1 },
       },
     });
     expect(getSavedApplyAudit().results[0].message).toContain(
@@ -999,7 +999,7 @@ describe("constituency import run apply route", () => {
         body: {
           constituent_id: "123",
           description: "Alumni - Bachelor's Degree",
-          date_from: "2026-08-01",
+          start: { y: 2026, m: 8, d: 1 },
         },
       },
     );
@@ -1236,8 +1236,8 @@ describe("constituency import run apply route", () => {
         body: {
           constituent_id: "123",
           description: "Student",
-          date_from: "2020-08-15",
-          date_to: "2027-05-03",
+          start: { y: 2020, m: 8, d: 15 },
+          end: { y: 2027, m: 5, d: 3 },
         },
       }),
     );
