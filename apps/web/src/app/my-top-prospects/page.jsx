@@ -53,6 +53,10 @@ const OPPORTUNITY_STAGE_OPTIONS = [
 ];
 const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
 const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
+// The current-FY endpoint intentionally caps each request at 50 NXT records.
+// Keep the portfolio request within that boundary so later assignments are not
+// silently omitted when an MGO has a large portfolio.
+const CURRENT_FY_GIVING_REQUEST_SIZE = 50;
 
 const STATUS_COLORS = {
   Active: { bg: "#D1FAE5", text: "#065F46", border: "#A7F3D0" },
@@ -141,6 +145,14 @@ function OpportunityStatusBadge({ status }) {
 function formatCurrency(amount) {
   if (!amount) return "$0";
   return "$" + Number(amount).toLocaleString();
+}
+
+function chunkValues(values, size) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function formatBlackbaudCurrency(amount) {
@@ -7230,18 +7242,46 @@ export default function MyTopProspectsPage() {
       portfolioAnnualConstituentIdParam,
     ],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      params.set("constituentIds", portfolioAnnualConstituentIdParam);
-      const res = await fetch(
-        `/api/blackbaud/current-fy-giving?${params.toString()}`,
-      );
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          payload?.error || "Failed to fetch current fiscal year giving",
+      const payloads = [];
+
+      // The API accepts no more than 50 IDs per request. Load one bounded batch
+      // at a time so every assigned constituent is included without competing
+      // with the initial portfolio render or overloading the Gift API.
+      for (const constituentIds of chunkValues(
+        portfolioAnnualConstituentIds,
+        CURRENT_FY_GIVING_REQUEST_SIZE,
+      )) {
+        const params = new URLSearchParams();
+        params.set("constituentIds", constituentIds.join(","));
+        const res = await fetch(
+          `/api/blackbaud/current-fy-giving?${params.toString()}`,
         );
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            payload?.error || "Failed to fetch current fiscal year giving",
+          );
+        }
+        payloads.push(payload || {});
       }
-      return payload;
+
+      return payloads.reduce(
+        (combined, payload) => ({
+          ...combined,
+          // Each batch uses the same fiscal-year window. Retain the first
+          // populated period while combining every constituent result.
+          period: combined.period || payload?.period || null,
+          byConstituentId: {
+            ...combined.byConstituentId,
+            ...(payload?.byConstituentId || {}),
+          },
+          warnings: {
+            ...combined.warnings,
+            ...(payload?.warnings || {}),
+          },
+        }),
+        { period: null, byConstituentId: {}, warnings: {} },
+      );
     },
     enabled:
       shouldLoadPortfolioCurrentFyGiving &&
