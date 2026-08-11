@@ -9,14 +9,16 @@ import {
   findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
   listBlackbaudGifts,
-  listBlackbaudConstituents,
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
+const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PORTFOLIO_CACHE_VERSION = "v5";
-const PORTFOLIO_DETAIL_CONCURRENCY = 6;
+// Each constituent currently needs a constituent and lifetime-giving read.
+// Four concurrent constituents keeps the request burst under NXT's rate limits.
+const PORTFOLIO_DETAIL_CONCURRENCY = 4;
 const PORTFOLIO_GIFT_QUERY_CHUNK_SIZE = 20;
 const PORTFOLIO_GIFT_PAGE_LIMIT = 25;
 const PORTFOLIO_GIFT_MAX_PAGES = 1;
@@ -329,93 +331,6 @@ function classifyAssignmentType(type) {
   return null;
 }
 
-function getAssignedFundraisers(constituent) {
-  return (
-    constituent?.constituent_assigned_fundraisers ||
-    constituent?.assigned_fundraisers ||
-    constituent?.fundraiser_assignments ||
-    constituent?.fundraisers ||
-    []
-  );
-}
-
-function getFundraiserIdentitySet(workspaceUser, fundraiserId) {
-  return new Set(
-    [
-      fundraiserId,
-      workspaceUser?.blackbaud_constituent_id,
-      workspaceUser?.blackbaud_lookup_id,
-    ]
-      .map((value) => String(value || "").trim())
-      .filter(Boolean),
-  );
-}
-
-function getAssignedFundraiserId(assignment) {
-  return (
-    assignment?.fundraiser_id ||
-    assignment?.fundraiser?.id ||
-    assignment?.fundraiser_constituent_id ||
-    assignment?.constituent_id ||
-    assignment?.id ||
-    null
-  );
-}
-
-async function listAssignmentsFromConstituentFallback({
-  userId,
-  authUserId,
-  origin,
-  workspaceUser,
-  fundraiserId,
-}) {
-  const fundraiserIdentitySet = getFundraiserIdentitySet(workspaceUser, fundraiserId);
-  const constituents = await listBlackbaudConstituents({
-    userId,
-    authUserId,
-    origin,
-    searchParams: {
-      constituent_assigned_fundraisers: true,
-    },
-    pageLimit: 500,
-    maxPages: 20,
-  }).catch(() => []);
-
-  const assignments = [];
-
-  for (const constituent of constituents) {
-    const assignedFundraisers = getAssignedFundraisers(constituent);
-    if (!Array.isArray(assignedFundraisers) || assignedFundraisers.length === 0) {
-      continue;
-    }
-
-    for (const assignedFundraiser of assignedFundraisers) {
-      const assignedFundraiserId = String(
-        getAssignedFundraiserId(assignedFundraiser) || "",
-      ).trim();
-      if (!assignedFundraiserId || !fundraiserIdentitySet.has(assignedFundraiserId)) {
-        continue;
-      }
-
-      assignments.push({
-        constituent_id:
-          constituent?.id || constituent?.constituent_id || constituent?.lookup_id || null,
-        type:
-          assignedFundraiser?.type ||
-          assignedFundraiser?.assignment_type ||
-          assignedFundraiser?.fundraiser_type ||
-          (assignedFundraisers.length === 1 ? "Lead Solicitor" : "Secondary Solicitor"),
-        end:
-          assignedFundraiser?.end ||
-          assignedFundraiser?.end_date ||
-          null,
-      });
-    }
-  }
-
-  return assignments;
-}
-
 function mapConstituentBasics(constituent) {
   return {
     constituentId: constituent?.id || null,
@@ -550,14 +465,24 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
     );
 }
 
-function isFreshCache(timestamp) {
+function getCacheAgeMs(timestamp) {
   if (!timestamp) return false;
   const parsed = new Date(timestamp).getTime();
-  if (Number.isNaN(parsed)) return false;
-  return Date.now() - parsed < PORTFOLIO_CACHE_TTL_MS;
+  if (Number.isNaN(parsed)) return null;
+  return Date.now() - parsed;
 }
 
-async function getCachedPortfolio(workspaceUserId, cacheKey) {
+function isFreshCache(timestamp) {
+  const ageMs = getCacheAgeMs(timestamp);
+  return typeof ageMs === "number" && ageMs < PORTFOLIO_CACHE_TTL_MS;
+}
+
+function isUsableStaleCache(timestamp) {
+  const ageMs = getCacheAgeMs(timestamp);
+  return typeof ageMs === "number" && ageMs < PORTFOLIO_STALE_CACHE_TTL_MS;
+}
+
+async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = false } = {}) {
   if (!workspaceUserId || !cacheKey) return null;
 
   const acceptedCacheKeys = Array.isArray(cacheKey) ? cacheKey : [cacheKey];
@@ -579,9 +504,16 @@ async function getCachedPortfolio(workspaceUserId, cacheKey) {
   ) {
     return null;
   }
-  if (!isFreshCache(row.blackbaud_portfolio_cached_at)) return null;
+  const isFresh = isFreshCache(row.blackbaud_portfolio_cached_at);
+  if (!isFresh && (!allowStale || !isUsableStaleCache(row.blackbaud_portfolio_cached_at))) {
+    return null;
+  }
 
-  return row.blackbaud_portfolio_cache;
+  return {
+    payload: row.blackbaud_portfolio_cache,
+    cachedAt: row.blackbaud_portfolio_cached_at,
+    isFresh,
+  };
 }
 
 async function saveCachedPortfolio(workspaceUserId, cacheKey, payload) {
@@ -685,6 +617,18 @@ async function resolveFundraiserCandidates({ workspaceUser, authUserId, origin }
   return candidates;
 }
 
+function buildStaleCacheResponse(cachedPortfolio, { reason, diagnostics } = {}) {
+  return {
+    ...cachedPortfolio.payload,
+    portfolioMeta: {
+      source: "stale-cache",
+      cachedAt: cachedPortfolio.cachedAt,
+      reason,
+    },
+    diagnostics,
+  };
+}
+
 export async function GET(request) {
   const session = await auth(request);
   if (!session?.user?.email) {
@@ -724,11 +668,12 @@ export async function GET(request) {
       : null;
     const initialCachedPortfolio = includeDiagnostics
       ? null
-      : await getCachedPortfolio(workspaceUser.id, initialCacheKeys);
+      : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true });
 
-    if (initialCachedPortfolio) {
-      return Response.json(initialCachedPortfolio);
+    if (initialCachedPortfolio?.isFresh) {
+      return Response.json(initialCachedPortfolio.payload);
     }
+    let staleCachedPortfolio = initialCachedPortfolio || null;
 
     const resolutionCandidates = await resolveFundraiserCandidates({
       workspaceUser,
@@ -766,12 +711,15 @@ export async function GET(request) {
     const initialCacheKey = candidateCacheKey
       ? `${PORTFOLIO_CACHE_VERSION}:${candidateCacheKey}`
       : null;
-    const cachedPortfolio = includeDiagnostics || linkedFundraiserId
+    const resolvedCachedPortfolio = includeDiagnostics || linkedFundraiserId
       ? null
-      : await getCachedPortfolio(workspaceUser.id, initialCacheKey);
+      : await getCachedPortfolio(workspaceUser.id, initialCacheKey, { allowStale: true });
 
-    if (cachedPortfolio) {
-      return Response.json(cachedPortfolio);
+    if (resolvedCachedPortfolio?.isFresh) {
+      return Response.json(resolvedCachedPortfolio.payload);
+    }
+    if (!staleCachedPortfolio && resolvedCachedPortfolio) {
+      staleCachedPortfolio = resolvedCachedPortfolio;
     }
 
     let assignmentSource = "fundraiser-assignments";
@@ -799,19 +747,6 @@ export async function GET(request) {
       } catch (error) {
         candidateError =
           error instanceof Error ? error.message : "Unknown fundraiser assignment error";
-      }
-
-      if (!candidateAssignments.length) {
-        candidateAssignmentSource = candidateError
-          ? "constituent-fallback-after-fundraiser-error"
-          : "constituent-fallback";
-        candidateAssignments = await listAssignmentsFromConstituentFallback({
-          userId: workspaceUser.id,
-          authUserId,
-          origin,
-          workspaceUser,
-          fundraiserId: candidate.fundraiserId,
-        }).catch(() => []);
       }
 
       resolutionAttempts.push({
@@ -853,6 +788,18 @@ export async function GET(request) {
       fundraiserAssignmentsError = lastAttempt.fundraiserAssignmentsError;
       selectedFundraiserId = lastAttempt.fundraiserId;
       selectedResolutionPath = lastAttempt.resolutionPath;
+    }
+
+    const assignmentLookupFailed = resolutionAttempts.some(
+      (attempt) => Boolean(attempt.fundraiserAssignmentsError),
+    );
+
+    if (!includeDiagnostics && !assignments.length && assignmentLookupFailed && staleCachedPortfolio) {
+      return Response.json(
+        buildStaleCacheResponse(staleCachedPortfolio, {
+          reason: "fundraiser-assignments-unavailable",
+        }),
+      );
     }
 
     const leadAssignments = new Map();
@@ -936,8 +883,28 @@ export async function GET(request) {
     const hasTransientDetailError = [...leadSolicitor, ...supportingSolicitor].some(
       (person) => person?.hasTransientDetailError,
     );
+    const expectedConstituentCount = leadAssignments.size + supportAssignments.size;
+    const loadedConstituentCount = leadSolicitor.length + supportingSolicitor.length;
+    const allAssignedConstituentsLoaded =
+      loadedConstituentCount === expectedConstituentCount;
 
-    if (!includeDiagnostics && !hasTransientDetailError) {
+    if (
+      !includeDiagnostics &&
+      staleCachedPortfolio &&
+      (!allAssignedConstituentsLoaded || hasTransientDetailError)
+    ) {
+      return Response.json(
+        buildStaleCacheResponse(staleCachedPortfolio, {
+          reason: allAssignedConstituentsLoaded
+            ? "optional-portfolio-details-unavailable"
+            : "constituent-details-unavailable",
+        }),
+      );
+    }
+
+    // Cache a complete base portfolio even if optional gift data is delayed.
+    // This avoids repeatedly rebuilding every constituent card on each visit.
+    if (!includeDiagnostics && allAssignedConstituentsLoaded) {
       await saveCachedPortfolio(
         workspaceUser.id,
         initialCacheKey,

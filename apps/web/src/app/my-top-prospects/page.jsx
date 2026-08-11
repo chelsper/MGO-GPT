@@ -7129,6 +7129,9 @@ export default function MyTopProspectsPage() {
 
   useEffect(() => {
     if (!user || !profileStatus?.workspaceUser?.id) return;
+    // Bootstrap calls its own NXT assignment and prospect-sync workflow.
+    // Do not compete with the live portfolio request on the first portfolio view.
+    if (activeWorkspaceTab === "portfolio") return;
 
     const workspaceUser = profileStatus.workspaceUser;
     const hasBlackbaudLink =
@@ -7165,7 +7168,7 @@ export default function MyTopProspectsPage() {
         queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
       }
     })();
-  }, [profileStatus, queryClient, user]);
+  }, [activeWorkspaceTab, profileStatus, queryClient, user]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

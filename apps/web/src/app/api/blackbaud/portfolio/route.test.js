@@ -261,7 +261,7 @@ describe("Blackbaud portfolio route", () => {
     );
   });
 
-  it("does not cache a portfolio when a last-gift lookup fails", async () => {
+  it("caches a complete portfolio when optional last-gift lookup fails", async () => {
     const { GET } = await import("./route.js");
     listBlackbaudGiftsMock.mockRejectedValue(new Error("Gift lookup timed out"));
 
@@ -272,7 +272,47 @@ describe("Blackbaud portfolio route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.supportingSolicitor[0].lastGiftStatus).toBe("unavailable");
-    // The initial cache read occurs, but no failed data is written back as cache.
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+    // A delayed gift lookup must not force every subsequent portfolio view to
+    // rebuild the assignment and constituent cards from NXT.
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a recent stale portfolio cache when fundraiser assignments fail", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        blackbaud_portfolio_cache: {
+          leadSolicitor: [],
+          supportingSolicitor: [
+            {
+              constituentId: "5044931",
+              name: "Armando M. Codina",
+              assignmentTypes: ["Secondary Solicitor"],
+            },
+          ],
+          summary: { leadCount: 0, supportingCount: 1 },
+        },
+        blackbaud_portfolio_cache_key: "v5:800",
+        blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      },
+    ]);
+    listBlackbaudFundraiserAssignmentsMock.mockRejectedValue(
+      new Error("Rate limited by NXT"),
+    );
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.supportingSolicitor[0].name).toBe("Armando M. Codina");
+    expect(payload.portfolioMeta).toEqual(
+      expect.objectContaining({
+        source: "stale-cache",
+        reason: "fundraiser-assignments-unavailable",
+      }),
+    );
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 });
