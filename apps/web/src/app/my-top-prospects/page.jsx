@@ -429,6 +429,22 @@ function formatPortfolioGiftDate(value) {
   });
 }
 
+function getPortfolioLastGiftValue(person, field) {
+  if (person?.lastGiftStatus === "unavailable") {
+    return "Could not load";
+  }
+
+  if (person?.lastGiftStatus === "no-qualifying-gift") {
+    return "No qualifying gift";
+  }
+
+  if (field === "date") {
+    return formatPortfolioGiftDate(person?.lastGift?.date);
+  }
+
+  return person?.lastGift?.[field] || "Unavailable";
+}
+
 function isNeedsFollowUpProspect(prospect) {
   if (prospect.next_action_text && !prospect.next_action_completed_at) {
     return false;
@@ -653,9 +669,9 @@ function PortfolioTier({
                 }}
               >
                 {[
-                  ["Last gift", formatPortfolioGiftDate(person.lastGift?.date)],
-                  ["Gift type", person.lastGift?.type || "Unavailable"],
-                  ["Gift fund", person.lastGift?.fund || "Unavailable"],
+                  ["Last gift", getPortfolioLastGiftValue(person, "date")],
+                  ["Gift type", getPortfolioLastGiftValue(person, "type")],
+                  ["Gift fund", getPortfolioLastGiftValue(person, "fund")],
                 ].map(([label, value]) => (
                   <div
                     key={label}

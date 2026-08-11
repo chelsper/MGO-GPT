@@ -15,7 +15,8 @@ import {
 } from "@/app/api/utils/blackbaud";
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
-const PORTFOLIO_CACHE_VERSION = "v2";
+const PORTFOLIO_CACHE_VERSION = "v3";
+const PORTFOLIO_DETAIL_CONCURRENCY = 6;
 const EXCLUDED_LAST_GIFT_FUNDS = new Set(["credit card processing fee"]);
 
 function normalizeText(value) {
@@ -155,15 +156,23 @@ function getGiftFundNames(gift) {
 }
 
 function isExcludedLastGiftFund(gift) {
-  return getGiftFundNames(gift).some((fundName) =>
-    EXCLUDED_LAST_GIFT_FUNDS.has(normalizeGiftFundName(fundName)),
+  const fundNames = getGiftFundNames(gift);
+  // A gift may have a fee application and a real gift fund. Exclude it only
+  // when every returned fund is the processing-fee fund.
+  return (
+    fundNames.length > 0 &&
+    fundNames.every((fundName) =>
+      EXCLUDED_LAST_GIFT_FUNDS.has(normalizeGiftFundName(fundName)),
+    )
   );
 }
 
 function mapLastGift(gift) {
   if (!gift) return null;
 
-  const fundNames = getGiftFundNames(gift);
+  const fundNames = getGiftFundNames(gift).filter(
+    (fundName) => !EXCLUDED_LAST_GIFT_FUNDS.has(normalizeGiftFundName(fundName)),
+  );
   return {
     date: getGiftDate(gift) || null,
     type: getGiftTypeLabel(gift),
@@ -391,6 +400,14 @@ async function fetchPortfolioConstituent({ userId, authUserId, origin, constitue
     ...mapConstituentBasics(constituent),
     lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
     lastGift,
+    lastGiftStatus:
+      lastGiftResult.status === "rejected"
+        ? "unavailable"
+        : lastGift
+          ? "loaded"
+          : "no-qualifying-gift",
+    hasTransientDetailError:
+      lifetimeGivingResult.status === "rejected" || lastGiftResult.status === "rejected",
   };
 }
 
@@ -398,8 +415,8 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
   const entries = Array.from(groupedAssignments.values());
   const enriched = [];
 
-  for (let index = 0; index < entries.length; index += 20) {
-    const chunk = entries.slice(index, index + 20);
+  for (let index = 0; index < entries.length; index += PORTFOLIO_DETAIL_CONCURRENCY) {
+    const chunk = entries.slice(index, index + PORTFOLIO_DETAIL_CONCURRENCY);
     const results = await Promise.all(
       chunk.map(async (entry) => {
         const details = await fetchPortfolioConstituent({
@@ -422,6 +439,8 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
           address: details.address,
           lifetimeGiving: details.lifetimeGiving,
           lastGift: details.lastGift,
+          lastGiftStatus: details.lastGiftStatus,
+          hasTransientDetailError: details.hasTransientDetailError,
           assignmentTypes: Array.from(entry.assignmentTypes),
         };
       }),
@@ -741,20 +760,21 @@ export async function GET(request) {
       supportAssignments.delete(constituentId);
     }
 
-    const [leadSolicitor, supportingSolicitor] = await Promise.all([
-      enrichConstituents({
-        userId: workspaceUser.id,
-        authUserId,
-        origin,
-        groupedAssignments: leadAssignments,
-      }),
-      enrichConstituents({
-        userId: workspaceUser.id,
-        authUserId,
-        origin,
-        groupedAssignments: supportAssignments,
-      }),
-    ]);
+    // Keep NXT detail calls below the per-user rate limit. Running the two
+    // assignment groups concurrently previously produced a large burst of
+    // gift lookups, which could cache false "Unavailable" values.
+    const leadSolicitor = await enrichConstituents({
+      userId: workspaceUser.id,
+      authUserId,
+      origin,
+      groupedAssignments: leadAssignments,
+    });
+    const supportingSolicitor = await enrichConstituents({
+      userId: workspaceUser.id,
+      authUserId,
+      origin,
+      groupedAssignments: supportAssignments,
+    });
 
     const responsePayload = {
       leadSolicitor,
@@ -786,7 +806,11 @@ export async function GET(request) {
         : undefined,
     };
 
-    if (!includeDiagnostics) {
+    const hasTransientDetailError = [...leadSolicitor, ...supportingSolicitor].some(
+      (person) => person?.hasTransientDetailError,
+    );
+
+    if (!includeDiagnostics && !hasTransientDetailError) {
       await saveCachedPortfolio(
         workspaceUser.id,
         initialCacheKey,
