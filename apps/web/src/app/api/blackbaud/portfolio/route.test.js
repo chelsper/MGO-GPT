@@ -65,26 +65,18 @@ describe("Blackbaud portfolio route", () => {
     findBlackbaudConstituentByEmailMock.mockResolvedValue(null);
     searchBlackbaudConstituentsMock.mockResolvedValue([]);
     listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([
-      { constituent_id: "5044931", type: "Secondary Solicitor" },
-    ]);
-    blackbaudApiFetchMock.mockImplementation(async (path) => {
-      if (path.includes("/givingsummary/lifetimegiving")) {
-        return { total_giving: { value: 100000 } };
-      }
-
-      if (path.startsWith("/constituent/v1/constituents/")) {
-        return {
-          id: "5044931",
+      {
+        constituent_id: "5044931",
+        type: "Secondary Solicitor",
+        constituent: {
           lookup_id: "5044931",
           name: "Armando M. Codina",
-        };
-      }
-
-      throw new Error(`Unexpected Blackbaud request: ${path}`);
-    });
+        },
+      },
+    ]);
   });
 
-  it("returns assignments with constituent and lifetime-giving details without gift-history lookups", async () => {
+  it("returns assignment cards without waiting for NXT details for every constituent", async () => {
     const { GET } = await import("./route.js");
 
     const response = await GET(
@@ -100,17 +92,19 @@ describe("Blackbaud portfolio route", () => {
         name: "Armando M. Codina",
         assignmentTypes: ["Secondary Solicitor"],
         lifetimeGiving: {
-          totalGiving: 100000,
+          totalGiving: null,
           totalReceivedGiving: null,
         },
       }),
     );
     expect(payload.supportingSolicitor[0]).not.toHaveProperty("lastGift");
-    // One cache read and one cache write; no expensive gift-history lookup.
-    expect(sqlMock).toHaveBeenCalledTimes(2);
+    // Cache lookup, one local-data lookup, and cache write. The full NXT
+    // constituent summary is fetched only if the user expands a card.
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
-  it("uses a recent stale portfolio cache when fundraiser assignments fail", async () => {
+  it("returns a usable stale portfolio cache immediately", async () => {
     const { GET } = await import("./route.js");
     sqlMock.mockResolvedValueOnce([
       {
@@ -129,10 +123,6 @@ describe("Blackbaud portfolio route", () => {
         blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ]);
-    listBlackbaudFundraiserAssignmentsMock.mockRejectedValue(
-      new Error("Rate limited by NXT"),
-    );
-
     const response = await GET(
       new Request("https://example.com/api/blackbaud/portfolio"),
     );
@@ -143,9 +133,10 @@ describe("Blackbaud portfolio route", () => {
     expect(payload.portfolioMeta).toEqual(
       expect.objectContaining({
         source: "stale-cache",
-        reason: "fundraiser-assignments-unavailable",
+        reason: "cached-portfolio-available",
       }),
     );
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
   });
 });

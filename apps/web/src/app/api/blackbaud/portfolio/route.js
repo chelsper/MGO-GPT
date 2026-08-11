@@ -4,7 +4,6 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import sql from "@/app/api/utils/sql";
 import {
-  blackbaudApiFetch,
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
@@ -14,10 +13,7 @@ import {
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PORTFOLIO_CACHE_VERSION = "v6";
-// Each constituent currently needs a constituent and lifetime-giving read.
-// Four concurrent constituents keeps the request burst under NXT's rate limits.
-const PORTFOLIO_DETAIL_CONCURRENCY = 4;
+const PORTFOLIO_CACHE_VERSION = "v7";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -71,102 +67,103 @@ function classifyAssignmentType(type) {
   return null;
 }
 
-function mapConstituentBasics(constituent) {
-  return {
-    constituentId: constituent?.id || null,
-    lookupId: constituent?.lookup_id || null,
-    name: constituent?.name || null,
-    email:
-      constituent?.email?.primary === true ? constituent?.email?.address || null : null,
-    phone:
-      constituent?.phone?.primary === true ? constituent?.phone?.number || null : null,
-    address:
-      constituent?.address?.preferred === true
-        ? constituent?.address?.formatted_address || null
-        : null,
-  };
-}
-
-function mapLifetimeGiving(lifetimeGiving) {
-  return {
-    totalGiving: lifetimeGiving?.total_giving?.value ?? null,
-    totalReceivedGiving: lifetimeGiving?.total_received_giving?.value ?? null,
-  };
-}
-
-async function fetchPortfolioConstituent({ userId, authUserId, origin, constituentId }) {
-  const [constituentResult, lifetimeGivingResult] = await Promise.allSettled([
-    blackbaudApiFetch(
-      `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
-      {
-        userId,
-        authUserId,
-        origin,
-      },
-    ),
-    blackbaudApiFetch(
-      `/constituent/v1/constituents/${encodeURIComponent(
-        String(constituentId),
-      )}/givingsummary/lifetimegiving`,
-      {
-        userId,
-        authUserId,
-        origin,
-      },
-    ),
-  ]);
-
+function getAssignmentConstituentDetails(assignment) {
   const constituent =
-    constituentResult.status === "fulfilled" ? constituentResult.value : null;
-  const lifetimeGiving =
-    lifetimeGivingResult.status === "fulfilled" ? lifetimeGivingResult.value : null;
+    assignment?.constituent || assignment?.assigned_constituent || assignment?.assignedConstituent || {};
+
   return {
-    ...mapConstituentBasics(constituent),
-    lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
-    hasTransientDetailError:
-      lifetimeGivingResult.status === "rejected",
+    lookupId:
+      constituent?.lookup_id ||
+      constituent?.lookupId ||
+      assignment?.constituent_lookup_id ||
+      assignment?.lookup_id ||
+      null,
+    name:
+      constituent?.name ||
+      assignment?.constituent_name ||
+      assignment?.assigned_constituent_name ||
+      null,
   };
 }
 
-async function enrichConstituents({ userId, authUserId, origin, groupedAssignments }) {
-  const entries = Array.from(groupedAssignments.values());
-  const enriched = [];
+async function getLocalPortfolioDetails(userId, constituentIds) {
+  if (!userId || !constituentIds.length) return new Map();
 
-  for (let index = 0; index < entries.length; index += PORTFOLIO_DETAIL_CONCURRENCY) {
-    const chunk = entries.slice(index, index + PORTFOLIO_DETAIL_CONCURRENCY);
-    const results = await Promise.all(
-      chunk.map(async (entry) => {
-        const details = await fetchPortfolioConstituent({
-          userId,
-          authUserId,
-          origin,
-          constituentId: entry.constituentId,
-        }).catch(() => null);
+  const rows = await sql`
+    WITH local_portfolio_records AS (
+      SELECT
+        COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) AS blackbaud_constituent_id,
+        COALESCE(NULLIF(c.name, ''), NULLIF(p.prospect_name, '')) AS name,
+        c.email,
+        c.phone,
+        1 AS source_priority,
+        GREATEST(COALESCE(p.updated_at, p.created_at), COALESCE(c.updated_at, c.created_at)) AS updated_at
+      FROM prospects p
+      LEFT JOIN constituents c ON c.id = p.constituent_id
+      WHERE
+        p.user_id = ${userId}
+        AND COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) = ANY(${constituentIds})
 
-        if (!details?.constituentId) {
-          return null;
-        }
+      UNION ALL
 
-        return {
-          constituentId: details.constituentId,
-          lookupId: details.lookupId,
-          name: details.name,
-          email: details.email,
-          phone: details.phone,
-          address: details.address,
-          lifetimeGiving: details.lifetimeGiving,
-          hasTransientDetailError: details.hasTransientDetailError,
-          assignmentTypes: Array.from(entry.assignmentTypes),
-        };
-      }),
-    );
+      SELECT
+        c.blackbaud_constituent_id,
+        NULLIF(c.name, '') AS name,
+        c.email,
+        c.phone,
+        2 AS source_priority,
+        COALESCE(c.updated_at, c.created_at) AS updated_at
+      FROM constituents c
+      WHERE
+        c.user_id = ${userId}
+        AND c.blackbaud_constituent_id = ANY(${constituentIds})
+    )
+    SELECT DISTINCT ON (blackbaud_constituent_id)
+      blackbaud_constituent_id,
+      name,
+      email,
+      phone
+    FROM local_portfolio_records
+    WHERE blackbaud_constituent_id IS NOT NULL
+    ORDER BY blackbaud_constituent_id, source_priority ASC, updated_at DESC NULLS LAST
+  `;
 
-    enriched.push(...results.filter(Boolean));
-  }
-
-  return enriched.sort((left, right) =>
-    String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
+  return new Map(
+    rows.map((row) => [
+      String(row.blackbaud_constituent_id),
+      {
+        name: row.name || null,
+        email: row.email || null,
+        phone: row.phone || null,
+      },
+    ]),
   );
+}
+
+function enrichConstituents({ groupedAssignments, localDetailsByConstituentId }) {
+  return Array.from(groupedAssignments.values())
+    .map((entry) => {
+      const localDetails = localDetailsByConstituentId.get(String(entry.constituentId)) || {};
+      return {
+        constituentId: entry.constituentId,
+        lookupId: entry.lookupId || null,
+        name:
+          localDetails.name ||
+          entry.name ||
+          `NXT constituent ${entry.constituentId}`,
+        email: localDetails.email || null,
+        phone: localDetails.phone || null,
+        address: null,
+        lifetimeGiving: {
+          totalGiving: null,
+          totalReceivedGiving: null,
+        },
+        assignmentTypes: Array.from(entry.assignmentTypes),
+      };
+    })
+    .sort((left, right) =>
+      String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
+    );
 }
 
 function getCacheAgeMs(timestamp) {
@@ -360,12 +357,14 @@ export async function GET(request) {
     const includeDiagnostics =
       new URL(request.url).searchParams.get("debug") === "1";
 
-    // v4 and v5 payloads are safe short-term fallbacks while the next refresh
-    // rebuilds the smaller v6 portfolio without per-constituent gift history.
+    // Earlier portfolio payloads are safe short-term fallbacks. Returning a
+    // cached assignment list is preferable to holding the whole portfolio
+    // page hostage to a slow NXT detail request.
     const linkedFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
     const initialCacheKeys = linkedFundraiserId
       ? [
           `${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`,
+          `v6:${linkedFundraiserId}`,
           `v5:${linkedFundraiserId}`,
           `v4:${linkedFundraiserId}`,
         ]
@@ -374,8 +373,16 @@ export async function GET(request) {
       ? null
       : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true });
 
-    if (initialCachedPortfolio?.isFresh) {
-      return Response.json(initialCachedPortfolio.payload);
+    if (initialCachedPortfolio) {
+      if (initialCachedPortfolio.isFresh) {
+        return Response.json(initialCachedPortfolio.payload);
+      }
+
+      return Response.json(
+        buildStaleCacheResponse(initialCachedPortfolio, {
+          reason: "cached-portfolio-available",
+        }),
+      );
     }
     let staleCachedPortfolio = initialCachedPortfolio || null;
 
@@ -419,8 +426,16 @@ export async function GET(request) {
       ? null
       : await getCachedPortfolio(workspaceUser.id, initialCacheKey, { allowStale: true });
 
-    if (resolvedCachedPortfolio?.isFresh) {
-      return Response.json(resolvedCachedPortfolio.payload);
+    if (resolvedCachedPortfolio) {
+      if (resolvedCachedPortfolio.isFresh) {
+        return Response.json(resolvedCachedPortfolio.payload);
+      }
+
+      return Response.json(
+        buildStaleCacheResponse(resolvedCachedPortfolio, {
+          reason: "cached-portfolio-available",
+        }),
+      );
     }
     if (!staleCachedPortfolio && resolvedCachedPortfolio) {
       staleCachedPortfolio = resolvedCachedPortfolio;
@@ -526,10 +541,15 @@ export async function GET(request) {
 
         if (!targetMap) return;
 
+        const assignmentDetails = getAssignmentConstituentDetails(assignment);
         const existing = targetMap.get(String(constituentId)) || {
           constituentId: String(constituentId),
+          lookupId: assignmentDetails.lookupId,
+          name: assignmentDetails.name,
           assignmentTypes: new Set(),
         };
+        existing.lookupId = existing.lookupId || assignmentDetails.lookupId;
+        existing.name = existing.name || assignmentDetails.name;
         existing.assignmentTypes.add(type);
         targetMap.set(String(constituentId), existing);
       });
@@ -538,20 +558,30 @@ export async function GET(request) {
       supportAssignments.delete(constituentId);
     }
 
-    // Keep NXT detail calls below the per-user rate limit. Running the two
-    // assignment groups concurrently previously produced a large burst of
-    // gift lookups, which could cache false "Unavailable" values.
-    const leadSolicitor = await enrichConstituents({
-      userId: workspaceUser.id,
-      authUserId,
-      origin,
-      groupedAssignments: leadAssignments,
+    const assignedConstituentIds = [
+      ...leadAssignments.keys(),
+      ...supportAssignments.keys(),
+    ];
+    // Local enrichment is helpful, but it must never keep the assignment
+    // cards from rendering. An NXT assignment is enough to show the card.
+    const localDetailsByConstituentId = await getLocalPortfolioDetails(
+      workspaceUser.id,
+      assignedConstituentIds,
+    ).catch((error) => {
+      console.warn("Could not enrich portfolio assignments from local records:", error);
+      return new Map();
     });
-    const supportingSolicitor = await enrichConstituents({
-      userId: workspaceUser.id,
-      authUserId,
-      origin,
+
+    // Portfolio assignment data is enough to render cards immediately. Full
+    // NXT constituent details remain available through each card's on-demand
+    // NXT Summary control instead of blocking the whole page.
+    const leadSolicitor = enrichConstituents({
+      groupedAssignments: leadAssignments,
+      localDetailsByConstituentId,
+    });
+    const supportingSolicitor = enrichConstituents({
       groupedAssignments: supportAssignments,
+      localDetailsByConstituentId,
     });
 
     const responsePayload = {
@@ -584,9 +614,6 @@ export async function GET(request) {
         : undefined,
     };
 
-    const hasTransientDetailError = [...leadSolicitor, ...supportingSolicitor].some(
-      (person) => person?.hasTransientDetailError,
-    );
     const expectedConstituentCount = leadAssignments.size + supportAssignments.size;
     const loadedConstituentCount = leadSolicitor.length + supportingSolicitor.length;
     const allAssignedConstituentsLoaded =
@@ -595,13 +622,11 @@ export async function GET(request) {
     if (
       !includeDiagnostics &&
       staleCachedPortfolio &&
-      (!allAssignedConstituentsLoaded || hasTransientDetailError)
+      !allAssignedConstituentsLoaded
     ) {
       return Response.json(
         buildStaleCacheResponse(staleCachedPortfolio, {
-          reason: allAssignedConstituentsLoaded
-            ? "optional-portfolio-details-unavailable"
-            : "constituent-details-unavailable",
+          reason: "assignment-details-unavailable",
         }),
       );
     }

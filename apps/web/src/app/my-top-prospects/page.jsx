@@ -453,6 +453,10 @@ function PortfolioTier({
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
+  const hasLifetimeGiving = (person) =>
+    person?.lifetimeGiving?.totalGiving !== null &&
+    person?.lifetimeGiving?.totalGiving !== undefined &&
+    Number.isFinite(Number(person.lifetimeGiving.totalGiving));
 
   const toggleSummary = async (constituentId) => {
     const nextExpanded = !expandedSummaries[constituentId];
@@ -739,10 +743,12 @@ function PortfolioTier({
                     justifyContent: "flex-end",
                   }}
                 >
-                  <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>
-                    Lifetime giving:{" "}
-                    {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
-                  </div>
+                  {hasLifetimeGiving(person) ? (
+                    <div style={{ fontSize: "13px", fontWeight: "700", color: "#111827" }}>
+                      Lifetime giving:{" "}
+                      {formatBlackbaudCurrency(person.lifetimeGiving?.totalGiving)}
+                    </div>
+                  ) : null}
                   {nxtProfileUrl ? (
                     <a
                       href={nxtProfileUrl}
