@@ -4,6 +4,7 @@ const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const getBlackbaudConfigIssuesMock = vi.fn();
+const getBlackbaudGiftMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
+  getBlackbaudGift: getBlackbaudGiftMock,
   listBlackbaudGifts: listBlackbaudGiftsMock,
 }));
 
@@ -32,6 +34,7 @@ describe("current fiscal year giving route", () => {
     ensureAppSchemaMock.mockReset();
     getWorkspaceUserMock.mockReset();
     getBlackbaudConfigIssuesMock.mockReset();
+    getBlackbaudGiftMock.mockReset();
     listBlackbaudGiftsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
@@ -95,6 +98,43 @@ describe("current fiscal year giving route", () => {
       recognizedReceived: 250,
       recognizedCommitted: 5000,
       plannedGifts: 5000,
+    });
+  });
+
+  it("enriches an associated soft-credited pledge payment when the Gift list omits credits", async () => {
+    listBlackbaudGiftsMock.mockResolvedValue([
+      {
+        id: "pledge-payment-1",
+        constituent_id: "donor-constituent-id",
+        type: "PledgePayment",
+        date: "2026-07-05T00:00:00.000Z",
+        amount: { value: 250 },
+      },
+    ]);
+    getBlackbaudGiftMock.mockResolvedValue({
+      id: "pledge-payment-1",
+      constituent_id: "donor-constituent-id",
+      type: "PledgePayment",
+      date: "2026-07-05T00:00:00.000Z",
+      amount: { value: 250 },
+      soft_credits: [{ constituent_id: "456", amount: { value: 250 } }],
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://example.com/api/blackbaud/current-fy-giving?constituentId=456",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getBlackbaudGiftMock).toHaveBeenCalledWith(
+      expect.objectContaining({ giftId: "pledge-payment-1" }),
+    );
+    expect(payload.byConstituentId["456"]).toMatchObject({
+      recognizedReceived: 250,
+      recognizedCommitted: 0,
     });
   });
 });

@@ -868,6 +868,27 @@ export async function listBlackbaudGifts({
   return results;
 }
 
+export async function getBlackbaudGift({
+  userId,
+  authUserId,
+  origin,
+  giftId,
+} = {}) {
+  const normalizedGiftId = String(giftId || "").trim();
+  if (!normalizedGiftId) {
+    throw new Error("A Blackbaud gift ID is required");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_GIFTS_URL}/${encodeURIComponent(normalizedGiftId)}`,
+    {
+      userId,
+      authUserId,
+      origin,
+    },
+  );
+}
+
 export async function listBlackbaudFundraiserAssignments({
   userId,
   authUserId,

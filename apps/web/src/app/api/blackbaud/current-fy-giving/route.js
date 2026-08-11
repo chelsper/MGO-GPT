@@ -3,6 +3,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import {
   getBlackbaudConfigIssues,
+  getBlackbaudGift,
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import {
@@ -12,7 +13,135 @@ import {
 
 const MAX_CONSTITUENT_IDS = 50;
 const CACHE_TTL_MS = 15 * 60 * 1000;
+const DETAIL_CACHE_TTL_MS = 15 * 60 * 1000;
+const DETAIL_LOOKUP_CONCURRENCY = 4;
 const summaryCache = new Map();
+const giftDetailCache = new Map();
+const PLEDGE_PAYMENT_TYPES = new Set([
+  "pledgepayment",
+  "pledgepaycash",
+]);
+
+function normalizeToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getGiftId(gift) {
+  return gift?.id || gift?.gift_id || gift?.giftId || null;
+}
+
+function getGiftType(gift) {
+  return normalizeToken(
+    gift?.gift_type || gift?.giftType || gift?.type || gift?.type_name || gift?.category,
+  );
+}
+
+function getGiftConstituentId(gift) {
+  return String(
+    gift?.constituent_id ||
+      gift?.constituentId ||
+      gift?.constituent?.id ||
+      gift?.donor_id ||
+      gift?.donorId ||
+      gift?.donor?.id ||
+      "",
+  ).trim();
+}
+
+function hasRecognitionCreditCollection(gift) {
+  return [
+    gift?.soft_credits,
+    gift?.softCredits,
+    gift?.recognition_credits,
+    gift?.recognitionCredits,
+    gift?.recognitions,
+  ].some(Array.isArray);
+}
+
+function shouldEnrichPledgePayment(gift, requestedConstituentIds) {
+  const giftId = getGiftId(gift);
+  const directConstituentId = getGiftConstituentId(gift);
+
+  return (
+    Boolean(giftId) &&
+    PLEDGE_PAYMENT_TYPES.has(getGiftType(gift)) &&
+    Boolean(directConstituentId) &&
+    !requestedConstituentIds.has(directConstituentId) &&
+    !hasRecognitionCreditCollection(gift)
+  );
+}
+
+async function getCachedGiftDetail({ userId, authUserId, origin, giftId }) {
+  const cacheKey = `${authUserId}:${giftId}`;
+  const cached = giftDetailCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.gift;
+  }
+
+  const gift = await getBlackbaudGift({
+    userId,
+    authUserId,
+    origin,
+    giftId,
+  });
+  giftDetailCache.set(cacheKey, {
+    expiresAt: Date.now() + DETAIL_CACHE_TTL_MS,
+    gift,
+  });
+  return gift;
+}
+
+async function enrichAssociatedPledgePayments({
+  gifts,
+  constituentIds,
+  userId,
+  authUserId,
+  origin,
+}) {
+  const requestedConstituentIds = new Set(constituentIds);
+  const candidateIds = [
+    ...new Set(
+      gifts
+        .filter((gift) => shouldEnrichPledgePayment(gift, requestedConstituentIds))
+        .map(getGiftId),
+    ),
+  ];
+
+  if (!candidateIds.length) return gifts;
+
+  const detailsById = new Map();
+  let nextIndex = 0;
+  const workerCount = Math.min(DETAIL_LOOKUP_CONCURRENCY, candidateIds.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < candidateIds.length) {
+        const giftId = candidateIds[nextIndex++];
+        try {
+          const gift = await getCachedGiftDetail({
+            userId,
+            authUserId,
+            origin,
+            giftId,
+          });
+          if (gift && typeof gift === "object") {
+            detailsById.set(String(giftId), gift);
+          }
+        } catch (error) {
+          // A detail gap must not prevent the remaining portfolio summaries from loading.
+          console.warn("Unable to enrich a Blackbaud pledge payment", {
+            giftId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }),
+  );
+
+  return gifts.map((gift) => detailsById.get(String(getGiftId(gift))) || gift);
+}
 
 function parseConstituentIds(request) {
   const searchParams = new URL(request.url).searchParams;
@@ -112,9 +241,16 @@ export async function GET(request) {
       pageLimit: 500,
       maxPages: 2,
     });
+    const enrichedGifts = await enrichAssociatedPledgePayments({
+      gifts,
+      constituentIds,
+      userId: user.id,
+      authUserId,
+      origin,
+    });
     const summary = calculateCurrentFiscalYearGiving({
       constituentIds,
-      gifts,
+      gifts: enrichedGifts,
       now,
       fiscalYearStartMonth: 7,
     });
