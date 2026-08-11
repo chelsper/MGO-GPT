@@ -181,6 +181,9 @@ export default function AccessManagementPage() {
   const [selectedUserBlackbaudMatch, setSelectedUserBlackbaudMatch] = useState(null);
   const [searchingUserBlackbaud, setSearchingUserBlackbaud] = useState(false);
   const [toast, setToast] = useState(null);
+  const [fyGivingDiagnostic, setFyGivingDiagnostic] = useState(null);
+  const [loadingFyGivingDiagnostic, setLoadingFyGivingDiagnostic] = useState(false);
+  const [fyGivingDiagnosticError, setFyGivingDiagnosticError] = useState("");
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -216,6 +219,29 @@ export default function AccessManagementPage() {
           ? [accessData.bootstrapAdminEmail]
           : [],
     );
+  }
+
+  async function inspectFyGivingFields() {
+    setLoadingFyGivingDiagnostic(true);
+    setFyGivingDiagnosticError("");
+
+    try {
+      const response = await fetch("/api/blackbaud/current-fy-giving/diagnostic");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not inspect the NXT contribution model");
+      }
+
+      setFyGivingDiagnostic(payload);
+    } catch (err) {
+      console.error(err);
+      setFyGivingDiagnostic(null);
+      setFyGivingDiagnosticError(
+        err instanceof Error ? err.message : "Could not inspect the NXT contribution model",
+      );
+    } finally {
+      setLoadingFyGivingDiagnostic(false);
+    }
   }
 
   useEffect(() => {
@@ -1125,6 +1151,103 @@ export default function AccessManagementPage() {
               ))}
             </div>
           )}
+        </div>
+
+        <div style={cardStyle}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, fontSize: "18px", color: "#111827" }}>
+                NXT FY giving diagnostics
+              </h2>
+              <p style={{ margin: "6px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.5 }}>
+                Inspect the supported contribution fields before enabling recipient-side soft-credit giving totals. This reads field metadata only; it does not load or change constituent data.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={inspectFyGivingFields}
+              disabled={loadingFyGivingDiagnostic}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "10px",
+                border: "1px solid #D1D5DB",
+                backgroundColor: "white",
+                color: "#111827",
+                fontWeight: 700,
+                cursor: loadingFyGivingDiagnostic ? "wait" : "pointer",
+                opacity: loadingFyGivingDiagnostic ? 0.65 : 1,
+              }}
+            >
+              {loadingFyGivingDiagnostic ? "Inspecting..." : "Inspect contribution fields"}
+            </button>
+          </div>
+
+          {fyGivingDiagnosticError ? (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "12px",
+                borderRadius: "10px",
+                backgroundColor: "#FEF2F2",
+                border: "1px solid #FECACA",
+                color: "#991B1B",
+                fontSize: "13px",
+                fontWeight: 700,
+              }}
+            >
+              {fyGivingDiagnosticError}
+            </div>
+          ) : null}
+
+          {fyGivingDiagnostic ? (
+            <div style={{ marginTop: "14px", display: "grid", gap: "12px" }}>
+              <div style={{ fontSize: "13px", color: "#374151" }}>
+                Contribution model: {fyGivingDiagnostic.availableDataModels?.includes("contribution") ? "available" : "not available"}
+              </div>
+              {fyGivingDiagnostic.contributionFields?.length ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "8px",
+                  }}
+                >
+                  {fyGivingDiagnostic.contributionFields.map((field) => (
+                    <div
+                      key={`${field.fieldId || "field"}-${field.displayName || "name"}`}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #E5E7EB",
+                        backgroundColor: "#F9FAFB",
+                      }}
+                    >
+                      <div style={{ fontSize: "13px", fontWeight: 800, color: "#111827" }}>
+                        {field.displayName || field.fieldId}
+                      </div>
+                      {field.fieldId && field.displayName ? (
+                        <div style={{ marginTop: "3px", fontSize: "12px", color: "#6B7280", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+                          {field.fieldId}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: "#6B7280", fontSize: "13px" }}>
+                  No relevant contribution fields were returned by NXT.
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
 
         <form onSubmit={handleInviteSubmit} style={cardStyle}>
