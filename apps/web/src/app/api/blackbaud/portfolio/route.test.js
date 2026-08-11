@@ -145,6 +145,61 @@ describe("Blackbaud portfolio route", () => {
     });
   });
 
+  it("retries a no-gift assignment reference with the canonical NXT constituent ID", async () => {
+    const { GET } = await import("./route.js");
+    blackbaudApiFetchMock.mockImplementation(async (path) => {
+      if (path.includes("/givingsummary/lifetimegiving")) {
+        return { total_giving: { value: 100000 } };
+      }
+
+      if (path.startsWith("/constituent/v1/constituents/")) {
+        return {
+          id: "100001",
+          lookup_id: "5044931",
+          name: "Armando M. Codina",
+        };
+      }
+
+      throw new Error(`Unexpected Blackbaud request: ${path}`);
+    });
+    listBlackbaudGiftsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          date: "2026-08-08",
+          type: "Donation",
+          funds: [{ name: "Donor Advised Fund" }],
+          soft_credits: [{ constituent_id: "100001" }],
+        },
+      ]);
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+    const person = payload.supportingSolicitor[0];
+
+    expect(response.status).toBe(200);
+    expect(person.lastGiftStatus).toBe("loaded");
+    expect(person.lastGift).toEqual({
+      date: "2026-08-08",
+      type: "Donation",
+      fund: "Donor Advised Fund",
+    });
+    expect(listBlackbaudGiftsMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        searchParams: { constituent_id: "5044931" },
+      }),
+    );
+    expect(listBlackbaudGiftsMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        searchParams: { constituent_id: "100001" },
+      }),
+    );
+  });
+
   it("does not cache a portfolio when a last-gift lookup fails", async () => {
     const { GET } = await import("./route.js");
     listBlackbaudGiftsMock.mockRejectedValue(new Error("Gift lookup timed out"));

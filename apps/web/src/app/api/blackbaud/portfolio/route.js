@@ -15,7 +15,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
-const PORTFOLIO_CACHE_VERSION = "v3";
+const PORTFOLIO_CACHE_VERSION = "v4";
 const PORTFOLIO_DETAIL_CONCURRENCY = 6;
 const EXCLUDED_LAST_GIFT_FUNDS = new Set(["credit card processing fee"]);
 
@@ -363,7 +363,7 @@ function mapLifetimeGiving(lifetimeGiving) {
 }
 
 async function fetchPortfolioConstituent({ userId, authUserId, origin, constituentId }) {
-  const [constituentResult, lifetimeGivingResult, lastGiftResult] = await Promise.allSettled([
+  const [constituentResult, lifetimeGivingResult, initialLastGiftResult] = await Promise.allSettled([
     blackbaudApiFetch(
       `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
       {
@@ -394,6 +394,28 @@ async function fetchPortfolioConstituent({ userId, authUserId, origin, constitue
     constituentResult.status === "fulfilled" ? constituentResult.value : null;
   const lifetimeGiving =
     lifetimeGivingResult.status === "fulfilled" ? lifetimeGivingResult.value : null;
+  const canonicalConstituentId = String(constituent?.id || "").trim();
+  const requestedConstituentId = String(constituentId || "").trim();
+
+  // Fundraiser assignments can carry a legacy record reference. The constituent
+  // endpoint is the source of truth for the system ID accepted by the Gift API.
+  // Retry only when the initial read found no qualifying gift and the IDs differ.
+  const shouldRetryLastGiftWithCanonicalId =
+    initialLastGiftResult.status === "fulfilled" &&
+    !initialLastGiftResult.value &&
+    canonicalConstituentId &&
+    canonicalConstituentId !== requestedConstituentId;
+  const canonicalLastGiftResult = shouldRetryLastGiftWithCanonicalId
+    ? await Promise.allSettled([
+        fetchLastGift({
+          userId,
+          authUserId,
+          origin,
+          constituentId: canonicalConstituentId,
+        }),
+      ]).then(([result]) => result)
+    : null;
+  const lastGiftResult = canonicalLastGiftResult || initialLastGiftResult;
   const lastGift = lastGiftResult.status === "fulfilled" ? lastGiftResult.value : null;
 
   return {
