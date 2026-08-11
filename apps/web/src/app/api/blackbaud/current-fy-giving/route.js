@@ -9,6 +9,7 @@ import {
 import {
   calculateCurrentFiscalYearGiving,
   getCurrentFiscalYearWindow,
+  isPledgePaymentGiftType,
 } from "../../utils/currentFyGiving.js";
 
 const MAX_CONSTITUENT_IDS = 50;
@@ -17,11 +18,6 @@ const DETAIL_CACHE_TTL_MS = 15 * 60 * 1000;
 const DETAIL_LOOKUP_CONCURRENCY = 4;
 const summaryCache = new Map();
 const giftDetailCache = new Map();
-const PLEDGE_PAYMENT_TYPES = new Set([
-  "pledgepayment",
-  "pledgepaycash",
-]);
-
 function normalizeToken(value) {
   return String(value || "")
     .toLowerCase()
@@ -66,7 +62,7 @@ function shouldEnrichPledgePayment(gift, requestedConstituentIds) {
 
   return (
     Boolean(giftId) &&
-    PLEDGE_PAYMENT_TYPES.has(getGiftType(gift)) &&
+    isPledgePaymentGiftType(getGiftType(gift)) &&
     Boolean(directConstituentId) &&
     !requestedConstituentIds.has(directConstituentId) &&
     !hasRecognitionCreditCollection(gift)

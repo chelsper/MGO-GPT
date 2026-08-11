@@ -91,6 +91,28 @@ describe("current fiscal year giving", () => {
     expect(summary.byConstituentId["100"].recognizedReceived).toBe(800);
   });
 
+  it("counts a soft-credited pledge payment when NXT annotates the type label", () => {
+    const summary = calculateCurrentFiscalYearGiving({
+      now: NOW,
+      constituentIds: ["200"],
+      gifts: [
+        gift({
+          id: "annotated-soft-pledge-payment",
+          constituent_id: "999",
+          gift_type: "Pledge payment ($50,000 Soft credit)",
+          amount: 50000,
+          soft_credits: [{ constituent_id: "200", amount: { value: 50000 } }],
+        }),
+      ],
+    });
+
+    expect(summary.byConstituentId["200"]).toMatchObject({
+      recognizedReceived: 50000,
+      recognizedCommitted: 0,
+      receivedGiftCount: 1,
+    });
+  });
+
   it("does not count the same gift twice when a list response repeats it", () => {
     const repeatedGift = gift({ id: "repeated", amount: 650 });
     const summary = calculateCurrentFiscalYearGiving({

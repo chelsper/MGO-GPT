@@ -106,18 +106,18 @@ describe("current fiscal year giving route", () => {
       {
         id: "pledge-payment-1",
         constituent_id: "donor-constituent-id",
-        type: "PledgePayment",
+        type: "Pledge payment ($50,000 Soft credit)",
         date: "2026-07-05T00:00:00.000Z",
-        amount: { value: 250 },
+        amount: { value: 50000 },
       },
     ]);
     getBlackbaudGiftMock.mockResolvedValue({
       id: "pledge-payment-1",
       constituent_id: "donor-constituent-id",
-      type: "PledgePayment",
+      type: "Pledge payment ($50,000 Soft credit)",
       date: "2026-07-05T00:00:00.000Z",
-      amount: { value: 250 },
-      soft_credits: [{ constituent_id: "456", amount: { value: 250 } }],
+      amount: { value: 50000 },
+      soft_credits: [{ constituent_id: "456", amount: { value: 50000 } }],
     });
 
     const { GET } = await import("./route.js");
@@ -133,7 +133,7 @@ describe("current fiscal year giving route", () => {
       expect.objectContaining({ giftId: "pledge-payment-1" }),
     );
     expect(payload.byConstituentId["456"]).toMatchObject({
-      recognizedReceived: 250,
+      recognizedReceived: 50000,
       recognizedCommitted: 0,
     });
   });

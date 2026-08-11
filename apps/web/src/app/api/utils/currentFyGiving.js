@@ -25,6 +25,16 @@ const COMMITTED_GIFT_TYPES = new Set([
 
 const PLANNED_GIFT_TYPES = new Set(["plannedgift", "plannedgiving"]);
 
+export function isPledgePaymentGiftType(value) {
+  const giftType = normalizeToken(value);
+  return (
+    giftType === "pledgepayment" ||
+    giftType === "pledgepaycash" ||
+    giftType.startsWith("pledgepayment") ||
+    giftType.startsWith("pledgepaycash")
+  );
+}
+
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
     if (current == null) return undefined;
@@ -275,7 +285,8 @@ export function calculateCurrentFiscalYearGiving({
     if (isExcludedFund(gift)) continue;
 
     const giftType = getGiftType(gift);
-    const isReceived = RECEIVED_GIFT_TYPES.has(giftType);
+    const isReceived =
+      RECEIVED_GIFT_TYPES.has(giftType) || isPledgePaymentGiftType(giftType);
     const isCommitted = COMMITTED_GIFT_TYPES.has(giftType);
     const isPlannedGift = PLANNED_GIFT_TYPES.has(giftType);
     if (!isReceived && !isCommitted) continue;
