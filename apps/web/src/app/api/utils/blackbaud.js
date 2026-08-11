@@ -315,9 +315,12 @@ export async function blackbaudApiFetch(
   const url = new URL(path.startsWith("http") ? path : `https://api.sky.blackbaud.com${path}`);
   if (searchParams) {
     Object.entries(searchParams).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") {
-        url.searchParams.set(key, String(value));
-      }
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((entry) => {
+        if (entry !== undefined && entry !== null && entry !== "") {
+          url.searchParams.append(key, String(entry));
+        }
+      });
     });
   }
 

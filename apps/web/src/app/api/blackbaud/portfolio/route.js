@@ -15,8 +15,9 @@ import {
 } from "@/app/api/utils/blackbaud";
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
-const PORTFOLIO_CACHE_VERSION = "v4";
+const PORTFOLIO_CACHE_VERSION = "v5";
 const PORTFOLIO_DETAIL_CONCURRENCY = 6;
+const PORTFOLIO_GIFT_QUERY_CHUNK_SIZE = 20;
 const EXCLUDED_LAST_GIFT_FUNDS = new Set(["credit card processing fee"]);
 
 function normalizeText(value) {
@@ -180,18 +181,40 @@ function mapLastGift(gift) {
   };
 }
 
-async function fetchLastGift({ userId, authUserId, origin, constituentId }) {
-  const gifts = await listBlackbaudGifts({
-    userId,
-    authUserId,
-    origin,
-    searchParams: {
-      constituent_id: String(constituentId),
-    },
-    pageLimit: 100,
-    maxPages: 2,
-  });
+function getGiftAssociatedConstituentIds(gift) {
+  const ids = new Set();
+  const addId = (value) => {
+    const normalizedId = String(value || "").trim();
+    if (normalizedId) ids.add(normalizedId);
+  };
 
+  addId(
+    firstDefined(gift, [
+      "constituent_id",
+      "constituentId",
+      "constituent.id",
+      "constituent.system_record_id",
+    ]),
+  );
+
+  const softCredits = firstDefined(gift, ["soft_credits", "softCredits"]);
+  if (Array.isArray(softCredits)) {
+    softCredits.forEach((softCredit) => {
+      addId(
+        firstDefined(softCredit, [
+          "constituent_id",
+          "constituentId",
+          "constituent.id",
+          "constituent.system_record_id",
+        ]),
+      );
+    });
+  }
+
+  return ids;
+}
+
+function getMostRecentQualifyingGift(gifts) {
   const sortedGifts = gifts
     .filter((gift) => getGiftDate(gift))
     .filter((gift) => !isExcludedLastGiftFund(gift))
@@ -201,7 +224,57 @@ async function fetchLastGift({ userId, authUserId, origin, constituentId }) {
       return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0);
     });
 
-  return mapLastGift(sortedGifts[0] || null);
+  return sortedGifts[0] || null;
+}
+
+async function fetchLastGifts({ userId, authUserId, origin, constituentIds }) {
+  const normalizedConstituentIds = Array.from(
+    new Set(
+      constituentIds
+        .map((constituentId) => String(constituentId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const giftsByConstituentId = new Map(
+    normalizedConstituentIds.map((constituentId) => [constituentId, []]),
+  );
+
+  for (
+    let index = 0;
+    index < normalizedConstituentIds.length;
+    index += PORTFOLIO_GIFT_QUERY_CHUNK_SIZE
+  ) {
+    const constituentIdChunk = normalizedConstituentIds.slice(
+      index,
+      index + PORTFOLIO_GIFT_QUERY_CHUNK_SIZE,
+    );
+    const gifts = await listBlackbaudGifts({
+      userId,
+      authUserId,
+      origin,
+      searchParams: {
+        constituent_id: constituentIdChunk,
+      },
+      pageLimit: 100,
+      maxPages: 3,
+    });
+
+    for (const gift of gifts) {
+      const associatedIds = getGiftAssociatedConstituentIds(gift);
+      constituentIdChunk.forEach((constituentId) => {
+        if (associatedIds.has(constituentId)) {
+          giftsByConstituentId.get(constituentId).push(gift);
+        }
+      });
+    }
+  }
+
+  return new Map(
+    normalizedConstituentIds.map((constituentId) => [
+      constituentId,
+      mapLastGift(getMostRecentQualifyingGift(giftsByConstituentId.get(constituentId))),
+    ]),
+  );
 }
 
 function isCurrentAssignment(assignment) {
@@ -363,7 +436,7 @@ function mapLifetimeGiving(lifetimeGiving) {
 }
 
 async function fetchPortfolioConstituent({ userId, authUserId, origin, constituentId }) {
-  const [constituentResult, lifetimeGivingResult, initialLastGiftResult] = await Promise.allSettled([
+  const [constituentResult, lifetimeGivingResult] = await Promise.allSettled([
     blackbaudApiFetch(
       `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}`,
       {
@@ -382,54 +455,17 @@ async function fetchPortfolioConstituent({ userId, authUserId, origin, constitue
         origin,
       },
     ),
-    fetchLastGift({
-      userId,
-      authUserId,
-      origin,
-      constituentId,
-    }),
   ]);
 
   const constituent =
     constituentResult.status === "fulfilled" ? constituentResult.value : null;
   const lifetimeGiving =
     lifetimeGivingResult.status === "fulfilled" ? lifetimeGivingResult.value : null;
-  const canonicalConstituentId = String(constituent?.id || "").trim();
-  const requestedConstituentId = String(constituentId || "").trim();
-
-  // Fundraiser assignments can carry a legacy record reference. The constituent
-  // endpoint is the source of truth for the system ID accepted by the Gift API.
-  // Retry only when the initial read found no qualifying gift and the IDs differ.
-  const shouldRetryLastGiftWithCanonicalId =
-    initialLastGiftResult.status === "fulfilled" &&
-    !initialLastGiftResult.value &&
-    canonicalConstituentId &&
-    canonicalConstituentId !== requestedConstituentId;
-  const canonicalLastGiftResult = shouldRetryLastGiftWithCanonicalId
-    ? await Promise.allSettled([
-        fetchLastGift({
-          userId,
-          authUserId,
-          origin,
-          constituentId: canonicalConstituentId,
-        }),
-      ]).then(([result]) => result)
-    : null;
-  const lastGiftResult = canonicalLastGiftResult || initialLastGiftResult;
-  const lastGift = lastGiftResult.status === "fulfilled" ? lastGiftResult.value : null;
-
   return {
     ...mapConstituentBasics(constituent),
     lifetimeGiving: mapLifetimeGiving(lifetimeGiving),
-    lastGift,
-    lastGiftStatus:
-      lastGiftResult.status === "rejected"
-        ? "unavailable"
-        : lastGift
-          ? "loaded"
-          : "no-qualifying-gift",
     hasTransientDetailError:
-      lifetimeGivingResult.status === "rejected" || lastGiftResult.status === "rejected",
+      lifetimeGivingResult.status === "rejected",
   };
 }
 
@@ -471,9 +507,43 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
     enriched.push(...results.filter(Boolean));
   }
 
-  return enriched.sort((left, right) =>
-    String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
-  );
+  const constituentIds = enriched
+    .map((person) => String(person?.constituentId || "").trim())
+    .filter(Boolean);
+  let lastGiftsByConstituentId = new Map();
+  let lastGiftLoadFailed = false;
+
+  if (constituentIds.length > 0) {
+    try {
+      lastGiftsByConstituentId = await fetchLastGifts({
+        userId,
+        authUserId,
+        origin,
+        constituentIds,
+      });
+    } catch {
+      lastGiftLoadFailed = true;
+    }
+  }
+
+  return enriched
+    .map((person) => {
+      const constituentId = String(person?.constituentId || "").trim();
+      const lastGift = lastGiftsByConstituentId.get(constituentId) || null;
+      return {
+        ...person,
+        lastGift,
+        lastGiftStatus: lastGiftLoadFailed
+          ? "unavailable"
+          : lastGift
+            ? "loaded"
+            : "no-qualifying-gift",
+        hasTransientDetailError: person.hasTransientDetailError || lastGiftLoadFailed,
+      };
+    })
+    .sort((left, right) =>
+      String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
+    );
 }
 
 function isFreshCache(timestamp) {

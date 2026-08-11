@@ -145,7 +145,7 @@ describe("Blackbaud portfolio route", () => {
     });
   });
 
-  it("retries a no-gift assignment reference with the canonical NXT constituent ID", async () => {
+  it("uses the canonical NXT constituent ID for the batched gift lookup", async () => {
     const { GET } = await import("./route.js");
     blackbaudApiFetchMock.mockImplementation(async (path) => {
       if (path.includes("/givingsummary/lifetimegiving")) {
@@ -162,16 +162,14 @@ describe("Blackbaud portfolio route", () => {
 
       throw new Error(`Unexpected Blackbaud request: ${path}`);
     });
-    listBlackbaudGiftsMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          date: "2026-08-08",
-          type: "Donation",
-          funds: [{ name: "Donor Advised Fund" }],
-          soft_credits: [{ constituent_id: "100001" }],
-        },
-      ]);
+    listBlackbaudGiftsMock.mockResolvedValue([
+      {
+        date: "2026-08-08",
+        type: "Donation",
+        funds: [{ name: "Donor Advised Fund" }],
+        soft_credits: [{ constituent_id: "100001" }],
+      },
+    ]);
 
     const response = await GET(
       new Request("https://example.com/api/blackbaud/portfolio"),
@@ -186,16 +184,79 @@ describe("Blackbaud portfolio route", () => {
       type: "Donation",
       fund: "Donor Advised Fund",
     });
-    expect(listBlackbaudGiftsMock).toHaveBeenNthCalledWith(
-      1,
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        searchParams: { constituent_id: "5044931" },
+        searchParams: { constituent_id: ["100001"] },
       }),
     );
-    expect(listBlackbaudGiftsMock).toHaveBeenNthCalledWith(
-      2,
+  });
+
+  it("maps direct gifts and soft credits from one batched lookup to their constituents", async () => {
+    const { GET } = await import("./route.js");
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([
+      { constituent_id: "100001", type: "Secondary Solicitor" },
+      { constituent_id: "100002", type: "Secondary Solicitor" },
+    ]);
+    blackbaudApiFetchMock.mockImplementation(async (path) => {
+      if (path.includes("/givingsummary/lifetimegiving")) {
+        return { total_giving: { value: 100000 } };
+      }
+
+      if (path.endsWith("/100001")) {
+        return { id: "100001", lookup_id: "100001", name: "Direct Gift" };
+      }
+
+      if (path.endsWith("/100002")) {
+        return { id: "100002", lookup_id: "100002", name: "Soft Credit" };
+      }
+
+      throw new Error(`Unexpected Blackbaud request: ${path}`);
+    });
+    listBlackbaudGiftsMock.mockResolvedValue([
+      {
+        constituent_id: "100001",
+        date: "2026-08-09",
+        type: "Donation",
+        funds: [{ name: "Annual Fund" }],
+      },
+      {
+        constituent_id: "999999",
+        date: "2026-08-08",
+        type: "Donation",
+        funds: [{ name: "Donor Advised Fund" }],
+        soft_credits: [{ constituent_id: "100002" }],
+      },
+    ]);
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.supportingSolicitor).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          constituentId: "100001",
+          lastGift: {
+            date: "2026-08-09",
+            type: "Donation",
+            fund: "Annual Fund",
+          },
+        }),
+        expect.objectContaining({
+          constituentId: "100002",
+          lastGift: {
+            date: "2026-08-08",
+            type: "Donation",
+            fund: "Donor Advised Fund",
+          },
+        }),
+      ]),
+    );
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        searchParams: { constituent_id: "100001" },
+        searchParams: { constituent_id: ["100001", "100002"] },
       }),
     );
   });
