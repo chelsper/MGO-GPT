@@ -406,9 +406,6 @@ function matchesPortfolioSearch(person, normalizedSearch) {
     person?.email,
     person?.phone,
     person?.address,
-    person?.lastGift?.date ? formatPortfolioGiftDate(person.lastGift.date) : "",
-    person?.lastGift?.type,
-    person?.lastGift?.fund,
     person?.lifetimeGiving?.totalGiving,
     ...(Array.isArray(person?.assignmentTypes) ? person.assignmentTypes : []),
   ];
@@ -416,33 +413,6 @@ function matchesPortfolioSearch(person, normalizedSearch) {
   return searchableValues.some((value) =>
     String(value || "").toLowerCase().includes(normalizedSearch),
   );
-}
-
-function formatPortfolioGiftDate(value) {
-  if (!value) return "Unavailable";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Unavailable";
-  return parsed.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function getPortfolioLastGiftValue(person, field) {
-  if (person?.lastGiftStatus === "unavailable") {
-    return "Could not load";
-  }
-
-  if (person?.lastGiftStatus === "no-qualifying-gift") {
-    return "No qualifying gift";
-  }
-
-  if (field === "date") {
-    return formatPortfolioGiftDate(person?.lastGift?.date);
-  }
-
-  return person?.lastGift?.[field] || "Unavailable";
 }
 
 function isNeedsFollowUpProspect(prospect) {
@@ -478,6 +448,7 @@ function PortfolioTier({
   onRemoveSolicitorAssignment,
   isRemovingSolicitorAssignment = false,
   removingSolicitorConstituentId = "",
+  annualGivingSocietiesByConstituentId = {},
   emptyMessage = "No current constituents in this tier right now.",
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
@@ -590,8 +561,14 @@ function PortfolioTier({
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
+                const portfolioGivingSocieties =
+                  annualGivingSocietiesByConstituentId[
+                    String(person.constituentId || "")
+                  ];
                 const annualGivingSocieties =
-                  summaryState?.payload?.mapped?.annualGivingSocieties || null;
+                  portfolioGivingSocieties ||
+                  summaryState?.payload?.mapped?.annualGivingSocieties ||
+                  null;
                 const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
                   person.constituentId,
                 );
@@ -660,55 +637,6 @@ function PortfolioTier({
                   {person.address}
                 </div>
               ) : null}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                  gap: "8px",
-                  marginTop: "4px",
-                }}
-              >
-                {[
-                  ["Last gift", getPortfolioLastGiftValue(person, "date")],
-                  ["Gift type", getPortfolioLastGiftValue(person, "type")],
-                  ["Gift fund", getPortfolioLastGiftValue(person, "fund")],
-                ].map(([label, value]) => (
-                  <div
-                    key={label}
-                    style={{
-                      borderRadius: "10px",
-                      border: "1px solid #E5E7EB",
-                      backgroundColor: "white",
-                      padding: "8px 10px",
-                      minWidth: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "10px",
-                        fontWeight: 800,
-                        letterSpacing: "0.05em",
-                        textTransform: "uppercase",
-                        color: "#6B7280",
-                        marginBottom: "3px",
-                      }}
-                    >
-                      {label}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        color: "#111827",
-                        lineHeight: 1.35,
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {value}
-                    </div>
-                  </div>
-                ))}
-              </div>
               <div
                 style={{
                   marginTop: "4px",
@@ -7127,6 +7055,56 @@ export default function MyTopProspectsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const portfolioAnnualConstituentIds = useMemo(() => {
+    const seen = new Set();
+    const ids = [];
+    const portfolioAssignments = [
+      ...(blackbaudPortfolio?.leadSolicitor || []),
+      ...(blackbaudPortfolio?.supportingSolicitor || []),
+    ];
+
+    for (const person of portfolioAssignments) {
+      const constituentId = String(person?.constituentId || "").trim();
+      if (!constituentId || seen.has(constituentId)) continue;
+      seen.add(constituentId);
+      ids.push(constituentId);
+    }
+
+    return ids;
+  }, [blackbaudPortfolio]);
+  const portfolioAnnualConstituentIdParam = portfolioAnnualConstituentIds.join(",");
+
+  const {
+    data: portfolioAnnualGivingSocietiesByConstituentId = {},
+  } = useQuery({
+    queryKey: [
+      "portfolio-annual-giving-societies",
+      activeWorkspaceUserId,
+      portfolioAnnualConstituentIdParam,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("constituentIds", portfolioAnnualConstituentIdParam);
+      const res = await fetch(
+        `/api/blackbaud/annual-giving-societies?${params.toString()}`,
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          payload?.error || "Failed to fetch portfolio giving societies",
+        );
+      }
+      return payload?.byConstituentId || {};
+    },
+    enabled:
+      !!user &&
+      !!activeWorkspaceUserId &&
+      activeWorkspaceTab === "portfolio" &&
+      portfolioAnnualConstituentIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
   useEffect(() => {
     if (!user || !profileStatus?.workspaceUser?.id) return;
     // Bootstrap calls its own NXT assignment and prospect-sync workflow.
@@ -8120,7 +8098,7 @@ export default function MyTopProspectsPage() {
                     type="search"
                     value={portfolioSearchTerm}
                     onChange={(event) => setPortfolioSearchTerm(event.target.value)}
-                    placeholder="Search by name, email, lookup ID, assignment, or last gift"
+                    placeholder="Search by name, email, lookup ID, or assignment"
                     style={{
                       flex: "1 1 260px",
                       minWidth: 0,
@@ -8222,6 +8200,7 @@ export default function MyTopProspectsPage() {
                   onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
                   isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                   removingSolicitorConstituentId={removingSolicitorConstituentId}
+                  annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No Lead Solicitor assignments match this search."
@@ -8243,6 +8222,7 @@ export default function MyTopProspectsPage() {
                   onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
                   isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                   removingSolicitorConstituentId={removingSolicitorConstituentId}
+                  annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No supporting assignments match this search."

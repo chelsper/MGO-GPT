@@ -8,279 +8,19 @@ import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
   getBlackbaudConfigIssues,
-  listBlackbaudGifts,
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PORTFOLIO_CACHE_VERSION = "v5";
+const PORTFOLIO_CACHE_VERSION = "v6";
 // Each constituent currently needs a constituent and lifetime-giving read.
 // Four concurrent constituents keeps the request burst under NXT's rate limits.
 const PORTFOLIO_DETAIL_CONCURRENCY = 4;
-const PORTFOLIO_GIFT_QUERY_CHUNK_SIZE = 20;
-const PORTFOLIO_GIFT_PAGE_LIMIT = 25;
-const PORTFOLIO_GIFT_MAX_PAGES = 1;
-const EXCLUDED_LAST_GIFT_FUNDS = new Set(["credit card processing fee"]);
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
-}
-
-function getNestedValue(source, path) {
-  return path.split(".").reduce((current, key) => {
-    if (current == null) return undefined;
-    return current[key];
-  }, source);
-}
-
-function firstDefined(source, paths) {
-  for (const path of paths) {
-    const value = getNestedValue(source, path);
-    if (value !== undefined && value !== null && value !== "") {
-      return value;
-    }
-  }
-  return null;
-}
-
-function normalizeGiftFundName(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
-function getTextFromMaybeObject(value) {
-  if (value == null || value === "") return null;
-  if (typeof value === "string" || typeof value === "number") {
-    return String(value).trim() || null;
-  }
-
-  if (typeof value === "object") {
-    return (
-      String(
-        firstDefined(value, [
-          "name",
-          "description",
-          "fund_name",
-          "fundName",
-          "fund_description",
-          "fundDescription",
-          "value",
-          "id",
-        ]) || "",
-      ).trim() || null
-    );
-  }
-
-  return null;
-}
-
-function getGiftDate(gift) {
-  return firstDefined(gift, [
-    "date",
-    "gift_date",
-    "giftDate",
-    "date_received",
-    "dateReceived",
-    "received_date",
-    "receivedDate",
-  ]);
-}
-
-function getGiftTypeLabel(gift) {
-  const rawType = String(
-    firstDefined(gift, [
-      "gift_type",
-      "giftType",
-      "type",
-      "type_name",
-      "category",
-    ]) || "",
-  ).trim();
-
-  if (!rawType) return null;
-
-  return rawType
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getGiftFundNames(gift) {
-  const fundNames = [];
-  const paths = [
-    "fund",
-    "fund.name",
-    "fund.description",
-    "fund_name",
-    "fundName",
-    "fund_description",
-    "fundDescription",
-    "gift_fund",
-    "giftFund",
-    "designation",
-    "designation.name",
-    "designation.description",
-    "payments.0.applications.0.fund",
-    "payments.0.applications.0.fund.name",
-    "payments.0.applications.0.fund.description",
-    "applications.0.fund",
-    "applications.0.fund.name",
-    "applications.0.fund.description",
-  ];
-
-  for (const path of paths) {
-    const value = getNestedValue(gift, path);
-    const label = getTextFromMaybeObject(value);
-    if (label && !fundNames.some((existing) => normalizeGiftFundName(existing) === normalizeGiftFundName(label))) {
-      fundNames.push(label);
-    }
-  }
-
-  const arrayPaths = ["funds", "designations", "payments.0.applications", "applications"];
-  for (const path of arrayPaths) {
-    const value = getNestedValue(gift, path);
-    if (!Array.isArray(value)) continue;
-
-    for (const item of value) {
-      const label =
-        getTextFromMaybeObject(item?.fund) ||
-        getTextFromMaybeObject(item?.designation) ||
-        getTextFromMaybeObject(item);
-      if (label && !fundNames.some((existing) => normalizeGiftFundName(existing) === normalizeGiftFundName(label))) {
-        fundNames.push(label);
-      }
-    }
-  }
-
-  return fundNames;
-}
-
-function isExcludedLastGiftFund(gift) {
-  const fundNames = getGiftFundNames(gift);
-  // A gift may have a fee application and a real gift fund. Exclude it only
-  // when every returned fund is the processing-fee fund.
-  return (
-    fundNames.length > 0 &&
-    fundNames.every((fundName) =>
-      EXCLUDED_LAST_GIFT_FUNDS.has(normalizeGiftFundName(fundName)),
-    )
-  );
-}
-
-function mapLastGift(gift) {
-  if (!gift) return null;
-
-  const fundNames = getGiftFundNames(gift).filter(
-    (fundName) => !EXCLUDED_LAST_GIFT_FUNDS.has(normalizeGiftFundName(fundName)),
-  );
-  return {
-    date: getGiftDate(gift) || null,
-    type: getGiftTypeLabel(gift),
-    fund: fundNames[0] || null,
-  };
-}
-
-function getGiftAssociatedConstituentIds(gift) {
-  const ids = new Set();
-  const addId = (value) => {
-    const normalizedId = String(value || "").trim();
-    if (normalizedId) ids.add(normalizedId);
-  };
-
-  addId(
-    firstDefined(gift, [
-      "constituent_id",
-      "constituentId",
-      "constituent.id",
-      "constituent.system_record_id",
-    ]),
-  );
-
-  const softCredits = firstDefined(gift, ["soft_credits", "softCredits"]);
-  if (Array.isArray(softCredits)) {
-    softCredits.forEach((softCredit) => {
-      addId(
-        firstDefined(softCredit, [
-          "constituent_id",
-          "constituentId",
-          "constituent.id",
-          "constituent.system_record_id",
-        ]),
-      );
-    });
-  }
-
-  return ids;
-}
-
-function getMostRecentQualifyingGift(gifts) {
-  const sortedGifts = gifts
-    .filter((gift) => getGiftDate(gift))
-    .filter((gift) => !isExcludedLastGiftFund(gift))
-    .sort((left, right) => {
-      const rightDate = new Date(getGiftDate(right)).getTime();
-      const leftDate = new Date(getGiftDate(left)).getTime();
-      return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0);
-    });
-
-  return sortedGifts[0] || null;
-}
-
-async function fetchLastGifts({ userId, authUserId, origin, constituentIds }) {
-  const normalizedConstituentIds = Array.from(
-    new Set(
-      constituentIds
-        .map((constituentId) => String(constituentId || "").trim())
-        .filter(Boolean),
-    ),
-  );
-  const giftsByConstituentId = new Map(
-    normalizedConstituentIds.map((constituentId) => [constituentId, []]),
-  );
-
-  for (
-    let index = 0;
-    index < normalizedConstituentIds.length;
-    index += PORTFOLIO_GIFT_QUERY_CHUNK_SIZE
-  ) {
-    const constituentIdChunk = normalizedConstituentIds.slice(
-      index,
-      index + PORTFOLIO_GIFT_QUERY_CHUNK_SIZE,
-    );
-    const gifts = await listBlackbaudGifts({
-      userId,
-      authUserId,
-      origin,
-      searchParams: {
-        constituent_id: constituentIdChunk,
-      },
-      // Last-gift details should enrich the portfolio, not hold up the entire
-      // dashboard with a broad multi-page revenue query.
-      pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
-      maxPages: PORTFOLIO_GIFT_MAX_PAGES,
-    });
-
-    for (const gift of gifts) {
-      const associatedIds = getGiftAssociatedConstituentIds(gift);
-      constituentIdChunk.forEach((constituentId) => {
-        if (associatedIds.has(constituentId)) {
-          giftsByConstituentId.get(constituentId).push(gift);
-        }
-      });
-    }
-  }
-
-  return new Map(
-    normalizedConstituentIds.map((constituentId) => [
-      constituentId,
-      mapLastGift(getMostRecentQualifyingGift(giftsByConstituentId.get(constituentId))),
-    ]),
-  );
 }
 
 function isCurrentAssignment(assignment) {
@@ -415,8 +155,6 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
           phone: details.phone,
           address: details.address,
           lifetimeGiving: details.lifetimeGiving,
-          lastGift: details.lastGift,
-          lastGiftStatus: details.lastGiftStatus,
           hasTransientDetailError: details.hasTransientDetailError,
           assignmentTypes: Array.from(entry.assignmentTypes),
         };
@@ -426,43 +164,9 @@ async function enrichConstituents({ userId, authUserId, origin, groupedAssignmen
     enriched.push(...results.filter(Boolean));
   }
 
-  const constituentIds = enriched
-    .map((person) => String(person?.constituentId || "").trim())
-    .filter(Boolean);
-  let lastGiftsByConstituentId = new Map();
-  let lastGiftLoadFailed = false;
-
-  if (constituentIds.length > 0) {
-    try {
-      lastGiftsByConstituentId = await fetchLastGifts({
-        userId,
-        authUserId,
-        origin,
-        constituentIds,
-      });
-    } catch {
-      lastGiftLoadFailed = true;
-    }
-  }
-
-  return enriched
-    .map((person) => {
-      const constituentId = String(person?.constituentId || "").trim();
-      const lastGift = lastGiftsByConstituentId.get(constituentId) || null;
-      return {
-        ...person,
-        lastGift,
-        lastGiftStatus: lastGiftLoadFailed
-          ? "unavailable"
-          : lastGift
-            ? "loaded"
-            : "no-qualifying-gift",
-        hasTransientDetailError: person.hasTransientDetailError || lastGiftLoadFailed,
-      };
-    })
-    .sort((left, right) =>
-      String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
-    );
+  return enriched.sort((left, right) =>
+    String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
+  );
 }
 
 function getCacheAgeMs(timestamp) {
@@ -656,13 +360,13 @@ export async function GET(request) {
     const includeDiagnostics =
       new URL(request.url).searchParams.get("debug") === "1";
 
-    // The v4 cache predates the bounded gift lookup. It remains safe to show
-    // for its normal TTL and gives users a responsive portfolio while the
-    // next refresh rebuilds the v5 cache.
+    // v4 and v5 payloads are safe short-term fallbacks while the next refresh
+    // rebuilds the smaller v6 portfolio without per-constituent gift history.
     const linkedFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
     const initialCacheKeys = linkedFundraiserId
       ? [
           `${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`,
+          `v5:${linkedFundraiserId}`,
           `v4:${linkedFundraiserId}`,
         ]
       : null;
