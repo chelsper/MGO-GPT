@@ -220,6 +220,78 @@ function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
   );
 }
 
+function CurrentFiscalYearGiving({ giving, yearLabel }) {
+  const recognizedReceived = Number(giving?.recognizedReceived || 0);
+  const recognizedCommitted = Number(giving?.recognizedCommitted || 0);
+  const plannedGifts = Number(giving?.plannedGifts || 0);
+
+  if (
+    !Number.isFinite(recognizedReceived) ||
+    !Number.isFinite(recognizedCommitted) ||
+    !Number.isFinite(plannedGifts) ||
+    (recognizedReceived <= 0 && recognizedCommitted <= 0 && plannedGifts <= 0)
+  ) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+        gap: "8px",
+        marginTop: "4px",
+        padding: "10px 12px",
+        borderRadius: "10px",
+        border: "1px solid #BBF7D0",
+        backgroundColor: "#F0FDF4",
+      }}
+    >
+      <div
+        style={{
+          gridColumn: "1 / -1",
+          color: "#166534",
+          fontSize: "11px",
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+        }}
+      >
+        {yearLabel || "Current FY"} recognized giving
+      </div>
+      <div>
+        <div style={{ color: "#4B5563", fontSize: "11px", fontWeight: 700 }}>
+          Received
+        </div>
+        <div style={{ color: "#065F46", fontSize: "14px", fontWeight: 800 }}>
+          {formatBlackbaudCurrency(recognizedReceived)}
+        </div>
+      </div>
+      <div>
+        <div style={{ color: "#4B5563", fontSize: "11px", fontWeight: 700 }}>
+          Committed
+        </div>
+        <div style={{ color: "#065F46", fontSize: "14px", fontWeight: 800 }}>
+          {formatBlackbaudCurrency(recognizedCommitted)}
+        </div>
+      </div>
+      {plannedGifts > 0 ? (
+        <div>
+          <div style={{ color: "#4B5563", fontSize: "11px", fontWeight: 700 }}>
+            Planned gifts
+          </div>
+          <div style={{ color: "#065F46", fontSize: "14px", fontWeight: 800 }}>
+            {formatBlackbaudCurrency(plannedGifts)}
+          </div>
+          <div style={{ color: "#4B5563", fontSize: "11px", lineHeight: 1.35 }}>
+            Included in committed
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function getOpportunityDisplayStatus(opportunity = {}) {
   const stage = opportunity?.current_stage || "";
   const status = opportunity?.opportunity_status || "Active";
@@ -449,6 +521,8 @@ function PortfolioTier({
   isRemovingSolicitorAssignment = false,
   removingSolicitorConstituentId = "",
   annualGivingSocietiesByConstituentId = {},
+  currentFiscalYearGivingByConstituentId = {},
+  currentFiscalYearLabel = "",
   emptyMessage = "No current constituents in this tier right now.",
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
@@ -573,6 +647,10 @@ function PortfolioTier({
                   portfolioGivingSocieties ||
                   summaryState?.payload?.mapped?.annualGivingSocieties ||
                   null;
+                const currentFiscalYearGiving =
+                  currentFiscalYearGivingByConstituentId[
+                    String(person.constituentId || "")
+                  ];
                 const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
                   person.constituentId,
                 );
@@ -641,6 +719,10 @@ function PortfolioTier({
                   {person.address}
                 </div>
               ) : null}
+              <CurrentFiscalYearGiving
+                giving={currentFiscalYearGiving}
+                yearLabel={currentFiscalYearLabel}
+              />
               <div
                 style={{
                   marginTop: "4px",
@@ -6882,6 +6964,8 @@ export default function MyTopProspectsPage() {
   const [addProspectError, setAddProspectError] = useState("");
   const [portfolioSyncMessage, setPortfolioSyncMessage] = useState("");
   const [portfolioSyncError, setPortfolioSyncError] = useState("");
+  const [shouldLoadPortfolioCurrentFyGiving, setShouldLoadPortfolioCurrentFyGiving] =
+    useState(false);
   const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
     useState("");
   const autoBootstrapAttemptRef = useRef("");
@@ -7110,6 +7194,69 @@ export default function MyTopProspectsPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    setShouldLoadPortfolioCurrentFyGiving(false);
+
+    if (
+      !user ||
+      !activeWorkspaceUserId ||
+      activeWorkspaceTab !== "portfolio" ||
+      portfolioAnnualConstituentIds.length === 0
+    ) {
+      return undefined;
+    }
+
+    // Render the NXT portfolio first. This summary is intentionally delayed so it
+    // never controls whether an MGO can see or use their assigned constituents.
+    const timeoutId = window.setTimeout(() => {
+      setShouldLoadPortfolioCurrentFyGiving(true);
+    }, 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    activeWorkspaceTab,
+    activeWorkspaceUserId,
+    portfolioAnnualConstituentIdParam,
+    portfolioAnnualConstituentIds.length,
+    user,
+  ]);
+
+  const {
+    data: portfolioCurrentFyGivingResponse,
+  } = useQuery({
+    queryKey: [
+      "portfolio-current-fy-giving",
+      activeWorkspaceUserId,
+      portfolioAnnualConstituentIdParam,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("constituentIds", portfolioAnnualConstituentIdParam);
+      const res = await fetch(
+        `/api/blackbaud/current-fy-giving?${params.toString()}`,
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          payload?.error || "Failed to fetch current fiscal year giving",
+        );
+      }
+      return payload;
+    },
+    enabled:
+      shouldLoadPortfolioCurrentFyGiving &&
+      !!user &&
+      !!activeWorkspaceUserId &&
+      activeWorkspaceTab === "portfolio" &&
+      portfolioAnnualConstituentIds.length > 0,
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+  const portfolioCurrentFyGivingByConstituentId =
+    portfolioCurrentFyGivingResponse?.byConstituentId || {};
+  const portfolioCurrentFyLabel =
+    portfolioCurrentFyGivingResponse?.period?.yearLabel || "";
 
   useEffect(() => {
     if (!user || !profileStatus?.workspaceUser?.id) return;
@@ -8207,6 +8354,8 @@ export default function MyTopProspectsPage() {
                   isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                   removingSolicitorConstituentId={removingSolicitorConstituentId}
                   annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
+                  currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
+                  currentFiscalYearLabel={portfolioCurrentFyLabel}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No Lead Solicitor assignments match this search."
@@ -8229,6 +8378,8 @@ export default function MyTopProspectsPage() {
                   isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                   removingSolicitorConstituentId={removingSolicitorConstituentId}
                   annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
+                  currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
+                  currentFiscalYearLabel={portfolioCurrentFyLabel}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No supporting assignments match this search."
