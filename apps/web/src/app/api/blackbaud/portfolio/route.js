@@ -18,6 +18,8 @@ const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_CACHE_VERSION = "v5";
 const PORTFOLIO_DETAIL_CONCURRENCY = 6;
 const PORTFOLIO_GIFT_QUERY_CHUNK_SIZE = 20;
+const PORTFOLIO_GIFT_PAGE_LIMIT = 25;
+const PORTFOLIO_GIFT_MAX_PAGES = 1;
 const EXCLUDED_LAST_GIFT_FUNDS = new Set(["credit card processing fee"]);
 
 function normalizeText(value) {
@@ -255,8 +257,10 @@ async function fetchLastGifts({ userId, authUserId, origin, constituentIds }) {
       searchParams: {
         constituent_id: constituentIdChunk,
       },
-      pageLimit: 100,
-      maxPages: 3,
+      // Last-gift details should enrich the portfolio, not hold up the entire
+      // dashboard with a broad multi-page revenue query.
+      pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
+      maxPages: PORTFOLIO_GIFT_MAX_PAGES,
     });
 
     for (const gift of gifts) {
@@ -556,6 +560,8 @@ function isFreshCache(timestamp) {
 async function getCachedPortfolio(workspaceUserId, cacheKey) {
   if (!workspaceUserId || !cacheKey) return null;
 
+  const acceptedCacheKeys = Array.isArray(cacheKey) ? cacheKey : [cacheKey];
+
   const rows = await sql`
     SELECT blackbaud_portfolio_cache, blackbaud_portfolio_cached_at, blackbaud_portfolio_cache_key
     FROM users
@@ -565,7 +571,14 @@ async function getCachedPortfolio(workspaceUserId, cacheKey) {
 
   const row = rows[0];
   if (!row?.blackbaud_portfolio_cache) return null;
-  if (String(row.blackbaud_portfolio_cache_key || "") !== String(cacheKey)) return null;
+  if (
+    !acceptedCacheKeys.some(
+      (expectedKey) =>
+        String(row.blackbaud_portfolio_cache_key || "") === String(expectedKey),
+    )
+  ) {
+    return null;
+  }
   if (!isFreshCache(row.blackbaud_portfolio_cached_at)) return null;
 
   return row.blackbaud_portfolio_cache;
@@ -604,6 +617,10 @@ async function resolveFundraiserCandidates({ workspaceUser, authUserId, origin }
       workspaceUser.blackbaud_constituent_id,
       "workspace-blackbaud-constituent-id",
     );
+    // A previously linked NXT identity is the authoritative starting point.
+    // Avoid three extra lookup calls on every refresh, which can rate-limit
+    // the portfolio before its assignments are read.
+    return candidates;
   }
 
   const exactLookupMatch = await findBlackbaudConstituentByLookupId({
@@ -695,6 +712,24 @@ export async function GET(request) {
     const includeDiagnostics =
       new URL(request.url).searchParams.get("debug") === "1";
 
+    // The v4 cache predates the bounded gift lookup. It remains safe to show
+    // for its normal TTL and gives users a responsive portfolio while the
+    // next refresh rebuilds the v5 cache.
+    const linkedFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
+    const initialCacheKeys = linkedFundraiserId
+      ? [
+          `${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`,
+          `v4:${linkedFundraiserId}`,
+        ]
+      : null;
+    const initialCachedPortfolio = includeDiagnostics
+      ? null
+      : await getCachedPortfolio(workspaceUser.id, initialCacheKeys);
+
+    if (initialCachedPortfolio) {
+      return Response.json(initialCachedPortfolio);
+    }
+
     const resolutionCandidates = await resolveFundraiserCandidates({
       workspaceUser,
       authUserId,
@@ -731,7 +766,7 @@ export async function GET(request) {
     const initialCacheKey = candidateCacheKey
       ? `${PORTFOLIO_CACHE_VERSION}:${candidateCacheKey}`
       : null;
-    const cachedPortfolio = includeDiagnostics
+    const cachedPortfolio = includeDiagnostics || linkedFundraiserId
       ? null
       : await getCachedPortfolio(workspaceUser.id, initialCacheKey);
 
