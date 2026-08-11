@@ -101,7 +101,9 @@ function getGiftAmount(gift) {
 
 function getGiftType(gift) {
   return normalizeToken(
-    firstDefined(gift, ["gift_type", "giftType", "type", "type_name", "category"]),
+    getTextFromMaybeObject(
+      firstDefined(gift, ["gift_type", "giftType", "type", "type_name", "category"]),
+    ),
   );
 }
 

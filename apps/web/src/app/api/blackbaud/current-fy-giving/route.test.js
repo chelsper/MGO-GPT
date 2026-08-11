@@ -88,6 +88,7 @@ describe("current fiscal year giving route", () => {
         },
         pageLimit: 500,
         maxPages: 2,
+        includePageMetadata: true,
       }),
     );
     expect(payload.byConstituentId["123"]).toMatchObject({
@@ -109,6 +110,7 @@ describe("current fiscal year giving route", () => {
         type: "Pledge payment ($50,000 Soft credit)",
         date: "2026-07-05T00:00:00.000Z",
         amount: { value: 50000 },
+        soft_credits: [],
       },
     ]);
     getBlackbaudGiftMock.mockResolvedValue({
@@ -117,13 +119,13 @@ describe("current fiscal year giving route", () => {
       type: "Pledge payment ($50,000 Soft credit)",
       date: "2026-07-05T00:00:00.000Z",
       amount: { value: 50000 },
-      soft_credits: [{ constituent_id: "456", amount: { value: 50000 } }],
+      soft_credits: [{ constituent_id: "789", amount: { value: 50000 } }],
     });
 
     const { GET } = await import("./route.js");
     const response = await GET(
       new Request(
-        "https://example.com/api/blackbaud/current-fy-giving?constituentId=456",
+        "https://example.com/api/blackbaud/current-fy-giving?constituentId=789",
       ),
     );
     const payload = await response.json();
@@ -132,9 +134,61 @@ describe("current fiscal year giving route", () => {
     expect(getBlackbaudGiftMock).toHaveBeenCalledWith(
       expect.objectContaining({ giftId: "pledge-payment-1" }),
     );
-    expect(payload.byConstituentId["456"]).toMatchObject({
+    expect(payload.byConstituentId["789"]).toMatchObject({
       recognizedReceived: 50000,
       recognizedCommitted: 0,
     });
+  });
+
+  it("reloads fiscal-year gifts by constituent when the combined portfolio list is paginated", async () => {
+    listBlackbaudGiftsMock
+      .mockResolvedValueOnce({ gifts: [], pageCount: 2, hasMore: true })
+      .mockResolvedValueOnce({
+        gifts: [
+          {
+            id: "pledge-payment-fallback-1",
+            constituent_id: "donor-constituent-id",
+            gift_type: { description: "Pledge payment ($50,000 Soft credit)" },
+            date: "2026-07-05T00:00:00.000Z",
+            amount: { value: 50000 },
+          },
+        ],
+        pageCount: 1,
+        hasMore: false,
+      });
+    getBlackbaudGiftMock.mockResolvedValue({
+      id: "pledge-payment-fallback-1",
+      constituent_id: "donor-constituent-id",
+      gift_type: { description: "Pledge payment ($50,000 Soft credit)" },
+      date: "2026-07-05T00:00:00.000Z",
+      amount: { value: 50000 },
+      soft_credits: [{ constituent_id: "888", amount: { value: 50000 } }],
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://example.com/api/blackbaud/current-fy-giving?constituentId=888",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.usedPerConstituentFallback).toBe(true);
+    expect(payload.byConstituentId["888"]).toMatchObject({
+      recognizedReceived: 50000,
+      recognizedCommitted: 0,
+    });
+    expect(listBlackbaudGiftsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchParams: {
+          constituent_id: "888",
+          start_gift_date: "2026-07-01",
+          end_gift_date: "2026-08-11",
+        },
+        maxPages: 4,
+        includePageMetadata: true,
+      }),
+    );
   });
 });

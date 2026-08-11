@@ -13,9 +13,13 @@ import {
 } from "../../utils/currentFyGiving.js";
 
 const MAX_CONSTITUENT_IDS = 50;
-const CACHE_TTL_MS = 15 * 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const DETAIL_CACHE_TTL_MS = 15 * 60 * 1000;
 const DETAIL_LOOKUP_CONCURRENCY = 4;
+const CONSTITUENT_GIFT_LOOKUP_CONCURRENCY = 4;
+const PORTFOLIO_GIFT_PAGE_LIMIT = 500;
+const PORTFOLIO_GIFT_MAX_PAGES = 2;
+const CONSTITUENT_GIFT_MAX_PAGES = 4;
 const summaryCache = new Map();
 const giftDetailCache = new Map();
 function normalizeToken(value) {
@@ -29,9 +33,14 @@ function getGiftId(gift) {
 }
 
 function getGiftType(gift) {
-  return normalizeToken(
-    gift?.gift_type || gift?.giftType || gift?.type || gift?.type_name || gift?.category,
-  );
+  const value =
+    gift?.gift_type || gift?.giftType || gift?.type || gift?.type_name || gift?.category;
+  if (value && typeof value === "object") {
+    return normalizeToken(
+      value.name || value.description || value.value || value.label || value.id,
+    );
+  }
+  return normalizeToken(value);
 }
 
 function getGiftConstituentId(gift) {
@@ -46,26 +55,18 @@ function getGiftConstituentId(gift) {
   ).trim();
 }
 
-function hasRecognitionCreditCollection(gift) {
-  return [
-    gift?.soft_credits,
-    gift?.softCredits,
-    gift?.recognition_credits,
-    gift?.recognitionCredits,
-    gift?.recognitions,
-  ].some(Array.isArray);
-}
-
 function shouldEnrichPledgePayment(gift, requestedConstituentIds) {
   const giftId = getGiftId(gift);
   const directConstituentId = getGiftConstituentId(gift);
 
+  // Gift-list responses can include an empty or incomplete soft-credit array.
+  // The single-gift endpoint is authoritative whenever the gift belongs to a
+  // different direct constituent than the portfolio record being summarized.
   return (
     Boolean(giftId) &&
     isPledgePaymentGiftType(getGiftType(gift)) &&
     Boolean(directConstituentId) &&
-    !requestedConstituentIds.has(directConstituentId) &&
-    !hasRecognitionCreditCollection(gift)
+    !requestedConstituentIds.has(directConstituentId)
   );
 }
 
@@ -139,6 +140,77 @@ async function enrichAssociatedPledgePayments({
   return gifts.map((gift) => detailsById.get(String(getGiftId(gift))) || gift);
 }
 
+async function runWithConcurrency(items, limit, mapper) {
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      await mapper(items[currentIndex]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  );
+}
+
+async function loadConstituentGiftLists({
+  constituentIds,
+  userId,
+  authUserId,
+  origin,
+  period,
+}) {
+  const gifts = [];
+  const warnings = {};
+  let successfulLookups = 0;
+
+  await runWithConcurrency(
+    constituentIds,
+    CONSTITUENT_GIFT_LOOKUP_CONCURRENCY,
+    async (constituentId) => {
+      try {
+        const response = await listBlackbaudGifts({
+          userId,
+          authUserId,
+          origin,
+          searchParams: {
+            constituent_id: constituentId,
+            start_gift_date: period.startDate,
+            end_gift_date: period.endDate,
+          },
+          pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
+          maxPages: CONSTITUENT_GIFT_MAX_PAGES,
+          includePageMetadata: true,
+        });
+        const responseGifts = Array.isArray(response) ? response : response?.gifts || [];
+        const responseHasMore = !Array.isArray(response) && Boolean(response?.hasMore);
+        successfulLookups += 1;
+        gifts.push(...responseGifts);
+        if (responseHasMore) {
+          warnings[constituentId] =
+            "Current fiscal-year Gift API results exceeded the safe per-constituent read limit.";
+        }
+      } catch (error) {
+        warnings[constituentId] =
+          error instanceof Error
+            ? error.message
+            : "Current fiscal-year gift lookup failed.";
+      }
+    },
+  );
+
+  if (successfulLookups === 0 && constituentIds.length > 0) {
+    throw new Error(
+      "Blackbaud could not load current fiscal-year gifts for this portfolio.",
+    );
+  }
+
+  return { gifts, warnings };
+}
+
 function parseConstituentIds(request) {
   const searchParams = new URL(request.url).searchParams;
   const rawValues = [
@@ -197,7 +269,7 @@ export async function GET(request) {
     if (!constituentIds.length) {
       return Response.json(
         { period: getCurrentFiscalYearWindow(), byConstituentId: {} },
-        { headers: { "Cache-Control": "private, max-age=900" } },
+        { headers: { "Cache-Control": "private, no-store" } },
       );
     }
 
@@ -219,11 +291,11 @@ export async function GET(request) {
     const cached = summaryCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return Response.json(cached.payload, {
-        headers: { "Cache-Control": "private, max-age=900" },
+        headers: { "Cache-Control": "private, no-store" },
       });
     }
 
-    const gifts = await listBlackbaudGifts({
+    const portfolioGiftResponse = await listBlackbaudGifts({
       userId: user.id,
       authUserId,
       origin,
@@ -234,9 +306,32 @@ export async function GET(request) {
         start_gift_date: period.startDate,
         end_gift_date: period.endDate,
       },
-      pageLimit: 500,
-      maxPages: 2,
+      pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
+      maxPages: PORTFOLIO_GIFT_MAX_PAGES,
+      includePageMetadata: true,
     });
+    const portfolioGiftListWasTruncated =
+      !Array.isArray(portfolioGiftResponse) && Boolean(portfolioGiftResponse?.hasMore);
+    let gifts = Array.isArray(portfolioGiftResponse)
+      ? portfolioGiftResponse
+      : portfolioGiftResponse?.gifts || [];
+    let warnings = {};
+
+    // A combined portfolio list can contain far more gifts than the dashboard
+    // needs. If it is truncated, reload by constituent so a soft credit is not
+    // silently lost behind another prospect's gift history.
+    if (portfolioGiftListWasTruncated) {
+      const constituentGiftLists = await loadConstituentGiftLists({
+        constituentIds,
+        userId: user.id,
+        authUserId,
+        origin,
+        period,
+      });
+      gifts = constituentGiftLists.gifts;
+      warnings = constituentGiftLists.warnings;
+    }
+
     const enrichedGifts = await enrichAssociatedPledgePayments({
       gifts,
       constituentIds,
@@ -254,6 +349,8 @@ export async function GET(request) {
       ...summary,
       source: "gift_records",
       calculatedAt: new Date().toISOString(),
+      warnings,
+      usedPerConstituentFallback: portfolioGiftListWasTruncated,
     };
     summaryCache.set(cacheKey, {
       expiresAt: Date.now() + CACHE_TTL_MS,
@@ -261,7 +358,7 @@ export async function GET(request) {
     });
 
     return Response.json(payload, {
-      headers: { "Cache-Control": "private, max-age=900" },
+      headers: { "Cache-Control": "private, no-store" },
     });
   } catch (error) {
     console.error("Error fetching current fiscal year giving:", error);

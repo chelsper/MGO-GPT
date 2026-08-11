@@ -836,6 +836,7 @@ export async function listBlackbaudGifts({
   searchParams,
   pageLimit = 500,
   maxPages = 20,
+  includePageMetadata = false,
 } = {}) {
   const results = [];
   let nextPath = BLACKBAUD_GIFTS_URL;
@@ -863,6 +864,14 @@ export async function listBlackbaudGifts({
     nextPath = payload?.next_link || null;
     nextSearchParams = undefined;
     pageCount += 1;
+  }
+
+  if (includePageMetadata) {
+    return {
+      gifts: results,
+      pageCount,
+      hasMore: Boolean(nextPath),
+    };
   }
 
   return results;

@@ -113,6 +113,28 @@ describe("current fiscal year giving", () => {
     });
   });
 
+  it("recognizes a structured Blackbaud gift type value", () => {
+    const summary = calculateCurrentFiscalYearGiving({
+      now: NOW,
+      constituentIds: ["200"],
+      gifts: [
+        gift({
+          id: "structured-soft-pledge-payment",
+          constituent_id: "999",
+          gift_type: { description: "Pledge payment ($50,000 Soft credit)" },
+          amount: 50000,
+          soft_credits: [{ constituent_id: "200", amount: { value: 50000 } }],
+        }),
+      ],
+    });
+
+    expect(summary.byConstituentId["200"]).toMatchObject({
+      recognizedReceived: 50000,
+      recognizedCommitted: 0,
+      receivedGiftCount: 1,
+    });
+  });
+
   it("does not count the same gift twice when a list response repeats it", () => {
     const repeatedGift = gift({ id: "repeated", amount: 650 });
     const summary = calculateCurrentFiscalYearGiving({
