@@ -140,6 +140,53 @@ describe("current fiscal year giving route", () => {
     });
   });
 
+  it("rechecks zero-result constituents for recipient-side soft-credit gifts", async () => {
+    listBlackbaudGiftsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "pledge-payment-soft-credit-1",
+          constituent_id: "direct-donor-id",
+          gift_type: "Pledge payment ($50,000 Soft credit)",
+          date: "2026-07-02T00:00:00.000Z",
+          amount: { value: 50000 },
+          soft_credits: [],
+        },
+      ]);
+    getBlackbaudGiftMock.mockResolvedValue({
+      id: "pledge-payment-soft-credit-1",
+      constituent_id: "direct-donor-id",
+      gift_type: "Pledge payment ($50,000 Soft credit)",
+      date: "2026-07-02T00:00:00.000Z",
+      amount: { value: 50000 },
+      soft_credits: [{ constituent_id: "cynthia-id", amount: { value: 50000 } }],
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://example.com/api/blackbaud/current-fy-giving?constituentId=cynthia-id",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.usedPerConstituentFallback).toBe(true);
+    expect(listBlackbaudGiftsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchParams: {
+          constituent_id: "cynthia-id",
+          start_gift_date: "2026-07-01",
+          end_gift_date: "2026-08-11",
+        },
+      }),
+    );
+    expect(payload.byConstituentId["cynthia-id"]).toMatchObject({
+      recognizedReceived: 50000,
+      recognizedCommitted: 0,
+    });
+  });
+
   it("reloads fiscal-year gifts by constituent when the combined portfolio list is paginated", async () => {
     listBlackbaudGiftsMock
       .mockResolvedValueOnce({ gifts: [], pageCount: 2, hasMore: true })

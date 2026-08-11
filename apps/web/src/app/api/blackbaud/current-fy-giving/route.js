@@ -247,6 +247,34 @@ function getCacheKey({ userId, authUserId, constituentIds, period }) {
   ].join(":");
 }
 
+function hasCurrentFiscalYearGiving(summary) {
+  return [
+    summary?.recognizedReceived,
+    summary?.recognizedCommitted,
+    summary?.plannedGifts,
+  ].some((value) => Number(value || 0) > 0);
+}
+
+function mergeUniqueGifts(...giftLists) {
+  const giftsByKey = new Map();
+  let anonymousIndex = 0;
+
+  for (const gifts of giftLists) {
+    for (const gift of gifts) {
+      const giftId = getGiftId(gift);
+      // Gift IDs are stable across the list and detail endpoints. Keep a
+      // conservative fallback key only for malformed responses so a bad row
+      // does not prevent an otherwise valid portfolio from loading.
+      const key = giftId
+        ? `gift:${giftId}`
+        : `anonymous:${getGiftConstituentId(gift)}:${gift?.date || gift?.gift_date || ""}:${anonymousIndex++}`;
+      if (!giftsByKey.has(key)) giftsByKey.set(key, gift);
+    }
+  }
+
+  return [...giftsByKey.values()];
+}
+
 export async function GET(request) {
   try {
     await ensureAppSchema();
@@ -332,25 +360,62 @@ export async function GET(request) {
       warnings = constituentGiftLists.warnings;
     }
 
-    const enrichedGifts = await enrichAssociatedPledgePayments({
+    let enrichedGifts = await enrichAssociatedPledgePayments({
       gifts,
       constituentIds,
       userId: user.id,
       authUserId,
       origin,
     });
-    const summary = calculateCurrentFiscalYearGiving({
+    let summary = calculateCurrentFiscalYearGiving({
       constituentIds,
       gifts: enrichedGifts,
       now,
       fiscalYearStartMonth: 7,
     });
+
+    // The Gift List endpoint documents constituent_id as an associated-record
+    // filter, but recipient-side soft credits can be absent from a combined
+    // response even when it is not paginated. Recheck only the zero-result
+    // constituents one at a time. This is a background dashboard read and is
+    // deliberately bounded and cached; it prevents a soft-credit recipient
+    // from silently appearing to have no fiscal-year giving.
+    const zeroResultConstituentIds = constituentIds.filter(
+      (constituentId) => !hasCurrentFiscalYearGiving(summary.byConstituentId[constituentId]),
+    );
+    let usedZeroResultFallback = false;
+    if (zeroResultConstituentIds.length > 0) {
+      const constituentGiftLists = await loadConstituentGiftLists({
+        constituentIds: zeroResultConstituentIds,
+        userId: user.id,
+        authUserId,
+        origin,
+        period,
+      });
+      gifts = mergeUniqueGifts(gifts, constituentGiftLists.gifts);
+      warnings = { ...warnings, ...constituentGiftLists.warnings };
+      enrichedGifts = await enrichAssociatedPledgePayments({
+        gifts,
+        constituentIds,
+        userId: user.id,
+        authUserId,
+        origin,
+      });
+      summary = calculateCurrentFiscalYearGiving({
+        constituentIds,
+        gifts: enrichedGifts,
+        now,
+        fiscalYearStartMonth: 7,
+      });
+      usedZeroResultFallback = true;
+    }
     const payload = {
       ...summary,
       source: "gift_records",
       calculatedAt: new Date().toISOString(),
       warnings,
-      usedPerConstituentFallback: portfolioGiftListWasTruncated,
+      usedPerConstituentFallback:
+        portfolioGiftListWasTruncated || usedZeroResultFallback,
     };
     summaryCache.set(cacheKey, {
       expiresAt: Date.now() + CACHE_TTL_MS,
