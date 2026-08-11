@@ -48,7 +48,7 @@ describe("current fiscal year giving route", () => {
     vi.useRealTimers();
   });
 
-  it("loads multiple constituents in one comma-separated Gift API request", async () => {
+  it("loads multiple constituents with repeated Gift API filters", async () => {
     listBlackbaudGiftsMock.mockResolvedValue([
       {
         id: "received-gift",
@@ -56,6 +56,7 @@ describe("current fiscal year giving route", () => {
         gift_type: "Donation",
         date: "2026-07-05T00:00:00.000Z",
         amount: { value: 250 },
+        soft_credits: [{ constituent_id: "456", amount: { value: 250 } }],
       },
       {
         id: "planned-gift",
@@ -78,7 +79,7 @@ describe("current fiscal year giving route", () => {
     expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         searchParams: {
-          constituent_id: "123,456",
+          constituent_id: ["123", "456"],
           start_gift_date: "2026-07-01",
           end_gift_date: "2026-08-11",
         },
@@ -91,7 +92,7 @@ describe("current fiscal year giving route", () => {
       recognizedCommitted: 0,
     });
     expect(payload.byConstituentId["456"]).toMatchObject({
-      recognizedReceived: 0,
+      recognizedReceived: 250,
       recognizedCommitted: 5000,
       plannedGifts: 5000,
     });

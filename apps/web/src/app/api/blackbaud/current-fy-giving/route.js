@@ -103,8 +103,9 @@ export async function GET(request) {
       authUserId,
       origin,
       searchParams: {
-        // Blackbaud's Gift API expects one comma-separated constituent-ID filter.
-        constituent_id: constituentIds.join(","),
+        // Repeated IDs ensure Blackbaud returns gifts associated through either
+        // direct or recognition/soft credit for every portfolio constituent.
+        constituent_id: constituentIds,
         start_gift_date: period.startDate,
         end_gift_date: period.endDate,
       },
