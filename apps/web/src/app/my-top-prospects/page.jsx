@@ -414,6 +414,15 @@ function formatPortfolioContact(person) {
   return [person?.email, person?.phone].filter(Boolean).join(" · ");
 }
 
+function getPortfolioContactDisplay(person) {
+  const contact = formatPortfolioContact(person);
+  if (contact) return contact;
+
+  return person?.contactDataSource === "not-loaded"
+    ? "Open NXT Summary to load contact details"
+    : "No contact details available";
+}
+
 function buildPortfolioUpdateHref(person, mode) {
   const params = new URLSearchParams();
   params.set("mode", mode);
@@ -651,6 +660,17 @@ function PortfolioTier({
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
+                const loadedNxtConstituent =
+                  summaryState?.payload?.mapped?.constituent || null;
+                const contactPerson = loadedNxtConstituent
+                  ? {
+                      ...person,
+                      email: loadedNxtConstituent.email || person.email,
+                      phone: loadedNxtConstituent.phone || person.phone,
+                      address: loadedNxtConstituent.address || person.address,
+                      contactDataSource: "nxt-summary-cache",
+                    }
+                  : person;
                 const portfolioGivingSocieties =
                   annualGivingSocietiesByConstituentId[
                     String(person.constituentId || "")
@@ -724,11 +744,11 @@ function PortfolioTier({
                 ) : null}
               </div>
               <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
-                {formatPortfolioContact(person) || "No email or phone in NXT"}
+                {getPortfolioContactDisplay(contactPerson)}
               </div>
-              {person.address ? (
+              {contactPerson.address ? (
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-                  {person.address}
+                  {contactPerson.address}
                 </div>
               ) : null}
               <CurrentFiscalYearGiving

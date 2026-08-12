@@ -13,7 +13,9 @@ import {
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PORTFOLIO_CACHE_VERSION = "v7";
+// v8 distinguishes fast assignment cards with contact-source metadata from
+// older cached cards that treated absent local values as missing NXT data.
+const PORTFOLIO_CACHE_VERSION = "v8";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -140,20 +142,87 @@ async function getLocalPortfolioDetails(userId, constituentIds) {
   );
 }
 
-function enrichConstituents({ groupedAssignments, localDetailsByConstituentId }) {
+function parseCachedPayload(payload) {
+  if (!payload) return null;
+  if (typeof payload === "object") return payload;
+
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+async function getCachedNxtPortfolioDetails({
+  workspaceUserId,
+  authUserId,
+  constituentIds,
+}) {
+  if (!workspaceUserId || !authUserId || !constituentIds.length) {
+    return new Map();
+  }
+
+  const rows = await sql`
+    SELECT DISTINCT ON (constituent_id)
+      constituent_id,
+      payload
+    FROM blackbaud_constituent_summary_cache
+    WHERE workspace_user_id = ${workspaceUserId}
+      AND auth_user_id = ${authUserId}
+      AND constituent_id = ANY(${constituentIds})
+    ORDER BY constituent_id, updated_at DESC
+  `;
+
+  return new Map(
+    rows.flatMap((row) => {
+      const constituent = parseCachedPayload(row.payload)?.mapped?.constituent;
+      if (!constituent || !row.constituent_id) return [];
+
+      return [
+        [
+          String(row.constituent_id),
+          {
+            name: constituent.name || null,
+            email: constituent.email || null,
+            phone: constituent.phone || null,
+            address: constituent.address || null,
+          },
+        ],
+      ];
+    }),
+  );
+}
+
+function enrichConstituents({
+  groupedAssignments,
+  localDetailsByConstituentId,
+  cachedNxtDetailsByConstituentId,
+}) {
   return Array.from(groupedAssignments.values())
     .map((entry) => {
       const localDetails = localDetailsByConstituentId.get(String(entry.constituentId)) || {};
+      const cachedNxtDetails =
+        cachedNxtDetailsByConstituentId.get(String(entry.constituentId)) || {};
+      const hasCachedNxtContact = Boolean(
+        cachedNxtDetails.email || cachedNxtDetails.phone || cachedNxtDetails.address,
+      );
+      const hasLocalContact = Boolean(localDetails.email || localDetails.phone);
       return {
         constituentId: entry.constituentId,
         lookupId: entry.lookupId || null,
         name:
+          cachedNxtDetails.name ||
           localDetails.name ||
           entry.name ||
           `NXT constituent ${entry.constituentId}`,
-        email: localDetails.email || null,
-        phone: localDetails.phone || null,
-        address: null,
+        email: cachedNxtDetails.email || localDetails.email || null,
+        phone: cachedNxtDetails.phone || localDetails.phone || null,
+        address: cachedNxtDetails.address || null,
+        contactDataSource: hasCachedNxtContact
+          ? "nxt-summary-cache"
+          : hasLocalContact
+            ? "local-workspace-record"
+            : "not-loaded",
         lifetimeGiving: {
           totalGiving: null,
           totalReceivedGiving: null,
@@ -357,17 +426,13 @@ export async function GET(request) {
     const includeDiagnostics =
       new URL(request.url).searchParams.get("debug") === "1";
 
-    // Earlier portfolio payloads are safe short-term fallbacks. Returning a
-    // cached assignment list is preferable to holding the whole portfolio
-    // page hostage to a slow NXT detail request.
+    // Returning a cached assignment list is preferable to holding the whole
+    // portfolio page hostage to a slow NXT detail request. Do not reuse the
+    // older cache versions: they represented missing local contact fields as
+    // "no contact data in NXT."
     const linkedFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
     const initialCacheKeys = linkedFundraiserId
-      ? [
-          `${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`,
-          `v6:${linkedFundraiserId}`,
-          `v5:${linkedFundraiserId}`,
-          `v4:${linkedFundraiserId}`,
-        ]
+      ? [`${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`]
       : null;
     const initialCachedPortfolio = includeDiagnostics
       ? null
@@ -562,15 +627,22 @@ export async function GET(request) {
       ...leadAssignments.keys(),
       ...supportAssignments.keys(),
     ];
-    // Local enrichment is helpful, but it must never keep the assignment
-    // cards from rendering. An NXT assignment is enough to show the card.
-    const localDetailsByConstituentId = await getLocalPortfolioDetails(
-      workspaceUser.id,
-      assignedConstituentIds,
-    ).catch((error) => {
-      console.warn("Could not enrich portfolio assignments from local records:", error);
-      return new Map();
-    });
+    // Cache and local enrichment are both optional. Neither may delay the
+    // assignment list or trigger a live NXT request per constituent.
+    const [localDetailsByConstituentId, cachedNxtDetailsByConstituentId] = await Promise.all([
+      getLocalPortfolioDetails(workspaceUser.id, assignedConstituentIds).catch((error) => {
+        console.warn("Could not enrich portfolio assignments from local records:", error);
+        return new Map();
+      }),
+      getCachedNxtPortfolioDetails({
+        workspaceUserId: workspaceUser.id,
+        authUserId,
+        constituentIds: assignedConstituentIds,
+      }).catch((error) => {
+        console.warn("Could not enrich portfolio assignments from cached NXT summaries:", error);
+        return new Map();
+      }),
+    ]);
 
     // Portfolio assignment data is enough to render cards immediately. Full
     // NXT constituent details remain available through each card's on-demand
@@ -578,10 +650,12 @@ export async function GET(request) {
     const leadSolicitor = enrichConstituents({
       groupedAssignments: leadAssignments,
       localDetailsByConstituentId,
+      cachedNxtDetailsByConstituentId,
     });
     const supportingSolicitor = enrichConstituents({
       groupedAssignments: supportAssignments,
       localDetailsByConstituentId,
+      cachedNxtDetailsByConstituentId,
     });
 
     const responsePayload = {

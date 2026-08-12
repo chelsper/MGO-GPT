@@ -98,9 +98,10 @@ describe("Blackbaud portfolio route", () => {
       }),
     );
     expect(payload.supportingSolicitor[0]).not.toHaveProperty("lastGift");
-    // Cache lookup, one local-data lookup, and cache write. The full NXT
-    // constituent summary is fetched only if the user expands a card.
-    expect(sqlMock).toHaveBeenCalledTimes(3);
+    // Cache lookup, local-data lookup, cached-contact lookup, and cache
+    // write. The full NXT constituent summary is fetched only if the user
+    // expands a card.
+    expect(sqlMock).toHaveBeenCalledTimes(4);
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
@@ -119,7 +120,7 @@ describe("Blackbaud portfolio route", () => {
           ],
           summary: { leadCount: 0, supportingCount: 1 },
         },
-        blackbaud_portfolio_cache_key: "v5:800",
+        blackbaud_portfolio_cache_key: "v8:800",
         blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ]);
@@ -138,5 +139,44 @@ describe("Blackbaud portfolio route", () => {
     );
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
     expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
+  });
+
+  it("reuses cached NXT contacts without loading a full summary per card", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          constituent_id: "5044931",
+          payload: {
+            mapped: {
+              constituent: {
+                name: "Armando M. Codina",
+                email: "acodina@example.com",
+                phone: "904-555-0199",
+                address: "50 Casuarina Concourse, Miami, FL",
+              },
+            },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.supportingSolicitor[0]).toEqual(
+      expect.objectContaining({
+        email: "acodina@example.com",
+        phone: "904-555-0199",
+        address: "50 Casuarina Concourse, Miami, FL",
+        contactDataSource: "nxt-summary-cache",
+      }),
+    );
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 });
