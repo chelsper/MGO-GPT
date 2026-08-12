@@ -1,4 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { auth } from "@/auth";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import sql from "@/app/api/utils/sql";
+import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 
 vi.mock("@/auth", () => ({
   auth: vi.fn(),
@@ -39,6 +44,11 @@ function entry(label, dates = {}) {
 }
 
 describe("Blackbaud constituent summary identity language", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getBlackbaudConfigIssues.mockReturnValue([]);
+  });
+
   it("uses gendered alumna language for bachelor's alumni", async () => {
     const { buildIdentitySentence } = await import("./route.js");
 
@@ -179,5 +189,48 @@ describe("Blackbaud constituent summary identity language", () => {
         lifetimeGiving: { totalGiving: 0 },
       }),
     ).toBeNull();
+  });
+
+  it("loads only primary contact details when contact_only is requested", async () => {
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({
+      workspaceUser: { id: 42 },
+      sessionUser: { id: 42 },
+      isActing: false,
+    });
+    sql.mockResolvedValue([]);
+    blackbaudApiFetch.mockResolvedValue({
+      id: "5044931",
+      lookup_id: "5044931",
+      name: "Armando M. Codina",
+      email: { address: "acodina@example.com", primary: true },
+      phone: { number: "904-555-0100", primary: true },
+      address: {
+        formatted_address: "50 Casuarina Concourse, Miami, FL 33143",
+        preferred: true,
+      },
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://jumgogpt.app/api/blackbaud/constituents/5044931/summary?contact_only=true",
+      ),
+      { params: { constituentId: "5044931" } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      constituentId: "5044931",
+      mapped: {
+        constituent: {
+          email: "acodina@example.com",
+          phone: "904-555-0100",
+          address: "50 Casuarina Concourse, Miami, FL 33143",
+        },
+      },
+    });
+    expect(blackbaudApiFetch).toHaveBeenCalledTimes(1);
   });
 });

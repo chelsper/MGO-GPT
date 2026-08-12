@@ -29,6 +29,7 @@ function buildSummaryCacheKey({
   name,
   includeInactive,
   givingSocietySignature,
+  contactOnly = false,
 }) {
   return [
     "constituent-summary-v4",
@@ -38,6 +39,7 @@ function buildSummaryCacheKey({
     String(name || "").trim().toLowerCase(),
     includeInactive ? "include-inactive" : "active-only",
     String(givingSocietySignature || "").trim(),
+    contactOnly ? "contact-only" : "full",
   ].join("|");
 }
 
@@ -203,20 +205,23 @@ async function resolveConstituentPayload({
 }
 
 function mapConstituent(constituent) {
+  const firstTextValue = (...values) =>
+    values.find((value) => typeof value === "string" && value.trim()) || null;
+
   return {
     id: constituent?.id || null,
     lookupId: constituent?.lookup_id || null,
     name: constituent?.name || null,
     preferredName: constituent?.preferred_name || null,
     type: constituent?.type || null,
-    email:
-      constituent?.email?.primary === true ? constituent?.email?.address || null : null,
-    phone:
-      constituent?.phone?.primary === true ? constituent?.phone?.number || null : null,
-    address:
-      constituent?.address?.preferred === true
-        ? constituent?.address?.formatted_address || null
-        : null,
+    // The constituent endpoint returns the selected primary contact directly in
+    // most NXT data models, but not every payload includes the primary flag.
+    email: firstTextValue(constituent?.email?.address, constituent?.email_address),
+    phone: firstTextValue(constituent?.phone?.number, constituent?.phone_number),
+    address: firstTextValue(
+      constituent?.address?.formatted_address,
+      constituent?.address?.line_1,
+    ),
     requestsNoEmail: constituent?.requests_no_email ?? null,
     fundraiserStatus: constituent?.fundraiser_status || null,
     inactive: constituent?.inactive ?? null,
@@ -1242,22 +1247,25 @@ export async function GET(request, { params }) {
     );
   }
 
-  const includeInactive =
-    new URL(request.url).searchParams.get("include_inactive") === "true";
-  const includeRaw = new URL(request.url).searchParams.get("raw") === "true";
-  const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
-  const lookupId = new URL(request.url).searchParams.get("lookupId")?.trim() || "";
-  const recordId = new URL(request.url).searchParams.get("recordId")?.trim() || "";
-  const name = new URL(request.url).searchParams.get("name")?.trim() || "";
+  const requestUrl = new URL(request.url);
+  const includeInactive = requestUrl.searchParams.get("include_inactive") === "true";
+  const includeRaw = requestUrl.searchParams.get("raw") === "true";
+  const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
+  const contactOnly = requestUrl.searchParams.get("contact_only") === "true";
+  const lookupId = requestUrl.searchParams.get("lookupId")?.trim() || "";
+  const recordId = requestUrl.searchParams.get("recordId")?.trim() || "";
+  const name = requestUrl.searchParams.get("name")?.trim() || "";
 
   try {
     const { workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request);
     const user = workspaceUser;
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
-    const givingSocietyConfigurations = await listGivingSocietyConfigurations();
-    const givingSocietySignature = getGivingSocietyConfigurationSignature(
-      givingSocietyConfigurations,
-    );
+    const givingSocietyConfigurations = contactOnly
+      ? []
+      : await listGivingSocietyConfigurations();
+    const givingSocietySignature = contactOnly
+      ? ""
+      : getGivingSocietyConfigurationSignature(givingSocietyConfigurations);
     const cacheKey = buildSummaryCacheKey({
       constituentId,
       lookupId,
@@ -1265,6 +1273,7 @@ export async function GET(request, { params }) {
       name,
       includeInactive,
       givingSocietySignature,
+      contactOnly,
     });
 
     if (!includeRaw && !forceRefresh) {
@@ -1288,6 +1297,36 @@ export async function GET(request, { params }) {
       name,
     });
     const resolvedConstituentId = String(constituentPayload?.id || constituentId).trim();
+
+    // Portfolio cards can request only the primary contact data on demand.
+    // This avoids the four additional NXT requests required for the full
+    // narrative summary, while still using the same identity resolution and
+    // short-lived cache as the full endpoint.
+    if (contactOnly) {
+      const responsePayload = {
+        constituentId: resolvedConstituentId,
+        includeInactive,
+        mapped: {
+          constituent: mapConstituent(constituentPayload),
+        },
+        warnings: {},
+        ...(includeRaw ? { raw: { constituent: constituentPayload } } : {}),
+      };
+
+      if (!includeRaw) {
+        await saveCachedSummary({
+          workspaceUserId: user.id,
+          authUserId,
+          cacheKey,
+          constituentId: resolvedConstituentId,
+          payload: responsePayload,
+        }).catch((cacheError) => {
+          console.error("Blackbaud constituent contact cache write error:", cacheError);
+        });
+      }
+
+      return summaryResponse(responsePayload, "miss");
+    }
 
     const [
       lifetimeGivingResult,

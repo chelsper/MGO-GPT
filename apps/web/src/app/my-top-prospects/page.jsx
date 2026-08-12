@@ -419,7 +419,7 @@ function getPortfolioContactDisplay(person) {
   if (contact) return contact;
 
   return person?.contactDataSource === "not-loaded"
-    ? "Open NXT Summary to load contact details"
+    ? "Contact details have not been loaded yet"
     : "No contact details available";
 }
 
@@ -548,6 +548,7 @@ function PortfolioTier({
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
+  const [contactStates, setContactStates] = useState({});
   const hasLifetimeGiving = (person) =>
     person?.lifetimeGiving?.totalGiving !== null &&
     person?.lifetimeGiving?.totalGiving !== undefined &&
@@ -588,6 +589,41 @@ function PortfolioTier({
         [constituentId]: {
           status: "error",
           error: error instanceof Error ? error.message : "Failed to load NXT summary",
+        },
+      }));
+    }
+  };
+
+  const loadContactDetails = async (constituentId) => {
+    if (!constituentId || contactStates[constituentId]?.status === "loading") {
+      return;
+    }
+
+    setContactStates((current) => ({
+      ...current,
+      [constituentId]: { status: "loading" },
+    }));
+
+    try {
+      const response = await fetch(
+        `/api/blackbaud/constituents/${constituentId}/summary?contact_only=true`,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load NXT contact details");
+      }
+
+      setContactStates((current) => ({
+        ...current,
+        [constituentId]: { status: "success", payload },
+      }));
+    } catch (error) {
+      setContactStates((current) => ({
+        ...current,
+        [constituentId]: {
+          status: "error",
+          error:
+            error instanceof Error ? error.message : "Failed to load NXT contact details",
         },
       }));
     }
@@ -655,13 +691,16 @@ function PortfolioTier({
                   String(person.constituentId || ""),
                 );
                 const summaryState = summaryStates[person.constituentId];
+                const contactState = contactStates[person.constituentId];
                 const isSummaryExpanded = Boolean(
                   expandedSummaries[person.constituentId],
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
                 const loadedNxtConstituent =
-                  summaryState?.payload?.mapped?.constituent || null;
+                  summaryState?.payload?.mapped?.constituent ||
+                  contactState?.payload?.mapped?.constituent ||
+                  null;
                 const contactPerson = loadedNxtConstituent
                   ? {
                       ...person,
@@ -671,6 +710,9 @@ function PortfolioTier({
                       contactDataSource: "nxt-summary-cache",
                     }
                   : person;
+                const canLoadContactDetails =
+                  !formatPortfolioContact(contactPerson) &&
+                  contactState?.status !== "success";
                 const portfolioGivingSocieties =
                   annualGivingSocietiesByConstituentId[
                     String(person.constituentId || "")
@@ -743,8 +785,47 @@ function PortfolioTier({
                   </div>
                 ) : null}
               </div>
-              <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
-                {getPortfolioContactDisplay(contactPerson)}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                  fontSize: "13px",
+                  color: "#4B5563",
+                  lineHeight: 1.5,
+                }}
+              >
+                <span>
+                  {contactState?.status === "error"
+                    ? "NXT contact details could not load."
+                    : getPortfolioContactDisplay(contactPerson)}
+                </span>
+                {canLoadContactDetails ? (
+                  <button
+                    type="button"
+                    onClick={() => loadContactDetails(person.constituentId)}
+                    disabled={contactState?.status === "loading"}
+                    style={{
+                      border: "1px solid #BFDBFE",
+                      borderRadius: "999px",
+                      backgroundColor: "white",
+                      color: "#1D4ED8",
+                      padding: "5px 9px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor:
+                        contactState?.status === "loading" ? "not-allowed" : "pointer",
+                      opacity: contactState?.status === "loading" ? 0.7 : 1,
+                    }}
+                  >
+                    {contactState?.status === "loading"
+                      ? "Loading NXT contact details..."
+                      : contactState?.status === "error"
+                        ? "Try again"
+                        : "Load NXT contact details"}
+                  </button>
+                ) : null}
               </div>
               {contactPerson.address ? (
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
