@@ -7237,6 +7237,8 @@ export default function MyTopProspectsPage() {
   const [addProspectError, setAddProspectError] = useState("");
   const [portfolioSyncMessage, setPortfolioSyncMessage] = useState("");
   const [portfolioSyncError, setPortfolioSyncError] = useState("");
+  const [shouldLoadPortfolioAnnualGivingSocieties, setShouldLoadPortfolioAnnualGivingSocieties] =
+    useState(false);
   const [shouldLoadPortfolioCurrentFyGiving, setShouldLoadPortfolioCurrentFyGiving] =
     useState(false);
   const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
@@ -7439,6 +7441,9 @@ export default function MyTopProspectsPage() {
 
   const {
     data: portfolioAnnualGivingSocietiesByConstituentId = {},
+    isFetching: isPortfolioAnnualGivingSocietiesFetching,
+    isError: isPortfolioAnnualGivingSocietiesError,
+    refetch: refetchPortfolioAnnualGivingSocieties,
   } = useQuery({
     queryKey: [
       "portfolio-annual-giving-societies",
@@ -7460,6 +7465,7 @@ export default function MyTopProspectsPage() {
       return payload?.byConstituentId || {};
     },
     enabled:
+      shouldLoadPortfolioAnnualGivingSocieties &&
       !!user &&
       !!activeWorkspaceUserId &&
       activeWorkspaceTab === "portfolio" &&
@@ -7469,33 +7475,17 @@ export default function MyTopProspectsPage() {
   });
 
   useEffect(() => {
+    // Giving enrichment can require many NXT gift requests. Keep it opt-in for
+    // each workspace so the underlying portfolio remains immediately usable.
+    setShouldLoadPortfolioAnnualGivingSocieties(false);
     setShouldLoadPortfolioCurrentFyGiving(false);
-
-    if (
-      !user ||
-      !activeWorkspaceUserId ||
-      activeWorkspaceTab !== "portfolio" ||
-      portfolioAnnualConstituentIds.length === 0
-    ) {
-      return undefined;
-    }
-
-    // Render the NXT portfolio first. This summary is intentionally delayed so it
-    // never controls whether an MGO can see or use their assigned constituents.
-    const timeoutId = window.setTimeout(() => {
-      setShouldLoadPortfolioCurrentFyGiving(true);
-    }, 1800);
-    return () => window.clearTimeout(timeoutId);
-  }, [
-    activeWorkspaceTab,
-    activeWorkspaceUserId,
-    portfolioAnnualConstituentIdParam,
-    portfolioAnnualConstituentIds.length,
-    user,
-  ]);
+  }, [activeWorkspaceUserId]);
 
   const {
     data: portfolioCurrentFyGivingResponse,
+    isFetching: isPortfolioCurrentFyGivingFetching,
+    isError: isPortfolioCurrentFyGivingError,
+    refetch: refetchPortfolioCurrentFyGiving,
   } = useQuery({
     queryKey: [
       "portfolio-current-fy-giving",
@@ -8494,6 +8484,87 @@ export default function MyTopProspectsPage() {
                   >
                     {syncMutation.isPending ? "Syncing..." : "Sync NXT portfolio"}
                   </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (shouldLoadPortfolioAnnualGivingSocieties) {
+                      void refetchPortfolioAnnualGivingSocieties();
+                      return;
+                    }
+                    setShouldLoadPortfolioAnnualGivingSocieties(true);
+                  }}
+                  disabled={
+                    portfolioAnnualConstituentIds.length === 0 ||
+                    isPortfolioAnnualGivingSocietiesFetching
+                  }
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #FCD34D",
+                    backgroundColor: isPortfolioAnnualGivingSocietiesFetching
+                      ? "#F3F4F6"
+                      : "#FFFBEB",
+                    color: isPortfolioAnnualGivingSocietiesFetching
+                      ? "#6B7280"
+                      : "#92400E",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor:
+                      portfolioAnnualConstituentIds.length === 0 ||
+                      isPortfolioAnnualGivingSocietiesFetching
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                >
+                  {isPortfolioAnnualGivingSocietiesFetching
+                    ? "Loading society badges..."
+                    : shouldLoadPortfolioAnnualGivingSocieties
+                      ? "Refresh society badges"
+                      : "Load society badges"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (shouldLoadPortfolioCurrentFyGiving) {
+                      void refetchPortfolioCurrentFyGiving();
+                      return;
+                    }
+                    setShouldLoadPortfolioCurrentFyGiving(true);
+                  }}
+                  disabled={
+                    portfolioAnnualConstituentIds.length === 0 ||
+                    isPortfolioCurrentFyGivingFetching
+                  }
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #BBF7D0",
+                    backgroundColor: isPortfolioCurrentFyGivingFetching
+                      ? "#F3F4F6"
+                      : "#F0FDF4",
+                    color: isPortfolioCurrentFyGivingFetching
+                      ? "#6B7280"
+                      : "#166534",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor:
+                      portfolioAnnualConstituentIds.length === 0 ||
+                      isPortfolioCurrentFyGivingFetching
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                >
+                  {isPortfolioCurrentFyGivingFetching
+                    ? "Loading FY giving..."
+                    : shouldLoadPortfolioCurrentFyGiving
+                      ? "Refresh FY giving"
+                      : "Load FY giving"}
+                </button>
+                {isPortfolioAnnualGivingSocietiesError || isPortfolioCurrentFyGivingError ? (
+                  <div style={{ maxWidth: "220px", fontSize: "12px", color: "#B91C1C", lineHeight: 1.4 }}>
+                    Giving details could not load. Your portfolio assignments remain available.
+                  </div>
                 ) : null}
               </div>
             </div>
