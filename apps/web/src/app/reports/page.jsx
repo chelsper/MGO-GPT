@@ -6,8 +6,9 @@ import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
 
-const REPORT_BATCH_SIZE = 50;
+const REPORT_BATCH_SIZE = 10;
 const REPORT_BATCH_CONCURRENCY = 2;
+const REPORT_PROFILE_CONCURRENCY = 4;
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -79,6 +80,71 @@ async function fetchCurrentFiscalYearGiving(constituentIds) {
   return payload;
 }
 
+async function fetchReportProfile(constituentId) {
+  const response = await fetch(
+    `/api/blackbaud/constituents/${encodeURIComponent(constituentId)}/summary?report_profile=true`,
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || "Could not load this donor's NXT identity.");
+  }
+  return payload?.mapped?.constituent || null;
+}
+
+async function loadReportProfiles(constituentIds) {
+  const profiles = new Map();
+  const warnings = [];
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < constituentIds.length) {
+      const constituentId = constituentIds[nextIndex];
+      nextIndex += 1;
+      try {
+        profiles.set(constituentId, await fetchReportProfile(constituentId));
+      } catch (error) {
+        warnings.push(
+          error instanceof Error
+            ? error.message
+            : "Could not load one donor's NXT identity.",
+        );
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(REPORT_PROFILE_CONCURRENCY, constituentIds.length) },
+      () => worker(),
+    ),
+  );
+
+  return { profiles, warnings };
+}
+
+function normalizeConstituencyLabel(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isDonorAdvisedFund(profile) {
+  const constituencies = Array.isArray(profile?.constituencies)
+    ? profile.constituencies
+    : [];
+  return constituencies.some(
+    (constituency) =>
+      normalizeConstituencyLabel(constituency?.label || constituency) === "donor advised fund",
+  );
+}
+
+function sortReportRows(rows) {
+  return rows.sort((left, right) =>
+    getLastNameSortKey(left.name).localeCompare(getLastNameSortKey(right.name), "en"),
+  );
+}
+
 function MetricCard({ label, value, hint }) {
   return (
     <div
@@ -119,6 +185,7 @@ export default function ReportsPage() {
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [reportError, setReportError] = useState("");
   const [reportWarnings, setReportWarnings] = useState([]);
+  const [excludedDonorAdvisedFunds, setExcludedDonorAdvisedFunds] = useState(0);
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
@@ -205,6 +272,9 @@ export default function ReportsPage() {
       setIsLoadingReport(true);
       setReportError("");
       setReportWarnings([]);
+      setReportRows([]);
+      setPeriod(null);
+      setExcludedDonorAdvisedFunds(0);
       try {
         const portfolioResponse = await fetch("/api/blackbaud/portfolio");
         const portfolioPayload = await portfolioResponse.json().catch(() => null);
@@ -225,62 +295,95 @@ export default function ReportsPage() {
           return;
         }
 
-        const givingByConstituentId = {};
-        const warnings = [];
+        const peopleByConstituentId = new Map(
+          people.map((person) => [String(person?.constituentId || "").trim(), person]),
+        );
+        const reportRowsByConstituentId = new Map();
+        const warnings = new Set();
         let reportPeriod = null;
+        let successfullyLoadedBatch = false;
+        let excludedDafCount = 0;
         const batches = chunkValues(constituentIds, REPORT_BATCH_SIZE);
 
-        for (let index = 0; index < batches.length; index += REPORT_BATCH_CONCURRENCY) {
-          const results = await Promise.allSettled(
-            batches
-              .slice(index, index + REPORT_BATCH_CONCURRENCY)
-              .map((batch) => fetchCurrentFiscalYearGiving(batch)),
-          );
+        async function loadBatch(batch) {
+          const givingPayload = await fetchCurrentFiscalYearGiving(batch);
+          successfullyLoadedBatch = true;
+          reportPeriod = reportPeriod || givingPayload?.period || null;
+          Object.values(givingPayload?.warnings || {})
+            .filter(Boolean)
+            .forEach((warning) => warnings.add(warning));
 
-          for (const result of results) {
-            if (result.status === "rejected") {
-              warnings.push(
-                result.reason instanceof Error
-                  ? result.reason.message
-                  : "One report segment could not load.",
+          const donorIds = batch.filter((constituentId) => {
+            const giving = givingPayload?.byConstituentId?.[constituentId] || {};
+            return Number(giving.recognizedReceived || 0) > 0 || Number(giving.recognizedCommitted || 0) > 0;
+          });
+          const { profiles, warnings: profileWarnings } = await loadReportProfiles(donorIds);
+          profileWarnings.forEach((warning) => warnings.add(warning));
+
+          for (const constituentId of donorIds) {
+            const person = peopleByConstituentId.get(constituentId);
+            const profile = profiles.get(constituentId);
+            if (!profile) {
+              warnings.add(
+                "One donor could not be verified in NXT and was omitted from this report.",
               );
               continue;
             }
 
-            reportPeriod = reportPeriod || result.value?.period || null;
-            Object.assign(givingByConstituentId, result.value?.byConstituentId || {});
-            warnings.push(...Object.values(result.value?.warnings || {}).filter(Boolean));
-          }
-        }
+            if (isDonorAdvisedFund(profile)) {
+              excludedDafCount += 1;
+              continue;
+            }
 
-        if (!Object.keys(givingByConstituentId).length) {
-          throw new Error("Blackbaud could not load current fiscal-year gifts for this portfolio.");
-        }
-
-        const rows = people
-          .map((person) => {
-            const constituentId = String(person?.constituentId || "").trim();
-            const giving = givingByConstituentId[constituentId] || {};
-            return {
+            const giving = givingPayload?.byConstituentId?.[constituentId] || {};
+            reportRowsByConstituentId.set(constituentId, {
               constituentId,
-              name: person?.name || `NXT constituent ${constituentId}`,
+              name: profile.name || person?.name || "Unnamed constituent",
               recognizedReceived: Number(giving.recognizedReceived || 0),
               recognizedCommitted: Number(giving.recognizedCommitted || 0),
               lastGiftDate: giving.lastGiftDate || null,
               lastGiftAmount: giving.lastGiftAmount == null ? null : Number(giving.lastGiftAmount),
-            };
-          })
-          .filter(
-            (row) => row.recognizedReceived > 0 || row.recognizedCommitted > 0,
-          )
-          .sort((left, right) =>
-            getLastNameSortKey(left.name).localeCompare(getLastNameSortKey(right.name), "en"),
-          );
+            });
+          }
+
+          if (active) {
+            setReportRows(sortReportRows(Array.from(reportRowsByConstituentId.values())));
+            setPeriod(reportPeriod);
+            setReportWarnings(Array.from(warnings));
+            setExcludedDonorAdvisedFunds(excludedDafCount);
+          }
+        }
+
+        let nextBatchIndex = 0;
+        async function batchWorker() {
+          while (nextBatchIndex < batches.length) {
+            const batch = batches[nextBatchIndex];
+            nextBatchIndex += 1;
+            try {
+              await loadBatch(batch);
+            } catch (error) {
+              warnings.add(
+                error instanceof Error ? error.message : "One report segment could not load.",
+              );
+              if (active) setReportWarnings(Array.from(warnings));
+            }
+          }
+        }
+
+        await Promise.all(
+          Array.from({ length: Math.min(REPORT_BATCH_CONCURRENCY, batches.length) }, () =>
+            batchWorker(),
+          ),
+        );
+
+        if (!successfullyLoadedBatch) {
+          throw new Error("Blackbaud could not load current fiscal-year gifts for this portfolio.");
+        }
 
         if (active) {
-          setReportRows(rows);
           setPeriod(reportPeriod);
-          setReportWarnings([...new Set(warnings)]);
+          setReportWarnings(Array.from(warnings));
+          setExcludedDonorAdvisedFunds(excludedDafCount);
         }
       } catch (error) {
         if (active) {
@@ -417,7 +520,7 @@ export default function ReportsPage() {
                 {yearLabel} portfolio giving
               </h2>
               <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5, maxWidth: "760px" }}>
-                Lists constituents with recognized received or committed giving from gift records this fiscal year. Opportunities are not counted.
+                Lists constituents with recognized received or committed giving from gift records this fiscal year. Opportunities and Donor Advised Fund constituents are not counted.
               </p>
             </div>
             {canUseExecutiveView ? (
@@ -503,11 +606,13 @@ export default function ReportsPage() {
 
         {isLoadingReport ? (
           <div style={{ marginTop: "24px", color: "#64748B", fontWeight: 700 }}>
-            Loading {yearLabel} gift records for this portfolio...
+            {reportRows.length
+              ? "Loading the remaining portfolio records..."
+              : `Loading ${yearLabel} gift records for this portfolio...`}
           </div>
         ) : null}
 
-        {!isLoadingReport && !reportError ? (
+        {!reportError ? (
           <>
             <section
               aria-label="Report totals"
@@ -531,7 +636,11 @@ export default function ReportsPage() {
               <MetricCard
                 label="Donors in report"
                 value={reportRows.length}
-                hint="Portfolio constituents with FY giving"
+                hint={
+                  excludedDonorAdvisedFunds
+                    ? `${excludedDonorAdvisedFunds} Donor Advised Fund constituent${excludedDonorAdvisedFunds === 1 ? "" : "s"} excluded`
+                    : "Portfolio constituents with FY giving"
+                }
               />
             </section>
 

@@ -233,4 +233,41 @@ describe("Blackbaud constituent summary identity language", () => {
     });
     expect(blackbaudApiFetch).toHaveBeenCalledTimes(1);
   });
+
+  it("loads a lightweight identity and constituency profile for reports", async () => {
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({
+      workspaceUser: { id: 42 },
+      sessionUser: { id: 42 },
+      isActing: false,
+    });
+    sql.mockResolvedValue([]);
+    blackbaudApiFetch.mockResolvedValue({
+      id: "42933",
+      lookup_id: "42933",
+      name: "Healy Foundation",
+      constituencies: [{ description: "Donor Advised Fund" }],
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://jumgogpt.app/api/blackbaud/constituents/42933/summary?report_profile=true",
+      ),
+      { params: { constituentId: "42933" } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      constituentId: "42933",
+      mapped: {
+        constituent: {
+          name: "Healy Foundation",
+          constituencies: [{ label: "Donor Advised Fund" }],
+        },
+      },
+    });
+    expect(blackbaudApiFetch).toHaveBeenCalledTimes(1);
+  });
 });

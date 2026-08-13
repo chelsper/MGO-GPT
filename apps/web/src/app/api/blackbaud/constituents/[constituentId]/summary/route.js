@@ -30,6 +30,7 @@ function buildSummaryCacheKey({
   includeInactive,
   givingSocietySignature,
   contactOnly = false,
+  reportProfile = false,
 }) {
   return [
     "constituent-summary-v4",
@@ -39,7 +40,7 @@ function buildSummaryCacheKey({
     String(name || "").trim().toLowerCase(),
     includeInactive ? "include-inactive" : "active-only",
     String(givingSocietySignature || "").trim(),
-    contactOnly ? "contact-only" : "full",
+    reportProfile ? "report-profile" : contactOnly ? "contact-only" : "full",
   ].join("|");
 }
 
@@ -1252,6 +1253,7 @@ export async function GET(request, { params }) {
   const includeRaw = requestUrl.searchParams.get("raw") === "true";
   const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
   const contactOnly = requestUrl.searchParams.get("contact_only") === "true";
+  const reportProfile = requestUrl.searchParams.get("report_profile") === "true";
   const lookupId = requestUrl.searchParams.get("lookupId")?.trim() || "";
   const recordId = requestUrl.searchParams.get("recordId")?.trim() || "";
   const name = requestUrl.searchParams.get("name")?.trim() || "";
@@ -1260,10 +1262,10 @@ export async function GET(request, { params }) {
     const { workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request);
     const user = workspaceUser;
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
-    const givingSocietyConfigurations = contactOnly
+    const givingSocietyConfigurations = contactOnly || reportProfile
       ? []
       : await listGivingSocietyConfigurations();
-    const givingSocietySignature = contactOnly
+    const givingSocietySignature = contactOnly || reportProfile
       ? ""
       : getGivingSocietyConfigurationSignature(givingSocietyConfigurations);
     const cacheKey = buildSummaryCacheKey({
@@ -1274,6 +1276,7 @@ export async function GET(request, { params }) {
       includeInactive,
       givingSocietySignature,
       contactOnly,
+      reportProfile,
     });
 
     if (!includeRaw && !forceRefresh) {
@@ -1302,12 +1305,22 @@ export async function GET(request, { params }) {
     // This avoids the four additional NXT requests required for the full
     // narrative summary, while still using the same identity resolution and
     // short-lived cache as the full endpoint.
-    if (contactOnly) {
+    if (contactOnly || reportProfile) {
+      const mappedConstituent = mapConstituent(constituentPayload);
       const responsePayload = {
         constituentId: resolvedConstituentId,
         includeInactive,
         mapped: {
-          constituent: mapConstituent(constituentPayload),
+          constituent: {
+            ...mappedConstituent,
+            ...(reportProfile
+              ? {
+                  // Reports only need an identity and constituency code. Keep
+                  // this deliberately lighter than the full NXT summary.
+                  constituencies: getConstituencyEntries(constituentPayload, []),
+                }
+              : {}),
+          },
         },
         warnings: {},
         ...(includeRaw ? { raw: { constituent: constituentPayload } } : {}),
