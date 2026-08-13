@@ -7,7 +7,9 @@ import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import {
   canManageWorkspaceRole,
+  canUseExecutiveViewRole,
   getWorkspaceRoleLabel,
+  isMgoRole,
 } from "@/utils/workspaceRoles";
 const MGO_ACTIONS = [
   {
@@ -146,6 +148,11 @@ const ADMIN_ACTIONS = [
     href: "/organization-configurations",
     description: "Configure giving societies and portable organization rules.",
   },
+  {
+    title: "Report Access",
+    href: "/report-configurations",
+    description: "Choose who can view shared reports and select specific users.",
+  },
 ];
 
 const MGO_NAV_ITEMS = [
@@ -192,6 +199,12 @@ const ADMIN_WORKSPACE_ITEMS = [
     href: "/organization-configurations",
     section: "Admin & Workspace",
     description: "Manage annual and lifetime giving society definitions.",
+  },
+  {
+    label: "Report Access",
+    href: "/report-configurations",
+    section: "Admin & Workspace",
+    description: "Choose who can view shared reports and select specific users.",
   },
   {
     label: "Knowledge Base Admin",
@@ -354,11 +367,10 @@ export default function Page() {
   );
   const isReviewer = isReviewerView;
   const canManageWorkspace = canManageWorkspaceRole(profile?.role);
+  const canSwitchMgoWorkspace = canUseExecutiveViewRole(profile?.role);
   const roleLabel = isAdmin
     ? `Admin · ${isReviewer ? "Advancement Services view" : "MGO view"}`
-    : profile?.role === "advancement_admin"
-      ? getWorkspaceRoleLabel(profile.role)
-      : effectiveRole || "mgo";
+    : getWorkspaceRoleLabel(profile?.role) || (isReviewer ? "Advancement Services" : "MGO");
 
   const quickActions = useMemo(
     () => {
@@ -401,7 +413,7 @@ export default function Page() {
       }
       return payload;
     },
-    enabled: Boolean(isAdmin),
+    enabled: Boolean(canSwitchMgoWorkspace && isMgoView),
   });
   const {
     data: mgoUsers = [],
@@ -415,7 +427,7 @@ export default function Page() {
       }
       return Array.isArray(payload) ? payload : [];
     },
-    enabled: Boolean(isAdmin && isMgoView),
+    enabled: Boolean(canSwitchMgoWorkspace && isMgoView),
   });
   const actingUser = actingWorkspaceStatus?.actingUser || null;
   const { data: worklist } = useQuery({
@@ -453,7 +465,7 @@ export default function Page() {
   }
 
   async function handleActingWorkspaceChange(nextUserId) {
-    if (!isAdmin || !isMgoView) return;
+    if (!canSwitchMgoWorkspace || !isMgoView) return;
 
     try {
       setWorkspaceSwitchMessage("");
@@ -821,7 +833,7 @@ export default function Page() {
                       </div>
                     </div>
                   ) : null}
-                  {isAdmin && isMgoView ? (
+                  {canSwitchMgoWorkspace && isMgoView ? (
                     <div style={{ marginTop: "10px" }}>
                       <div
                         style={{
@@ -850,7 +862,11 @@ export default function Page() {
                       >
                         <option value={profile?.id || ""}>My MGO workspace</option>
                         {mgoUsers
-                          .filter((mgoUser) => String(mgoUser.id) !== String(profile?.id || ""))
+                          .filter(
+                            (mgoUser) =>
+                              isMgoRole(mgoUser.role) &&
+                              String(mgoUser.id) !== String(profile?.id || ""),
+                          )
                           .map((mgoUser) => (
                             <option key={mgoUser.id} value={mgoUser.id}>
                               {mgoUser.name || mgoUser.email}
@@ -1017,7 +1033,7 @@ export default function Page() {
                   );
                 })}
               </div>
-              {isMgoView ? (
+              {canSwitchMgoWorkspace && isMgoView ? (
                 <div style={{ minWidth: "240px", flex: "1 1 260px" }}>
                   <select
                     value={actingUser?.id || profile?.id || ""}
@@ -1034,7 +1050,11 @@ export default function Page() {
                   >
                     <option value={profile?.id || ""}>View as: My MGO workspace</option>
                     {mgoUsers
-                      .filter((mgoUser) => String(mgoUser.id) !== String(profile?.id || ""))
+                      .filter(
+                        (mgoUser) =>
+                          isMgoRole(mgoUser.role) &&
+                          String(mgoUser.id) !== String(profile?.id || ""),
+                      )
                       .map((mgoUser) => (
                         <option key={mgoUser.id} value={mgoUser.id}>
                           View as: {mgoUser.name || mgoUser.email}

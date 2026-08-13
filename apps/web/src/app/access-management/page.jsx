@@ -5,7 +5,9 @@ import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
 import {
   canManageWorkspaceRole,
+  canUseMgoWorkspaceRole,
   getWorkspaceRoleLabel,
+  isMgoRole,
 } from "@/utils/workspaceRoles";
 
 const cardStyle = {
@@ -276,7 +278,7 @@ export default function AccessManagementPage() {
   }, [sessionUser]);
 
   useEffect(() => {
-    if (role !== "mgo") {
+    if (!canUseMgoWorkspaceRole(role)) {
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
       return;
@@ -409,7 +411,7 @@ export default function AccessManagementPage() {
   const mgoReadiness = useMemo(
     () =>
       activeUsers
-        .filter((user) => user.role === "mgo")
+        .filter((user) => canUseMgoWorkspaceRole(user.role))
         .map((user) => ({
           user,
           readiness: getMgoReadiness(user),
@@ -447,12 +449,15 @@ export default function AccessManagementPage() {
           email,
           role,
           provisionOnly: options.provisionOnly === true,
-          blackbaudConstituentId:
-            role === "mgo" ? selectedBlackbaudMatch?.blackbaudConstituentId || null : null,
-          blackbaudLookupId:
-            role === "mgo" ? selectedBlackbaudMatch?.lookupId || null : null,
-          blackbaudName:
-            role === "mgo" ? selectedBlackbaudMatch?.name || null : null,
+          blackbaudConstituentId: canUseMgoWorkspaceRole(role)
+            ? selectedBlackbaudMatch?.blackbaudConstituentId || null
+            : null,
+          blackbaudLookupId: canUseMgoWorkspaceRole(role)
+            ? selectedBlackbaudMatch?.lookupId || null
+            : null,
+          blackbaudName: canUseMgoWorkspaceRole(role)
+            ? selectedBlackbaudMatch?.name || null
+            : null,
         }),
       });
       const data = await response.json().catch(() => null);
@@ -581,7 +586,7 @@ export default function AccessManagementPage() {
       setStatusMessage("Workspace created from pending invitation.");
       setToast({ tone: "success", message: "Workspace created." });
       await loadAccessState();
-      if (data?.user) {
+      if (data?.user && isMgoRole(data.user.role)) {
         await handleSwitchWorkspace(data.user);
       }
     } catch (err) {
@@ -882,7 +887,7 @@ export default function AccessManagementPage() {
             Access Management
           </h1>
           <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.6 }}>
-            Invite JU users into the app as MGOs, Executive Admins, Advancement Services reviewers, or Advancement Services Admins. The bootstrap admin account is
+            Invite JU users into the app as MGOs, Executives, Advancement Services team members, or Admins. The bootstrap admin account is
             controlled by the environment and can always regain access.
           </p>
           {bootstrapAdminEmails.length > 0 || bootstrapAdminEmail ? (
@@ -1292,13 +1297,13 @@ export default function AccessManagementPage() {
               </label>
               <select id="access-management-role" name="role" value={role} onChange={(event) => setRole(event.target.value)} style={inputStyle}>
                 <option value="mgo">MGO</option>
-                <option value="executive_admin">Executive Admin</option>
-                <option value="reviewer">Advancement Services</option>
-                <option value="advancement_admin">Advancement Services Admin</option>
+                <option value="executive">Executive</option>
+                <option value="advancement_services">Advancement Services</option>
+                <option value="admin">Admin</option>
               </select>
             </div>
           </div>
-          {role === "mgo" ? (
+          {canUseMgoWorkspaceRole(role) ? (
             <div style={{ marginTop: "16px" }}>
               <label htmlFor="access-management-blackbaud-query" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Connect to Blackbaud user
@@ -1316,7 +1321,7 @@ export default function AccessManagementPage() {
                 style={inputStyle}
               />
               <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280" }}>
-                Link the invited MGO to their Raiser's Edge NXT record so portfolio bootstrap uses the right user.
+                Link the invited MGO or Executive to their Raiser's Edge NXT record so their MGO workspace uses the right user.
               </div>
               {searchingBlackbaud ? (
                 <div style={{ marginTop: "10px", fontSize: "13px", color: "#6B7280" }}>
@@ -1393,7 +1398,7 @@ export default function AccessManagementPage() {
             </div>
           ) : null}
           <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "wrap" }}>
-            {role === "mgo" ? (
+            {canUseMgoWorkspaceRole(role) ? (
               <button
                 type="button"
                 onClick={(event) => handleInviteSubmit(event, { provisionOnly: true })}
@@ -1409,7 +1414,9 @@ export default function AccessManagementPage() {
                     saving || !name.trim() || !email.trim() ? "not-allowed" : "pointer",
                 }}
               >
-                {saving ? "Saving..." : "Create MGO workspace"}
+                {saving
+                  ? "Saving..."
+                  : `Create ${role === "executive" ? "Executive" : "MGO"} workspace`}
               </button>
             ) : null}
             <button
@@ -1548,13 +1555,13 @@ export default function AccessManagementPage() {
                           style={{ ...inputStyle, minWidth: "180px" }}
                         >
                           <option value="mgo">MGO</option>
-                          <option value="executive_admin">Executive Admin</option>
-                          <option value="reviewer">Advancement Services</option>
-                          <option value="advancement_admin">Advancement Services Admin</option>
+                          <option value="executive">Executive</option>
+                          <option value="advancement_services">Advancement Services</option>
+                          <option value="admin">Admin</option>
                         </select>
                       )}
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {user.role === "mgo" ? (
+                        {isMgoRole(user.role) ? (
                           <button
                             type="button"
                             onClick={() => handleSwitchWorkspace(user)}
@@ -1642,7 +1649,7 @@ export default function AccessManagementPage() {
                       <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827", marginBottom: "8px" }}>
                         Edit {user.name}
                       </div>
-                      {user.role === "mgo" ? (
+                      {canUseMgoWorkspaceRole(user.role) ? (
                         <div
                           style={{
                             marginBottom: "12px",
@@ -1658,9 +1665,9 @@ export default function AccessManagementPage() {
                           }}
                         >
                           <div style={{ fontSize: "13px", color: "#4338CA", lineHeight: 1.5 }}>
-                            Build this MGO's portfolio and dashboard before they sign in.
+                            Link this person's NXT identity and prepare their MGO workspace before they sign in.
                           </div>
-                          <button
+                          {isMgoRole(user.role) ? (<button
                             type="button"
                             onClick={() => handleSwitchWorkspace(user)}
                             style={{
@@ -1674,7 +1681,7 @@ export default function AccessManagementPage() {
                             }}
                           >
                             Open workspace
-                          </button>
+                          </button>) : null}
                         </div>
                       ) : null}
                       <label htmlFor={`access-management-user-blackbaud-query-${user.id}`} style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
@@ -1862,9 +1869,9 @@ export default function AccessManagementPage() {
                       ) : null}
                     </div>
                     <div style={{ display: "grid", gap: "8px" }}>
-                      {invitation.role === "mgo" ? (
+                      {canUseMgoWorkspaceRole(invitation.role) ? (
                         invitation.existing_user_id ? (
-                          <button
+                          isMgoRole(invitation.role) ? (<button
                             type="button"
                             onClick={() =>
                               handleSwitchWorkspace({
@@ -1885,7 +1892,7 @@ export default function AccessManagementPage() {
                             }}
                           >
                             Open workspace
-                          </button>
+                          </button>) : null
                         ) : (
                           <button
                             type="button"

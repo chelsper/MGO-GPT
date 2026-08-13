@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
-import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
+import { canUseExecutiveViewRole, isMgoRole } from "@/utils/workspaceRoles";
 
 const REPORT_BATCH_SIZE = 10;
 const REPORT_BATCH_CONCURRENCY = 2;
@@ -69,6 +69,7 @@ function getPortfolioPeople(payload) {
 async function fetchCurrentFiscalYearGiving(constituentIds) {
   const searchParams = new URLSearchParams({
     constituentIds: constituentIds.join(","),
+    report: "portfolio-fy-giving",
   });
   const response = await fetch(
     `/api/blackbaud/current-fy-giving?${searchParams.toString()}`,
@@ -210,6 +211,9 @@ function MetricCard({ label, value, hint }) {
 export default function ReportsPage() {
   const { data: user, loading: loadingUser } = useUser();
   const [profileStatus, setProfileStatus] = useState(null);
+  const [reportAccessStatus, setReportAccessStatus] = useState(null);
+  const [reportAccessLoading, setReportAccessLoading] = useState(true);
+  const [reportAccessError, setReportAccessError] = useState("");
   const [actingWorkspaceStatus, setActingWorkspaceStatus] = useState(null);
   const [mgoUsers, setMgoUsers] = useState([]);
   const [reportRows, setReportRows] = useState([]);
@@ -254,7 +258,51 @@ export default function ReportsPage() {
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return undefined;
+
+    let active = true;
+    async function loadReportAccess() {
+      setReportAccessLoading(true);
+      setReportAccessError("");
+      try {
+        const response = await fetch("/api/reports/configurations");
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Could not load report access.");
+        }
+        const configuration = Array.isArray(payload?.configurations)
+          ? payload.configurations.find((item) => item.key === "portfolio-fy-giving")
+          : null;
+        if (!configuration) {
+          throw new Error("Portfolio Giving access could not be loaded.");
+        }
+        if (active) {
+          setReportAccessStatus({
+            configuration,
+            canManage: Boolean(payload?.canManage),
+          });
+        }
+      } catch (error) {
+        if (active) {
+          setReportAccessError(
+            error instanceof Error ? error.message : "Could not load report access.",
+          );
+        }
+      } finally {
+        if (active) setReportAccessLoading(false);
+      }
+    }
+
+    loadReportAccess();
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
   const canUseExecutiveView = canUseExecutiveViewRole(profileStatus?.user?.role);
+  const reportAccess = reportAccessStatus?.configuration || null;
+  const canManageReports = Boolean(reportAccessStatus?.canManage);
 
   useEffect(() => {
     if (!user || !canUseExecutiveView) return undefined;
@@ -298,7 +346,14 @@ export default function ReportsPage() {
   const workspaceUser = profileStatus?.workspaceUser || null;
 
   useEffect(() => {
-    if (!workspaceUser?.id) return undefined;
+    if (
+      reportAccessLoading ||
+      reportAccessError ||
+      reportAccess?.canView !== true ||
+      !workspaceUser?.id
+    ) {
+      return undefined;
+    }
 
     let active = true;
     async function loadReport() {
@@ -548,7 +603,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [refreshVersion, workspaceUser?.id]);
+  }, [refreshVersion, reportAccess?.canView, reportAccessError, reportAccessLoading, workspaceUser?.id]);
 
   async function handleWorkspaceChange(event) {
     const nextUserId = Number(event.target.value || 0);
@@ -584,6 +639,67 @@ export default function ReportsPage() {
     return (
       <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#64748B" }}>
         Loading reports...
+      </main>
+    );
+  }
+
+  if (reportAccessLoading) {
+    return (
+      <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#64748B" }}>
+        Checking report access...
+      </main>
+    );
+  }
+
+  if (reportAccessError) {
+    return (
+      <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px" }}>
+        <div style={{ maxWidth: "720px", margin: "0 auto" }}>
+          <a href="/" style={{ color: "#1D4ED8", fontWeight: 800 }}>Return to home</a>
+          <div
+            role="alert"
+            style={{
+              marginTop: "18px",
+              border: "1px solid #FECACA",
+              backgroundColor: "#FEF2F2",
+              color: "#991B1B",
+              borderRadius: "14px",
+              padding: "16px",
+              fontWeight: 700,
+            }}
+          >
+            {reportAccessError}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (reportAccess?.canView !== true) {
+    return (
+      <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px" }}>
+        <div style={{ maxWidth: "720px", margin: "0 auto" }}>
+          <a href="/" style={{ color: "#1D4ED8", fontWeight: 800 }}>Return to home</a>
+          <section
+            style={{
+              marginTop: "18px",
+              backgroundColor: "white",
+              border: "1px solid #E2E8F0",
+              borderRadius: "18px",
+              padding: "26px",
+            }}
+          >
+            <h1 style={{ margin: 0, color: "#0F172A" }}>Portfolio Giving is not shared with you</h1>
+            <p style={{ color: "#64748B", lineHeight: 1.55 }}>
+              An Advancement Services user can change this report&apos;s audience in Report Access.
+            </p>
+            {canManageReports ? (
+              <a href="/report-configurations" style={{ color: "#1D4ED8", fontWeight: 800 }}>
+                Configure report access
+              </a>
+            ) : null}
+          </section>
+        </div>
       </main>
     );
   }
@@ -625,28 +741,49 @@ export default function ReportsPage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setRefreshVersion((version) => version + 1)}
-            disabled={isLoadingReport || !workspaceUser}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              minHeight: "42px",
-              borderRadius: "10px",
-              border: "1px solid #BFDBFE",
-              backgroundColor: "white",
-              color: "#1D4ED8",
-              padding: "0 14px",
-              fontSize: "14px",
-              fontWeight: 800,
-              cursor: isLoadingReport ? "wait" : "pointer",
-            }}
-          >
-            <RefreshCw size={17} />
-            Refresh report
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            {canManageReports ? (
+              <a
+                href="/report-configurations"
+                style={{
+                  minHeight: "42px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: "10px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "white",
+                  color: "#1D4ED8",
+                  padding: "0 14px",
+                  fontSize: "14px",
+                  fontWeight: 800,
+                }}
+              >
+                Configure access
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setRefreshVersion((version) => version + 1)}
+              disabled={isLoadingReport || !workspaceUser}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                minHeight: "42px",
+                borderRadius: "10px",
+                border: "1px solid #BFDBFE",
+                backgroundColor: "white",
+                color: "#1D4ED8",
+                padding: "0 14px",
+                fontSize: "14px",
+                fontWeight: 800,
+                cursor: isLoadingReport ? "wait" : "pointer",
+              }}
+            >
+              <RefreshCw size={17} />
+              Refresh report
+            </button>
+          </div>
         </div>
 
         <section
@@ -687,7 +824,7 @@ export default function ReportsPage() {
                 >
                   <option value="">My MGO workspace</option>
                   {mgoUsers
-                    .filter((candidate) => candidate?.role === "mgo")
+                    .filter((candidate) => isMgoRole(candidate?.role))
                     .map((candidate) => (
                       <option key={candidate.id} value={candidate.id}>
                         {candidate.name || candidate.email}

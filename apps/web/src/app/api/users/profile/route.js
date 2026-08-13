@@ -7,6 +7,7 @@ import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import getWorkspaceUser, { clearActingUserCookie } from "@/app/api/utils/getWorkspaceUser";
+import { canUseMgoWorkspaceRole } from "@/utils/workspaceRoles";
 
 function shouldAutoSyncPortfolio(user) {
   if (!user) return false;
@@ -48,7 +49,7 @@ export async function GET(request) {
       isBootstrapAdminEmail(workspaceUser?.email) &&
       Boolean(workspaceUser?.blackbaud_constituent_id);
     const portfolioSyncEligible =
-      workspaceUser?.role === "mgo" || canSeedBootstrapAdmin;
+      canUseMgoWorkspaceRole(workspaceUser?.role) || canSeedBootstrapAdmin;
 
     if (shouldBootstrapPortfolio && portfolioSyncEligible) {
       const hasBlackbaudConnection = await getValidBlackbaudConnection(authUserId, origin).catch(

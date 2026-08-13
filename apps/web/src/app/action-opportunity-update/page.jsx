@@ -5,6 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, MessageSquare, Mic, Trophy } from "lucide-react";
 import useUser from "@/utils/useUser";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
+import { canUseMgoWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 
 const UPDATE_MODES = [
   {
@@ -62,21 +63,18 @@ const STAGES = [
 const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
 const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
 
-const TEAMMATE_ROLES = new Set(["mgo", "reviewer", "executive_admin", "admin"]);
+const TEAMMATE_ROLES = new Set([
+  "mgo",
+  "advancement_services",
+  "executive",
+  "admin",
+  "reviewer",
+  "advancement_admin",
+  "executive_admin",
+]);
 
 function getRoleLabel(role) {
-  switch (role) {
-    case "mgo":
-      return "MGO";
-    case "reviewer":
-      return "Advancement Services";
-    case "executive_admin":
-      return "Executive Admin";
-    case "admin":
-      return "Admin";
-    default:
-      return "Team";
-  }
+  return getWorkspaceRoleLabel(role) || "Team";
 }
 
 function formatBlackbaudCurrency(amount) {
@@ -158,7 +156,7 @@ function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
 
 function isFundraiserOption(option) {
   return (
-    option?.role === "mgo" ||
+    canUseMgoWorkspaceRole(option?.role) ||
     Boolean(option?.blackbaud_constituent_id) ||
     Boolean(option?.blackbaudConstituentId) ||
     Boolean(option?.blackbaud_lookup_id) ||

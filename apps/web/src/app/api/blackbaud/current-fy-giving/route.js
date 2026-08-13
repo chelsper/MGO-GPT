@@ -2,6 +2,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import {
+  getReportAccessForUser,
+  PORTFOLIO_GIVING_REPORT_KEY,
+} from "@/app/api/utils/reportAccess";
+import {
   getBlackbaudConfigIssues,
   getBlackbaudGift,
   listBlackbaudGifts,
@@ -284,7 +288,8 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const origin = new URL(request.url).origin;
+    const requestUrl = new URL(request.url);
+    const origin = requestUrl.origin;
     const configIssues = getBlackbaudConfigIssues(origin);
     if (configIssues.length > 0) {
       return Response.json(
@@ -305,6 +310,21 @@ export async function GET(request) {
       await getWorkspaceUser(session, request);
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (
+      requestUrl.searchParams.get("report") === PORTFOLIO_GIVING_REPORT_KEY
+    ) {
+      const reportAccess = await getReportAccessForUser(
+        PORTFOLIO_GIVING_REPORT_KEY,
+        sessionUser || user,
+      );
+      if (!reportAccess.canView) {
+        return Response.json(
+          { error: "You do not have access to this report." },
+          { status: 403 },
+        );
+      }
     }
 
     const authUserId = isActing ? sessionUser?.id || user.id : user.id;

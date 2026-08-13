@@ -1861,6 +1861,64 @@ export default async function ensureAppSchema() {
       CREATE INDEX IF NOT EXISTS idx_kb_revisions_article
       ON knowledge_base_article_revisions (article_id, created_at DESC)
     `;
+
+    // Preserve existing access during the role vocabulary migration.
+    await sql`
+      UPDATE users
+      SET role = CASE
+        WHEN role IN ('reviewer', 'advancement_admin') THEN 'advancement_services'
+        WHEN role = 'executive_admin' THEN 'executive'
+        ELSE role
+      END
+      WHERE role IN ('reviewer', 'advancement_admin', 'executive_admin')
+    `;
+    await sql`
+      UPDATE user_invitations
+      SET
+        role = CASE
+          WHEN role IN ('reviewer', 'advancement_admin') THEN 'advancement_services'
+          WHEN role = 'executive_admin' THEN 'executive'
+          ELSE role
+        END,
+        updated_at = NOW()
+      WHERE role IN ('reviewer', 'advancement_admin', 'executive_admin')
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS report_configurations (
+        id BIGSERIAL PRIMARY KEY,
+        report_key TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        description TEXT,
+        visibility TEXT NOT NULL DEFAULT 'all_users',
+        specific_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_report_configurations_visibility
+      ON report_configurations (visibility)
+    `;
+    await sql`
+      INSERT INTO report_configurations (
+        report_key,
+        title,
+        description,
+        visibility,
+        specific_user_ids
+      )
+      VALUES (
+        'portfolio-fy-giving',
+        'Portfolio Giving',
+        'Review current fiscal-year gift activity across an MGO portfolio.',
+        'all_users',
+        '[]'::jsonb
+      )
+      ON CONFLICT (report_key) DO NOTHING
+    `;
   })();
 
   return schemaReadyPromise;

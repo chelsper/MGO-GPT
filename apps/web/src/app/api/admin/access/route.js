@@ -8,7 +8,11 @@ import {
   getBootstrapAdminEmails,
   normalizeEmail,
 } from "@/app/api/utils/invitations";
-import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
+import {
+  canManageWorkspaceRole,
+  canUseMgoWorkspaceRole,
+  normalizeWorkspaceRole,
+} from "@/utils/workspaceRoles";
 
 async function resetPortfolioSeedState(userId) {
   await sql`
@@ -136,7 +140,7 @@ export async function POST(request) {
     const body = await request.json();
     const name = body?.name ? String(body.name).trim() : "";
     const email = normalizeEmail(body?.email);
-    const role = body?.role;
+    const role = normalizeWorkspaceRole(body?.role);
     const provisionOnly = body?.provisionOnly === true;
     const blackbaudConstituentId = body?.blackbaudConstituentId
       ? String(body.blackbaudConstituentId).trim()
@@ -187,7 +191,10 @@ export async function POST(request) {
         String(priorUser?.blackbaud_lookup_id || "") !==
           String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
 
-      if ((role === "mgo" || priorUser?.role === "mgo") && blackbaudLinkChanged) {
+      if (
+        (canUseMgoWorkspaceRole(role) || canUseMgoWorkspaceRole(priorUser?.role)) &&
+        blackbaudLinkChanged
+      ) {
         await resetPortfolioSeedState(existingUser[0].id);
       }
 
@@ -200,7 +207,17 @@ export async function POST(request) {
     if (provisionOnly) {
       if (!name) {
         return Response.json(
-          { error: "Name is required to create an MGO workspace." },
+          { error: "Name is required to create a workspace." },
+          { status: 400 },
+        );
+      }
+
+      if (!canUseMgoWorkspaceRole(role)) {
+        return Response.json(
+          {
+            error:
+              "Only MGO and Executive users can be created as an MGO workspace without an invitation.",
+          },
           { status: 400 },
         );
       }
@@ -227,7 +244,7 @@ export async function POST(request) {
         RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
       `;
 
-      if (role === "mgo" && (blackbaudConstituentId || blackbaudLookupId)) {
+      if (canUseMgoWorkspaceRole(role) && (blackbaudConstituentId || blackbaudLookupId)) {
         await resetPortfolioSeedState(createdUser[0].id);
       }
 
@@ -323,7 +340,9 @@ export async function PATCH(request) {
     }
 
     const userId = Number(body?.userId);
-    const role = body?.role;
+    const requestedRole = body?.role;
+    const role =
+      requestedRole === undefined ? undefined : normalizeWorkspaceRole(requestedRole);
     const active =
       body?.active === undefined ? undefined : Boolean(body.active);
     const blackbaudConstituentId = body?.blackbaudConstituentId
@@ -346,6 +365,10 @@ export async function PATCH(request) {
 
     if (existingUser.length === 0) {
       return Response.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (requestedRole !== undefined && !role) {
+      return Response.json({ error: "Invalid role" }, { status: 400 });
     }
 
     if (role !== undefined && role !== existingUser[0].role) {
@@ -377,7 +400,7 @@ export async function PATCH(request) {
       String(priorUser?.blackbaud_lookup_id || "") !==
         String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
 
-    if (nextRole === "mgo" && blackbaudLinkChanged) {
+    if (canUseMgoWorkspaceRole(nextRole) && blackbaudLinkChanged) {
       await resetPortfolioSeedState(userId);
     }
 
@@ -451,7 +474,8 @@ export async function DELETE(request) {
           (SELECT COUNT(*) FROM knowledge_base_article_overrides WHERE owner_user_id = ${userId} OR reviewer_user_id = ${userId} OR created_by = ${userId} OR updated_by = ${userId}) AS knowledge_articles,
           (SELECT COUNT(*) FROM knowledge_base_article_revisions WHERE created_by = ${userId}) AS knowledge_revisions,
           (SELECT COUNT(*) FROM giving_society_configurations WHERE created_by = ${userId} OR updated_by = ${userId}) AS giving_societies,
-          (SELECT COUNT(*) FROM blackbaud_field_mappings WHERE reviewed_by = ${userId} OR updated_by = ${userId}) AS field_mappings
+          (SELECT COUNT(*) FROM blackbaud_field_mappings WHERE reviewed_by = ${userId} OR updated_by = ${userId}) AS field_mappings,
+          (SELECT COUNT(*) FROM report_configurations WHERE created_by = ${userId} OR updated_by = ${userId}) AS report_configurations
       `;
       const dependencies = Object.entries(dependencyRows[0] || {})
         .filter(([, count]) => Number(count) > 0)

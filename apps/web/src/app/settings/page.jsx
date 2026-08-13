@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, RefreshCw, ShieldCheck } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
+import { canManageWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 
 const inputStyle = {
   width: "100%",
@@ -249,7 +249,7 @@ export default function SettingsPage() {
   const isSsoManaged = authentication?.isSsoManaged === true;
   const canEditProfile = authentication?.canEditProfile === true;
   const canChangePassword = authentication?.canChangePassword === true;
-  const canManageWorkspace = ["admin", "advancement_admin"].includes(profile?.role);
+  const canManageWorkspace = canManageWorkspaceRole(profile?.role);
   const canSyncPortfolio = portfolioSyncEligible;
   const connectionConfigured = blackbaudStatus?.configured !== false;
   const connectedScopes = blackbaudStatus?.connectedScopes || [];

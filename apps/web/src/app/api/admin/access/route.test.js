@@ -37,7 +37,19 @@ vi.mock("@/app/api/utils/invitations", () => ({
 }));
 
 vi.mock("@/utils/workspaceRoles", () => ({
-  canManageWorkspaceRole: (role) => role === "advancement_admin",
+  canManageWorkspaceRole: (role) =>
+    ["admin", "advancement_services", "advancement_admin"].includes(role),
+  canUseMgoWorkspaceRole: (role) => ["mgo", "executive", "executive_admin"].includes(role),
+  normalizeWorkspaceRole: (role) =>
+    ({
+      admin: "admin",
+      advancement_services: "advancement_services",
+      advancement_admin: "advancement_services",
+      reviewer: "advancement_services",
+      executive: "executive",
+      executive_admin: "executive",
+      mgo: "mgo",
+    })[role] || null,
 }));
 
 describe("admin access deletion", () => {

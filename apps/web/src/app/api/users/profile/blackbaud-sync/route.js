@@ -4,7 +4,7 @@ import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { canUseMgoWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 
@@ -40,9 +40,9 @@ export async function POST(request) {
       Boolean(workspaceUser?.blackbaud_constituent_id) &&
       isAdminRole(sessionUser?.role);
 
-    if (workspaceUser?.role !== "mgo" && !canSeedBootstrapAdmin) {
+    if (!canUseMgoWorkspaceRole(workspaceUser?.role) && !canSeedBootstrapAdmin) {
       return Response.json(
-        { error: "Only MGOs or the linked bootstrap admin can sync Blackbaud opportunities." },
+        { error: "Only MGOs, Executives, or the linked bootstrap admin can sync Blackbaud opportunities." },
         { status: 403 },
       );
     }

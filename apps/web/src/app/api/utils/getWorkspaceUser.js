@@ -1,6 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
-import { isAdminRole } from "@/utils/workspaceRoles";
+import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
 
 const ACTING_USER_COOKIE = "workspace_acting_user_id";
 
@@ -38,7 +38,7 @@ export default async function getWorkspaceUser(session, request) {
   const sessionUser = await getOrCreateUser(session);
   const actingUserId = getActingUserIdFromRequest(request);
 
-  if (!isAdminRole(sessionUser.role) || !actingUserId || actingUserId === sessionUser.id) {
+  if (!canUseExecutiveViewRole(sessionUser.role) || !actingUserId || actingUserId === sessionUser.id) {
     return {
       sessionUser,
       workspaceUser: sessionUser,
