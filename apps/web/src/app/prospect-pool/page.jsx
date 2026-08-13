@@ -19,8 +19,8 @@ const MGOGPT_OUTCOME_OPTIONS = [
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
 const NXT_SUMMARY_FETCH_TIMEOUT_MS = 45000;
 const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
-const FY27_CASH_RECEIVED_RETRY_DELAY_MS = 5000;
-const FY27_CASH_RECEIVED_LOAD_DELAY_MS = 750;
+const NXT_SUMMARY_AUTO_ATTEMPTS = 3;
+const NXT_SUMMARY_RETRY_DELAY_MS = 1500;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -435,12 +435,10 @@ export default function ProspectPoolPage() {
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
-  const [fy27CashReceived, setFy27CashReceived] = useState({
-    status: "idle",
-    byConstituentId: {},
-  });
-  const [fy27CashReceivedRetryTick, setFy27CashReceivedRetryTick] = useState(0);
+  const blackbaudSummariesRef = useRef({});
+  const summaryQueueRunningRef = useRef(false);
   const mountedRef = useRef(false);
+  const [summaryQueueTick, setSummaryQueueTick] = useState(0);
   const [expandedNarrativeSummaries, setExpandedNarrativeSummaries] = useState({});
   const [reviewerFilters, setReviewerFilters] = useState({
     assignedUserId: "all",
@@ -460,6 +458,10 @@ export default function ProspectPoolPage() {
   }, []);
 
   useEffect(() => {
+    blackbaudSummariesRef.current = blackbaudSummaries;
+  }, [blackbaudSummaries]);
+
+  useEffect(() => {
     if (!toast) return undefined;
     const timeoutId = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timeoutId);
@@ -475,10 +477,12 @@ export default function ProspectPoolPage() {
   function updateBlackbaudSummaryState(constituentId, summaryState) {
     if (!constituentId) return;
     setBlackbaudSummaries((current) => {
-      return {
+      const next = {
         ...current,
         [constituentId]: summaryState,
       };
+      blackbaudSummariesRef.current = next;
+      return next;
     });
   }
 
@@ -602,87 +606,6 @@ export default function ProspectPoolPage() {
       active = false;
     };
   }, [isReviewer, profile]);
-
-  const fy27CashReceivedConstituentIdsKey = useMemo(
-    () =>
-      Array.from(
-      new Set(
-        entries
-          .map((entry) => getEntryBlackbaudConstituentId(entry))
-          .filter(Boolean),
-      ),
-      )
-        .sort()
-        .join("|"),
-    [entries],
-  );
-
-  useEffect(() => {
-    const constituentIds = fy27CashReceivedConstituentIdsKey
-      ? fy27CashReceivedConstituentIdsKey.split("|")
-      : [];
-
-    if (!profile || constituentIds.length === 0) {
-      setFy27CashReceived({ status: "idle", byConstituentId: {} });
-      return undefined;
-    }
-
-    let active = true;
-    let retryTimeoutId = null;
-    let loadTimeoutId = null;
-    setFy27CashReceived((current) => ({
-      status: current.status === "ready" ? "refreshing" : "loading",
-      byConstituentId: current.byConstituentId,
-    }));
-
-    async function loadFY27CashReceived() {
-      try {
-        const response = await fetch("/api/prospect-pool/fy27-cash-received", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ constituentIds }),
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(payload?.error || "Could not load FY27 cash received.");
-        }
-        if (!active) return;
-
-        setFy27CashReceived({
-          status: payload?.status === "pending" ? "pending" : "ready",
-          byConstituentId: payload?.byConstituentId || {},
-        });
-
-        if (payload?.status === "pending") {
-          retryTimeoutId = window.setTimeout(
-            () => setFy27CashReceivedRetryTick((current) => current + 1),
-            FY27_CASH_RECEIVED_RETRY_DELAY_MS,
-          );
-        }
-      } catch (loadError) {
-        console.error("FY27 prospect-pool cash-received load error:", loadError);
-        if (active) {
-          // The saved query augments the pool and must never block it.
-          setFy27CashReceived({ status: "error", byConstituentId: {} });
-        }
-      }
-    }
-
-    // Let the prospect pool paint before starting this optional aggregate query.
-    loadTimeoutId = window.setTimeout(
-      loadFY27CashReceived,
-      FY27_CASH_RECEIVED_LOAD_DELAY_MS,
-    );
-    return () => {
-      active = false;
-      if (retryTimeoutId) window.clearTimeout(retryTimeoutId);
-      if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
-    };
-  }, [
-    fy27CashReceivedConstituentIdsKey,
-    fy27CashReceivedRetryTick,
-    profile?.id,
-  ]);
 
   const summary = useMemo(() => {
     if (!hasMounted) {
@@ -897,6 +820,10 @@ export default function ProspectPoolPage() {
           }
         }
 
+        if (changed) {
+          blackbaudSummariesRef.current = next;
+        }
+
         return changed ? next : current;
       });
     }, 5000);
@@ -904,30 +831,96 @@ export default function ProspectPoolPage() {
     return () => window.clearInterval(intervalId);
   }, []);
 
-  async function loadBlackbaudSummary(entry, { forceRefresh = false, showSuccess = false } = {}) {
+  useEffect(() => {
+    if (!hasMounted || summaryQueueRunningRef.current) {
+      return;
+    }
+
+    const entryToLoad = visibleEntries.find((entry) => {
+      const constituentId = getEntryBlackbaudConstituentId(entry);
+      return constituentId && !blackbaudSummariesRef.current[constituentId];
+    });
+
+    if (!entryToLoad) {
+      return;
+    }
+
+    const constituentId = getEntryBlackbaudConstituentId(entryToLoad);
+    summaryQueueRunningRef.current = true;
+
+    async function loadQueuedSummary() {
+      let lastError = null;
+
+      try {
+        for (let attempt = 1; attempt <= NXT_SUMMARY_AUTO_ATTEMPTS; attempt += 1) {
+          if (!mountedRef.current) return;
+
+          updateBlackbaudSummaryState(constituentId, {
+            status: "loading",
+            startedAt: Date.now(),
+            attempt,
+            automaticRetry: attempt > 1,
+          });
+
+          try {
+            const payload = await fetchBlackbaudSummaryPayload(entryToLoad, {
+              forceRefresh: attempt > 1,
+            });
+            if (!mountedRef.current) return;
+
+            updateBlackbaudSummaryState(constituentId, { status: "ready", payload });
+            return;
+          } catch (error) {
+            lastError = error;
+
+            if (attempt < NXT_SUMMARY_AUTO_ATTEMPTS) {
+              await new Promise((resolve) =>
+                window.setTimeout(resolve, NXT_SUMMARY_RETRY_DELAY_MS * attempt),
+              );
+              continue;
+            }
+
+            if (!mountedRef.current) return;
+            updateBlackbaudSummaryState(constituentId, {
+              status: "error",
+              error:
+                lastError instanceof Error
+                  ? `${lastError.message} It retried automatically ${NXT_SUMMARY_AUTO_ATTEMPTS - 1} times.`
+                  : "Failed to load Blackbaud summary after automatic retries.",
+              attempts: NXT_SUMMARY_AUTO_ATTEMPTS,
+            });
+          }
+        }
+      } finally {
+        summaryQueueRunningRef.current = false;
+        if (mountedRef.current) {
+          setSummaryQueueTick((current) => current + 1);
+        }
+      }
+    }
+
+    loadQueuedSummary();
+  }, [hasMounted, summaryQueueTick, visibleEntries]);
+
+  async function retryBlackbaudSummary(entry) {
     const constituentId = getEntryBlackbaudConstituentId(entry);
     if (!constituentId) return;
 
     updateBlackbaudSummaryState(constituentId, {
       status: "loading",
+      manualRetry: true,
       startedAt: Date.now(),
     });
 
     try {
-      const payload = await fetchBlackbaudSummaryPayload(entry, { forceRefresh });
+      const payload = await fetchBlackbaudSummaryPayload(entry, { forceRefresh: true });
       updateBlackbaudSummaryState(constituentId, { status: "ready", payload });
-      if (showSuccess) {
-        setToast({ tone: "success", message: "Blackbaud summary loaded." });
-      }
+      setToast({ tone: "success", message: "Blackbaud summary loaded." });
     } catch (error) {
       const message = getBlackbaudSummaryErrorMessage(error);
       updateBlackbaudSummaryState(constituentId, { status: "error", error: message });
       setToast({ tone: "error", message });
     }
-  }
-
-  async function retryBlackbaudSummary(entry) {
-    return loadBlackbaudSummary(entry, { forceRefresh: true, showSuccess: true });
   }
 
   function setDraft(id, updates) {
@@ -2121,23 +2114,6 @@ export default function ProspectPoolPage() {
                 ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionComment
                 : draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
             const blackbaudConstituentId = getEntryBlackbaudConstituentId(entry);
-            const hasFY27CashReceived =
-              blackbaudConstituentId &&
-              Object.prototype.hasOwnProperty.call(
-                fy27CashReceived.byConstituentId,
-                blackbaudConstituentId,
-              );
-            const fy27CashReceivedLabel =
-              fy27CashReceived.status === "ready" ||
-              fy27CashReceived.status === "refreshing"
-                ? formatBlackbaudCurrency(
-                    hasFY27CashReceived
-                      ? fy27CashReceived.byConstituentId[blackbaudConstituentId]
-                      : 0,
-                  )
-                : fy27CashReceived.status === "error"
-                  ? "Unavailable"
-                  : "Loading...";
             const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(blackbaudConstituentId);
             const blackbaudSummaryState = blackbaudConstituentId
               ? blackbaudSummaries[blackbaudConstituentId]
@@ -2268,29 +2244,6 @@ export default function ProspectPoolPage() {
                         </div>
                         <div>{getQuickRequestLabel(entry)}</div>
                       </div>
-                      {blackbaudConstituentId ? (
-                        <div>
-                          <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                            FY27 Cash Received
-                          </div>
-                          <div
-                            style={{
-                              color:
-                                fy27CashReceived.status === "ready" ||
-                                fy27CashReceived.status === "refreshing"
-                                  ? "#047857"
-                                  : "#6B7280",
-                              fontWeight:
-                                fy27CashReceived.status === "ready" ||
-                                fy27CashReceived.status === "refreshing"
-                                  ? 700
-                                  : 400,
-                            }}
-                          >
-                            {fy27CashReceivedLabel}
-                          </div>
-                        </div>
-                      ) : null}
                       {hasPostAssignmentAction || isSolicitorAssignmentSynced(entry) ? (
                         <div>
                           <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
@@ -2410,34 +2363,26 @@ export default function ProspectPoolPage() {
                           >
                             <span>
                               {!blackbaudSummaryState
-                                ? "Load NXT details only when needed to keep the prospect pool fast."
-                                : "Loading Blackbaud summary..."}
+                                ? "Waiting to load Blackbaud summary..."
+                                : blackbaudSummaryState.automaticRetry
+                                  ? `NXT is slow; retrying automatically (${blackbaudSummaryState.attempt} of ${NXT_SUMMARY_AUTO_ATTEMPTS})...`
+                                  : "Loading Blackbaud summary..."}
                             </span>
                             <button
                               type="button"
-                              onClick={() =>
-                                blackbaudSummaryState
-                                  ? retryBlackbaudSummary(entry)
-                                  : loadBlackbaudSummary(entry)
-                              }
-                              disabled={blackbaudSummaryState?.status === "loading"}
+                              onClick={() => retryBlackbaudSummary(entry)}
                               style={{
                                 border: "1px solid #93C5FD",
                                 borderRadius: "999px",
                                 backgroundColor: "white",
                                 color: "#1D4ED8",
-                                cursor:
-                                  blackbaudSummaryState?.status === "loading"
-                                    ? "wait"
-                                    : "pointer",
+                                cursor: "pointer",
                                 fontSize: "12px",
                                 fontWeight: 700,
                                 padding: "6px 10px",
                               }}
                             >
-                              {!blackbaudSummaryState
-                                ? "Load NXT summary"
-                                : "Loading..."}
+                              {!blackbaudSummaryState ? "Load now" : "Retry NXT summary"}
                             </button>
                           </div>
                         ) : blackbaudSummaryState.status === "error" ? (

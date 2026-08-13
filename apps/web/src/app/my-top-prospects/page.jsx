@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -57,9 +57,6 @@ const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
 // Keep the portfolio request within that boundary so later assignments are not
 // silently omitted when an MGO has a large portfolio.
 const CURRENT_FY_GIVING_REQUEST_SIZE = 50;
-// Resolve only names for portfolio cards in view. Contact and full-summary
-// requests stay manual so a large portfolio does not stall the page.
-const PORTFOLIO_IDENTITY_REQUEST_CONCURRENCY = 3;
 
 const STATUS_COLORS = {
   Active: { bg: "#D1FAE5", text: "#065F46", border: "#A7F3D0" },
@@ -529,16 +526,6 @@ function isNeedsFollowUpProspect(prospect) {
   return staleDays >= 21;
 }
 
-function needsPortfolioIdentity(person) {
-  const constituentId = String(person?.constituentId || "").trim();
-  const name = String(person?.name || "").trim();
-
-  return (
-    Boolean(constituentId) &&
-    (!name || name === `NXT constituent ${constituentId}`)
-  );
-}
-
 function PortfolioTier({
   title,
   description,
@@ -562,144 +549,10 @@ function PortfolioTier({
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
   const [contactStates, setContactStates] = useState({});
-  const [identityStates, setIdentityStates] = useState({});
-  const [visibleIdentityIds, setVisibleIdentityIds] = useState([]);
-  const identityObserverRef = useRef(null);
-  const identityNodesRef = useRef(new Map());
-  const requestedIdentityIdsRef = useRef(new Set());
   const hasLifetimeGiving = (person) =>
     person?.lifetimeGiving?.totalGiving !== null &&
     person?.lifetimeGiving?.totalGiving !== undefined &&
     Number.isFinite(Number(person.lifetimeGiving.totalGiving));
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    if (!("IntersectionObserver" in window)) {
-      setVisibleIdentityIds(
-        items
-          .filter(needsPortfolioIdentity)
-          .slice(0, PORTFOLIO_IDENTITY_REQUEST_CONCURRENCY)
-          .map((person) => String(person.constituentId)),
-      );
-      return undefined;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const newlyVisibleIds = entries
-          .filter((entry) => entry.isIntersecting)
-          .map((entry) => entry.target.dataset.constituentId)
-          .filter(Boolean);
-
-        if (!newlyVisibleIds.length) return;
-
-        setVisibleIdentityIds((current) => [
-          ...new Set([...current, ...newlyVisibleIds]),
-        ]);
-      },
-      { rootMargin: "300px 0px", threshold: 0 },
-    );
-
-    identityObserverRef.current = observer;
-    identityNodesRef.current.forEach((node) => observer.observe(node));
-
-    return () => {
-      observer.disconnect();
-      identityObserverRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const peopleById = new Map(
-      items.map((person) => [String(person.constituentId || ""), person]),
-    );
-    const queuedIds = visibleIdentityIds.filter((constituentId) => {
-      const person = peopleById.get(String(constituentId));
-      return (
-        needsPortfolioIdentity(person) &&
-        !requestedIdentityIdsRef.current.has(String(constituentId))
-      );
-    });
-
-    if (!queuedIds.length) return undefined;
-
-    queuedIds.forEach((constituentId) =>
-      requestedIdentityIdsRef.current.add(String(constituentId)),
-    );
-
-    const loadNextIdentity = async () => {
-      while (!cancelled && queuedIds.length) {
-        const constituentId = queuedIds.shift();
-        if (!constituentId) return;
-
-        setIdentityStates((current) => ({
-          ...current,
-          [constituentId]: { status: "loading" },
-        }));
-
-        try {
-          const response = await fetch(
-            `/api/blackbaud/constituents/${encodeURIComponent(
-              constituentId,
-            )}/summary?identity_only=true`,
-          );
-          const payload = await response.json().catch(() => null);
-          const name = payload?.mapped?.constituent?.name;
-          if (!response.ok || !name) {
-            throw new Error(payload?.error || "NXT constituent name could not be loaded");
-          }
-
-          if (!cancelled) {
-            setIdentityStates((current) => ({
-              ...current,
-              [constituentId]: { status: "success", payload },
-            }));
-          }
-        } catch (error) {
-          if (!cancelled) {
-            setIdentityStates((current) => ({
-              ...current,
-              [constituentId]: {
-                status: "error",
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "NXT constituent name could not be loaded",
-              },
-            }));
-          }
-        }
-      }
-    };
-
-    void Promise.all(
-      Array.from(
-        {
-          length: Math.min(
-            PORTFOLIO_IDENTITY_REQUEST_CONCURRENCY,
-            queuedIds.length,
-          ),
-        },
-        () => loadNextIdentity(),
-      ),
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [items, visibleIdentityIds]);
-
-  const observeIdentityCard = useCallback((node) => {
-    if (!node) return;
-
-    const key = String(node.dataset.constituentId || "").trim();
-    if (!key) return;
-
-    identityNodesRef.current.set(key, node);
-    identityObserverRef.current?.observe(node);
-  }, []);
 
   const toggleSummary = async (constituentId) => {
     const nextExpanded = !expandedSummaries[constituentId];
@@ -822,8 +675,6 @@ function PortfolioTier({
           {items.map((person) => (
             <div
               key={person.constituentId}
-              ref={observeIdentityCard}
-              data-constituent-id={person.constituentId}
               style={{
                 borderRadius: "12px",
                 backgroundColor: "#F9FAFB",
@@ -841,7 +692,6 @@ function PortfolioTier({
                 );
                 const summaryState = summaryStates[person.constituentId];
                 const contactState = contactStates[person.constituentId];
-                const identityState = identityStates[person.constituentId];
                 const isSummaryExpanded = Boolean(
                   expandedSummaries[person.constituentId],
                 );
@@ -851,21 +701,13 @@ function PortfolioTier({
                   summaryState?.payload?.mapped?.constituent ||
                   contactState?.payload?.mapped?.constituent ||
                   null;
-                const resolvedIdentityName =
-                  identityState?.payload?.mapped?.constituent?.name || null;
-                const contactPerson = loadedNxtConstituent || resolvedIdentityName
+                const contactPerson = loadedNxtConstituent
                   ? {
                       ...person,
-                      name:
-                        loadedNxtConstituent?.name ||
-                        resolvedIdentityName ||
-                        person.name,
-                      email: loadedNxtConstituent?.email || person.email,
-                      phone: loadedNxtConstituent?.phone || person.phone,
-                      address: loadedNxtConstituent?.address || person.address,
-                      contactDataSource: loadedNxtConstituent
-                        ? "nxt-summary-cache"
-                        : person.contactDataSource,
+                      email: loadedNxtConstituent.email || person.email,
+                      phone: loadedNxtConstituent.phone || person.phone,
+                      address: loadedNxtConstituent.address || person.address,
+                      contactDataSource: "nxt-summary-cache",
                     }
                   : person;
                 const canLoadContactDetails =
@@ -904,9 +746,7 @@ function PortfolioTier({
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>
-                    {needsPortfolioIdentity(contactPerson) && identityState?.status === "loading"
-                      ? "Loading constituent..."
-                      : contactPerson.name || "Unnamed constituent"}
+                    {person.name || "Unnamed constituent"}
                   </div>
                   {isTopProspect ? (
                     <span
@@ -7237,8 +7077,6 @@ export default function MyTopProspectsPage() {
   const [addProspectError, setAddProspectError] = useState("");
   const [portfolioSyncMessage, setPortfolioSyncMessage] = useState("");
   const [portfolioSyncError, setPortfolioSyncError] = useState("");
-  const [shouldLoadPortfolioAnnualGivingSocieties, setShouldLoadPortfolioAnnualGivingSocieties] =
-    useState(false);
   const [shouldLoadPortfolioCurrentFyGiving, setShouldLoadPortfolioCurrentFyGiving] =
     useState(false);
   const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
@@ -7441,9 +7279,6 @@ export default function MyTopProspectsPage() {
 
   const {
     data: portfolioAnnualGivingSocietiesByConstituentId = {},
-    isFetching: isPortfolioAnnualGivingSocietiesFetching,
-    isError: isPortfolioAnnualGivingSocietiesError,
-    refetch: refetchPortfolioAnnualGivingSocieties,
   } = useQuery({
     queryKey: [
       "portfolio-annual-giving-societies",
@@ -7465,7 +7300,6 @@ export default function MyTopProspectsPage() {
       return payload?.byConstituentId || {};
     },
     enabled:
-      shouldLoadPortfolioAnnualGivingSocieties &&
       !!user &&
       !!activeWorkspaceUserId &&
       activeWorkspaceTab === "portfolio" &&
@@ -7475,17 +7309,33 @@ export default function MyTopProspectsPage() {
   });
 
   useEffect(() => {
-    // Giving enrichment can require many NXT gift requests. Keep it opt-in for
-    // each workspace so the underlying portfolio remains immediately usable.
-    setShouldLoadPortfolioAnnualGivingSocieties(false);
     setShouldLoadPortfolioCurrentFyGiving(false);
-  }, [activeWorkspaceUserId]);
+
+    if (
+      !user ||
+      !activeWorkspaceUserId ||
+      activeWorkspaceTab !== "portfolio" ||
+      portfolioAnnualConstituentIds.length === 0
+    ) {
+      return undefined;
+    }
+
+    // Render the NXT portfolio first. This summary is intentionally delayed so it
+    // never controls whether an MGO can see or use their assigned constituents.
+    const timeoutId = window.setTimeout(() => {
+      setShouldLoadPortfolioCurrentFyGiving(true);
+    }, 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    activeWorkspaceTab,
+    activeWorkspaceUserId,
+    portfolioAnnualConstituentIdParam,
+    portfolioAnnualConstituentIds.length,
+    user,
+  ]);
 
   const {
     data: portfolioCurrentFyGivingResponse,
-    isFetching: isPortfolioCurrentFyGivingFetching,
-    isError: isPortfolioCurrentFyGivingError,
-    refetch: refetchPortfolioCurrentFyGiving,
   } = useQuery({
     queryKey: [
       "portfolio-current-fy-giving",
@@ -8484,87 +8334,6 @@ export default function MyTopProspectsPage() {
                   >
                     {syncMutation.isPending ? "Syncing..." : "Sync NXT portfolio"}
                   </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (shouldLoadPortfolioAnnualGivingSocieties) {
-                      void refetchPortfolioAnnualGivingSocieties();
-                      return;
-                    }
-                    setShouldLoadPortfolioAnnualGivingSocieties(true);
-                  }}
-                  disabled={
-                    portfolioAnnualConstituentIds.length === 0 ||
-                    isPortfolioAnnualGivingSocietiesFetching
-                  }
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: "10px",
-                    border: "1px solid #FCD34D",
-                    backgroundColor: isPortfolioAnnualGivingSocietiesFetching
-                      ? "#F3F4F6"
-                      : "#FFFBEB",
-                    color: isPortfolioAnnualGivingSocietiesFetching
-                      ? "#6B7280"
-                      : "#92400E",
-                    fontSize: "13px",
-                    fontWeight: 800,
-                    cursor:
-                      portfolioAnnualConstituentIds.length === 0 ||
-                      isPortfolioAnnualGivingSocietiesFetching
-                        ? "not-allowed"
-                        : "pointer",
-                  }}
-                >
-                  {isPortfolioAnnualGivingSocietiesFetching
-                    ? "Loading society badges..."
-                    : shouldLoadPortfolioAnnualGivingSocieties
-                      ? "Refresh society badges"
-                      : "Load society badges"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (shouldLoadPortfolioCurrentFyGiving) {
-                      void refetchPortfolioCurrentFyGiving();
-                      return;
-                    }
-                    setShouldLoadPortfolioCurrentFyGiving(true);
-                  }}
-                  disabled={
-                    portfolioAnnualConstituentIds.length === 0 ||
-                    isPortfolioCurrentFyGivingFetching
-                  }
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: "10px",
-                    border: "1px solid #BBF7D0",
-                    backgroundColor: isPortfolioCurrentFyGivingFetching
-                      ? "#F3F4F6"
-                      : "#F0FDF4",
-                    color: isPortfolioCurrentFyGivingFetching
-                      ? "#6B7280"
-                      : "#166534",
-                    fontSize: "13px",
-                    fontWeight: 800,
-                    cursor:
-                      portfolioAnnualConstituentIds.length === 0 ||
-                      isPortfolioCurrentFyGivingFetching
-                        ? "not-allowed"
-                        : "pointer",
-                  }}
-                >
-                  {isPortfolioCurrentFyGivingFetching
-                    ? "Loading FY giving..."
-                    : shouldLoadPortfolioCurrentFyGiving
-                      ? "Refresh FY giving"
-                      : "Load FY giving"}
-                </button>
-                {isPortfolioAnnualGivingSocietiesError || isPortfolioCurrentFyGivingError ? (
-                  <div style={{ maxWidth: "220px", fontSize: "12px", color: "#B91C1C", lineHeight: 1.4 }}>
-                    Giving details could not load. Your portfolio assignments remain available.
-                  </div>
                 ) : null}
               </div>
             </div>

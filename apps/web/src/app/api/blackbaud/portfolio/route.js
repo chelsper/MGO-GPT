@@ -13,9 +13,9 @@ import {
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-// v10 keeps assignment loads lightweight while allowing card identity data
-// resolved in the summary cache to be incorporated on the next portfolio load.
-const PORTFOLIO_CACHE_VERSION = "v10";
+// v8 distinguishes fast assignment cards with contact-source metadata from
+// older cached cards that treated absent local values as missing NXT data.
+const PORTFOLIO_CACHE_VERSION = "v8";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -72,32 +72,6 @@ function classifyAssignmentType(type) {
 function getAssignmentConstituentDetails(assignment) {
   const constituent =
     assignment?.constituent || assignment?.assigned_constituent || assignment?.assignedConstituent || {};
-  const nameSources = [constituent, assignment];
-  const directName = nameSources
-    .map(
-      (source) =>
-        source?.name ||
-        source?.formatted_name ||
-        source?.formattedName ||
-        source?.display_name ||
-        source?.displayName ||
-        source?.constituent_name ||
-        source?.assigned_constituent_name ||
-        "",
-    )
-    .map((value) => String(value || "").trim())
-    .find(Boolean);
-  const nameFromParts = nameSources
-    .map((source) => {
-      const firstName = String(
-        source?.first_name || source?.firstName || source?.given_name || source?.givenName || "",
-      ).trim();
-      const lastName = String(
-        source?.last_name || source?.lastName || source?.family_name || source?.familyName || "",
-      ).trim();
-      return [firstName, lastName].filter(Boolean).join(" ");
-    })
-    .find(Boolean);
 
   return {
     lookupId:
@@ -106,7 +80,11 @@ function getAssignmentConstituentDetails(assignment) {
       assignment?.constituent_lookup_id ||
       assignment?.lookup_id ||
       null,
-    name: directName || nameFromParts || null,
+    name:
+      constituent?.name ||
+      assignment?.constituent_name ||
+      assignment?.assigned_constituent_name ||
+      null,
   };
 }
 

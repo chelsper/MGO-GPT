@@ -30,7 +30,6 @@ function buildSummaryCacheKey({
   includeInactive,
   givingSocietySignature,
   contactOnly = false,
-  identityOnly = false,
 }) {
   return [
     "constituent-summary-v4",
@@ -40,7 +39,7 @@ function buildSummaryCacheKey({
     String(name || "").trim().toLowerCase(),
     includeInactive ? "include-inactive" : "active-only",
     String(givingSocietySignature || "").trim(),
-    identityOnly ? "identity-only" : contactOnly ? "contact-only" : "full",
+    contactOnly ? "contact-only" : "full",
   ].join("|");
 }
 
@@ -1253,7 +1252,6 @@ export async function GET(request, { params }) {
   const includeRaw = requestUrl.searchParams.get("raw") === "true";
   const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
   const contactOnly = requestUrl.searchParams.get("contact_only") === "true";
-  const identityOnly = requestUrl.searchParams.get("identity_only") === "true";
   const lookupId = requestUrl.searchParams.get("lookupId")?.trim() || "";
   const recordId = requestUrl.searchParams.get("recordId")?.trim() || "";
   const name = requestUrl.searchParams.get("name")?.trim() || "";
@@ -1262,11 +1260,10 @@ export async function GET(request, { params }) {
     const { workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request);
     const user = workspaceUser;
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
-    const isLightweightRequest = contactOnly || identityOnly;
-    const givingSocietyConfigurations = isLightweightRequest
+    const givingSocietyConfigurations = contactOnly
       ? []
       : await listGivingSocietyConfigurations();
-    const givingSocietySignature = isLightweightRequest
+    const givingSocietySignature = contactOnly
       ? ""
       : getGivingSocietyConfigurationSignature(givingSocietyConfigurations);
     const cacheKey = buildSummaryCacheKey({
@@ -1277,7 +1274,6 @@ export async function GET(request, { params }) {
       includeInactive,
       givingSocietySignature,
       contactOnly,
-      identityOnly,
     });
 
     if (!includeRaw && !forceRefresh) {
@@ -1302,23 +1298,16 @@ export async function GET(request, { params }) {
     });
     const resolvedConstituentId = String(constituentPayload?.id || constituentId).trim();
 
-    // Portfolio cards resolve names independently from full contact details.
-    // Both lightweight modes make only the constituent request, avoiding the
-    // additional NXT calls required for a full narrative summary.
-    if (contactOnly || identityOnly) {
-      const mappedConstituent = mapConstituent(constituentPayload);
+    // Portfolio cards can request only the primary contact data on demand.
+    // This avoids the four additional NXT requests required for the full
+    // narrative summary, while still using the same identity resolution and
+    // short-lived cache as the full endpoint.
+    if (contactOnly) {
       const responsePayload = {
         constituentId: resolvedConstituentId,
         includeInactive,
         mapped: {
-          constituent: identityOnly
-            ? {
-                id: mappedConstituent.id,
-                lookupId: mappedConstituent.lookupId,
-                name: mappedConstituent.name,
-                type: mappedConstituent.type,
-              }
-            : mappedConstituent,
+          constituent: mapConstituent(constituentPayload),
         },
         warnings: {},
         ...(includeRaw ? { raw: { constituent: constituentPayload } } : {}),
