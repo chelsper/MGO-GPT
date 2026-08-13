@@ -22,6 +22,7 @@ const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
 const NXT_SUMMARY_AUTO_ATTEMPTS = 3;
 const NXT_SUMMARY_RETRY_DELAY_MS = 1500;
 const FY27_CASH_RECEIVED_RETRY_DELAY_MS = 5000;
+const FY27_CASH_RECEIVED_LOAD_DELAY_MS = 750;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -613,14 +614,24 @@ export default function ProspectPoolPage() {
     };
   }, [isReviewer, profile]);
 
-  useEffect(() => {
-    const constituentIds = Array.from(
+  const fy27CashReceivedConstituentIdsKey = useMemo(
+    () =>
+      Array.from(
       new Set(
         entries
           .map((entry) => getEntryBlackbaudConstituentId(entry))
           .filter(Boolean),
       ),
-    );
+      )
+        .sort()
+        .join("|"),
+    [entries],
+  );
+
+  useEffect(() => {
+    const constituentIds = fy27CashReceivedConstituentIdsKey
+      ? fy27CashReceivedConstituentIdsKey.split("|")
+      : [];
 
     if (!profile || constituentIds.length === 0) {
       setFy27CashReceived({ status: "idle", byConstituentId: {} });
@@ -629,6 +640,7 @@ export default function ProspectPoolPage() {
 
     let active = true;
     let retryTimeoutId = null;
+    let loadTimeoutId = null;
     setFy27CashReceived((current) => ({
       status: current.status === "ready" ? "refreshing" : "loading",
       byConstituentId: current.byConstituentId,
@@ -667,12 +679,21 @@ export default function ProspectPoolPage() {
       }
     }
 
-    loadFY27CashReceived();
+    // Let the prospect pool paint before starting this optional aggregate query.
+    loadTimeoutId = window.setTimeout(
+      loadFY27CashReceived,
+      FY27_CASH_RECEIVED_LOAD_DELAY_MS,
+    );
     return () => {
       active = false;
       if (retryTimeoutId) window.clearTimeout(retryTimeoutId);
+      if (loadTimeoutId) window.clearTimeout(loadTimeoutId);
     };
-  }, [entries, fy27CashReceivedRetryTick, profile]);
+  }, [
+    fy27CashReceivedConstituentIdsKey,
+    fy27CashReceivedRetryTick,
+    profile?.id,
+  ]);
 
   const summary = useMemo(() => {
     if (!hasMounted) {

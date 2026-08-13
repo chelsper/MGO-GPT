@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import sql from "@/app/api/utils/sql";
 import {
   blackbaudApiFetch,
   getBlackbaudConfigIssues,
@@ -11,7 +12,7 @@ import {
 } from "@/app/api/utils/blackbaudQueries";
 
 const MAX_CONSTITUENT_IDS = 300;
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 15 * 60 * 1000;
 const PENDING_CACHE_TTL_MS = 20 * 1000;
 const queryCache = new Map();
 const queryInFlight = new Map();
@@ -70,6 +71,85 @@ function parseConstituentIds(payload) {
   }
 
   return ids;
+}
+
+function isFreshCache(cachedAt) {
+  if (!cachedAt) return false;
+  const cachedTime = new Date(cachedAt).getTime();
+  return Number.isFinite(cachedTime) && Date.now() - cachedTime <= CACHE_TTL_MS;
+}
+
+function normalizeCashReceivedMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([constituentId, amount]) => [
+        String(constituentId || "").trim(),
+        Number(amount || 0),
+      ])
+      .filter(([constituentId, amount]) => constituentId && Number.isFinite(amount)),
+  );
+}
+
+async function getPersistedQueryCache(authUserId) {
+  if (!authUserId) return null;
+
+  const rows = await sql`
+    SELECT payload, updated_at
+    FROM blackbaud_saved_query_cache
+    WHERE auth_user_id = ${authUserId}
+      AND query_name = ${FY27_CASH_RECEIVED_QUERY_NAME}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row?.payload || !isFreshCache(row.updated_at)) return null;
+
+  return normalizeCashReceivedMap(row.payload);
+}
+
+async function savePersistedQueryCache(authUserId, byConstituentId) {
+  if (!authUserId) return;
+
+  await sql`
+    INSERT INTO blackbaud_saved_query_cache (
+      auth_user_id,
+      query_name,
+      payload,
+      updated_at
+    )
+    VALUES (
+      ${authUserId},
+      ${FY27_CASH_RECEIVED_QUERY_NAME},
+      ${JSON.stringify(byConstituentId)}::jsonb,
+      NOW()
+    )
+    ON CONFLICT (auth_user_id, query_name)
+    DO UPDATE SET
+      payload = EXCLUDED.payload,
+      updated_at = NOW()
+  `;
+}
+
+function buildReadyCacheEntry(byConstituentId) {
+  return {
+    status: "ready",
+    byConstituentId: normalizeCashReceivedMap(byConstituentId),
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  };
+}
+
+async function cacheReadyQueryResult({ authUserId, cacheKey, byConstituentId }) {
+  const ready = buildReadyCacheEntry(byConstituentId);
+  queryCache.set(cacheKey, ready);
+
+  // The query result remains useful even when this serverless instance is replaced.
+  // A cache-write failure must never turn a successful Blackbaud read into an error.
+  await savePersistedQueryCache(authUserId, ready.byConstituentId).catch((error) => {
+    console.warn("Could not persist FY27 cash-received query cache:", error);
+  });
+
+  return ready;
 }
 
 async function downloadQueryResult(readUrl) {
@@ -176,14 +256,19 @@ async function loadFY27CashReceived({ userId, authUserId, origin, cacheKey }) {
         );
       }
 
-      const ready = {
-        status: "ready",
+      return cacheReadyQueryResult({
+        authUserId,
+        cacheKey,
         byConstituentId: result.byConstituentId,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-      };
-      queryCache.set(cacheKey, ready);
-      return ready;
+      });
     }
+  }
+
+  const persistedResult = await getPersistedQueryCache(authUserId);
+  if (persistedResult) {
+    const ready = buildReadyCacheEntry(persistedResult);
+    queryCache.set(cacheKey, ready);
+    return ready;
   }
 
   const query = await getSavedQuery({ userId, authUserId, origin });
@@ -231,13 +316,11 @@ async function loadFY27CashReceived({ userId, authUserId, origin, cacheKey }) {
     );
   }
 
-  const ready = {
-    status: "ready",
+  return cacheReadyQueryResult({
+    authUserId,
+    cacheKey,
     byConstituentId: result.byConstituentId,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-  };
-  queryCache.set(cacheKey, ready);
-  return ready;
+  });
 }
 
 export async function POST(request) {
