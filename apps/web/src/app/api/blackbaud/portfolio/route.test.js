@@ -121,7 +121,7 @@ describe("Blackbaud portfolio route", () => {
           ],
           summary: { leadCount: 0, supportingCount: 1 },
         },
-        blackbaud_portfolio_cache_key: "v9:800",
+        blackbaud_portfolio_cache_key: "v10:800",
         blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ]);

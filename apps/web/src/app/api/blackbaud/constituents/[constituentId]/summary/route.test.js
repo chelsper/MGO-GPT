@@ -233,4 +233,45 @@ describe("Blackbaud constituent summary identity language", () => {
     });
     expect(blackbaudApiFetch).toHaveBeenCalledTimes(1);
   });
+
+  it("loads only constituent identity when identity_only is requested", async () => {
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({
+      workspaceUser: { id: 42 },
+      sessionUser: { id: 42 },
+      isActing: false,
+    });
+    sql.mockResolvedValue([]);
+    blackbaudApiFetch.mockResolvedValue({
+      id: "5044931",
+      lookup_id: "5044931",
+      name: "Armando M. Codina",
+      email: { address: "acodina@example.com", primary: true },
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://jumgogpt.app/api/blackbaud/constituents/5044931/summary?identity_only=true",
+      ),
+      { params: { constituentId: "5044931" } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        constituentId: "5044931",
+        mapped: {
+          constituent: {
+            id: "5044931",
+            lookupId: "5044931",
+            name: "Armando M. Codina",
+            type: null,
+          },
+        },
+      }),
+    );
+    expect(blackbaudApiFetch).toHaveBeenCalledTimes(1);
+  });
 });

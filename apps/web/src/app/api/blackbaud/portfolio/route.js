@@ -13,9 +13,9 @@ import {
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-// v9 recognizes the alternate display-name shapes returned by fundraiser
-// assignments without loading a full constituent summary for every card.
-const PORTFOLIO_CACHE_VERSION = "v9";
+// v10 keeps assignment loads lightweight while allowing card identity data
+// resolved in the summary cache to be incorporated on the next portfolio load.
+const PORTFOLIO_CACHE_VERSION = "v10";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
