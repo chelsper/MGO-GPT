@@ -185,6 +185,13 @@ describe("current fiscal year giving route", () => {
       recognizedReceived: 50000,
       recognizedCommitted: 0,
     });
+    expect(payload.acknowledgmentCredits).toEqual([
+      expect.objectContaining({
+        hardCreditConstituentId: "direct-donor-id",
+        recipientConstituentId: "cynthia-id",
+        amount: 50000,
+      }),
+    ]);
   });
 
   it("reloads fiscal-year gifts by constituent when the combined portfolio list is paginated", async () => {

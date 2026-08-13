@@ -278,6 +278,12 @@ export function calculateCurrentFiscalYearGiving({
     Array.from(requestedIds, (constituentId) => [
       constituentId,
       {
+        // Hard-credit totals are kept separate from recognition totals so
+        // reports can distinguish legal gift revenue from acknowledgment credit.
+        hardReceived: 0,
+        hardCommitted: 0,
+        softReceived: 0,
+        softCommitted: 0,
         recognizedReceived: 0,
         recognizedCommitted: 0,
         plannedGifts: 0,
@@ -292,10 +298,16 @@ export function calculateCurrentFiscalYearGiving({
   const startTime = new Date(`${period.startDate}T00:00:00.000Z`).getTime();
   const endTime = new Date(`${period.endDate}T23:59:59.999Z`).getTime();
   const countedGiftIds = {
+    hardReceived: new Map(),
+    hardCommitted: new Map(),
+    softReceived: new Map(),
+    softCommitted: new Map(),
     received: new Map(),
     committed: new Map(),
     planned: new Map(),
   };
+  const acknowledgmentCredits = [];
+  const acknowledgmentCreditKeys = new Set();
 
   for (const gift of gifts) {
     const giftTime = new Date(getGiftDate(gift)).getTime();
@@ -314,14 +326,55 @@ export function calculateCurrentFiscalYearGiving({
     const directId = String(getGiftConstituentId(gift) || "").trim();
     const directAmount = toAmount(getGiftAmount(gift));
     const recognizedAmounts = new Map();
+    const softRecognitionAmounts = new Map();
+    const giftId =
+      gift?.id ||
+      gift?.gift_id ||
+      gift?.giftId ||
+      `${giftType}:${getGiftDate(gift)}:${directId || "unknown"}`;
 
     if (directId && requestedIds.has(directId) && directAmount != null && directAmount > 0) {
       recognizedAmounts.set(directId, directAmount);
+      const directSummary = byConstituentId[directId];
+
+      if (isReceived) {
+        const counted = countedGiftIds.hardReceived.get(directId) || new Set();
+        addAmount(directSummary, "hardReceived", directAmount, giftId, counted);
+        countedGiftIds.hardReceived.set(directId, counted);
+      }
+
+      if (isCommitted) {
+        const counted = countedGiftIds.hardCommitted.get(directId) || new Set();
+        addAmount(directSummary, "hardCommitted", directAmount, giftId, counted);
+        countedGiftIds.hardCommitted.set(directId, counted);
+      }
     }
 
     for (const credit of getRecognitionCreditRows(gift)) {
       const constituentId = String(getRecognitionCreditConstituentId(credit) || "").trim();
       const amount = toAmount(getRecognitionCreditAmount(credit));
+
+      if (
+        isReceived &&
+        directId &&
+        constituentId &&
+        constituentId !== directId &&
+        amount != null &&
+        amount > 0
+      ) {
+        const acknowledgmentKey = `${giftId}:${directId}:${constituentId}`;
+        if (!acknowledgmentCreditKeys.has(acknowledgmentKey)) {
+          acknowledgmentCreditKeys.add(acknowledgmentKey);
+          acknowledgmentCredits.push({
+            giftId: String(giftId),
+            hardCreditConstituentId: directId,
+            recipientConstituentId: constituentId,
+            amount,
+            date: getGiftDate(gift),
+          });
+        }
+      }
+
       // A direct gift amount is the authoritative recognition amount for its recipient.
       if (
         !constituentId ||
@@ -333,6 +386,10 @@ export function calculateCurrentFiscalYearGiving({
         continue;
       }
       recognizedAmounts.set(constituentId, (recognizedAmounts.get(constituentId) || 0) + amount);
+      softRecognitionAmounts.set(
+        constituentId,
+        (softRecognitionAmounts.get(constituentId) || 0) + amount,
+      );
     }
 
     for (const [constituentId, amount] of recognizedAmounts) {
@@ -343,6 +400,11 @@ export function calculateCurrentFiscalYearGiving({
         const counted = countedGiftIds.received.get(constituentId) || new Set();
         const isNewGift = addAmount(summary, "recognizedReceived", amount, giftId, counted);
         countedGiftIds.received.set(constituentId, counted);
+        if (softRecognitionAmounts.has(constituentId)) {
+          const softCounted = countedGiftIds.softReceived.get(constituentId) || new Set();
+          addAmount(summary, "softReceived", amount, giftId, softCounted);
+          countedGiftIds.softReceived.set(constituentId, softCounted);
+        }
         if (isNewGift) {
           summary.receivedGiftCount += 1;
           recordLatestReceivedGift(summary, {
@@ -356,6 +418,11 @@ export function calculateCurrentFiscalYearGiving({
         const counted = countedGiftIds.committed.get(constituentId) || new Set();
         const isNewGift = addAmount(summary, "recognizedCommitted", amount, giftId, counted);
         countedGiftIds.committed.set(constituentId, counted);
+        if (softRecognitionAmounts.has(constituentId)) {
+          const softCounted = countedGiftIds.softCommitted.get(constituentId) || new Set();
+          addAmount(summary, "softCommitted", amount, giftId, softCounted);
+          countedGiftIds.softCommitted.set(constituentId, softCounted);
+        }
         if (isNewGift) summary.committedGiftCount += 1;
       }
 
@@ -372,10 +439,21 @@ export function calculateCurrentFiscalYearGiving({
     summary.recognizedReceived = roundCurrency(summary.recognizedReceived);
     summary.recognizedCommitted = roundCurrency(summary.recognizedCommitted);
     summary.plannedGifts = roundCurrency(summary.plannedGifts);
+    summary.hardReceived = roundCurrency(summary.hardReceived);
+    summary.hardCommitted = roundCurrency(summary.hardCommitted);
+    summary.softReceived = roundCurrency(summary.softReceived);
+    summary.softCommitted = roundCurrency(summary.softCommitted);
     if (summary.lastGiftAmount != null) {
       summary.lastGiftAmount = roundCurrency(summary.lastGiftAmount);
     }
   }
 
-  return { period, byConstituentId };
+  return {
+    period,
+    byConstituentId,
+    acknowledgmentCredits: acknowledgmentCredits.map((credit) => ({
+      ...credit,
+      amount: roundCurrency(credit.amount),
+    })),
+  };
 }

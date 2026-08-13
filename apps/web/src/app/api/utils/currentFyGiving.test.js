@@ -58,6 +58,10 @@ describe("current fiscal year giving", () => {
     });
 
     expect(summary.byConstituentId["100"]).toMatchObject({
+      hardReceived: 1000,
+      hardCommitted: 17000,
+      softReceived: 0,
+      softCommitted: 0,
       recognizedReceived: 1000,
       recognizedCommitted: 17000,
       plannedGifts: 12000,
@@ -66,6 +70,10 @@ describe("current fiscal year giving", () => {
       plannedGiftCount: 1,
     });
     expect(summary.byConstituentId["200"]).toMatchObject({
+      hardReceived: 0,
+      hardCommitted: 0,
+      softReceived: 1500,
+      softCommitted: 2000,
       recognizedReceived: 1500,
       recognizedCommitted: 2000,
       plannedGifts: 2000,
@@ -73,6 +81,59 @@ describe("current fiscal year giving", () => {
       committedGiftCount: 1,
       plannedGiftCount: 1,
     });
+    expect(summary.acknowledgmentCredits).toEqual([
+      expect.objectContaining({
+        hardCreditConstituentId: "999",
+        recipientConstituentId: "200",
+        amount: 1500,
+      }),
+    ]);
+  });
+
+  it("keeps DAF hard-credit revenue separate from individual acknowledgment credit", () => {
+    const summary = calculateCurrentFiscalYearGiving({
+      now: NOW,
+      constituentIds: ["daf", "cynthia", "dan"],
+      gifts: [
+        gift({
+          id: "daf-pledge-payment",
+          constituent_id: "daf",
+          gift_type: "Pledge payment",
+          amount: 50000,
+          soft_credits: [
+            { constituent_id: "cynthia", amount: { value: 50000 } },
+            { constituent_id: "dan", amount: { value: 50000 } },
+          ],
+        }),
+      ],
+    });
+
+    expect(summary.byConstituentId.daf).toMatchObject({
+      hardReceived: 50000,
+      recognizedReceived: 50000,
+    });
+    expect(summary.byConstituentId.cynthia).toMatchObject({
+      hardReceived: 0,
+      softReceived: 50000,
+      recognizedReceived: 50000,
+    });
+    expect(summary.byConstituentId.dan).toMatchObject({
+      hardReceived: 0,
+      softReceived: 50000,
+      recognizedReceived: 50000,
+    });
+    expect(summary.acknowledgmentCredits).toEqual([
+      expect.objectContaining({
+        hardCreditConstituentId: "daf",
+        recipientConstituentId: "cynthia",
+        amount: 50000,
+      }),
+      expect.objectContaining({
+        hardCreditConstituentId: "daf",
+        recipientConstituentId: "dan",
+        amount: 50000,
+      }),
+    ]);
   });
 
   it("uses direct recognition once instead of counting a duplicate soft credit", () => {

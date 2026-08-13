@@ -147,6 +147,32 @@ function sortReportRows(rows) {
   );
 }
 
+function getLatestGiftDetails(currentRow, { date, amount }) {
+  const nextTime = new Date(date).getTime();
+  const currentTime = new Date(currentRow?.lastGiftDate || "").getTime();
+  if (!Number.isFinite(nextTime) || (Number.isFinite(currentTime) && currentTime >= nextTime)) {
+    return {
+      lastGiftDate: currentRow?.lastGiftDate || null,
+      lastGiftAmount: currentRow?.lastGiftAmount ?? null,
+    };
+  }
+  return {
+    lastGiftDate: date || null,
+    lastGiftAmount: amount == null ? null : Number(amount),
+  };
+}
+
+function materializeReportRows(rowsByConstituentId) {
+  return sortReportRows(
+    Array.from(rowsByConstituentId.values()).map((row) => ({
+      ...row,
+      hardCreditDonors: Array.from(row.hardCreditDonors?.values() || []).sort((left, right) =>
+        left.name.localeCompare(right.name, "en"),
+      ),
+    })),
+  );
+}
+
 function MetricCard({ label, value, hint }) {
   return (
     <div
@@ -187,7 +213,7 @@ export default function ReportsPage() {
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [reportError, setReportError] = useState("");
   const [reportWarnings, setReportWarnings] = useState([]);
-  const [excludedDonorAdvisedFunds, setExcludedDonorAdvisedFunds] = useState(0);
+  const [hardCreditTotals, setHardCreditTotals] = useState({ received: 0, committed: 0 });
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
@@ -276,7 +302,7 @@ export default function ReportsPage() {
       setReportWarnings([]);
       setReportRows([]);
       setPeriod(null);
-      setExcludedDonorAdvisedFunds(0);
+      setHardCreditTotals({ received: 0, committed: 0 });
       try {
         const portfolioResponse = await fetch("/api/blackbaud/portfolio");
         const portfolioPayload = await portfolioResponse.json().catch(() => null);
@@ -300,12 +326,19 @@ export default function ReportsPage() {
         const peopleByConstituentId = new Map(
           people.map((person) => [String(person?.constituentId || "").trim(), person]),
         );
+        const portfolioConstituentIds = new Set(constituentIds);
         const reportRowsByConstituentId = new Map();
         const warnings = new Set();
         let reportPeriod = null;
         let successfullyLoadedBatch = false;
-        let excludedDafCount = 0;
+        let totalHardReceived = 0;
+        let totalHardCommitted = 0;
         const batches = chunkValues(constituentIds, REPORT_BATCH_SIZE);
+
+        function addHardCreditDonor(row, donor) {
+          if (!row.hardCreditDonors) row.hardCreditDonors = new Map();
+          row.hardCreditDonors.set(donor.constituentId, donor);
+        }
 
         async function loadBatch(batch) {
           const givingPayload = await fetchCurrentFiscalYearGiving(batch);
@@ -315,12 +348,47 @@ export default function ReportsPage() {
             .filter(Boolean)
             .forEach((warning) => warnings.add(warning));
 
+          for (const constituentId of batch) {
+            const giving = givingPayload?.byConstituentId?.[constituentId] || {};
+            totalHardReceived += Number(giving.hardReceived || 0);
+            totalHardCommitted += Number(giving.hardCommitted || 0);
+          }
+
           const donorIds = batch.filter((constituentId) => {
             const giving = givingPayload?.byConstituentId?.[constituentId] || {};
             return Number(giving.recognizedReceived || 0) > 0 || Number(giving.recognizedCommitted || 0) > 0;
           });
-          const { profiles, warnings: profileWarnings } = await loadReportProfiles(donorIds);
+          const hardCreditDonorIds = [
+            ...new Set(
+              (Array.isArray(givingPayload?.acknowledgmentCredits)
+                ? givingPayload.acknowledgmentCredits
+                : []
+              )
+                .map((credit) => String(credit?.hardCreditConstituentId || "").trim())
+                .filter(Boolean),
+            ),
+          ];
+          const { profiles, warnings: profileWarnings } = await loadReportProfiles([
+            ...new Set([...donorIds, ...hardCreditDonorIds]),
+          ]);
           profileWarnings.forEach((warning) => warnings.add(warning));
+
+          const acknowledgmentCredits = Array.isArray(givingPayload?.acknowledgmentCredits)
+            ? givingPayload.acknowledgmentCredits
+            : [];
+          const acknowledgmentRecipientIds = [
+            ...new Set(
+              acknowledgmentCredits
+                .map((credit) => String(credit?.recipientConstituentId || "").trim())
+                .filter((constituentId) => constituentId && !profiles.has(constituentId)),
+            ),
+          ];
+          if (acknowledgmentRecipientIds.length) {
+            const { profiles: recipientProfiles, warnings: recipientWarnings } =
+              await loadReportProfiles(acknowledgmentRecipientIds);
+            recipientProfiles.forEach((profile, constituentId) => profiles.set(constituentId, profile));
+            recipientWarnings.forEach((warning) => warnings.add(warning));
+          }
 
           for (const constituentId of donorIds) {
             const person = peopleByConstituentId.get(constituentId);
@@ -340,26 +408,70 @@ export default function ReportsPage() {
             }
 
             if (isDonorAdvisedFund(profile)) {
-              excludedDafCount += 1;
               continue;
             }
 
             const giving = givingPayload?.byConstituentId?.[constituentId] || {};
+            const existingRow = reportRowsByConstituentId.get(constituentId);
             reportRowsByConstituentId.set(constituentId, {
+              ...existingRow,
               constituentId,
               name: profile.name || person?.name || "Unnamed constituent",
               recognizedReceived: Number(giving.recognizedReceived || 0),
               recognizedCommitted: Number(giving.recognizedCommitted || 0),
               lastGiftDate: giving.lastGiftDate || null,
               lastGiftAmount: giving.lastGiftAmount == null ? null : Number(giving.lastGiftAmount),
+              hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
             });
           }
 
+          for (const credit of acknowledgmentCredits) {
+            const hardCreditConstituentId = String(credit?.hardCreditConstituentId || "").trim();
+            const recipientConstituentId = String(credit?.recipientConstituentId || "").trim();
+            const hardCreditDonor = profiles.get(hardCreditConstituentId);
+            const recipient = profiles.get(recipientConstituentId);
+            if (!hardCreditDonor || !recipient || recipient.constituencyCodesVerified !== true) {
+              warnings.add(
+                "One soft-credit recipient could not be verified in NXT and was omitted from this report.",
+              );
+              continue;
+            }
+            if (isDonorAdvisedFund(recipient)) {
+              continue;
+            }
+
+            const existingRow = reportRowsByConstituentId.get(recipientConstituentId);
+            const isPortfolioRecipient = portfolioConstituentIds.has(recipientConstituentId);
+            const latestGift = getLatestGiftDetails(existingRow, {
+              date: credit?.date,
+              amount: credit?.amount,
+            });
+            const nextRow = {
+              ...existingRow,
+              constituentId: recipientConstituentId,
+              name: recipient.name || existingRow?.name || "Unnamed constituent",
+              recognizedReceived: isPortfolioRecipient
+                ? Number(existingRow?.recognizedReceived || 0)
+                : Number(existingRow?.recognizedReceived || 0) + Number(credit?.amount || 0),
+              recognizedCommitted: Number(existingRow?.recognizedCommitted || 0),
+              ...latestGift,
+              hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
+            };
+            addHardCreditDonor(nextRow, {
+              constituentId: hardCreditConstituentId,
+              name: hardCreditDonor.name || "Donor Advised Fund",
+            });
+            reportRowsByConstituentId.set(recipientConstituentId, nextRow);
+          }
+
           if (active) {
-            setReportRows(sortReportRows(Array.from(reportRowsByConstituentId.values())));
+            setReportRows(materializeReportRows(reportRowsByConstituentId));
             setPeriod(reportPeriod);
             setReportWarnings(Array.from(warnings));
-            setExcludedDonorAdvisedFunds(excludedDafCount);
+            setHardCreditTotals({
+              received: totalHardReceived,
+              committed: totalHardCommitted,
+            });
           }
         }
 
@@ -392,7 +504,10 @@ export default function ReportsPage() {
         if (active) {
           setPeriod(reportPeriod);
           setReportWarnings(Array.from(warnings));
-          setExcludedDonorAdvisedFunds(excludedDafCount);
+          setHardCreditTotals({
+            received: totalHardReceived,
+            committed: totalHardCommitted,
+          });
         }
       } catch (error) {
         if (active) {
@@ -441,8 +556,8 @@ export default function ReportsPage() {
   }
 
   const selectedMgoId = actingWorkspaceStatus?.actingUser?.id || "";
-  const totalReceived = reportRows.reduce((total, row) => total + row.recognizedReceived, 0);
-  const totalCommitted = reportRows.reduce((total, row) => total + row.recognizedCommitted, 0);
+  const totalReceived = hardCreditTotals.received;
+  const totalCommitted = hardCreditTotals.committed;
   const yearLabel = period?.yearLabel || "Current FY";
 
   if (loadingUser || !user) {
@@ -529,7 +644,7 @@ export default function ReportsPage() {
                 {yearLabel} portfolio giving
               </h2>
               <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5, maxWidth: "760px" }}>
-                Lists constituents with recognized received or committed giving from gift records this fiscal year. Opportunities and Donor Advised Fund constituents are not counted.
+                Headline totals use all direct hard-credit gift records, including Donor Advised Funds. The acknowledgment list uses the individuals who receive direct or soft-credit recognition.
               </p>
             </div>
             {canUseExecutiveView ? (
@@ -635,21 +750,17 @@ export default function ReportsPage() {
               <MetricCard
                 label={`${yearLabel} Total Cash Received`}
                 value={formatCurrency(totalReceived)}
-                hint="Recognized received revenue"
+                hint="Hard-credit revenue, including DAF gifts"
               />
               <MetricCard
                 label={`${yearLabel} Total Committed`}
                 value={formatCurrency(totalCommitted)}
-                hint="Gift-record commitments only"
+                hint="Hard-credit gift commitments only"
               />
               <MetricCard
-                label="Donors in report"
+                label="Acknowledgment recipients"
                 value={reportRows.length}
-                hint={
-                  excludedDonorAdvisedFunds
-                    ? `${excludedDonorAdvisedFunds} Donor Advised Fund constituent${excludedDonorAdvisedFunds === 1 ? "" : "s"} excluded`
-                    : "Portfolio constituents with FY giving"
-                }
+                hint="Individuals with direct or soft-credit recognition"
               />
             </section>
 
@@ -664,20 +775,22 @@ export default function ReportsPage() {
               }}
             >
               <div style={{ padding: "20px 22px 14px" }}>
-                <h2 style={{ margin: 0, color: "#0F172A", fontSize: "20px" }}>Donor detail</h2>
+                <h2 style={{ margin: 0, color: "#0F172A", fontSize: "20px" }}>Acknowledgment detail</h2>
                 <p style={{ margin: "6px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                  Alphabetized by last name. Last gift reflects the latest recognized received gift in {yearLabel}.
+                  Alphabetized by last name. A soft-credit recipient is shown with the related hard-credit
+                  donor. Donor Advised Fund entities do not appear as acknowledgment recipients.
                 </p>
               </div>
               {reportRows.length ? (
                 <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", minWidth: "940px", borderCollapse: "collapse" }}>
+                  <table style={{ width: "100%", minWidth: "1020px", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ backgroundColor: "#F8FAFC", textAlign: "left" }}>
                         {[
-                          "Prospect",
-                          `${yearLabel} Total Cash Received`,
-                          `${yearLabel} Total Committed`,
+                          "Acknowledgment recipient",
+                          "Hard-credit donor",
+                          `${yearLabel} Recognition Credit`,
+                          `${yearLabel} Recognized Committed`,
                           "Last Gift Date",
                           "Last Gift Amount",
                           "Record",
@@ -706,6 +819,11 @@ export default function ReportsPage() {
                         return (
                           <tr key={row.constituentId} style={{ borderTop: "1px solid #E2E8F0" }}>
                             <td style={{ padding: "16px", color: "#0F172A", fontWeight: 800 }}>{row.name}</td>
+                            <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
+                              {row.hardCreditDonors?.length
+                                ? row.hardCreditDonors.map((donor) => donor.name).join(", ")
+                                : "Direct credit"}
+                            </td>
                             <td style={{ padding: "16px", color: "#047857", fontWeight: 800 }}>
                               {formatCurrency(row.recognizedReceived)}
                             </td>
@@ -752,7 +870,7 @@ export default function ReportsPage() {
                 </div>
               ) : (
                 <div style={{ borderTop: "1px solid #E2E8F0", color: "#64748B", padding: "24px 22px" }}>
-                  No recognized received or committed gift records were found for this portfolio in {yearLabel}.
+                  No acknowledgment recipients or recognized gift records were found for this portfolio in {yearLabel}.
                 </div>
               )}
             </section>
