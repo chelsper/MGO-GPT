@@ -243,11 +243,15 @@ describe("Blackbaud constituent summary identity language", () => {
       isActing: false,
     });
     sql.mockResolvedValue([]);
-    blackbaudApiFetch.mockResolvedValue({
-      id: "42933",
-      lookup_id: "42933",
-      name: "Healy Foundation",
-      constituencies: [{ description: "Donor Advised Fund" }],
+    blackbaudApiFetch.mockImplementation(async (path) => {
+      if (path.endsWith("/constituentcodes")) {
+        return { value: [{ description: "Donor Advised Fund" }] };
+      }
+      return {
+        id: "42933",
+        lookup_id: "42933",
+        name: "Healy Foundation",
+      };
     });
 
     const { GET } = await import("./route.js");
@@ -265,9 +269,52 @@ describe("Blackbaud constituent summary identity language", () => {
         constituent: {
           name: "Healy Foundation",
           constituencies: [{ label: "Donor Advised Fund" }],
+          constituencyCodesVerified: true,
         },
       },
     });
-    expect(blackbaudApiFetch).toHaveBeenCalledTimes(1);
+    expect(blackbaudApiFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not treat an unverified report profile as safe for constituency filtering", async () => {
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({
+      workspaceUser: { id: 42 },
+      sessionUser: { id: 42 },
+      isActing: false,
+    });
+    sql.mockResolvedValue([]);
+    blackbaudApiFetch.mockImplementation(async (path) => {
+      if (path.endsWith("/constituentcodes")) {
+        throw new Error("Constituent codes unavailable");
+      }
+      return {
+        id: "42933",
+        lookup_id: "42933",
+        name: "Healy Foundation",
+      };
+    });
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://jumgogpt.app/api/blackbaud/constituents/42933/summary?report_profile=true",
+      ),
+      { params: { constituentId: "42933" } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      mapped: {
+        constituent: {
+          constituencies: [],
+          constituencyCodesVerified: false,
+        },
+      },
+      warnings: {
+        constituentCodes: "Constituent codes unavailable",
+      },
+    });
   });
 });

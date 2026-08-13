@@ -40,7 +40,9 @@ function buildSummaryCacheKey({
     String(name || "").trim().toLowerCase(),
     includeInactive ? "include-inactive" : "active-only",
     String(givingSocietySignature || "").trim(),
-    reportProfile ? "report-profile" : contactOnly ? "contact-only" : "full",
+    // Bump the report profile cache when its code source changes. Constituency
+    // codes are required to safely exclude DAF records from portfolio reports.
+    reportProfile ? "report-profile-v2" : contactOnly ? "contact-only" : "full",
   ].join("|");
 }
 
@@ -1307,6 +1309,27 @@ export async function GET(request, { params }) {
     // short-lived cache as the full endpoint.
     if (contactOnly || reportProfile) {
       const mappedConstituent = mapConstituent(constituentPayload);
+      const reportConstituencyCodesResult = reportProfile
+        ? await loadBlackbaudSection("constituentCodes", () =>
+            blackbaudApiFetch(
+              `/constituent/v1/constituents/${encodeURIComponent(
+                resolvedConstituentId,
+              )}/constituentcodes`,
+              {
+                userId: user.id,
+                authUserId,
+                origin,
+              },
+            ),
+          )
+        : null;
+      const reportConstituencyCodes = reportConstituencyCodesResult?.ok
+        ? Array.isArray(reportConstituencyCodesResult.payload?.value)
+          ? reportConstituencyCodesResult.payload.value
+          : Array.isArray(reportConstituencyCodesResult.payload)
+            ? reportConstituencyCodesResult.payload
+            : []
+        : [];
       const responsePayload = {
         constituentId: resolvedConstituentId,
         includeInactive,
@@ -1315,14 +1338,22 @@ export async function GET(request, { params }) {
             ...mappedConstituent,
             ...(reportProfile
               ? {
-                  // Reports only need an identity and constituency code. Keep
-                  // this deliberately lighter than the full NXT summary.
-                  constituencies: getConstituencyEntries(constituentPayload, []),
+                  // The main constituent payload does not reliably include
+                  // codes. Reports use the authoritative codes endpoint so a
+                  // DAF entity cannot be mistaken for a reportable donor.
+                  constituencies: getConstituencyEntries(
+                    { constituent_codes: reportConstituencyCodes },
+                    [],
+                  ),
+                  constituencyCodesVerified: reportConstituencyCodesResult.ok,
                 }
               : {}),
           },
         },
-        warnings: {},
+        warnings:
+          reportProfile && !reportConstituencyCodesResult.ok
+            ? { constituentCodes: reportConstituencyCodesResult.error }
+            : {},
         ...(includeRaw ? { raw: { constituent: constituentPayload } } : {}),
       };
 

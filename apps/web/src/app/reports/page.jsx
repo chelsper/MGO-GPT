@@ -134,8 +134,10 @@ function isDonorAdvisedFund(profile) {
     ? profile.constituencies
     : [];
   return constituencies.some(
-    (constituency) =>
-      normalizeConstituencyLabel(constituency?.label || constituency) === "donor advised fund",
+    (constituency) => {
+      const label = normalizeConstituencyLabel(constituency?.label || constituency);
+      return label === "donor advised fund" || label === "donor advised funds";
+    },
   );
 }
 
@@ -326,6 +328,13 @@ export default function ReportsPage() {
             if (!profile) {
               warnings.add(
                 "One donor could not be verified in NXT and was omitted from this report.",
+              );
+              continue;
+            }
+
+            if (profile.constituencyCodesVerified !== true) {
+              warnings.add(
+                "One donor could not be verified against current NXT constituency codes and was omitted from this report.",
               );
               continue;
             }
