@@ -17,6 +17,12 @@ const MGO_ACTIONS = [
     section: "myWork",
   },
   {
+    title: "Portfolio Giving",
+    href: "/reports",
+    description: "Review current fiscal-year gift activity across your portfolio.",
+    section: "myWork",
+  },
+  {
     title: "Team Discussion",
     href: "/team-discussion",
     description: "Keep internal talking points, handoffs, and meeting prep tied to real work.",
@@ -144,6 +150,7 @@ const ADMIN_ACTIONS = [
 
 const MGO_NAV_ITEMS = [
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
+  { label: "Portfolio Giving", href: "/reports", section: "My Work" },
   { label: "Team Discussion", href: "/team-discussion", section: "My Work" },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
@@ -197,7 +204,7 @@ const ADMIN_WORKSPACE_ITEMS = [
 const ADMIN_NAV_ITEMS = [...REVIEWER_NAV_ITEMS, ...ADMIN_WORKSPACE_ITEMS];
 
 const PRIMARY_ACTION_PATHS = {
-  mgo: ["/my-top-prospects", "/team-discussion"],
+  mgo: ["/my-top-prospects", "/reports", "/team-discussion"],
   reviewer: ["/prospect-pool", "/team-discussion", "/knowledge-base/manage"],
   adminReviewer: ["/access-management", "/prospect-pool", "/team-discussion"],
 };

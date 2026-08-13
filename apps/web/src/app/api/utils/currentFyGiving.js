@@ -232,6 +232,22 @@ function addAmount(summary, key, amount, giftId, countedGiftIds) {
   return true;
 }
 
+function recordLatestReceivedGift(summary, { date, amount }) {
+  if (amount == null || amount <= 0) return;
+
+  const giftTime = new Date(date).getTime();
+  if (!Number.isFinite(giftTime)) return;
+
+  const currentLatestTime = summary.lastGiftDate
+    ? new Date(summary.lastGiftDate).getTime()
+    : Number.NaN;
+
+  if (!Number.isFinite(currentLatestTime) || giftTime > currentLatestTime) {
+    summary.lastGiftDate = String(date);
+    summary.lastGiftAmount = amount;
+  }
+}
+
 export function getCurrentFiscalYearWindow({ now = new Date(), fiscalYearStartMonth = 7 } = {}) {
   const safeNow = now instanceof Date ? now : new Date(now);
   const startMonth = Math.min(12, Math.max(1, Number(fiscalYearStartMonth || 7)));
@@ -268,6 +284,8 @@ export function calculateCurrentFiscalYearGiving({
         receivedGiftCount: 0,
         committedGiftCount: 0,
         plannedGiftCount: 0,
+        lastGiftDate: null,
+        lastGiftAmount: null,
       },
     ]),
   );
@@ -325,7 +343,13 @@ export function calculateCurrentFiscalYearGiving({
         const counted = countedGiftIds.received.get(constituentId) || new Set();
         const isNewGift = addAmount(summary, "recognizedReceived", amount, giftId, counted);
         countedGiftIds.received.set(constituentId, counted);
-        if (isNewGift) summary.receivedGiftCount += 1;
+        if (isNewGift) {
+          summary.receivedGiftCount += 1;
+          recordLatestReceivedGift(summary, {
+            date: getGiftDate(gift),
+            amount,
+          });
+        }
       }
 
       if (isCommitted) {
@@ -348,6 +372,9 @@ export function calculateCurrentFiscalYearGiving({
     summary.recognizedReceived = roundCurrency(summary.recognizedReceived);
     summary.recognizedCommitted = roundCurrency(summary.recognizedCommitted);
     summary.plannedGifts = roundCurrency(summary.plannedGifts);
+    if (summary.lastGiftAmount != null) {
+      summary.lastGiftAmount = roundCurrency(summary.lastGiftAmount);
+    }
   }
 
   return { period, byConstituentId };

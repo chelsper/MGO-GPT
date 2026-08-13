@@ -149,6 +149,50 @@ describe("current fiscal year giving", () => {
     });
   });
 
+  it("records the latest recognized received gift for direct and soft-credit recipients", () => {
+    const summary = calculateCurrentFiscalYearGiving({
+      now: NOW,
+      constituentIds: ["100", "200"],
+      gifts: [
+        gift({
+          id: "older-direct",
+          constituent_id: "100",
+          date: "2026-07-03T00:00:00.000Z",
+          amount: 100,
+        }),
+        gift({
+          id: "latest-direct",
+          constituent_id: "100",
+          date: "2026-07-08T00:00:00.000Z",
+          amount: 250,
+        }),
+        gift({
+          id: "latest-soft-credit",
+          constituent_id: "999",
+          date: "2026-07-10T00:00:00.000Z",
+          amount: 500,
+          soft_credits: [{ constituent_id: "200", amount: { value: 500 } }],
+        }),
+        gift({
+          id: "planned-gift",
+          constituent_id: "100",
+          date: "2026-07-11T00:00:00.000Z",
+          gift_type: "Planned Gift",
+          amount: 1000,
+        }),
+      ],
+    });
+
+    expect(summary.byConstituentId["100"]).toMatchObject({
+      lastGiftDate: "2026-07-08T00:00:00.000Z",
+      lastGiftAmount: 250,
+    });
+    expect(summary.byConstituentId["200"]).toMatchObject({
+      lastGiftDate: "2026-07-10T00:00:00.000Z",
+      lastGiftAmount: 500,
+    });
+  });
+
   it("does not include credit-card processing-fee gifts", () => {
     const summary = calculateCurrentFiscalYearGiving({
       now: NOW,
