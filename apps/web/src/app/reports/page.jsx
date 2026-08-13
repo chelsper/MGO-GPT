@@ -164,12 +164,17 @@ function getLatestGiftDetails(currentRow, { date, amount }) {
 
 function materializeReportRows(rowsByConstituentId) {
   return sortReportRows(
-    Array.from(rowsByConstituentId.values()).map((row) => ({
-      ...row,
-      hardCreditDonors: Array.from(row.hardCreditDonors?.values() || []).sort((left, right) =>
-        left.name.localeCompare(right.name, "en"),
-      ),
-    })),
+    Array.from(rowsByConstituentId.values()).map((row) => {
+      // This set prevents an associated gift returned in more than one batch
+      // from being counted twice. It is implementation state, not report data.
+      const { acknowledgmentCreditIds, ...displayRow } = row;
+      return {
+        ...displayRow,
+        hardCreditDonors: Array.from(row.hardCreditDonors?.values() || []).sort((left, right) =>
+          left.name.localeCompare(right.name, "en"),
+        ),
+      };
+    }),
   );
 }
 
@@ -326,7 +331,6 @@ export default function ReportsPage() {
         const peopleByConstituentId = new Map(
           people.map((person) => [String(person?.constituentId || "").trim(), person]),
         );
-        const portfolioConstituentIds = new Set(constituentIds);
         const reportRowsByConstituentId = new Map();
         const warnings = new Set();
         let reportPeriod = null;
@@ -356,7 +360,7 @@ export default function ReportsPage() {
 
           const donorIds = batch.filter((constituentId) => {
             const giving = givingPayload?.byConstituentId?.[constituentId] || {};
-            return Number(giving.recognizedReceived || 0) > 0 || Number(giving.recognizedCommitted || 0) > 0;
+            return Number(giving.hardReceived || 0) > 0 || Number(giving.hardCommitted || 0) > 0;
           });
           const hardCreditDonorIds = [
             ...new Set(
@@ -417,11 +421,17 @@ export default function ReportsPage() {
               ...existingRow,
               constituentId,
               name: profile.name || person?.name || "Unnamed constituent",
-              recognizedReceived: Number(giving.recognizedReceived || 0),
-              recognizedCommitted: Number(giving.recognizedCommitted || 0),
+              // Direct credit is added here. Soft credit is added below from
+              // the related gift, so a recipient sees the amount recognized
+              // for them without double-counting it when both records load.
+              recognizedReceived:
+                Number(existingRow?.recognizedReceived || 0) + Number(giving.hardReceived || 0),
+              recognizedCommitted:
+                Number(existingRow?.recognizedCommitted || 0) + Number(giving.hardCommitted || 0),
               lastGiftDate: giving.lastGiftDate || null,
               lastGiftAmount: giving.lastGiftAmount == null ? null : Number(giving.lastGiftAmount),
               hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
+              acknowledgmentCreditIds: existingRow?.acknowledgmentCreditIds || new Set(),
             });
           }
 
@@ -441,7 +451,16 @@ export default function ReportsPage() {
             }
 
             const existingRow = reportRowsByConstituentId.get(recipientConstituentId);
-            const isPortfolioRecipient = portfolioConstituentIds.has(recipientConstituentId);
+            const acknowledgmentCreditKey = [
+              credit?.giftId || `${credit?.date || "unknown"}:${credit?.amount || "unknown"}`,
+              hardCreditConstituentId,
+              recipientConstituentId,
+            ].join(":");
+            const acknowledgmentCreditIds = new Set(existingRow?.acknowledgmentCreditIds || []);
+            const isNewAcknowledgmentCredit = !acknowledgmentCreditIds.has(acknowledgmentCreditKey);
+            if (isNewAcknowledgmentCredit) {
+              acknowledgmentCreditIds.add(acknowledgmentCreditKey);
+            }
             const latestGift = getLatestGiftDetails(existingRow, {
               date: credit?.date,
               amount: credit?.amount,
@@ -450,12 +469,13 @@ export default function ReportsPage() {
               ...existingRow,
               constituentId: recipientConstituentId,
               name: recipient.name || existingRow?.name || "Unnamed constituent",
-              recognizedReceived: isPortfolioRecipient
-                ? Number(existingRow?.recognizedReceived || 0)
-                : Number(existingRow?.recognizedReceived || 0) + Number(credit?.amount || 0),
+              recognizedReceived:
+                Number(existingRow?.recognizedReceived || 0) +
+                (isNewAcknowledgmentCredit ? Number(credit?.amount || 0) : 0),
               recognizedCommitted: Number(existingRow?.recognizedCommitted || 0),
               ...latestGift,
               hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
+              acknowledgmentCreditIds,
             };
             addHardCreditDonor(nextRow, {
               constituentId: hardCreditConstituentId,
