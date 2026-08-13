@@ -70,7 +70,8 @@ describe("Blackbaud portfolio route", () => {
         type: "Secondary Solicitor",
         constituent: {
           lookup_id: "5044931",
-          name: "Armando M. Codina",
+          first_name: "Armando M.",
+          last_name: "Codina",
         },
       },
     ]);
@@ -120,7 +121,7 @@ describe("Blackbaud portfolio route", () => {
           ],
           summary: { leadCount: 0, supportingCount: 1 },
         },
-        blackbaud_portfolio_cache_key: "v8:800",
+        blackbaud_portfolio_cache_key: "v9:800",
         blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ]);

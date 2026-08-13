@@ -704,6 +704,7 @@ function PortfolioTier({
                 const contactPerson = loadedNxtConstituent
                   ? {
                       ...person,
+                      name: loadedNxtConstituent.name || person.name,
                       email: loadedNxtConstituent.email || person.email,
                       phone: loadedNxtConstituent.phone || person.phone,
                       address: loadedNxtConstituent.address || person.address,
@@ -746,7 +747,7 @@ function PortfolioTier({
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <div style={{ fontSize: "15px", fontWeight: "700", color: "#111827" }}>
-                    {person.name || "Unnamed constituent"}
+                    {contactPerson.name || "Unnamed constituent"}
                   </div>
                   {isTopProspect ? (
                     <span

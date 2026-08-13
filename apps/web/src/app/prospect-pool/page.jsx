@@ -19,8 +19,6 @@ const MGOGPT_OUTCOME_OPTIONS = [
 const SOLICITOR_ASSIGNMENT_SYNC_SUCCESS = "success";
 const NXT_SUMMARY_FETCH_TIMEOUT_MS = 45000;
 const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
-const NXT_SUMMARY_AUTO_ATTEMPTS = 3;
-const NXT_SUMMARY_RETRY_DELAY_MS = 1500;
 const FY27_CASH_RECEIVED_RETRY_DELAY_MS = 5000;
 const FY27_CASH_RECEIVED_LOAD_DELAY_MS = 750;
 const CLEARED_MGO_REQUEST_DRAFT = {
@@ -442,10 +440,7 @@ export default function ProspectPoolPage() {
     byConstituentId: {},
   });
   const [fy27CashReceivedRetryTick, setFy27CashReceivedRetryTick] = useState(0);
-  const blackbaudSummariesRef = useRef({});
-  const summaryQueueRunningRef = useRef(false);
   const mountedRef = useRef(false);
-  const [summaryQueueTick, setSummaryQueueTick] = useState(0);
   const [expandedNarrativeSummaries, setExpandedNarrativeSummaries] = useState({});
   const [reviewerFilters, setReviewerFilters] = useState({
     assignedUserId: "all",
@@ -465,10 +460,6 @@ export default function ProspectPoolPage() {
   }, []);
 
   useEffect(() => {
-    blackbaudSummariesRef.current = blackbaudSummaries;
-  }, [blackbaudSummaries]);
-
-  useEffect(() => {
     if (!toast) return undefined;
     const timeoutId = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timeoutId);
@@ -484,12 +475,10 @@ export default function ProspectPoolPage() {
   function updateBlackbaudSummaryState(constituentId, summaryState) {
     if (!constituentId) return;
     setBlackbaudSummaries((current) => {
-      const next = {
+      return {
         ...current,
         [constituentId]: summaryState,
       };
-      blackbaudSummariesRef.current = next;
-      return next;
     });
   }
 
@@ -908,10 +897,6 @@ export default function ProspectPoolPage() {
           }
         }
 
-        if (changed) {
-          blackbaudSummariesRef.current = next;
-        }
-
         return changed ? next : current;
       });
     }, 5000);
@@ -919,96 +904,30 @@ export default function ProspectPoolPage() {
     return () => window.clearInterval(intervalId);
   }, []);
 
-  useEffect(() => {
-    if (!hasMounted || summaryQueueRunningRef.current) {
-      return;
-    }
-
-    const entryToLoad = visibleEntries.find((entry) => {
-      const constituentId = getEntryBlackbaudConstituentId(entry);
-      return constituentId && !blackbaudSummariesRef.current[constituentId];
-    });
-
-    if (!entryToLoad) {
-      return;
-    }
-
-    const constituentId = getEntryBlackbaudConstituentId(entryToLoad);
-    summaryQueueRunningRef.current = true;
-
-    async function loadQueuedSummary() {
-      let lastError = null;
-
-      try {
-        for (let attempt = 1; attempt <= NXT_SUMMARY_AUTO_ATTEMPTS; attempt += 1) {
-          if (!mountedRef.current) return;
-
-          updateBlackbaudSummaryState(constituentId, {
-            status: "loading",
-            startedAt: Date.now(),
-            attempt,
-            automaticRetry: attempt > 1,
-          });
-
-          try {
-            const payload = await fetchBlackbaudSummaryPayload(entryToLoad, {
-              forceRefresh: attempt > 1,
-            });
-            if (!mountedRef.current) return;
-
-            updateBlackbaudSummaryState(constituentId, { status: "ready", payload });
-            return;
-          } catch (error) {
-            lastError = error;
-
-            if (attempt < NXT_SUMMARY_AUTO_ATTEMPTS) {
-              await new Promise((resolve) =>
-                window.setTimeout(resolve, NXT_SUMMARY_RETRY_DELAY_MS * attempt),
-              );
-              continue;
-            }
-
-            if (!mountedRef.current) return;
-            updateBlackbaudSummaryState(constituentId, {
-              status: "error",
-              error:
-                lastError instanceof Error
-                  ? `${lastError.message} It retried automatically ${NXT_SUMMARY_AUTO_ATTEMPTS - 1} times.`
-                  : "Failed to load Blackbaud summary after automatic retries.",
-              attempts: NXT_SUMMARY_AUTO_ATTEMPTS,
-            });
-          }
-        }
-      } finally {
-        summaryQueueRunningRef.current = false;
-        if (mountedRef.current) {
-          setSummaryQueueTick((current) => current + 1);
-        }
-      }
-    }
-
-    loadQueuedSummary();
-  }, [hasMounted, summaryQueueTick, visibleEntries]);
-
-  async function retryBlackbaudSummary(entry) {
+  async function loadBlackbaudSummary(entry, { forceRefresh = false, showSuccess = false } = {}) {
     const constituentId = getEntryBlackbaudConstituentId(entry);
     if (!constituentId) return;
 
     updateBlackbaudSummaryState(constituentId, {
       status: "loading",
-      manualRetry: true,
       startedAt: Date.now(),
     });
 
     try {
-      const payload = await fetchBlackbaudSummaryPayload(entry, { forceRefresh: true });
+      const payload = await fetchBlackbaudSummaryPayload(entry, { forceRefresh });
       updateBlackbaudSummaryState(constituentId, { status: "ready", payload });
-      setToast({ tone: "success", message: "Blackbaud summary loaded." });
+      if (showSuccess) {
+        setToast({ tone: "success", message: "Blackbaud summary loaded." });
+      }
     } catch (error) {
       const message = getBlackbaudSummaryErrorMessage(error);
       updateBlackbaudSummaryState(constituentId, { status: "error", error: message });
       setToast({ tone: "error", message });
     }
+  }
+
+  async function retryBlackbaudSummary(entry) {
+    return loadBlackbaudSummary(entry, { forceRefresh: true, showSuccess: true });
   }
 
   function setDraft(id, updates) {
@@ -2491,26 +2410,34 @@ export default function ProspectPoolPage() {
                           >
                             <span>
                               {!blackbaudSummaryState
-                                ? "Waiting to load Blackbaud summary..."
-                                : blackbaudSummaryState.automaticRetry
-                                  ? `NXT is slow; retrying automatically (${blackbaudSummaryState.attempt} of ${NXT_SUMMARY_AUTO_ATTEMPTS})...`
-                                  : "Loading Blackbaud summary..."}
+                                ? "Load NXT details only when needed to keep the prospect pool fast."
+                                : "Loading Blackbaud summary..."}
                             </span>
                             <button
                               type="button"
-                              onClick={() => retryBlackbaudSummary(entry)}
+                              onClick={() =>
+                                blackbaudSummaryState
+                                  ? retryBlackbaudSummary(entry)
+                                  : loadBlackbaudSummary(entry)
+                              }
+                              disabled={blackbaudSummaryState?.status === "loading"}
                               style={{
                                 border: "1px solid #93C5FD",
                                 borderRadius: "999px",
                                 backgroundColor: "white",
                                 color: "#1D4ED8",
-                                cursor: "pointer",
+                                cursor:
+                                  blackbaudSummaryState?.status === "loading"
+                                    ? "wait"
+                                    : "pointer",
                                 fontSize: "12px",
                                 fontWeight: 700,
                                 padding: "6px 10px",
                               }}
                             >
-                              {!blackbaudSummaryState ? "Load now" : "Retry NXT summary"}
+                              {!blackbaudSummaryState
+                                ? "Load NXT summary"
+                                : "Loading..."}
                             </button>
                           </div>
                         ) : blackbaudSummaryState.status === "error" ? (
