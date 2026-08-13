@@ -21,6 +21,7 @@ const NXT_SUMMARY_FETCH_TIMEOUT_MS = 45000;
 const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
 const NXT_SUMMARY_AUTO_ATTEMPTS = 3;
 const NXT_SUMMARY_RETRY_DELAY_MS = 1500;
+const FY27_CASH_RECEIVED_RETRY_DELAY_MS = 5000;
 const CLEARED_MGO_REQUEST_DRAFT = {
   needsContactInfo: false,
   contactInfoRequestNote: "",
@@ -435,6 +436,11 @@ export default function ProspectPoolPage() {
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
+  const [fy27CashReceived, setFy27CashReceived] = useState({
+    status: "idle",
+    byConstituentId: {},
+  });
+  const [fy27CashReceivedRetryTick, setFy27CashReceivedRetryTick] = useState(0);
   const blackbaudSummariesRef = useRef({});
   const summaryQueueRunningRef = useRef(false);
   const mountedRef = useRef(false);
@@ -606,6 +612,67 @@ export default function ProspectPoolPage() {
       active = false;
     };
   }, [isReviewer, profile]);
+
+  useEffect(() => {
+    const constituentIds = Array.from(
+      new Set(
+        entries
+          .map((entry) => getEntryBlackbaudConstituentId(entry))
+          .filter(Boolean),
+      ),
+    );
+
+    if (!profile || constituentIds.length === 0) {
+      setFy27CashReceived({ status: "idle", byConstituentId: {} });
+      return undefined;
+    }
+
+    let active = true;
+    let retryTimeoutId = null;
+    setFy27CashReceived((current) => ({
+      status: current.status === "ready" ? "refreshing" : "loading",
+      byConstituentId: current.byConstituentId,
+    }));
+
+    async function loadFY27CashReceived() {
+      try {
+        const response = await fetch("/api/prospect-pool/fy27-cash-received", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ constituentIds }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Could not load FY27 cash received.");
+        }
+        if (!active) return;
+
+        setFy27CashReceived({
+          status: payload?.status === "pending" ? "pending" : "ready",
+          byConstituentId: payload?.byConstituentId || {},
+        });
+
+        if (payload?.status === "pending") {
+          retryTimeoutId = window.setTimeout(
+            () => setFy27CashReceivedRetryTick((current) => current + 1),
+            FY27_CASH_RECEIVED_RETRY_DELAY_MS,
+          );
+        }
+      } catch (loadError) {
+        console.error("FY27 prospect-pool cash-received load error:", loadError);
+        if (active) {
+          // The saved query augments the pool and must never block it.
+          setFy27CashReceived({ status: "error", byConstituentId: {} });
+        }
+      }
+    }
+
+    loadFY27CashReceived();
+    return () => {
+      active = false;
+      if (retryTimeoutId) window.clearTimeout(retryTimeoutId);
+    };
+  }, [entries, fy27CashReceivedRetryTick, profile]);
 
   const summary = useMemo(() => {
     if (!hasMounted) {
@@ -2114,6 +2181,23 @@ export default function ProspectPoolPage() {
                 ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionComment
                 : draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
             const blackbaudConstituentId = getEntryBlackbaudConstituentId(entry);
+            const hasFY27CashReceived =
+              blackbaudConstituentId &&
+              Object.prototype.hasOwnProperty.call(
+                fy27CashReceived.byConstituentId,
+                blackbaudConstituentId,
+              );
+            const fy27CashReceivedLabel =
+              fy27CashReceived.status === "ready" ||
+              fy27CashReceived.status === "refreshing"
+                ? formatBlackbaudCurrency(
+                    hasFY27CashReceived
+                      ? fy27CashReceived.byConstituentId[blackbaudConstituentId]
+                      : 0,
+                  )
+                : fy27CashReceived.status === "error"
+                  ? "Unavailable"
+                  : "Loading...";
             const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(blackbaudConstituentId);
             const blackbaudSummaryState = blackbaudConstituentId
               ? blackbaudSummaries[blackbaudConstituentId]
@@ -2244,6 +2328,29 @@ export default function ProspectPoolPage() {
                         </div>
                         <div>{getQuickRequestLabel(entry)}</div>
                       </div>
+                      {blackbaudConstituentId ? (
+                        <div>
+                          <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
+                            FY27 Cash Received
+                          </div>
+                          <div
+                            style={{
+                              color:
+                                fy27CashReceived.status === "ready" ||
+                                fy27CashReceived.status === "refreshing"
+                                  ? "#047857"
+                                  : "#6B7280",
+                              fontWeight:
+                                fy27CashReceived.status === "ready" ||
+                                fy27CashReceived.status === "refreshing"
+                                  ? 700
+                                  : 400,
+                            }}
+                          >
+                            {fy27CashReceivedLabel}
+                          </div>
+                        </div>
+                      ) : null}
                       {hasPostAssignmentAction || isSolicitorAssignmentSynced(entry) ? (
                         <div>
                           <div style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
