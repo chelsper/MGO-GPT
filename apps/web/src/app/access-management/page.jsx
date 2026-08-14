@@ -6,8 +6,8 @@ import useUser from "@/utils/useUser";
 import {
   canManageWorkspaceRole,
   canUseMgoWorkspaceRole,
+  canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
-  isMgoRole,
 } from "@/utils/workspaceRoles";
 
 const cardStyle = {
@@ -586,7 +586,7 @@ export default function AccessManagementPage() {
       setStatusMessage("Workspace created from pending invitation.");
       setToast({ tone: "success", message: "Workspace created." });
       await loadAccessState();
-      if (data?.user && isMgoRole(data.user.role)) {
+      if (data?.user && canViewWorkspaceAsRole(profile?.role, data.user.role)) {
         await handleSwitchWorkspace(data.user);
       }
     } catch (err) {
@@ -1561,7 +1561,7 @@ export default function AccessManagementPage() {
                         </select>
                       )}
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {isMgoRole(user.role) ? (
+                        {canViewWorkspaceAsRole(profile?.role, user.role) ? (
                           <button
                             type="button"
                             onClick={() => handleSwitchWorkspace(user)}
@@ -1667,7 +1667,7 @@ export default function AccessManagementPage() {
                           <div style={{ fontSize: "13px", color: "#4338CA", lineHeight: 1.5 }}>
                             Link this person's NXT identity and prepare their MGO workspace before they sign in.
                           </div>
-                          {isMgoRole(user.role) ? (<button
+                          {canViewWorkspaceAsRole(profile?.role, user.role) ? (<button
                             type="button"
                             onClick={() => handleSwitchWorkspace(user)}
                             style={{
@@ -1871,7 +1871,7 @@ export default function AccessManagementPage() {
                     <div style={{ display: "grid", gap: "8px" }}>
                       {canUseMgoWorkspaceRole(invitation.role) ? (
                         invitation.existing_user_id ? (
-                          isMgoRole(invitation.role) ? (<button
+                          canViewWorkspaceAsRole(profile?.role, invitation.role) ? (<button
                             type="button"
                             onClick={() =>
                               handleSwitchWorkspace({

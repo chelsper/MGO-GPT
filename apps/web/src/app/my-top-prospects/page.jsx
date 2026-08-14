@@ -16,7 +16,11 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
-import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
+import {
+  canUseExecutiveViewRole,
+  canViewWorkspaceAsRole,
+  getWorkspaceRoleLabel,
+} from "@/utils/workspaceRoles";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 
@@ -8086,10 +8090,17 @@ export default function MyTopProspectsPage() {
                       >
                         <option value={profileStatus?.user?.id || ""}>My dashboard</option>
                         {mgoUsers
-                          .filter((mgo) => String(mgo.id) !== String(profileStatus?.user?.id || ""))
+                          .filter(
+                            (mgo) =>
+                              canViewWorkspaceAsRole(currentRole, mgo.role) &&
+                              String(mgo.id) !== String(profileStatus?.user?.id || ""),
+                          )
                           .map((mgo) => (
                             <option key={mgo.id} value={mgo.id}>
                               {mgo.name}
+                              {getWorkspaceRoleLabel(mgo.role) === "Executive"
+                                ? " (Executive)"
+                                : ""}
                             </option>
                           ))}
                       </select>

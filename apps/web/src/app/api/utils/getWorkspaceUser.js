@@ -1,6 +1,9 @@
 import sql from "@/app/api/utils/sql";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
-import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
+import {
+  canUseExecutiveViewRole,
+  canViewWorkspaceAsRole,
+} from "@/utils/workspaceRoles";
 
 const ACTING_USER_COOKIE = "workspace_acting_user_id";
 
@@ -52,12 +55,11 @@ export default async function getWorkspaceUser(session, request) {
     FROM users
     WHERE id = ${actingUserId}
       AND active = TRUE
-      AND role = 'mgo'
     LIMIT 1
   `;
 
   const actingUser = actingRows[0] || null;
-  if (!actingUser) {
+  if (!actingUser || !canViewWorkspaceAsRole(sessionUser.role, actingUser.role)) {
     return {
       sessionUser,
       workspaceUser: sessionUser,

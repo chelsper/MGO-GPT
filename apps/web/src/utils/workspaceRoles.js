@@ -51,6 +51,14 @@ export function canUseExecutiveViewRole(role) {
   return isAdminRole(role) || isExecutiveRole(role);
 }
 
+// Executive users may inspect MGO workspaces. Admins may additionally inspect
+// Executive workspaces without broadening either role's underlying access.
+export function canViewWorkspaceAsRole(viewerRole, targetRole) {
+  if (!canUseExecutiveViewRole(viewerRole)) return false;
+  if (isMgoRole(targetRole)) return true;
+  return isAdminRole(viewerRole) && isExecutiveRole(targetRole);
+}
+
 export function isReviewerRole(role) {
   return isAdminRole(role) || isAdvancementServicesRole(role);
 }

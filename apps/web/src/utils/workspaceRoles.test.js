@@ -3,6 +3,7 @@ import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
   canUseMgoWorkspaceRole,
+  canViewWorkspaceAsRole,
   isMgoRole,
   normalizeWorkspaceRole,
 } from "./workspaceRoles";
@@ -19,6 +20,14 @@ describe("workspace roles", () => {
     expect(canUseExecutiveViewRole("admin")).toBe(true);
     expect(canUseExecutiveViewRole("mgo")).toBe(false);
     expect(canUseExecutiveViewRole("advancement_services")).toBe(false);
+  });
+
+  it("allows Admins, but not Executives, to view Executive workspaces", () => {
+    expect(canViewWorkspaceAsRole("admin", "mgo")).toBe(true);
+    expect(canViewWorkspaceAsRole("executive", "mgo")).toBe(true);
+    expect(canViewWorkspaceAsRole("admin", "executive")).toBe(true);
+    expect(canViewWorkspaceAsRole("executive", "executive")).toBe(false);
+    expect(canViewWorkspaceAsRole("mgo", "mgo")).toBe(false);
   });
 
   it("keeps MGO workspace capabilities separate from report administration", () => {

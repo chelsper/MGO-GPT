@@ -7,7 +7,10 @@ import {
   clearActingUserCookie,
   getActingUserIdFromRequest,
 } from "@/app/api/utils/getWorkspaceUser";
-import { canUseExecutiveViewRole } from "@/utils/workspaceRoles";
+import {
+  canUseExecutiveViewRole,
+  canViewWorkspaceAsRole,
+} from "@/utils/workspaceRoles";
 import { getValidBlackbaudConnection } from "@/app/api/utils/blackbaud";
 import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgoPortfolio";
 
@@ -70,6 +73,17 @@ async function shouldBootstrapWorkspace(userId) {
     Number(opportunityRows[0]?.opportunity_count || 0) === 0;
 }
 
+async function getViewableWorkspaceTarget(userId, viewerRole) {
+  const rows = await sql`
+    SELECT id, name, email, role, active, blackbaud_lookup_id
+    FROM users
+    WHERE id = ${userId} AND active = TRUE
+    LIMIT 1
+  `;
+  const target = rows[0] || null;
+  return target && canViewWorkspaceAsRole(viewerRole, target.role) ? target : null;
+}
+
 export async function GET(request) {
   const { error, user } = await requireExecutiveViewSession();
   if (error) return error;
@@ -79,19 +93,14 @@ export async function GET(request) {
     return Response.json({ actingUser: null, adminUser: user });
   }
 
-  const rows = await sql`
-    SELECT id, name, email, role, active, blackbaud_lookup_id
-    FROM users
-    WHERE id = ${actingUserId} AND role = 'mgo' AND active = TRUE
-    LIMIT 1
-  `;
+  const actingUser = await getViewableWorkspaceTarget(actingUserId, user.role);
 
   const response = Response.json({
     adminUser: user,
-    actingUser: rows[0] || null,
+    actingUser,
   });
 
-  if (!rows[0]) {
+  if (!actingUser) {
     response.headers.append("Set-Cookie", clearActingUserCookie());
   }
 
@@ -105,22 +114,17 @@ export async function POST(request) {
   const body = await request.json();
   const userId = Number(body?.userId);
   if (!Number.isInteger(userId) || userId <= 0) {
-    return Response.json({ error: "Valid MGO user id is required." }, { status: 400 });
+    return Response.json({ error: "Valid workspace user id is required." }, { status: 400 });
   }
 
-  const rows = await sql`
-    SELECT id, name, email, role, active, blackbaud_lookup_id
-    FROM users
-    WHERE id = ${userId} AND role = 'mgo' AND active = TRUE
-    LIMIT 1
-  `;
+  const workspaceTarget = await getViewableWorkspaceTarget(userId, user.role);
 
-  if (!rows[0]) {
-    return Response.json({ error: "Active MGO user not found." }, { status: 404 });
+  if (!workspaceTarget) {
+    return Response.json({ error: "Active MGO or Executive user not found." }, { status: 404 });
   }
 
   const origin = request?.url ? new URL(request.url).origin : null;
-  if (await shouldBootstrapWorkspace(rows[0].id)) {
+  if (await shouldBootstrapWorkspace(workspaceTarget.id)) {
     const hasBlackbaudConnection = await getValidBlackbaudConnection(user.id, origin).catch(
       () => null,
     );
@@ -128,7 +132,7 @@ export async function POST(request) {
     if (hasBlackbaudConnection) {
       try {
         await bootstrapMgoPortfolioFromBlackbaud({
-          userId: rows[0].id,
+          userId: workspaceTarget.id,
           authUserId: user.id,
           origin,
           force: true,
@@ -139,7 +143,7 @@ export async function POST(request) {
     }
   }
 
-  const response = Response.json({ actingUser: rows[0] });
+  const response = Response.json({ actingUser: workspaceTarget });
   response.headers.append("Set-Cookie", buildActingUserCookie(userId));
   return response;
 }

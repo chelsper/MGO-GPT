@@ -8,8 +8,8 @@ import useWorkspaceView from "@/utils/useWorkspaceView";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
+  canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
-  isMgoRole,
 } from "@/utils/workspaceRoles";
 const MGO_ACTIONS = [
   {
@@ -845,7 +845,7 @@ export default function Page() {
                           marginBottom: "6px",
                         }}
                       >
-                        View as MGO
+                        View workspace
                       </div>
                       <select
                         value={actingUser?.id || profile?.id || ""}
@@ -860,16 +860,19 @@ export default function Page() {
                           backgroundColor: "white",
                         }}
                       >
-                        <option value={profile?.id || ""}>My MGO workspace</option>
+                        <option value={profile?.id || ""}>My workspace</option>
                         {mgoUsers
                           .filter(
                             (mgoUser) =>
-                              isMgoRole(mgoUser.role) &&
+                              canViewWorkspaceAsRole(profile?.role, mgoUser.role) &&
                               String(mgoUser.id) !== String(profile?.id || ""),
                           )
                           .map((mgoUser) => (
                             <option key={mgoUser.id} value={mgoUser.id}>
                               {mgoUser.name || mgoUser.email}
+                              {getWorkspaceRoleLabel(mgoUser.role) === "Executive"
+                                ? " (Executive)"
+                                : ""}
                             </option>
                           ))}
                       </select>
@@ -1048,16 +1051,19 @@ export default function Page() {
                       backgroundColor: "white",
                     }}
                   >
-                    <option value={profile?.id || ""}>View as: My MGO workspace</option>
+                    <option value={profile?.id || ""}>View as: My workspace</option>
                     {mgoUsers
                       .filter(
                         (mgoUser) =>
-                          isMgoRole(mgoUser.role) &&
+                          canViewWorkspaceAsRole(profile?.role, mgoUser.role) &&
                           String(mgoUser.id) !== String(profile?.id || ""),
                       )
                       .map((mgoUser) => (
                         <option key={mgoUser.id} value={mgoUser.id}>
                           View as: {mgoUser.name || mgoUser.email}
+                          {getWorkspaceRoleLabel(mgoUser.role) === "Executive"
+                            ? " (Executive)"
+                            : ""}
                         </option>
                       ))}
                   </select>
