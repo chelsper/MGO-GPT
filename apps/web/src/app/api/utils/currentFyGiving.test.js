@@ -254,6 +254,43 @@ describe("current fiscal year giving", () => {
     });
   });
 
+  it("keeps gift solicitor attribution with direct and soft-credit giving", () => {
+    const summary = calculateCurrentFiscalYearGiving({
+      now: NOW,
+      constituentIds: ["100", "200"],
+      gifts: [
+        gift({
+          id: "solicitor-credit",
+          constituent_id: "100",
+          amount: 500,
+          fundraisers: [{ fundraiser_id: "800", fundraiser_name: "Chelsea Santoro" }],
+          solicitors: [{ constituent_id: "801", full_name: "Alex Rivera" }],
+          soft_credits: [{ constituent_id: "200", amount: { value: 500 } }],
+        }),
+      ],
+    });
+
+    expect(summary.byConstituentId["100"].giftSolicitors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "800", name: "Chelsea Santoro", giftIds: ["solicitor-credit"] }),
+        expect.objectContaining({ id: "801", name: "Alex Rivera", giftIds: ["solicitor-credit"] }),
+      ]),
+    );
+    expect(summary.byConstituentId["200"].giftSolicitors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "800", name: "Chelsea Santoro", giftIds: ["solicitor-credit"] }),
+      ]),
+    );
+    expect(summary.acknowledgmentCredits).toEqual([
+      expect.objectContaining({
+        recipientConstituentId: "200",
+        giftSolicitors: expect.arrayContaining([
+          expect.objectContaining({ id: "801", name: "Alex Rivera" }),
+        ]),
+      }),
+    ]);
+  });
+
   it("does not include credit-card processing-fee gifts", () => {
     const summary = calculateCurrentFiscalYearGiving({
       now: NOW,

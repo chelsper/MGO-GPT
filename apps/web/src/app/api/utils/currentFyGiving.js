@@ -159,6 +159,122 @@ function getRecognitionCreditAmount(credit) {
   ]);
 }
 
+// Gift solicitor credit is separate from the constituent's current portfolio
+// assignment. Preserve the names returned by NXT without inferring a solicitor.
+function getGiftSolicitorCandidates(gift) {
+  const candidates = [];
+  const arrayPaths = [
+    "fundraisers",
+    "solicitors",
+    "gift_fundraisers",
+    "giftFundraisers",
+    "gift_fundraiser",
+    "giftFundraiser",
+    "gift_fundraiser_names",
+    "giftFundraiserNames",
+    "fundraiser_credits",
+    "fundraiserCredits",
+    "solicitor_credits",
+    "solicitorCredits",
+  ];
+
+  for (const path of arrayPaths) {
+    const value = getNestedValue(gift, path);
+    if (Array.isArray(value)) candidates.push(...value.filter(Boolean));
+  }
+
+  for (const path of [
+    "fundraiser",
+    "solicitor",
+    "gift_fundraiser",
+    "giftFundraiser",
+    "gift_fundraiser_name",
+    "giftFundraiserName",
+    "gift_fundraiser.full_name",
+    "giftFundraiser.fullName",
+  ]) {
+    const value = getNestedValue(gift, path);
+    if (typeof value === "string" && value.trim()) {
+      candidates.push({ fundraiser_name: value.trim() });
+    } else if (value && typeof value === "object") {
+      candidates.push(value);
+    }
+  }
+
+  return candidates;
+}
+
+function getGiftSolicitorName(value) {
+  if (typeof value === "string") return value.trim();
+
+  const direct = getTextFromMaybeObject(
+    firstDefined(value, [
+      "fundraiser_name",
+      "fundraiserName",
+      "solicitor_name",
+      "solicitorName",
+      "name",
+      "full_name",
+      "fullName",
+      "display_name",
+      "displayName",
+    ]),
+  );
+  if (direct) return direct;
+
+  const first = String(firstDefined(value, ["first_name", "firstName", "first"]) || "").trim();
+  const middle = String(firstDefined(value, ["middle_name", "middleName", "middle"]) || "").trim();
+  const last = String(firstDefined(value, ["last_name", "lastName", "last"]) || "").trim();
+  return [first, middle, last].filter(Boolean).join(" ");
+}
+
+function getGiftSolicitorId(value) {
+  return String(
+    firstDefined(value, [
+      "fundraiser_id",
+      "fundraiserId",
+      "solicitor_id",
+      "solicitorId",
+      "constituent_id",
+      "constituentId",
+      "id",
+    ]) || "",
+  ).trim();
+}
+
+function getGiftSolicitors(gift) {
+  const solicitors = new Map();
+
+  for (const candidate of getGiftSolicitorCandidates(gift)) {
+    const id = getGiftSolicitorId(candidate);
+    const name = getGiftSolicitorName(candidate);
+    if (!id && !name) continue;
+
+    const key = id ? `id:${id}` : `name:${normalizeText(name)}`;
+    if (!solicitors.has(key)) {
+      solicitors.set(key, { id: id || null, name: name || "Unnamed fundraiser" });
+    }
+  }
+
+  return Array.from(solicitors.values());
+}
+
+function addGiftSolicitors(summary, solicitors, giftId) {
+  if (!summary.giftSolicitors) summary.giftSolicitors = new Map();
+  const normalizedGiftId = String(giftId || "").trim();
+
+  for (const solicitor of solicitors) {
+    const key = solicitor.id ? `id:${solicitor.id}` : `name:${normalizeText(solicitor.name)}`;
+    const existing = summary.giftSolicitors.get(key) || {
+      id: solicitor.id || null,
+      name: solicitor.name,
+      giftIds: new Set(),
+    };
+    if (normalizedGiftId) existing.giftIds.add(normalizedGiftId);
+    summary.giftSolicitors.set(key, existing);
+  }
+}
+
 function getTextFromMaybeObject(value) {
   if (value == null || value === "") return null;
   if (typeof value === "string" || typeof value === "number") {
@@ -292,6 +408,7 @@ export function calculateCurrentFiscalYearGiving({
         plannedGiftCount: 0,
         lastGiftDate: null,
         lastGiftAmount: null,
+        giftSolicitors: new Map(),
       },
     ]),
   );
@@ -332,6 +449,7 @@ export function calculateCurrentFiscalYearGiving({
       gift?.gift_id ||
       gift?.giftId ||
       `${giftType}:${getGiftDate(gift)}:${directId || "unknown"}`;
+    const giftSolicitors = getGiftSolicitors(gift);
 
     if (directId && requestedIds.has(directId) && directAmount != null && directAmount > 0) {
       recognizedAmounts.set(directId, directAmount);
@@ -371,6 +489,7 @@ export function calculateCurrentFiscalYearGiving({
             recipientConstituentId: constituentId,
             amount,
             date: getGiftDate(gift),
+            giftSolicitors,
           });
         }
       }
@@ -395,6 +514,7 @@ export function calculateCurrentFiscalYearGiving({
     for (const [constituentId, amount] of recognizedAmounts) {
       const summary = byConstituentId[constituentId];
       const giftId = gift?.id || `${giftType}:${getGiftDate(gift)}:${constituentId}`;
+      let wasRecognized = false;
 
       if (isReceived) {
         const counted = countedGiftIds.received.get(constituentId) || new Set();
@@ -406,6 +526,7 @@ export function calculateCurrentFiscalYearGiving({
           countedGiftIds.softReceived.set(constituentId, softCounted);
         }
         if (isNewGift) {
+          wasRecognized = true;
           summary.receivedGiftCount += 1;
           recordLatestReceivedGift(summary, {
             date: getGiftDate(gift),
@@ -424,6 +545,7 @@ export function calculateCurrentFiscalYearGiving({
           countedGiftIds.softCommitted.set(constituentId, softCounted);
         }
         if (isNewGift) summary.committedGiftCount += 1;
+        if (isNewGift) wasRecognized = true;
       }
 
       if (isPlannedGift) {
@@ -431,7 +553,10 @@ export function calculateCurrentFiscalYearGiving({
         const isNewGift = addAmount(summary, "plannedGifts", amount, giftId, counted);
         countedGiftIds.planned.set(constituentId, counted);
         if (isNewGift) summary.plannedGiftCount += 1;
+        if (isNewGift) wasRecognized = true;
       }
+
+      if (wasRecognized) addGiftSolicitors(summary, giftSolicitors, giftId);
     }
   }
 
@@ -446,6 +571,11 @@ export function calculateCurrentFiscalYearGiving({
     if (summary.lastGiftAmount != null) {
       summary.lastGiftAmount = roundCurrency(summary.lastGiftAmount);
     }
+    summary.giftSolicitors = Array.from(summary.giftSolicitors.values()).map((solicitor) => ({
+      id: solicitor.id,
+      name: solicitor.name,
+      giftIds: Array.from(solicitor.giftIds),
+    }));
   }
 
   return {

@@ -163,6 +163,48 @@ function getLatestGiftDetails(currentRow, { date, amount }) {
   };
 }
 
+function getConstituentRecordSolicitor(workspaceUser, person) {
+  if (!person) return "Not in selected MGO portfolio";
+
+  const assignmentTypes = Array.isArray(person.assignmentTypes)
+    ? person.assignmentTypes.filter(Boolean)
+    : [];
+  const solicitorName = workspaceUser?.name || workspaceUser?.email || "Selected MGO";
+  return assignmentTypes.length
+    ? `${solicitorName} (${assignmentTypes.join(", ")})`
+    : solicitorName;
+}
+
+function addGiftSolicitors(row, solicitors) {
+  if (!row.giftSolicitors) row.giftSolicitors = new Map();
+
+  for (const solicitor of Array.isArray(solicitors) ? solicitors : []) {
+    const id = String(solicitor?.id || "").trim();
+    const name = String(solicitor?.name || "").trim();
+    if (!id && !name) continue;
+
+    const key = id ? `id:${id}` : `name:${name.toLocaleLowerCase("en-US")}`;
+    const existing = row.giftSolicitors.get(key) || {
+      id: id || null,
+      name,
+      giftIds: new Set(),
+    };
+    for (const giftId of Array.isArray(solicitor?.giftIds) ? solicitor.giftIds : []) {
+      if (giftId != null && String(giftId).trim()) existing.giftIds.add(String(giftId));
+    }
+    row.giftSolicitors.set(key, existing);
+  }
+}
+
+function formatGiftSolicitors(solicitors) {
+  if (!solicitors?.length) return "Not returned by NXT";
+  return solicitors
+    .map((solicitor) =>
+      solicitor.giftCount > 1 ? `${solicitor.name} (${solicitor.giftCount} gifts)` : solicitor.name,
+    )
+    .join(", ");
+}
+
 function materializeReportRows(rowsByConstituentId) {
   return sortReportRows(
     Array.from(rowsByConstituentId.values()).map((row) => {
@@ -174,6 +216,13 @@ function materializeReportRows(rowsByConstituentId) {
         hardCreditDonors: Array.from(row.hardCreditDonors?.values() || []).sort((left, right) =>
           left.name.localeCompare(right.name, "en"),
         ),
+        giftSolicitors: Array.from(row.giftSolicitors?.values() || [])
+          .map((solicitor) => ({
+            id: solicitor.id,
+            name: solicitor.name,
+            giftCount: solicitor.giftIds?.size || 1,
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name, "en")),
       };
     }),
   );
@@ -472,10 +521,11 @@ export default function ReportsPage() {
 
             const giving = givingPayload?.byConstituentId?.[constituentId] || {};
             const existingRow = reportRowsByConstituentId.get(constituentId);
-            reportRowsByConstituentId.set(constituentId, {
+            const nextRow = {
               ...existingRow,
               constituentId,
               name: profile.name || person?.name || "Unnamed constituent",
+              constituentRecordSolicitor: getConstituentRecordSolicitor(workspaceUser, person),
               // Direct credit is added here. Soft credit is added below from
               // the related gift, so a recipient sees the amount recognized
               // for them without double-counting it when both records load.
@@ -487,7 +537,10 @@ export default function ReportsPage() {
               lastGiftAmount: giving.lastGiftAmount == null ? null : Number(giving.lastGiftAmount),
               hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
               acknowledgmentCreditIds: existingRow?.acknowledgmentCreditIds || new Set(),
-            });
+              giftSolicitors: existingRow?.giftSolicitors || new Map(),
+            };
+            addGiftSolicitors(nextRow, giving.giftSolicitors);
+            reportRowsByConstituentId.set(constituentId, nextRow);
           }
 
           for (const credit of acknowledgmentCredits) {
@@ -506,6 +559,7 @@ export default function ReportsPage() {
             }
 
             const existingRow = reportRowsByConstituentId.get(recipientConstituentId);
+            const recipientPortfolioPerson = peopleByConstituentId.get(recipientConstituentId);
             const acknowledgmentCreditKey = [
               credit?.giftId || `${credit?.date || "unknown"}:${credit?.amount || "unknown"}`,
               hardCreditConstituentId,
@@ -524,6 +578,9 @@ export default function ReportsPage() {
               ...existingRow,
               constituentId: recipientConstituentId,
               name: recipient.name || existingRow?.name || "Unnamed constituent",
+              constituentRecordSolicitor: recipientPortfolioPerson
+                ? getConstituentRecordSolicitor(workspaceUser, recipientPortfolioPerson)
+                : existingRow?.constituentRecordSolicitor || "Not in selected MGO portfolio",
               recognizedReceived:
                 Number(existingRow?.recognizedReceived || 0) +
                 (isNewAcknowledgmentCredit ? Number(credit?.amount || 0) : 0),
@@ -531,11 +588,13 @@ export default function ReportsPage() {
               ...latestGift,
               hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
               acknowledgmentCreditIds,
+              giftSolicitors: existingRow?.giftSolicitors || new Map(),
             };
             addHardCreditDonor(nextRow, {
               constituentId: hardCreditConstituentId,
               name: hardCreditDonor.name || "Donor Advised Fund",
             });
+            if (isNewAcknowledgmentCredit) addGiftSolicitors(nextRow, credit.giftSolicitors);
             reportRowsByConstituentId.set(recipientConstituentId, nextRow);
           }
 
@@ -801,7 +860,7 @@ export default function ReportsPage() {
                 {yearLabel} portfolio giving
               </h2>
               <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5, maxWidth: "760px" }}>
-                Headline totals use all direct hard-credit gift records, including Donor Advised Funds. The acknowledgment list uses the individuals who receive direct or soft-credit recognition.
+                Headline totals use all direct hard-credit gift records, including Donor Advised Funds. Report scope comes from the selected MGO&apos;s constituent-record solicitor assignments; Gift Solicitor shows the fundraiser credit returned by NXT for each reported gift.
               </p>
             </div>
             {canUseExecutiveView ? (
@@ -940,12 +999,14 @@ export default function ReportsPage() {
               </div>
               {reportRows.length ? (
                 <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", minWidth: "1020px", borderCollapse: "collapse" }}>
+                  <table style={{ width: "100%", minWidth: "1340px", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ backgroundColor: "#F8FAFC", textAlign: "left" }}>
                         {[
                           "Acknowledgment recipient",
+                          "Constituent record solicitor",
                           "Hard-credit donor",
+                          "Gift solicitor(s)",
                           `${yearLabel} Recognition Credit`,
                           `${yearLabel} Recognized Committed`,
                           "Last Gift Date",
@@ -977,9 +1038,15 @@ export default function ReportsPage() {
                           <tr key={row.constituentId} style={{ borderTop: "1px solid #E2E8F0" }}>
                             <td style={{ padding: "16px", color: "#0F172A", fontWeight: 800 }}>{row.name}</td>
                             <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
+                              {row.constituentRecordSolicitor || "Not in selected MGO portfolio"}
+                            </td>
+                            <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
                               {row.hardCreditDonors?.length
                                 ? row.hardCreditDonors.map((donor) => donor.name).join(", ")
                                 : "Direct credit"}
+                            </td>
+                            <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
+                              {formatGiftSolicitors(row.giftSolicitors)}
                             </td>
                             <td style={{ padding: "16px", color: "#047857", fontWeight: 800 }}>
                               {formatCurrency(row.recognizedReceived)}
