@@ -45,15 +45,38 @@ function AudienceOption({ checked, description, name, onChange, title, value }) 
   );
 }
 
+function getAudienceDescriptions(configuration) {
+  const isGlobalQuery = configuration.key === "future-made-phase-ii";
+
+  if (isGlobalQuery) {
+    return {
+      allUsers:
+        "Every active user can run this saved query globally. Results do not depend on a selected MGO workspace.",
+      executives:
+        "Executives can run this saved query globally. MGO users do not gain access.",
+      specificUsers:
+        "Choose individual active users who should be able to run this saved query globally.",
+    };
+  }
+
+  return {
+    allUsers:
+      "Every active user can open the report. An MGO still sees only their own portfolio unless they are an Executive.",
+    executives:
+      "Executives can use their read-only MGO workspace selector. MGO users do not gain access.",
+    specificUsers: "Choose individual active users who should be able to open this report.",
+  };
+}
+
 export default function ReportConfigurationsPage() {
   const { data: user, loading: loadingUser } = useUser();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingKey, setSavingKey] = useState("");
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
+  const [statusByKey, setStatusByKey] = useState({});
   const [canManage, setCanManage] = useState(false);
-  const [visibility, setVisibility] = useState("all_users");
-  const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [configurations, setConfigurations] = useState([]);
+  const [drafts, setDrafts] = useState({});
   const [users, setUsers] = useState([]);
 
   useEffect(() => {
@@ -66,28 +89,40 @@ export default function ReportConfigurationsPage() {
     if (!user) return undefined;
 
     let active = true;
-    async function loadConfiguration() {
+    async function loadConfigurations() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/reports/configurations");
+        const response = await fetch("/api/reports/configurations", { cache: "no-store" });
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(payload?.error || "Could not load report access.");
         }
-        const configuration = Array.isArray(payload?.configurations)
-          ? payload.configurations.find((item) => item.key === "portfolio-fy-giving")
-          : null;
-        if (!configuration) {
-          throw new Error("Portfolio Giving access could not be loaded.");
+
+        const nextConfigurations = Array.isArray(payload?.configurations)
+          ? payload.configurations
+          : [];
+        if (!nextConfigurations.length) {
+          throw new Error("Report access could not be loaded.");
         }
+
         if (active) {
           setCanManage(Boolean(payload?.canManage));
-          setVisibility(configuration.visibility || "all_users");
-          setSelectedUserIds(
-            Array.isArray(configuration.specificUserIds)
-              ? configuration.specificUserIds.map((id) => Number(id)).filter(Number.isInteger)
-              : [],
+          setConfigurations(nextConfigurations);
+          setDrafts(
+            Object.fromEntries(
+              nextConfigurations.map((configuration) => [
+                configuration.key,
+                {
+                  visibility: configuration.visibility || "all_users",
+                  specificUserIds: Array.isArray(configuration.specificUserIds)
+                    ? configuration.specificUserIds
+                        .map((id) => Number(id))
+                        .filter(Number.isInteger)
+                    : [],
+                },
+              ]),
+            ),
           );
           setUsers(Array.isArray(payload?.users) ? payload.users : []);
         }
@@ -100,43 +135,71 @@ export default function ReportConfigurationsPage() {
       }
     }
 
-    loadConfiguration();
+    loadConfigurations();
     return () => {
       active = false;
     };
   }, [user]);
 
-  function toggleUser(userId) {
-    setSelectedUserIds((currentIds) =>
-      currentIds.includes(userId)
-        ? currentIds.filter((id) => id !== userId)
-        : [...currentIds, userId],
-    );
+  function updateDraft(reportKey, update) {
+    setDrafts((current) => ({
+      ...current,
+      [reportKey]: {
+        visibility: current[reportKey]?.visibility || "all_users",
+        specificUserIds: current[reportKey]?.specificUserIds || [],
+        ...update,
+      },
+    }));
   }
 
-  async function saveConfiguration() {
-    setSaving(true);
+  function toggleUser(reportKey, userId) {
+    const selectedIds = drafts[reportKey]?.specificUserIds || [];
+    updateDraft(reportKey, {
+      specificUserIds: selectedIds.includes(userId)
+        ? selectedIds.filter((id) => id !== userId)
+        : [...selectedIds, userId],
+    });
+  }
+
+  async function saveConfiguration(configuration) {
+    const draft = drafts[configuration.key] || {
+      visibility: "all_users",
+      specificUserIds: [],
+    };
+    setSavingKey(configuration.key);
     setError("");
-    setStatus("");
+    setStatusByKey((current) => ({ ...current, [configuration.key]: "" }));
     try {
       const response = await fetch("/api/reports/configurations", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          reportKey: "portfolio-fy-giving",
-          visibility,
-          specificUserIds: visibility === "specific_users" ? selectedUserIds : [],
+          reportKey: configuration.key,
+          visibility: draft.visibility,
+          specificUserIds:
+            draft.visibility === "specific_users" ? draft.specificUserIds : [],
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Could not save report access.");
       }
-      setStatus(payload?.message || "Report access saved.");
+
+      if (payload?.configuration) {
+        setConfigurations((current) =>
+          current.map((item) =>
+            item.key === configuration.key ? payload.configuration : item,
+          ),
+        );
+      }
+      setStatusByKey((current) => ({
+        ...current,
+        [configuration.key]: payload?.message || "Report access saved.",
+      }));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save report access.");
     } finally {
-      setSaving(false);
+      setSavingKey("");
     }
   }
 
@@ -173,7 +236,7 @@ export default function ReportConfigurationsPage() {
           <div>
             <h1 style={{ margin: 0, color: "#0F172A", fontSize: "30px" }}>Report Access</h1>
             <p style={{ margin: "6px 0 0", color: "#64748B" }}>
-              Share reports by audience while preserving MGO workspace boundaries.
+              Share reports by audience. Blackbaud data access remains tied to each user&apos;s connection.
             </p>
           </div>
         </div>
@@ -203,117 +266,148 @@ export default function ReportConfigurationsPage() {
             </p>
           </section>
         ) : (
-          <section style={panelStyle}>
-            <div style={{ borderBottom: "1px solid #E2E8F0", paddingBottom: "18px" }}>
-              <h2 style={{ margin: 0, color: "#0F172A", fontSize: "21px" }}>Portfolio Giving</h2>
-              <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                Current fiscal-year giving activity for an MGO portfolio. Admins retain access so they can manage this setting.
-              </p>
-            </div>
+          <div style={{ display: "grid", gap: "20px" }}>
+            {configurations.map((configuration) => {
+              const draft = drafts[configuration.key] || {
+                visibility: "all_users",
+                specificUserIds: [],
+              };
+              const descriptions = getAudienceDescriptions(configuration);
+              const isSaving = savingKey === configuration.key;
 
-            <fieldset style={{ border: 0, padding: 0, margin: "22px 0 0" }}>
-              <legend style={{ color: "#334155", fontSize: "15px", fontWeight: 800, marginBottom: "12px" }}>
-                Who can view this report?
-              </legend>
-              <div style={{ display: "grid", gap: "11px" }}>
-                <AudienceOption
-                  checked={visibility === "all_users"}
-                  description="Every active user can open the report. An MGO still sees only their own portfolio unless they are an Executive."
-                  name="report-visibility"
-                  onChange={() => setVisibility("all_users")}
-                  title="All active users"
-                  value="all_users"
-                />
-                <AudienceOption
-                  checked={visibility === "executive"}
-                  description="Executives can use their read-only MGO workspace selector. MGO users do not gain access."
-                  name="report-visibility"
-                  onChange={() => setVisibility("executive")}
-                  title="Executives"
-                  value="executive"
-                />
-                <AudienceOption
-                  checked={visibility === "specific_users"}
-                  description="Choose individual active users who should be able to open this report."
-                  name="report-visibility"
-                  onChange={() => setVisibility("specific_users")}
-                  title="Specific users"
-                  value="specific_users"
-                />
-              </div>
-            </fieldset>
+              return (
+                <section key={configuration.key} style={panelStyle}>
+                  <div style={{ borderBottom: "1px solid #E2E8F0", paddingBottom: "18px" }}>
+                    <h2 style={{ margin: 0, color: "#0F172A", fontSize: "21px" }}>
+                      {configuration.title}
+                    </h2>
+                    <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5 }}>
+                      {configuration.description}
+                    </p>
+                    {configuration.key === "future-made-phase-ii" ? (
+                      <p style={{ margin: "10px 0 0", color: "#1D4ED8", lineHeight: 1.5, fontWeight: 700 }}>
+                        This report always uses the full saved NXT query, not the selected MGO portfolio.
+                      </p>
+                    ) : null}
+                  </div>
 
-            {visibility === "specific_users" ? (
-              <section style={{ marginTop: "20px" }} aria-label="Select report users">
-                <h3 style={{ color: "#334155", fontSize: "15px", margin: "0 0 10px" }}>Selected users</h3>
-                <div style={{ display: "grid", gap: "8px", maxHeight: "360px", overflowY: "auto" }}>
-                  {users.map((workspaceUser) => {
-                    const userId = Number(workspaceUser.id);
-                    const checked = selectedUserIds.includes(userId);
-                    return (
-                      <label
-                        key={workspaceUser.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          border: "1px solid #E2E8F0",
-                          borderRadius: "10px",
-                          padding: "11px 12px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          name={`report-user-${workspaceUser.id}`}
-                          checked={checked}
-                          onChange={() => toggleUser(userId)}
-                        />
-                        <span style={{ minWidth: 0 }}>
-                          <strong style={{ display: "block", color: "#0F172A" }}>
-                            {workspaceUser.name || workspaceUser.email}
-                          </strong>
-                          <span style={{ color: "#64748B", fontSize: "13px" }}>
-                            {workspaceUser.email} · {getWorkspaceRoleLabel(workspaceUser.role)}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-                {selectedUserIds.length === 0 ? (
-                  <p style={{ color: "#B45309", margin: "10px 0 0", fontWeight: 700 }}>
-                    Select at least one active user before saving.
+                  <fieldset style={{ border: 0, padding: 0, margin: "22px 0 0" }}>
+                    <legend style={{ color: "#334155", fontSize: "15px", fontWeight: 800, marginBottom: "12px" }}>
+                      Who can view this report?
+                    </legend>
+                    <div style={{ display: "grid", gap: "11px" }}>
+                      <AudienceOption
+                        checked={draft.visibility === "all_users"}
+                        description={descriptions.allUsers}
+                        name={`report-visibility-${configuration.key}`}
+                        onChange={() => updateDraft(configuration.key, { visibility: "all_users" })}
+                        title="All active users"
+                        value="all_users"
+                      />
+                      <AudienceOption
+                        checked={draft.visibility === "executive"}
+                        description={descriptions.executives}
+                        name={`report-visibility-${configuration.key}`}
+                        onChange={() => updateDraft(configuration.key, { visibility: "executive" })}
+                        title="Executives"
+                        value="executive"
+                      />
+                      <AudienceOption
+                        checked={draft.visibility === "specific_users"}
+                        description={descriptions.specificUsers}
+                        name={`report-visibility-${configuration.key}`}
+                        onChange={() => updateDraft(configuration.key, { visibility: "specific_users" })}
+                        title="Specific users"
+                        value="specific_users"
+                      />
+                    </div>
+                  </fieldset>
+
+                  {draft.visibility === "specific_users" ? (
+                    <section style={{ marginTop: "20px" }} aria-label={`Select users for ${configuration.title}`}>
+                      <h3 style={{ color: "#334155", fontSize: "15px", margin: "0 0 10px" }}>Selected users</h3>
+                      <div style={{ display: "grid", gap: "8px", maxHeight: "360px", overflowY: "auto" }}>
+                        {users.map((workspaceUser) => {
+                          const userId = Number(workspaceUser.id);
+                          const checked = draft.specificUserIds.includes(userId);
+                          return (
+                            <label
+                              key={workspaceUser.id}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "10px",
+                                border: "1px solid #E2E8F0",
+                                borderRadius: "10px",
+                                padding: "11px 12px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                name={`report-${configuration.key}-user-${workspaceUser.id}`}
+                                checked={checked}
+                                onChange={() => toggleUser(configuration.key, userId)}
+                              />
+                              <span style={{ minWidth: 0 }}>
+                                <strong style={{ display: "block", color: "#0F172A" }}>
+                                  {workspaceUser.name || workspaceUser.email}
+                                </strong>
+                                <span style={{ color: "#64748B", fontSize: "13px" }}>
+                                  {workspaceUser.email} · {getWorkspaceRoleLabel(workspaceUser.role)}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {draft.specificUserIds.length === 0 ? (
+                        <p style={{ color: "#B45309", margin: "10px 0 0", fontWeight: 700 }}>
+                          Select at least one active user before saving.
+                        </p>
+                      ) : null}
+                    </section>
+                  ) : null}
+
+                  <p style={{ margin: "18px 0 0", color: "#64748B", lineHeight: 1.5, fontSize: "14px" }}>
+                    Each person still needs a connected Blackbaud account with permission to read the report&apos;s data.
                   </p>
-                ) : null}
-              </section>
-            ) : null}
 
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", marginTop: "24px" }}>
-              <button
-                type="button"
-                onClick={saveConfiguration}
-                disabled={saving || (visibility === "specific_users" && selectedUserIds.length === 0)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  minHeight: "44px",
-                  border: 0,
-                  borderRadius: "10px",
-                  padding: "0 16px",
-                  backgroundColor: saving ? "#A5B4FC" : "#4F46E5",
-                  color: "white",
-                  fontWeight: 800,
-                  cursor: saving ? "wait" : "pointer",
-                }}
-              >
-                <Save size={17} />
-                {saving ? "Saving..." : "Save report access"}
-              </button>
-              {status ? <span role="status" style={{ color: "#047857", fontWeight: 800 }}>{status}</span> : null}
-            </div>
-          </section>
+                  <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", marginTop: "20px" }}>
+                    <button
+                      type="button"
+                      onClick={() => saveConfiguration(configuration)}
+                      disabled={
+                        isSaving ||
+                        (draft.visibility === "specific_users" && draft.specificUserIds.length === 0)
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        minHeight: "44px",
+                        border: 0,
+                        borderRadius: "10px",
+                        padding: "0 16px",
+                        backgroundColor: isSaving ? "#A5B4FC" : "#4F46E5",
+                        color: "white",
+                        fontWeight: 800,
+                        cursor: isSaving ? "wait" : "pointer",
+                      }}
+                    >
+                      <Save size={17} />
+                      {isSaving ? "Saving..." : "Save report access"}
+                    </button>
+                    {statusByKey[configuration.key] ? (
+                      <span role="status" style={{ color: "#047857", fontWeight: 800 }}>
+                        {statusByKey[configuration.key]}
+                      </span>
+                    ) : null}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         )}
       </div>
     </main>

@@ -22,6 +22,9 @@ const BLACKBAUD_CONSTITUENT_BASE_URL =
 const BLACKBAUD_GIFTS_URL = "https://api.sky.blackbaud.com/gift/v1/gifts";
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
+const BLACKBAUD_QUERY_V1_URL = "https://api.sky.blackbaud.com/query/v1/queries";
+const BLACKBAUD_QUERY_V2_URL = "https://api.sky.blackbaud.com/query/v2/queries";
+const BLACKBAUD_QUERY_JOBS_URL = "https://api.sky.blackbaud.com/query/v1/jobs";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
 const DEFAULT_BLACKBAUD_SCOPES = "offline_access rnxt.r rnxt.w rnxt.d";
@@ -376,6 +379,101 @@ export async function blackbaudApiFetch(
   }
 
   throw new Error("Blackbaud request failed after retries");
+}
+
+function getBlackbaudCollection(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.value)) return payload.value;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.queries)) return payload.queries;
+  return [];
+}
+
+function getBlackbaudQueryId(query) {
+  return String(query?.id ?? query?.query_id ?? query?.queryId ?? "").trim();
+}
+
+function getBlackbaudQueryName(query) {
+  return String(query?.name ?? query?.query_name ?? query?.queryName ?? "").trim();
+}
+
+function isBlackbaudNotFoundError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /(?:404|not found|resource not found)/i.test(message);
+}
+
+export async function findBlackbaudQueryByName({ userId, authUserId, origin, name }) {
+  const normalizedName = String(name || "").trim().toLocaleLowerCase("en-US");
+  if (!normalizedName) return null;
+
+  const endpoints = [BLACKBAUD_QUERY_V2_URL, BLACKBAUD_QUERY_V1_URL];
+  for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex += 1) {
+    let path = endpoints[endpointIndex];
+    try {
+      for (let page = 0; path && page < 20; page += 1) {
+        const payload = await blackbaudApiFetch(path, { userId, authUserId, origin });
+        const match = getBlackbaudCollection(payload).find(
+          (query) => getBlackbaudQueryName(query).toLocaleLowerCase("en-US") === normalizedName,
+        );
+        if (match) {
+          const id = getBlackbaudQueryId(match);
+          if (id) return { id, name: getBlackbaudQueryName(match) };
+        }
+
+        path = payload?.next_link || payload?.nextLink || null;
+      }
+    } catch (error) {
+      const hasFallback = endpointIndex < endpoints.length - 1;
+      if (!hasFallback || !isBlackbaudNotFoundError(error)) throw error;
+    }
+  }
+
+  return null;
+}
+
+export async function createBlackbaudQueryJob({ userId, authUserId, origin, queryId }) {
+  if (!queryId) throw new Error("A Blackbaud query ID is required");
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_QUERY_V1_URL}/${encodeURIComponent(queryId)}/jobs`,
+    {
+      userId,
+      authUserId,
+      origin,
+      method: "POST",
+      body: {},
+    },
+  );
+}
+
+export async function getBlackbaudQueryJob({ userId, authUserId, origin, jobId }) {
+  if (!jobId) throw new Error("A Blackbaud query job ID is required");
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_QUERY_JOBS_URL}/${encodeURIComponent(jobId)}`,
+    { userId, authUserId, origin },
+  );
+}
+
+export async function downloadBlackbaudQueryResult(resultUrl) {
+  const url = new URL(String(resultUrl || ""));
+  if (url.protocol !== "https:") {
+    throw new Error("The Blackbaud query result URL must use HTTPS");
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/csv,text/plain,application/json",
+    },
+  });
+  const content = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Blackbaud query result download failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return content;
 }
 
 export async function searchBlackbaudConstituents({ userId, authUserId, origin, query }) {

@@ -394,12 +394,16 @@ export default function ReportsPage() {
         const configuration = Array.isArray(payload?.configurations)
           ? payload.configurations.find((item) => item.key === "portfolio-fy-giving")
           : null;
+        const futureMadeConfiguration = Array.isArray(payload?.configurations)
+          ? payload.configurations.find((item) => item.key === "future-made-phase-ii")
+          : null;
         if (!configuration) {
           throw new Error("Portfolio Giving access could not be loaded.");
         }
         if (active) {
           setReportAccessStatus({
             configuration,
+            futureMadeConfiguration,
             canManage: Boolean(payload?.canManage),
           });
         }
@@ -422,6 +426,7 @@ export default function ReportsPage() {
 
   const canUseExecutiveView = canUseExecutiveViewRole(profileStatus?.user?.role);
   const reportAccess = reportAccessStatus?.configuration || null;
+  const futureMadeReportAccess = reportAccessStatus?.futureMadeConfiguration || null;
   const canManageReports = Boolean(reportAccessStatus?.canManage);
 
   useEffect(() => {
@@ -917,6 +922,25 @@ export default function ReportsPage() {
                 }}
               >
                 Configure access
+              </a>
+            ) : null}
+            {futureMadeReportAccess?.canView ? (
+              <a
+                href="/reports/future-made-phase-ii"
+                style={{
+                  minHeight: "42px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: "10px",
+                  border: "1px solid #C4B5FD",
+                  backgroundColor: "#F5F3FF",
+                  color: "#5B21B6",
+                  padding: "0 14px",
+                  fontSize: "14px",
+                  fontWeight: 800,
+                }}
+              >
+                Future. Made. Phase II
               </a>
             ) : null}
             <button

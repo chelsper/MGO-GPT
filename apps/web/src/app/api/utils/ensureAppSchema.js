@@ -1955,6 +1955,23 @@ export default async function ensureAppSchema() {
       )
       ON CONFLICT (report_key) DO NOTHING
     `;
+    await sql`
+      INSERT INTO report_configurations (
+        report_key,
+        title,
+        description,
+        visibility,
+        specific_user_ids
+      )
+      VALUES (
+        'future-made-phase-ii',
+        'Future. Made. Phase II',
+        'View every constituent returned by the saved Future. Made. Phase II NXT query.',
+        'all_users',
+        '[]'::jsonb
+      )
+      ON CONFLICT (report_key) DO NOTHING
+    `;
   })();
 
   return schemaReadyPromise;
