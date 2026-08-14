@@ -1347,6 +1347,10 @@ export default async function ensureAppSchema() {
       ON pending_actions (owner_user_id, prospect_id, is_primary, status, updated_at DESC)
     `;
     await sql`
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_constituent_primary
+      ON pending_actions (owner_user_id, constituent_id, is_primary, status, updated_at DESC)
+    `;
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_data_change_requests_status_updated
       ON data_change_requests (status, updated_at DESC)
     `;

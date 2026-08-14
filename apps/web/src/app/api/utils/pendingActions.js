@@ -27,18 +27,43 @@ export async function syncPrimaryPendingAction({
   const normalizedDueDate = dueDate || null;
   const normalizedCompletedAt = completedAt || null;
   const normalizedCategory = normalizeText(category) || "General";
+  const normalizedProspectId =
+    Number.isInteger(Number(prospectId)) && Number(prospectId) > 0
+      ? Number(prospectId)
+      : null;
+  const normalizedConstituentId =
+    Number.isInteger(Number(constituentId)) && Number(constituentId) > 0
+      ? Number(constituentId)
+      : null;
 
-  const existingRows = await sql`
-    SELECT *
-    FROM pending_actions
-    WHERE owner_user_id = ${ownerUserId}
-      AND prospect_id = ${prospectId}
-      AND is_primary = TRUE
-    ORDER BY
-      CASE WHEN status = 'Open' THEN 0 ELSE 1 END,
-      updated_at DESC
-    LIMIT 1
-  `;
+  if (!normalizedProspectId && !normalizedConstituentId) {
+    throw new Error("A pending action must be connected to a prospect or constituent");
+  }
+
+  const existingRows = normalizedProspectId
+    ? await sql`
+        SELECT *
+        FROM pending_actions
+        WHERE owner_user_id = ${ownerUserId}
+          AND prospect_id = ${normalizedProspectId}
+          AND is_primary = TRUE
+        ORDER BY
+          CASE WHEN status = 'Open' THEN 0 ELSE 1 END,
+          updated_at DESC
+        LIMIT 1
+      `
+    : await sql`
+        SELECT *
+        FROM pending_actions
+        WHERE owner_user_id = ${ownerUserId}
+          AND prospect_id IS NULL
+          AND constituent_id = ${normalizedConstituentId}
+          AND is_primary = TRUE
+        ORDER BY
+          CASE WHEN status = 'Open' THEN 0 ELSE 1 END,
+          updated_at DESC
+        LIMIT 1
+      `;
 
   const existing = existingRows[0] || null;
 
@@ -58,19 +83,30 @@ export async function syncPrimaryPendingAction({
     return rows[0] || null;
   }
 
-  await sql`
-    UPDATE pending_actions
-    SET is_primary = FALSE
-    WHERE owner_user_id = ${ownerUserId}
-      AND prospect_id = ${prospectId}
-      AND id <> COALESCE(${existing?.id || null}, 0)
-  `;
+  if (normalizedProspectId) {
+    await sql`
+      UPDATE pending_actions
+      SET is_primary = FALSE
+      WHERE owner_user_id = ${ownerUserId}
+        AND prospect_id = ${normalizedProspectId}
+        AND id <> COALESCE(${existing?.id || null}, 0)
+    `;
+  } else {
+    await sql`
+      UPDATE pending_actions
+      SET is_primary = FALSE
+      WHERE owner_user_id = ${ownerUserId}
+        AND prospect_id IS NULL
+        AND constituent_id = ${normalizedConstituentId}
+        AND id <> COALESCE(${existing?.id || null}, 0)
+    `;
+  }
 
   if (existing) {
     const rows = await sql`
       UPDATE pending_actions
       SET
-        constituent_id = COALESCE(${constituentId}, constituent_id),
+        constituent_id = COALESCE(${normalizedConstituentId}, constituent_id),
         prospect_opportunity_id = COALESCE(${prospectOpportunityId}, prospect_opportunity_id),
         title = ${normalizedTitle},
         details = ${normalizedDetails},
@@ -106,8 +142,8 @@ export async function syncPrimaryPendingAction({
       completed_at
     ) VALUES (
       ${ownerUserId},
-      ${prospectId},
-      ${constituentId},
+      ${normalizedProspectId},
+      ${normalizedConstituentId},
       ${prospectOpportunityId},
       ${normalizedTitle},
       ${normalizedDetails},

@@ -22,6 +22,7 @@ export async function GET(request) {
     const status = requestedStatus === "all" ? null : requestedStatus || "Open";
     const category = url.searchParams.get("category");
     const prospectId = url.searchParams.get("prospectId");
+    const constituentId = url.searchParams.get("constituentId");
 
     const rows = await sql`
       SELECT
@@ -35,6 +36,7 @@ export async function GET(request) {
         AND (${status}::TEXT IS NULL OR pa.status = ${status})
         AND (${category || null}::TEXT IS NULL OR pa.category = ${category || null})
         AND (${prospectId || null}::BIGINT IS NULL OR pa.prospect_id = ${prospectId || null})
+        AND (${constituentId || null}::BIGINT IS NULL OR pa.constituent_id = ${constituentId || null})
       ORDER BY
         CASE WHEN pa.status = 'Open' THEN 0 ELSE 1 END,
         CASE WHEN pa.is_primary THEN 0 ELSE 1 END,
@@ -64,17 +66,35 @@ export async function POST(request) {
     const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
     const body = await request.json();
 
-    if (!body?.prospectId || !String(body?.title || "").trim()) {
+    const prospectId = Number(body?.prospectId);
+    const constituentId = Number(body?.constituentId);
+    const hasProspectId = Number.isInteger(prospectId) && prospectId > 0;
+    const hasConstituentId = Number.isInteger(constituentId) && constituentId > 0;
+
+    if (!String(body?.title || "").trim() || (!hasProspectId && !hasConstituentId)) {
       return Response.json(
-        { error: "prospectId and title are required" },
+        { error: "A constituent or prospect and title are required" },
         { status: 400 },
       );
     }
 
+    if (hasProspectId) {
+      const prospectRows = await sql`
+        SELECT id
+        FROM prospects
+        WHERE id = ${prospectId}
+          AND user_id = ${user.id}
+        LIMIT 1
+      `;
+      if (!prospectRows[0]) {
+        return Response.json({ error: "Prospect not found" }, { status: 404 });
+      }
+    }
+
     const result = await syncPrimaryPendingAction({
       ownerUserId: user.id,
-      prospectId: Number(body.prospectId),
-      constituentId: body.constituentId || null,
+      prospectId: hasProspectId ? prospectId : null,
+      constituentId: hasConstituentId ? constituentId : null,
       prospectOpportunityId: body.prospectOpportunityId || null,
       title: body.title,
       details: body.details || null,
@@ -102,8 +122,8 @@ export async function POST(request) {
       ownerUserId: user.id,
       createdByUserId: sessionUser?.id || user.id,
       pendingActionId: result?.id,
-      prospectId: result?.prospect_id || Number(body.prospectId),
-      constituentId: result?.constituent_id || body.constituentId || null,
+      prospectId: result?.prospect_id || (hasProspectId ? prospectId : null),
+      constituentId: result?.constituent_id || (hasConstituentId ? constituentId : null),
       title: result?.title || body.title,
       dueDate: result?.due_date || body.dueDate || null,
       needsDiscussion: Boolean(result?.needs_discussion),

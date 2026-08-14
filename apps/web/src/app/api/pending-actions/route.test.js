@@ -80,7 +80,7 @@ describe("pending actions route", () => {
       discussion_note: null,
       discussion_item_id: null,
     });
-    queueSqlResult([]);
+    queueSqlResult([{ id: 7 }]);
 
     const request = new Request("https://example.com/api/pending-actions", {
       method: "POST",
@@ -123,7 +123,7 @@ describe("pending actions route", () => {
       discussion_note: null,
       discussion_item_id: null,
     });
-    queueSqlResult([]);
+    queueSqlResult([{ id: 7 }]);
 
     const request = new Request("https://example.com/api/pending-actions", {
       method: "POST",
@@ -171,5 +171,49 @@ describe("pending actions route", () => {
 
     expect(selectCall).toBeTruthy();
     expect(Array.from(selectCall).slice(1)).toContain("Stewardship");
+  });
+
+  it("creates a constituent-scoped next step without requiring a prospect record", async () => {
+    const { POST } = await import("./route.js");
+
+    syncPrimaryPendingActionMock.mockResolvedValue({
+      id: 903,
+      prospect_id: null,
+      constituent_id: 88,
+      title: "Call before the visit",
+      due_date: "2026-08-20",
+      category: "General",
+      status: "Open",
+      is_primary: true,
+      needs_discussion: false,
+      discussion_note: null,
+      discussion_item_id: null,
+    });
+
+    const request = new Request("https://example.com/api/pending-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        constituentId: 88,
+        title: "Call before the visit",
+        dueDate: "2026-08-20",
+      }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload).toMatchObject({ id: 903, constituent_id: 88 });
+    expect(syncPrimaryPendingActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prospectId: null, constituentId: 88 }),
+    );
+
+    const prospectLookup = sqlMockImpl.mock.calls.find(([firstArg]) => {
+      const text = Array.isArray(firstArg) ? firstArg.join("") : String(firstArg);
+      return text.includes("FROM prospects");
+    });
+
+    expect(prospectLookup).toBeUndefined();
   });
 });
