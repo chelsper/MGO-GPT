@@ -6,6 +6,7 @@ import sql from "@/app/api/utils/sql";
 import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
+  getBlackbaudConstituentById,
   getBlackbaudConfigIssues,
   listBlackbaudFundraiserAssignments,
   searchBlackbaudConstituents,
@@ -13,9 +14,11 @@ import {
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-// v8 distinguishes fast assignment cards with contact-source metadata from
-// older cached cards that treated absent local values as missing NXT data.
-const PORTFOLIO_CACHE_VERSION = "v8";
+const PORTFOLIO_IDENTITY_LOOKUP_TIMEOUT_MS = 1500;
+const PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY = 6;
+// v9 adds a bounded identity-only lookup for assignment records that omit a
+// constituent name. It never loads full contact or gift summaries per card.
+const PORTFOLIO_CACHE_VERSION = "v9";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -197,22 +200,26 @@ function enrichConstituents({
   groupedAssignments,
   localDetailsByConstituentId,
   cachedNxtDetailsByConstituentId,
+  liveIdentityByConstituentId,
 }) {
   return Array.from(groupedAssignments.values())
     .map((entry) => {
       const localDetails = localDetailsByConstituentId.get(String(entry.constituentId)) || {};
       const cachedNxtDetails =
         cachedNxtDetailsByConstituentId.get(String(entry.constituentId)) || {};
+      const liveIdentity =
+        liveIdentityByConstituentId.get(String(entry.constituentId)) || {};
       const hasCachedNxtContact = Boolean(
         cachedNxtDetails.email || cachedNxtDetails.phone || cachedNxtDetails.address,
       );
       const hasLocalContact = Boolean(localDetails.email || localDetails.phone);
       return {
         constituentId: entry.constituentId,
-        lookupId: entry.lookupId || null,
+        lookupId: entry.lookupId || liveIdentity.lookupId || null,
         name:
           cachedNxtDetails.name ||
           localDetails.name ||
+          liveIdentity.name ||
           entry.name ||
           `NXT constituent ${entry.constituentId}`,
         email: cachedNxtDetails.email || localDetails.email || null,
@@ -233,6 +240,64 @@ function enrichConstituents({
     .sort((left, right) =>
       String(left?.name || "").localeCompare(String(right?.name || ""), "en"),
     );
+}
+
+function withTimeout(promise, timeoutMs, fallback = null) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
+  ]);
+}
+
+async function getLivePortfolioIdentities({
+  userId,
+  authUserId,
+  origin,
+  groupedAssignments,
+  localDetailsByConstituentId,
+  cachedNxtDetailsByConstituentId,
+}) {
+  const entries = Array.from(groupedAssignments.values()).filter((entry) => {
+    const localDetails = localDetailsByConstituentId.get(String(entry.constituentId)) || {};
+    const cachedNxtDetails =
+      cachedNxtDetailsByConstituentId.get(String(entry.constituentId)) || {};
+    return !cachedNxtDetails.name && !localDetails.name && !entry.name;
+  });
+
+  const identities = new Map();
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < entries.length) {
+      const entry = entries[nextIndex];
+      nextIndex += 1;
+      const identity = await withTimeout(
+        getBlackbaudConstituentById({
+          userId,
+          authUserId,
+          origin,
+          constituentId: entry.constituentId,
+        }).catch(() => null),
+        PORTFOLIO_IDENTITY_LOOKUP_TIMEOUT_MS,
+      );
+
+      if (identity?.name || identity?.lookupId) {
+        identities.set(String(entry.constituentId), {
+          name: identity.name || null,
+          lookupId: identity.lookupId || null,
+        });
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY, entries.length) },
+      () => worker(),
+    ),
+  );
+
+  return identities;
 }
 
 function getCacheAgeMs(timestamp) {
@@ -644,6 +709,15 @@ export async function GET(request) {
       }),
     ]);
 
+    const liveIdentityByConstituentId = await getLivePortfolioIdentities({
+      userId: workspaceUser.id,
+      authUserId,
+      origin,
+      groupedAssignments: new Map([...leadAssignments, ...supportAssignments]),
+      localDetailsByConstituentId,
+      cachedNxtDetailsByConstituentId,
+    });
+
     // Portfolio assignment data is enough to render cards immediately. Full
     // NXT constituent details remain available through each card's on-demand
     // NXT Summary control instead of blocking the whole page.
@@ -651,11 +725,13 @@ export async function GET(request) {
       groupedAssignments: leadAssignments,
       localDetailsByConstituentId,
       cachedNxtDetailsByConstituentId,
+      liveIdentityByConstituentId,
     });
     const supportingSolicitor = enrichConstituents({
       groupedAssignments: supportAssignments,
       localDetailsByConstituentId,
       cachedNxtDetailsByConstituentId,
+      liveIdentityByConstituentId,
     });
 
     const responsePayload = {

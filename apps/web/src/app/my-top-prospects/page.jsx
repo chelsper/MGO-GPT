@@ -852,14 +852,36 @@ function PortfolioCategoryManagerModal({
   onCreate,
   onRename,
   onDelete,
+  onChangeParent,
+  onMoveCategory,
   isCreating = false,
   renamingCategoryId = "",
   deletingCategoryId = "",
+  changingCategoryParentId = "",
+  movingCategoryId = "",
 }) {
   const [newName, setNewName] = useState("");
   const [editingCategoryId, setEditingCategoryId] = useState("");
   const [editingName, setEditingName] = useState("");
   const [error, setError] = useState("");
+  const categoryById = new Map(
+    categories.map((category) => [String(category.id), category]),
+  );
+
+  const isDescendantOf = (category, possibleAncestorId) => {
+    let current = category;
+    const visited = new Set();
+
+    while (current?.parent_category_id && !visited.has(String(current.id))) {
+      visited.add(String(current.id));
+      if (String(current.parent_category_id) === String(possibleAncestorId)) {
+        return true;
+      }
+      current = categoryById.get(String(current.parent_category_id));
+    }
+
+    return false;
+  };
 
   const submitNewCategory = async (event) => {
     event.preventDefault();
@@ -905,7 +927,7 @@ function PortfolioCategoryManagerModal({
 
   const deleteCategory = async (category) => {
     const confirmed = window.confirm(
-      `Delete ${category.name}? Constituents in this category will become Uncategorized. This does not change anything in NXT.`,
+      `Delete ${category.name}? Constituents in this category will become Uncategorized, and its subcategories will become top-level categories. This does not change anything in NXT.`,
     );
     if (!confirmed) return;
 
@@ -921,6 +943,32 @@ function PortfolioCategoryManagerModal({
         submissionError instanceof Error
           ? submissionError.message
           : "Unable to delete this category.",
+      );
+    }
+  };
+
+  const changeCategoryParent = async (category, parentCategoryId) => {
+    try {
+      setError("");
+      await onChangeParent(category, parentCategoryId);
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to move this category.",
+      );
+    }
+  };
+
+  const moveCategory = async (category, direction) => {
+    try {
+      setError("");
+      await onMoveCategory(category, direction);
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to reorder this category.",
       );
     }
   };
@@ -1057,6 +1105,31 @@ function PortfolioCategoryManagerModal({
                 const isEditing = editingCategoryId === String(category.id);
                 const isRenaming = String(renamingCategoryId || "") === String(category.id);
                 const isDeleting = String(deletingCategoryId || "") === String(category.id);
+                const isChangingParent =
+                  String(changingCategoryParentId || "") === String(category.id);
+                const isMoving = String(movingCategoryId || "") === String(category.id);
+                const parentCategory = categoryById.get(
+                  String(category.parent_category_id || ""),
+                );
+                const parentCandidates = categories.filter(
+                  (candidate) =>
+                    String(candidate.id) !== String(category.id) &&
+                    !isDescendantOf(candidate, category.id),
+                );
+                const siblings = categories
+                  .filter(
+                    (candidate) =>
+                      String(candidate.parent_category_id || "") ===
+                      String(category.parent_category_id || ""),
+                  )
+                  .sort(
+                    (left, right) =>
+                      Number(left.sort_order || 0) - Number(right.sort_order || 0) ||
+                      Number(left.id) - Number(right.id),
+                  );
+                const siblingIndex = siblings.findIndex(
+                  (candidate) => String(candidate.id) === String(category.id),
+                );
 
                 return (
                   <div
@@ -1168,6 +1241,94 @@ function PortfolioCategoryManagerModal({
                         </div>
                       </div>
                     )}
+                    {!isEditing ? (
+                      <div style={{ marginTop: "11px", display: "grid", gap: "10px" }}>
+                        <label style={{ display: "grid", gap: "5px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "700", color: "#4B5563" }}>
+                            Parent category
+                          </span>
+                          <select
+                            value={category.parent_category_id || ""}
+                            onChange={(event) =>
+                              changeCategoryParent(category, event.target.value || null)
+                            }
+                            disabled={isChangingParent || isDeleting}
+                            style={fieldStyle}
+                          >
+                            <option value="">Top level</option>
+                            {parentCandidates.map((candidate) => (
+                              <option key={candidate.id} value={candidate.id}>
+                                {candidate.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => moveCategory(category, "up")}
+                            disabled={isMoving || isDeleting || siblingIndex <= 0}
+                            style={{
+                              border: "1px solid #C7D2FE",
+                              borderRadius: "7px",
+                              padding: "8px 10px",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              cursor: isMoving || isDeleting || siblingIndex <= 0 ? "not-allowed" : "pointer",
+                              opacity: isMoving || isDeleting || siblingIndex <= 0 ? 0.55 : 1,
+                            }}
+                          >
+                            Move up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveCategory(category, "down")}
+                            disabled={
+                              isMoving ||
+                              isDeleting ||
+                              siblingIndex < 0 ||
+                              siblingIndex >= siblings.length - 1
+                            }
+                            style={{
+                              border: "1px solid #C7D2FE",
+                              borderRadius: "7px",
+                              padding: "8px 10px",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              cursor:
+                                isMoving ||
+                                isDeleting ||
+                                siblingIndex < 0 ||
+                                siblingIndex >= siblings.length - 1
+                                  ? "not-allowed"
+                                  : "pointer",
+                              opacity:
+                                isMoving ||
+                                isDeleting ||
+                                siblingIndex < 0 ||
+                                siblingIndex >= siblings.length - 1
+                                  ? 0.55
+                                  : 1,
+                            }}
+                          >
+                            Move down
+                          </button>
+                          <span style={{ fontSize: "12px", color: "#6B7280" }}>
+                            {isChangingParent
+                              ? "Moving category..."
+                              : isMoving
+                                ? "Reordering category..."
+                                : parentCategory
+                                  ? `Inside ${parentCategory.name}`
+                                  : "Top level"}
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })
@@ -1238,7 +1399,6 @@ function PortfolioTier({
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
   const [summaryStates, setSummaryStates] = useState({});
-  const [contactStates, setContactStates] = useState({});
   const hasLifetimeGiving = (person) =>
     person?.lifetimeGiving?.totalGiving !== null &&
     person?.lifetimeGiving?.totalGiving !== undefined &&
@@ -1279,41 +1439,6 @@ function PortfolioTier({
         [constituentId]: {
           status: "error",
           error: error instanceof Error ? error.message : "Failed to load NXT summary",
-        },
-      }));
-    }
-  };
-
-  const loadContactDetails = async (constituentId) => {
-    if (!constituentId || contactStates[constituentId]?.status === "loading") {
-      return;
-    }
-
-    setContactStates((current) => ({
-      ...current,
-      [constituentId]: { status: "loading" },
-    }));
-
-    try {
-      const response = await fetch(
-        `/api/blackbaud/constituents/${constituentId}/summary?contact_only=true`,
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load NXT contact details");
-      }
-
-      setContactStates((current) => ({
-        ...current,
-        [constituentId]: { status: "success", payload },
-      }));
-    } catch (error) {
-      setContactStates((current) => ({
-        ...current,
-        [constituentId]: {
-          status: "error",
-          error:
-            error instanceof Error ? error.message : "Failed to load NXT contact details",
         },
       }));
     }
@@ -1381,16 +1506,13 @@ function PortfolioTier({
                   String(person.constituentId || ""),
                 );
                 const summaryState = summaryStates[person.constituentId];
-                const contactState = contactStates[person.constituentId];
                 const isSummaryExpanded = Boolean(
                   expandedSummaries[person.constituentId],
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
                 const loadedNxtConstituent =
-                  summaryState?.payload?.mapped?.constituent ||
-                  contactState?.payload?.mapped?.constituent ||
-                  null;
+                  summaryState?.payload?.mapped?.constituent || null;
                 const contactPerson = loadedNxtConstituent
                   ? {
                       ...person,
@@ -1400,9 +1522,7 @@ function PortfolioTier({
                       contactDataSource: "nxt-summary-cache",
                     }
                   : person;
-                const canLoadContactDetails =
-                  !formatPortfolioContact(contactPerson) &&
-                  contactState?.status !== "success";
+                const contactDisplay = getPortfolioContactDisplay(contactPerson);
                 const portfolioGivingSocieties =
                   annualGivingSocietiesByConstituentId[
                     String(person.constituentId || "")
@@ -1480,7 +1600,7 @@ function PortfolioTier({
                         fontWeight: 800,
                       }}
                     >
-                      {portfolioCategory.name}
+                      {portfolioCategory.displayName || portfolioCategory.name}
                     </span>
                   ) : null}
                   <AnnualGivingSocietyBadge annualGivingSocieties={annualGivingSocieties} />
@@ -1500,48 +1620,11 @@ function PortfolioTier({
                   </div>
                 ) : null}
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  flexWrap: "wrap",
-                  fontSize: "13px",
-                  color: "#4B5563",
-                  lineHeight: 1.5,
-                }}
-              >
-                <span>
-                  {contactState?.status === "error"
-                    ? "NXT contact details could not load."
-                    : getPortfolioContactDisplay(contactPerson)}
-                </span>
-                {canLoadContactDetails ? (
-                  <button
-                    type="button"
-                    onClick={() => loadContactDetails(person.constituentId)}
-                    disabled={contactState?.status === "loading"}
-                    style={{
-                      border: "1px solid #BFDBFE",
-                      borderRadius: "999px",
-                      backgroundColor: "white",
-                      color: "#1D4ED8",
-                      padding: "5px 9px",
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      cursor:
-                        contactState?.status === "loading" ? "not-allowed" : "pointer",
-                      opacity: contactState?.status === "loading" ? 0.7 : 1,
-                    }}
-                  >
-                    {contactState?.status === "loading"
-                      ? "Loading NXT contact details..."
-                      : contactState?.status === "error"
-                        ? "Try again"
-                        : "Load NXT contact details"}
-                  </button>
-                ) : null}
-              </div>
+              {contactDisplay ? (
+                <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
+                  {contactDisplay}
+                </div>
+              ) : null}
               {contactPerson.address ? (
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                   {contactPerson.address}
@@ -1716,7 +1799,7 @@ function PortfolioTier({
                             <option value="">Uncategorized</option>
                             {portfolioCategories.map((category) => (
                               <option key={category.id} value={category.id}>
-                                {category.name}
+                                {category.displayName || category.name}
                               </option>
                             ))}
                           </select>
@@ -8583,6 +8666,64 @@ export default function MyTopProspectsPage() {
     },
   });
 
+  const updatePortfolioCategoryParentMutation = useMutation({
+    onMutate: () => {
+      setPortfolioCategoryFeedback("");
+      setPortfolioCategoryError("");
+    },
+    mutationFn: async ({ category, parentCategoryId }) => {
+      const response = await fetch(`/api/portfolio-categories/${category.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentCategoryId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not move portfolio category.");
+      }
+      return payload?.category || null;
+    },
+    onSuccess: async (category) => {
+      setPortfolioCategoryFeedback(
+        `${category?.name || "Category"} was moved in your portfolio hierarchy.`,
+      );
+      await queryClient.invalidateQueries({ queryKey: portfolioCategoryQueryKey });
+    },
+    onError: (error) => {
+      setPortfolioCategoryError(
+        error instanceof Error ? error.message : "Could not move portfolio category.",
+      );
+    },
+  });
+
+  const reorderPortfolioCategoryMutation = useMutation({
+    onMutate: () => {
+      setPortfolioCategoryFeedback("");
+      setPortfolioCategoryError("");
+    },
+    mutationFn: async ({ category, direction }) => {
+      const response = await fetch("/api/portfolio-categories/order", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: category.id, direction }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not reorder portfolio category.");
+      }
+      return payload?.category || null;
+    },
+    onSuccess: async (category) => {
+      setPortfolioCategoryFeedback(`${category?.name || "Category"} was reordered.`);
+      await queryClient.invalidateQueries({ queryKey: portfolioCategoryQueryKey });
+    },
+    onError: (error) => {
+      setPortfolioCategoryError(
+        error instanceof Error ? error.message : "Could not reorder portfolio category.",
+      );
+    },
+  });
+
   const movePortfolioCategoryMutation = useMutation({
     onMutate: ({ person }) => {
       setMovingPortfolioCategoryConstituentId(String(person?.constituentId || ""));
@@ -8823,6 +8964,12 @@ export default function MyTopProspectsPage() {
   const deletePortfolioCategory = (category) =>
     deletePortfolioCategoryMutation.mutateAsync(category);
 
+  const changePortfolioCategoryParent = (category, parentCategoryId) =>
+    updatePortfolioCategoryParentMutation.mutateAsync({ category, parentCategoryId });
+
+  const reorderPortfolioCategory = (category, direction) =>
+    reorderPortfolioCategoryMutation.mutateAsync({ category, direction });
+
   const movePortfolioCategory = (person, categoryId) => {
     if (!person?.constituentId) {
       setPortfolioCategoryError("Could not identify the linked NXT constituent.");
@@ -8937,9 +9084,60 @@ export default function MyTopProspectsPage() {
   );
   const totalPortfolioConstituents = portfolioConstituents.length;
   const filteredPortfolioConstituents = filteredPortfolioConstituentList.length;
-  const portfolioCategories = Array.isArray(portfolioCategoryData?.categories)
+  const rawPortfolioCategories = Array.isArray(portfolioCategoryData?.categories)
     ? portfolioCategoryData.categories
     : [];
+  const rawPortfolioCategoryById = new Map(
+    rawPortfolioCategories.map((category) => [String(category.id), category]),
+  );
+  const categoryChildrenByParentId = new Map();
+  for (const category of rawPortfolioCategories) {
+    const requestedParentId = String(category?.parent_category_id || "").trim();
+    const parentId =
+      requestedParentId && rawPortfolioCategoryById.has(requestedParentId)
+        ? requestedParentId
+        : "";
+    const children = categoryChildrenByParentId.get(parentId) || [];
+    children.push(category);
+    categoryChildrenByParentId.set(parentId, children);
+  }
+  for (const children of categoryChildrenByParentId.values()) {
+    children.sort(
+      (left, right) =>
+        Number(left.sort_order || 0) - Number(right.sort_order || 0) ||
+        Number(left.id) - Number(right.id),
+    );
+  }
+  const portfolioCategories = [];
+  const seenPortfolioCategories = new Set();
+  const appendPortfolioCategory = (
+    category,
+    hierarchyDepth = 0,
+    parentCategory = null,
+  ) => {
+    const categoryId = String(category?.id || "");
+    if (!categoryId || seenPortfolioCategories.has(categoryId)) return;
+
+    seenPortfolioCategories.add(categoryId);
+    portfolioCategories.push({
+      ...category,
+      hierarchyDepth,
+      parentName: parentCategory?.name || null,
+      displayName:
+        hierarchyDepth > 0
+          ? `${"  ".repeat(Math.min(hierarchyDepth, 3))}- ${category.name}`
+          : category.name,
+    });
+    for (const child of categoryChildrenByParentId.get(categoryId) || []) {
+      appendPortfolioCategory(child, hierarchyDepth + 1, category);
+    }
+  };
+  for (const rootCategory of categoryChildrenByParentId.get("") || []) {
+    appendPortfolioCategory(rootCategory);
+  }
+  for (const category of rawPortfolioCategories) {
+    appendPortfolioCategory(category);
+  }
   const portfolioCategoryById = new Map(
     portfolioCategories.map((category) => [String(category.id), category]),
   );
@@ -8962,9 +9160,12 @@ export default function MyTopProspectsPage() {
   const portfolioCategoryTiers = [
     ...portfolioCategories.map((category, index) => ({
       key: `category-${category.id}`,
-      title: category.name,
-      description: "Your private JUMGOGPT organization category.",
+      title: category.displayName || category.name,
+      description: category.parentName
+        ? `Private subcategory within ${category.parentName}.`
+        : "Your private JUMGOGPT organization category.",
       accent: portfolioCategoryAccents[index % portfolioCategoryAccents.length],
+      hierarchyDepth: category.hierarchyDepth || 0,
       items: filteredPortfolioConstituentList.filter(
         (person) =>
           String(
@@ -9607,43 +9808,55 @@ export default function MyTopProspectsPage() {
               >
                 {portfolioOrganizationView === "category" ? (
                   portfolioCategoryTiers.map((tier) => (
-                    <PortfolioTier
+                    <div
                       key={tier.key}
-                      title={tier.title}
-                      description={tier.description}
-                      items={tier.items}
-                      accent={tier.accent}
-                      onAddToTopProspects={openPortfolioAddModal}
-                      isAdding={addMutation.isPending}
-                      isReadOnly={isExecutiveReadOnly}
-                      topProspectConstituentIds={topProspectConstituentIds}
-                      topProspectByConstituentId={topProspectByConstituentId}
-                      onRemoveFromTopProspects={removePortfolioTopProspect}
-                      isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
-                      onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
-                      onOpenPortfolioNextStep={(person) =>
-                        setPortfolioFollowUp({ kind: "next-step", person })
+                      style={
+                        tier.hierarchyDepth
+                          ? {
+                              marginLeft: `${Math.min(tier.hierarchyDepth, 3) * 18}px`,
+                              borderLeft: "3px solid #E0E7FF",
+                              paddingLeft: "10px",
+                            }
+                          : undefined
                       }
-                      onOpenPortfolioDiscussion={(person) =>
-                        setPortfolioFollowUp({ kind: "discussion", person })
-                      }
-                      isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
-                      removingSolicitorConstituentId={removingSolicitorConstituentId}
-                      annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
-                      currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
-                      currentFiscalYearLabel={portfolioCurrentFyLabel}
-                      portfolioCategories={portfolioCategories}
-                      portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
-                      onMovePortfolioCategory={movePortfolioCategory}
-                      movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
-                      emptyMessage={
-                        normalizedPortfolioSearch
-                          ? "No constituents match this search."
-                          : tier.key === "uncategorized"
-                            ? "All current portfolio assignments have been organized."
-                            : "No constituents in this category yet."
-                      }
-                    />
+                    >
+                      <PortfolioTier
+                        title={tier.title}
+                        description={tier.description}
+                        items={tier.items}
+                        accent={tier.accent}
+                        onAddToTopProspects={openPortfolioAddModal}
+                        isAdding={addMutation.isPending}
+                        isReadOnly={isExecutiveReadOnly}
+                        topProspectConstituentIds={topProspectConstituentIds}
+                        topProspectByConstituentId={topProspectByConstituentId}
+                        onRemoveFromTopProspects={removePortfolioTopProspect}
+                        isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
+                        onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
+                        onOpenPortfolioNextStep={(person) =>
+                          setPortfolioFollowUp({ kind: "next-step", person })
+                        }
+                        onOpenPortfolioDiscussion={(person) =>
+                          setPortfolioFollowUp({ kind: "discussion", person })
+                        }
+                        isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
+                        removingSolicitorConstituentId={removingSolicitorConstituentId}
+                        annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
+                        currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
+                        currentFiscalYearLabel={portfolioCurrentFyLabel}
+                        portfolioCategories={portfolioCategories}
+                        portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
+                        onMovePortfolioCategory={movePortfolioCategory}
+                        movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
+                        emptyMessage={
+                          normalizedPortfolioSearch
+                            ? "No constituents match this search."
+                            : tier.key === "uncategorized"
+                              ? "All current portfolio assignments have been organized."
+                              : "No constituents in this category yet."
+                        }
+                      />
+                    </div>
                   ))
                 ) : (
                   <>
@@ -10952,9 +11165,21 @@ export default function MyTopProspectsPage() {
           onCreate={createPortfolioCategory}
           onRename={renamePortfolioCategory}
           onDelete={deletePortfolioCategory}
+          onChangeParent={changePortfolioCategoryParent}
+          onMoveCategory={reorderPortfolioCategory}
           isCreating={createPortfolioCategoryMutation.isPending}
           renamingCategoryId={String(renamePortfolioCategoryMutation.variables?.category?.id || "")}
           deletingCategoryId={String(deletePortfolioCategoryMutation.variables?.id || "")}
+          changingCategoryParentId={
+            updatePortfolioCategoryParentMutation.isPending
+              ? String(updatePortfolioCategoryParentMutation.variables?.category?.id || "")
+              : ""
+          }
+          movingCategoryId={
+            reorderPortfolioCategoryMutation.isPending
+              ? String(reorderPortfolioCategoryMutation.variables?.category?.id || "")
+              : ""
+          }
         />
       ) : null}
     </div>

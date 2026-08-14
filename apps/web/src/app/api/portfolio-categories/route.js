@@ -37,6 +37,8 @@ export async function GET(request) {
         SELECT
           pc.id,
           pc.name,
+          pc.parent_category_id,
+          pc.sort_order,
           pc.created_at,
           pc.updated_at,
           COUNT(pca.id)::INTEGER AS assignment_count
@@ -45,8 +47,8 @@ export async function GET(request) {
           ON pca.category_id = pc.id
           AND pca.owner_user_id = pc.owner_user_id
         WHERE pc.owner_user_id = ${workspaceUser.id}
-        GROUP BY pc.id, pc.name, pc.created_at, pc.updated_at
-        ORDER BY LOWER(pc.name), pc.id
+        GROUP BY pc.id, pc.name, pc.parent_category_id, pc.sort_order, pc.created_at, pc.updated_at
+        ORDER BY pc.parent_category_id NULLS FIRST, pc.sort_order, pc.id
       `,
       sql`
         SELECT category_id, blackbaud_constituent_id
@@ -94,10 +96,18 @@ export async function POST(request) {
       );
     }
 
+    const positions = await sql`
+      SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort_order
+      FROM portfolio_categories
+      WHERE owner_user_id = ${context.workspaceUser.id}
+        AND parent_category_id IS NULL
+    `;
+    const sortOrder = Number(positions[0]?.next_sort_order || 0);
     const categories = await sql`
-      INSERT INTO portfolio_categories (owner_user_id, name)
-      VALUES (${context.workspaceUser.id}, ${name})
-      RETURNING id, name, created_at, updated_at, 0::INTEGER AS assignment_count
+      INSERT INTO portfolio_categories (owner_user_id, name, parent_category_id, sort_order)
+      VALUES (${context.workspaceUser.id}, ${name}, NULL, ${sortOrder})
+      RETURNING id, name, parent_category_id, sort_order, created_at, updated_at,
+        0::INTEGER AS assignment_count
     `;
 
     return Response.json({ category: categories[0] }, { status: 201 });

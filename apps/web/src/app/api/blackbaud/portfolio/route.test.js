@@ -8,6 +8,7 @@ const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 const findBlackbaudConstituentByLookupIdMock = vi.fn();
 const findBlackbaudConstituentByEmailMock = vi.fn();
+const getBlackbaudConstituentByIdMock = vi.fn();
 const getBlackbaudConfigIssuesMock = vi.fn();
 const listBlackbaudFundraiserAssignmentsMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
@@ -27,6 +28,7 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
   findBlackbaudConstituentByLookupId: findBlackbaudConstituentByLookupIdMock,
   findBlackbaudConstituentByEmail: findBlackbaudConstituentByEmailMock,
+  getBlackbaudConstituentById: getBlackbaudConstituentByIdMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   listBlackbaudFundraiserAssignments: listBlackbaudFundraiserAssignmentsMock,
   listBlackbaudConstituents: vi.fn(),
@@ -43,6 +45,7 @@ describe("Blackbaud portfolio route", () => {
     blackbaudApiFetchMock.mockReset();
     findBlackbaudConstituentByLookupIdMock.mockReset();
     findBlackbaudConstituentByEmailMock.mockReset();
+    getBlackbaudConstituentByIdMock.mockReset();
     getBlackbaudConfigIssuesMock.mockReset();
     listBlackbaudFundraiserAssignmentsMock.mockReset();
     searchBlackbaudConstituentsMock.mockReset();
@@ -63,6 +66,7 @@ describe("Blackbaud portfolio route", () => {
     sqlMock.mockResolvedValue([]);
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue(null);
     findBlackbaudConstituentByEmailMock.mockResolvedValue(null);
+    getBlackbaudConstituentByIdMock.mockResolvedValue(null);
     searchBlackbaudConstituentsMock.mockResolvedValue([]);
     listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([
       {
@@ -120,7 +124,7 @@ describe("Blackbaud portfolio route", () => {
           ],
           summary: { leadCount: 0, supportingCount: 1 },
         },
-        blackbaud_portfolio_cache_key: "v8:800",
+        blackbaud_portfolio_cache_key: "v9:800",
         blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ]);
@@ -176,6 +180,38 @@ describe("Blackbaud portfolio route", () => {
         address: "50 Casuarina Concourse, Miami, FL",
         contactDataSource: "nxt-summary-cache",
       }),
+    );
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves an otherwise unnamed assignment without loading a full summary", async () => {
+    const { GET } = await import("./route.js");
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([
+      {
+        constituent_id: "77",
+        type: "Lead Solicitor",
+      },
+    ]);
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      name: "Alex Example",
+      lookupId: "A-77",
+    });
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.leadSolicitor[0]).toEqual(
+      expect.objectContaining({
+        constituentId: "77",
+        name: "Alex Example",
+        lookupId: "A-77",
+      }),
+    );
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "77" }),
     );
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });

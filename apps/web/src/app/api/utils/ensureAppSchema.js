@@ -1213,10 +1213,40 @@ export default async function ensureAppSchema() {
         id BIGSERIAL PRIMARY KEY,
         owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
+        parent_category_id BIGINT REFERENCES portfolio_categories(id) ON DELETE SET NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
+    await sql`
+      ALTER TABLE portfolio_categories
+      ADD COLUMN IF NOT EXISTS parent_category_id BIGINT
+      REFERENCES portfolio_categories(id) ON DELETE SET NULL
+    `;
+    await sql`
+      ALTER TABLE portfolio_categories
+      ADD COLUMN IF NOT EXISTS sort_order INTEGER
+    `;
+    await sql`
+      WITH ordered_categories AS (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (
+            PARTITION BY owner_user_id
+            ORDER BY created_at ASC, id ASC
+          ) - 1 AS position
+        FROM portfolio_categories
+      )
+      UPDATE portfolio_categories AS pc
+      SET sort_order = ordered_categories.position
+      FROM ordered_categories
+      WHERE pc.id = ordered_categories.id
+        AND pc.sort_order IS NULL
+    `;
+    await sql`UPDATE portfolio_categories SET sort_order = 0 WHERE sort_order IS NULL`;
+    await sql`ALTER TABLE portfolio_categories ALTER COLUMN sort_order SET DEFAULT 0`;
+    await sql`ALTER TABLE portfolio_categories ALTER COLUMN sort_order SET NOT NULL`;
     await sql`
       CREATE TABLE IF NOT EXISTS portfolio_category_assignments (
         id BIGSERIAL PRIMARY KEY,
@@ -1357,6 +1387,10 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_categories_owner_name
       ON portfolio_categories (owner_user_id, LOWER(name))
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_portfolio_categories_owner_parent_order
+      ON portfolio_categories (owner_user_id, parent_category_id, sort_order, id)
     `;
     await sql`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_category_assignments_owner_constituent
