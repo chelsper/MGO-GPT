@@ -281,6 +281,17 @@ describe("current fiscal year giving", () => {
         expect.objectContaining({ id: "800", name: "Chelsea Santoro", giftIds: ["solicitor-credit"] }),
       ]),
     );
+    expect(summary.byConstituentId["100"].directGifts).toEqual([
+      expect.objectContaining({
+        id: "solicitor-credit",
+        receivedAmount: 500,
+        committedAmount: 0,
+        giftSolicitors: expect.arrayContaining([
+          expect.objectContaining({ id: "800", name: "Chelsea Santoro" }),
+          expect.objectContaining({ id: "801", name: "Alex Rivera" }),
+        ]),
+      }),
+    ]);
     expect(summary.acknowledgmentCredits).toEqual([
       expect.objectContaining({
         recipientConstituentId: "200",

@@ -175,6 +175,77 @@ function getConstituentRecordSolicitor(workspaceUser, person) {
     : solicitorName;
 }
 
+function normalizeGiftSolicitorIdentity(value) {
+  return String(value || "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function getWorkspaceGiftSolicitorIds(workspaceUser) {
+  return new Set(
+    [
+      workspaceUser?.blackbaud_constituent_id,
+      workspaceUser?.blackbaud_lookup_id,
+      workspaceUser?.blackbaudConstituentId,
+      workspaceUser?.blackbaudLookupId,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
+}
+
+function isSelectedGiftSolicitor(solicitors, workspaceUser) {
+  const workspaceIds = getWorkspaceGiftSolicitorIds(workspaceUser);
+  const workspaceName = normalizeGiftSolicitorIdentity(
+    workspaceUser?.name || workspaceUser?.full_name || workspaceUser?.display_name,
+  );
+  const workspaceNameParts = workspaceName.split(" ").filter(Boolean);
+
+  return (Array.isArray(solicitors) ? solicitors : []).some((solicitor) => {
+    const solicitorId = String(solicitor?.id || "").trim();
+    if (solicitorId && workspaceIds.has(solicitorId)) return true;
+
+    const solicitorName = normalizeGiftSolicitorIdentity(solicitor?.name);
+    if (!solicitorName || solicitorName === "unnamed fundraiser") return false;
+    if (workspaceName && solicitorName === workspaceName) return true;
+
+    const solicitorNameParts = solicitorName.split(" ").filter(Boolean);
+    return (
+      workspaceNameParts.length >= 2 &&
+      solicitorNameParts.length >= 2 &&
+      workspaceNameParts[0] === solicitorNameParts[0] &&
+      workspaceNameParts.at(-1) === solicitorNameParts.at(-1)
+    );
+  });
+}
+
+function getSelectedDirectGiftDetails(giving, workspaceUser) {
+  const gifts = (Array.isArray(giving?.directGifts) ? giving.directGifts : []).filter((gift) =>
+    isSelectedGiftSolicitor(gift?.giftSolicitors, workspaceUser),
+  );
+
+  return gifts.reduce(
+    (summary, gift) => {
+      const receivedAmount = Number(gift?.receivedAmount || 0);
+      const committedAmount = Number(gift?.committedAmount || 0);
+      summary.received += receivedAmount;
+      summary.committed += committedAmount;
+      if (receivedAmount > 0) {
+        const latestGift = getLatestGiftDetails(summary, {
+          date: gift?.date,
+          amount: receivedAmount,
+        });
+        summary.lastGiftDate = latestGift.lastGiftDate;
+        summary.lastGiftAmount = latestGift.lastGiftAmount;
+      }
+      return summary;
+    },
+    { gifts, received: 0, committed: 0, lastGiftDate: null, lastGiftAmount: null },
+  );
+}
+
 function addGiftSolicitors(row, solicitors) {
   if (!row.giftSolicitors) row.giftSolicitors = new Map();
 
@@ -456,22 +527,28 @@ export default function ReportsPage() {
             .filter(Boolean)
             .forEach((warning) => warnings.add(warning));
 
+          const selectedGivingByConstituentId = new Map();
           for (const constituentId of batch) {
             const giving = givingPayload?.byConstituentId?.[constituentId] || {};
-            totalHardReceived += Number(giving.hardReceived || 0);
-            totalHardCommitted += Number(giving.hardCommitted || 0);
+            const selectedGiving = getSelectedDirectGiftDetails(giving, workspaceUser);
+            if (!selectedGiving.gifts.length) continue;
+
+            selectedGivingByConstituentId.set(constituentId, selectedGiving);
+            totalHardReceived += selectedGiving.received;
+            totalHardCommitted += selectedGiving.committed;
           }
 
-          const donorIds = batch.filter((constituentId) => {
-            const giving = givingPayload?.byConstituentId?.[constituentId] || {};
-            return Number(giving.hardReceived || 0) > 0 || Number(giving.hardCommitted || 0) > 0;
-          });
+          const acknowledgmentCredits = (
+            Array.isArray(givingPayload?.acknowledgmentCredits)
+              ? givingPayload.acknowledgmentCredits
+              : []
+          ).filter((credit) => isSelectedGiftSolicitor(credit?.giftSolicitors, workspaceUser));
+          const donorIds = Array.from(selectedGivingByConstituentId)
+            .filter(([, giving]) => giving.received > 0 || giving.committed > 0)
+            .map(([constituentId]) => constituentId);
           const hardCreditDonorIds = [
             ...new Set(
-              (Array.isArray(givingPayload?.acknowledgmentCredits)
-                ? givingPayload.acknowledgmentCredits
-                : []
-              )
+              acknowledgmentCredits
                 .map((credit) => String(credit?.hardCreditConstituentId || "").trim())
                 .filter(Boolean),
             ),
@@ -481,9 +558,6 @@ export default function ReportsPage() {
           ]);
           profileWarnings.forEach((warning) => warnings.add(warning));
 
-          const acknowledgmentCredits = Array.isArray(givingPayload?.acknowledgmentCredits)
-            ? givingPayload.acknowledgmentCredits
-            : [];
           const acknowledgmentRecipientIds = [
             ...new Set(
               acknowledgmentCredits
@@ -519,8 +593,18 @@ export default function ReportsPage() {
               continue;
             }
 
-            const giving = givingPayload?.byConstituentId?.[constituentId] || {};
+            const selectedGiving = selectedGivingByConstituentId.get(constituentId);
+            if (!selectedGiving) continue;
             const existingRow = reportRowsByConstituentId.get(constituentId);
+            const latestGift = selectedGiving.lastGiftDate
+              ? getLatestGiftDetails(existingRow, {
+                  date: selectedGiving.lastGiftDate,
+                  amount: selectedGiving.lastGiftAmount,
+                })
+              : {
+                  lastGiftDate: existingRow?.lastGiftDate || null,
+                  lastGiftAmount: existingRow?.lastGiftAmount ?? null,
+                };
             const nextRow = {
               ...existingRow,
               constituentId,
@@ -530,16 +614,23 @@ export default function ReportsPage() {
               // the related gift, so a recipient sees the amount recognized
               // for them without double-counting it when both records load.
               recognizedReceived:
-                Number(existingRow?.recognizedReceived || 0) + Number(giving.hardReceived || 0),
+                Number(existingRow?.recognizedReceived || 0) + selectedGiving.received,
               recognizedCommitted:
-                Number(existingRow?.recognizedCommitted || 0) + Number(giving.hardCommitted || 0),
-              lastGiftDate: giving.lastGiftDate || null,
-              lastGiftAmount: giving.lastGiftAmount == null ? null : Number(giving.lastGiftAmount),
+                Number(existingRow?.recognizedCommitted || 0) + selectedGiving.committed,
+              ...latestGift,
               hardCreditDonors: existingRow?.hardCreditDonors || new Map(),
               acknowledgmentCreditIds: existingRow?.acknowledgmentCreditIds || new Set(),
               giftSolicitors: existingRow?.giftSolicitors || new Map(),
             };
-            addGiftSolicitors(nextRow, giving.giftSolicitors);
+            for (const gift of selectedGiving.gifts) {
+              addGiftSolicitors(
+                nextRow,
+                gift.giftSolicitors.map((solicitor) => ({
+                  ...solicitor,
+                  giftIds: [gift.id],
+                })),
+              );
+            }
             reportRowsByConstituentId.set(constituentId, nextRow);
           }
 
@@ -594,7 +685,15 @@ export default function ReportsPage() {
               constituentId: hardCreditConstituentId,
               name: hardCreditDonor.name || "Donor Advised Fund",
             });
-            if (isNewAcknowledgmentCredit) addGiftSolicitors(nextRow, credit.giftSolicitors);
+            if (isNewAcknowledgmentCredit) {
+              addGiftSolicitors(
+                nextRow,
+                (credit.giftSolicitors || []).map((solicitor) => ({
+                  ...solicitor,
+                  giftIds: [credit.giftId],
+                })),
+              );
+            }
             reportRowsByConstituentId.set(recipientConstituentId, nextRow);
           }
 
@@ -860,7 +959,9 @@ export default function ReportsPage() {
                 {yearLabel} portfolio giving
               </h2>
               <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5, maxWidth: "760px" }}>
-                Headline totals use all direct hard-credit gift records, including Donor Advised Funds. Report scope comes from the selected MGO&apos;s constituent-record solicitor assignments; Gift Solicitor shows the fundraiser credit returned by NXT for each reported gift.
+                Every total and row is limited to gifts where NXT lists the selected MGO as a Gift
+                Solicitor. Direct hard-credit totals include Donor Advised Fund gifts; Donor Advised Fund
+                entities are excluded from acknowledgment recipients.
               </p>
             </div>
             {canUseExecutiveView ? (
@@ -966,7 +1067,7 @@ export default function ReportsPage() {
               <MetricCard
                 label={`${yearLabel} Total Cash Received`}
                 value={formatCurrency(totalReceived)}
-                hint="Hard-credit revenue, including DAF gifts"
+                hint="Gift-solicitor-attributed hard-credit revenue, including DAF gifts"
               />
               <MetricCard
                 label={`${yearLabel} Total Committed`}
@@ -993,8 +1094,9 @@ export default function ReportsPage() {
               <div style={{ padding: "20px 22px 14px" }}>
                 <h2 style={{ margin: 0, color: "#0F172A", fontSize: "20px" }}>Acknowledgment detail</h2>
                 <p style={{ margin: "6px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                  Alphabetized by last name. A soft-credit recipient is shown with the related hard-credit
-                  donor. Donor Advised Fund entities do not appear as acknowledgment recipients.
+                  Alphabetized by last name. Each row comes from a gift that lists the selected MGO as a
+                  Gift Solicitor. A soft-credit recipient is shown with the related hard-credit donor.
+                  Donor Advised Fund entities do not appear as acknowledgment recipients.
                 </p>
               </div>
               {reportRows.length ? (

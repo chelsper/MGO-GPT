@@ -275,6 +275,53 @@ function addGiftSolicitors(summary, solicitors, giftId) {
   }
 }
 
+function addDirectGift(
+  summary,
+  {
+    giftId,
+    date,
+    receivedAmount = 0,
+    committedAmount = 0,
+    plannedGiftAmount = 0,
+    giftSolicitors = [],
+  },
+) {
+  if (!summary.directGifts) summary.directGifts = new Map();
+
+  const normalizedGiftId = String(giftId || "").trim();
+  if (!normalizedGiftId) return;
+
+  const directGift = summary.directGifts.get(normalizedGiftId) || {
+    id: normalizedGiftId,
+    date: null,
+    receivedAmount: 0,
+    committedAmount: 0,
+    plannedGiftAmount: 0,
+    giftSolicitors: new Map(),
+  };
+
+  if (date) directGift.date = String(date);
+  directGift.receivedAmount = Math.max(directGift.receivedAmount, Number(receivedAmount || 0));
+  directGift.committedAmount = Math.max(directGift.committedAmount, Number(committedAmount || 0));
+  directGift.plannedGiftAmount = Math.max(
+    directGift.plannedGiftAmount,
+    Number(plannedGiftAmount || 0),
+  );
+
+  for (const solicitor of giftSolicitors) {
+    const id = String(solicitor?.id || "").trim();
+    const name = String(solicitor?.name || "").trim();
+    if (!id && !name) continue;
+
+    const key = id ? `id:${id}` : `name:${normalizeText(name)}`;
+    if (!directGift.giftSolicitors.has(key)) {
+      directGift.giftSolicitors.set(key, { id: id || null, name });
+    }
+  }
+
+  summary.directGifts.set(normalizedGiftId, directGift);
+}
+
 function getTextFromMaybeObject(value) {
   if (value == null || value === "") return null;
   if (typeof value === "string" || typeof value === "number") {
@@ -409,6 +456,9 @@ export function calculateCurrentFiscalYearGiving({
         lastGiftDate: null,
         lastGiftAmount: null,
         giftSolicitors: new Map(),
+        // Preserve solicitor attribution at the source-gift level. Consumers
+        // that scope results to a fundraiser must filter before aggregating.
+        directGifts: new Map(),
       },
     ]),
   );
@@ -466,6 +516,15 @@ export function calculateCurrentFiscalYearGiving({
         addAmount(directSummary, "hardCommitted", directAmount, giftId, counted);
         countedGiftIds.hardCommitted.set(directId, counted);
       }
+
+      addDirectGift(directSummary, {
+        giftId,
+        date: getGiftDate(gift),
+        receivedAmount: isReceived ? directAmount : 0,
+        committedAmount: isCommitted ? directAmount : 0,
+        plannedGiftAmount: isPlannedGift ? directAmount : 0,
+        giftSolicitors,
+      });
     }
 
     for (const credit of getRecognitionCreditRows(gift)) {
@@ -576,6 +635,26 @@ export function calculateCurrentFiscalYearGiving({
       name: solicitor.name,
       giftIds: Array.from(solicitor.giftIds),
     }));
+    summary.directGifts = Array.from(summary.directGifts.values())
+      .map((gift) => ({
+        id: gift.id,
+        date: gift.date,
+        receivedAmount: roundCurrency(gift.receivedAmount),
+        committedAmount: roundCurrency(gift.committedAmount),
+        plannedGiftAmount: roundCurrency(gift.plannedGiftAmount),
+        giftSolicitors: Array.from(gift.giftSolicitors.values()).map((solicitor) => ({
+          id: solicitor.id,
+          name: solicitor.name,
+        })),
+      }))
+      .sort((left, right) => {
+        const leftTime = new Date(left.date || "").getTime();
+        const rightTime = new Date(right.date || "").getTime();
+        return (
+          (Number.isFinite(rightTime) ? rightTime : 0) -
+          (Number.isFinite(leftTime) ? leftTime : 0)
+        );
+      });
   }
 
   return {
