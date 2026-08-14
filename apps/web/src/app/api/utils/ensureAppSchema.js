@@ -1209,6 +1209,26 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_categories (
+        id BIGSERIAL PRIMARY KEY,
+        owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_category_assignments (
+        id BIGSERIAL PRIMARY KEY,
+        owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        category_id BIGINT NOT NULL REFERENCES portfolio_categories(id) ON DELETE CASCADE,
+        blackbaud_constituent_id TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS blackbaud_connections (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -1333,6 +1353,18 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_discussion_items_assigned_status_due
       ON discussion_items (assigned_user_id, status, due_date, updated_at DESC)
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_categories_owner_name
+      ON portfolio_categories (owner_user_id, LOWER(name))
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_category_assignments_owner_constituent
+      ON portfolio_category_assignments (owner_user_id, blackbaud_constituent_id)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_portfolio_category_assignments_owner_category
+      ON portfolio_category_assignments (owner_user_id, category_id)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_status_due

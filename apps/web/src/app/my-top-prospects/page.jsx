@@ -846,6 +846,352 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
   );
 }
 
+function PortfolioCategoryManagerModal({
+  categories,
+  onClose,
+  onCreate,
+  onRename,
+  onDelete,
+  isCreating = false,
+  renamingCategoryId = "",
+  deletingCategoryId = "",
+}) {
+  const [newName, setNewName] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState("");
+  const [editingName, setEditingName] = useState("");
+  const [error, setError] = useState("");
+
+  const submitNewCategory = async (event) => {
+    event.preventDefault();
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      setError("Enter a category name.");
+      return;
+    }
+
+    try {
+      setError("");
+      await onCreate(trimmedName);
+      setNewName("");
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to create this category.",
+      );
+    }
+  };
+
+  const submitRename = async (category) => {
+    const trimmedName = editingName.trim();
+    if (!trimmedName) {
+      setError("Enter a category name.");
+      return;
+    }
+
+    try {
+      setError("");
+      await onRename(category, trimmedName);
+      setEditingCategoryId("");
+      setEditingName("");
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to rename this category.",
+      );
+    }
+  };
+
+  const deleteCategory = async (category) => {
+    const confirmed = window.confirm(
+      `Delete ${category.name}? Constituents in this category will become Uncategorized. This does not change anything in NXT.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      await onDelete(category);
+      if (editingCategoryId === String(category.id)) {
+        setEditingCategoryId("");
+        setEditingName("");
+      }
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to delete this category.",
+      );
+    }
+  };
+
+  const fieldStyle = {
+    width: "100%",
+    boxSizing: "border-box",
+    border: "1px solid #D1D5DB",
+    borderRadius: "8px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#111827",
+    backgroundColor: "white",
+  };
+
+  return (
+    <div
+      role="presentation"
+      onMouseDown={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        backgroundColor: "rgba(17, 24, 39, 0.5)",
+        display: "grid",
+        placeItems: "center",
+        padding: "20px",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="portfolio-category-manager-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        style={{
+          width: "min(100%, 620px)",
+          maxHeight: "calc(100vh - 40px)",
+          overflowY: "auto",
+          backgroundColor: "white",
+          borderRadius: "16px",
+          boxShadow: "0 24px 48px rgba(17, 24, 39, 0.24)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "16px",
+            padding: "20px 22px 16px",
+            borderBottom: "1px solid #E5E7EB",
+          }}
+        >
+          <div>
+            <h2
+              id="portfolio-category-manager-title"
+              style={{ margin: 0, fontSize: "20px", color: "#111827" }}
+            >
+              Organize my portfolio
+            </h2>
+            <div style={{ marginTop: "5px", fontSize: "14px", color: "#4B5563", lineHeight: 1.45 }}>
+              Categories are private to your JUMGOGPT portfolio. They never change NXT solicitor assignments or Top Prospects.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              border: "none",
+              backgroundColor: "transparent",
+              color: "#6B7280",
+              cursor: "pointer",
+              padding: "2px",
+            }}
+          >
+            <X size={22} />
+          </button>
+        </div>
+
+        <div style={{ padding: "20px 22px 22px" }}>
+          <form onSubmit={submitNewCategory} style={{ display: "flex", gap: "10px", alignItems: "end" }}>
+            <label style={{ display: "grid", gap: "7px", flex: 1 }}>
+              <span style={{ fontSize: "14px", fontWeight: "700", color: "#374151" }}>
+                New category
+              </span>
+              <input
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder="For example, Marine Science or Stewardship"
+                maxLength={80}
+                style={fieldStyle}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isCreating}
+              style={{
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 14px",
+                backgroundColor: "#4F46E5",
+                color: "white",
+                fontSize: "14px",
+                fontWeight: "700",
+                cursor: isCreating ? "not-allowed" : "pointer",
+                opacity: isCreating ? 0.7 : 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isCreating ? "Creating..." : "Create category"}
+            </button>
+          </form>
+
+          {error ? (
+            <div
+              style={{
+                marginTop: "16px",
+                padding: "10px 12px",
+                borderRadius: "8px",
+                border: "1px solid #FECACA",
+                backgroundColor: "#FEF2F2",
+                color: "#991B1B",
+                fontSize: "13px",
+              }}
+            >
+              {error}
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: "22px", display: "grid", gap: "10px" }}>
+            {categories.length ? (
+              categories.map((category) => {
+                const isEditing = editingCategoryId === String(category.id);
+                const isRenaming = String(renamingCategoryId || "") === String(category.id);
+                const isDeleting = String(deletingCategoryId || "") === String(category.id);
+
+                return (
+                  <div
+                    key={category.id}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "10px",
+                      padding: "13px 14px",
+                      backgroundColor: "#FAFAFA",
+                    }}
+                  >
+                    {isEditing ? (
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <input
+                          value={editingName}
+                          onChange={(event) => setEditingName(event.target.value)}
+                          maxLength={80}
+                          aria-label={`Rename ${category.name}`}
+                          style={fieldStyle}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => submitRename(category)}
+                          disabled={isRenaming}
+                          style={{
+                            border: "none",
+                            borderRadius: "7px",
+                            padding: "9px 11px",
+                            backgroundColor: "#4F46E5",
+                            color: "white",
+                            fontSize: "13px",
+                            fontWeight: "700",
+                            cursor: isRenaming ? "not-allowed" : "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {isRenaming ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingCategoryId("");
+                            setEditingName("");
+                          }}
+                          disabled={isRenaming}
+                          style={{
+                            border: "1px solid #D1D5DB",
+                            borderRadius: "7px",
+                            padding: "9px 11px",
+                            backgroundColor: "white",
+                            color: "#374151",
+                            fontSize: "13px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "14px", alignItems: "center" }}>
+                        <div>
+                          <div style={{ color: "#111827", fontWeight: "800", fontSize: "15px" }}>
+                            {category.name}
+                          </div>
+                          <div style={{ marginTop: "3px", color: "#6B7280", fontSize: "13px" }}>
+                            {Number(category.assignment_count || 0)} constituent{Number(category.assignment_count || 0) === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCategoryId(String(category.id));
+                              setEditingName(category.name || "");
+                              setError("");
+                            }}
+                            disabled={isDeleting}
+                            style={{
+                              border: "1px solid #C7D2FE",
+                              borderRadius: "7px",
+                              padding: "8px 10px",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              cursor: isDeleting ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteCategory(category)}
+                            disabled={isDeleting}
+                            style={{
+                              border: "1px solid #FECACA",
+                              borderRadius: "7px",
+                              padding: "8px 10px",
+                              backgroundColor: "white",
+                              color: "#B91C1C",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              cursor: isDeleting ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div
+                style={{
+                  border: "1px dashed #D1D5DB",
+                  borderRadius: "10px",
+                  padding: "18px",
+                  color: "#6B7280",
+                  fontSize: "14px",
+                  textAlign: "center",
+                }}
+              >
+                No categories yet. Create one to group prospects by interest or stage.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isNeedsFollowUpProspect(prospect) {
   if (prospect.next_action_text && !prospect.next_action_completed_at) {
     return false;
@@ -884,6 +1230,10 @@ function PortfolioTier({
   annualGivingSocietiesByConstituentId = {},
   currentFiscalYearGivingByConstituentId = {},
   currentFiscalYearLabel = "",
+  portfolioCategories = [],
+  portfolioCategoryByConstituentId = {},
+  onMovePortfolioCategory,
+  movingPortfolioCategoryConstituentId = "",
   emptyMessage = "No current constituents in this tier right now.",
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
@@ -1065,6 +1415,10 @@ function PortfolioTier({
                   currentFiscalYearGivingByConstituentId[
                     String(person.constituentId || "")
                   ];
+                const portfolioCategory =
+                  portfolioCategoryByConstituentId[
+                    String(person.constituentId || "")
+                  ] || null;
                 const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(
                   person.constituentId,
                 );
@@ -1072,6 +1426,9 @@ function PortfolioTier({
                   isRemovingSolicitorAssignment &&
                   String(removingSolicitorConstituentId || "") ===
                     String(person.constituentId || "");
+                const isMovingThisPortfolioCategory =
+                  String(movingPortfolioCategoryConstituentId || "") ===
+                  String(person.constituentId || "");
 
                 return (
                   <>
@@ -1106,6 +1463,24 @@ function PortfolioTier({
                     >
                       <Star size={13} fill="currentColor" />
                       Top Prospect
+                    </span>
+                  ) : null}
+                  {portfolioCategory ? (
+                    <span
+                      title="MGO portfolio category"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "5px 9px",
+                        borderRadius: "999px",
+                        backgroundColor: "#E0E7FF",
+                        color: "#3730A3",
+                        border: "1px solid #C7D2FE",
+                        fontSize: "11px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      {portfolioCategory.name}
                     </span>
                   ) : null}
                   <AnnualGivingSocietyBadge annualGivingSocieties={annualGivingSocieties} />
@@ -1296,6 +1671,57 @@ function PortfolioTier({
                   ) : null}
                   {!isReadOnly ? (
                     <>
+                      {portfolioCategories.length ? (
+                        <label
+                          style={{
+                            display: "grid",
+                            gap: "5px",
+                            minWidth: "168px",
+                            flex: "1 1 168px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: "800",
+                              color: "#6B7280",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Portfolio category
+                          </span>
+                          <select
+                            aria-label={`Move ${person.name || "constituent"} to portfolio category`}
+                            value={portfolioCategory?.id ? String(portfolioCategory.id) : ""}
+                            onChange={(event) =>
+                              onMovePortfolioCategory?.(person, event.target.value || null)
+                            }
+                            disabled={isMovingThisPortfolioCategory}
+                            style={{
+                              minWidth: 0,
+                              border: "1px solid #C7D2FE",
+                              borderRadius: "8px",
+                              padding: "8px 10px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              color: "#3730A3",
+                              backgroundColor: "white",
+                              cursor: isMovingThisPortfolioCategory
+                                ? "not-allowed"
+                                : "pointer",
+                              opacity: isMovingThisPortfolioCategory ? 0.7 : 1,
+                            }}
+                          >
+                            <option value="">Uncategorized</option>
+                            {portfolioCategories.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => onOpenPortfolioNextStep?.(person)}
@@ -7460,6 +7886,14 @@ export default function MyTopProspectsPage() {
   const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
     useState("");
   const [portfolioFollowUp, setPortfolioFollowUp] = useState(null);
+  const [portfolioOrganizationView, setPortfolioOrganizationView] =
+    useState("solicitor");
+  const [showPortfolioCategoryManager, setShowPortfolioCategoryManager] =
+    useState(false);
+  const [portfolioCategoryFeedback, setPortfolioCategoryFeedback] = useState("");
+  const [portfolioCategoryError, setPortfolioCategoryError] = useState("");
+  const [movingPortfolioCategoryConstituentId, setMovingPortfolioCategoryConstituentId] =
+    useState("");
   const autoBootstrapAttemptRef = useRef("");
 
   const { data: profileStatus } = useQuery({
@@ -7506,6 +7940,33 @@ export default function MyTopProspectsPage() {
   const isExecutiveReadOnly = Boolean(canUseExecutiveView && profileStatus?.actingAsUser);
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
+  const portfolioCategoryQueryKey = [
+    "portfolio-categories",
+    activeWorkspaceUserId,
+  ];
+
+  const {
+    data: portfolioCategoryData = { categories: [], assignments: [] },
+    isError: isPortfolioCategoryError,
+  } = useQuery({
+    queryKey: portfolioCategoryQueryKey,
+    queryFn: async () => {
+      const response = await fetch("/api/portfolio-categories");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load portfolio categories");
+      }
+
+      return {
+        categories: Array.isArray(payload?.categories) ? payload.categories : [],
+        assignments: Array.isArray(payload?.assignments) ? payload.assignments : [],
+      };
+    },
+    enabled:
+      !!user && !!activeWorkspaceUserId && activeWorkspaceTab === "portfolio",
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const { data: prospects = [], isLoading } = useQuery({
     queryKey: ["prospects", activeWorkspaceUserId],
@@ -8034,6 +8495,133 @@ export default function MyTopProspectsPage() {
     },
   });
 
+  const createPortfolioCategoryMutation = useMutation({
+    onMutate: () => {
+      setPortfolioCategoryFeedback("");
+      setPortfolioCategoryError("");
+    },
+    mutationFn: async (name) => {
+      const response = await fetch("/api/portfolio-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not create portfolio category");
+      }
+      return payload?.category || null;
+    },
+    onSuccess: async (category) => {
+      setPortfolioCategoryFeedback(
+        `${category?.name || "Category"} was created for your portfolio.`,
+      );
+      await queryClient.invalidateQueries({ queryKey: portfolioCategoryQueryKey });
+    },
+    onError: (error) => {
+      setPortfolioCategoryError(
+        error instanceof Error ? error.message : "Could not create portfolio category.",
+      );
+    },
+  });
+
+  const renamePortfolioCategoryMutation = useMutation({
+    onMutate: () => {
+      setPortfolioCategoryFeedback("");
+      setPortfolioCategoryError("");
+    },
+    mutationFn: async ({ category, name }) => {
+      const response = await fetch(`/api/portfolio-categories/${category.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not rename portfolio category");
+      }
+      return payload?.category || null;
+    },
+    onSuccess: async (category) => {
+      setPortfolioCategoryFeedback(
+        `${category?.name || "Category"} was renamed.`,
+      );
+      await queryClient.invalidateQueries({ queryKey: portfolioCategoryQueryKey });
+    },
+    onError: (error) => {
+      setPortfolioCategoryError(
+        error instanceof Error ? error.message : "Could not rename portfolio category.",
+      );
+    },
+  });
+
+  const deletePortfolioCategoryMutation = useMutation({
+    onMutate: () => {
+      setPortfolioCategoryFeedback("");
+      setPortfolioCategoryError("");
+    },
+    mutationFn: async (category) => {
+      const response = await fetch(`/api/portfolio-categories/${category.id}`, {
+        method: "DELETE",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not delete portfolio category");
+      }
+      return category;
+    },
+    onSuccess: async (category) => {
+      setPortfolioCategoryFeedback(
+        `${category?.name || "Category"} was deleted. Its constituents are now Uncategorized.`,
+      );
+      await queryClient.invalidateQueries({ queryKey: portfolioCategoryQueryKey });
+    },
+    onError: (error) => {
+      setPortfolioCategoryError(
+        error instanceof Error ? error.message : "Could not delete portfolio category.",
+      );
+    },
+  });
+
+  const movePortfolioCategoryMutation = useMutation({
+    onMutate: ({ person }) => {
+      setMovingPortfolioCategoryConstituentId(String(person?.constituentId || ""));
+      setPortfolioCategoryFeedback("");
+      setPortfolioCategoryError("");
+    },
+    mutationFn: async ({ person, categoryId }) => {
+      const constituentId = String(person?.constituentId || "").trim();
+      if (!constituentId) {
+        throw new Error("Could not identify the NXT constituent for this category move.");
+      }
+
+      const response = await fetch("/api/portfolio-categories/assignments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ constituentId, categoryId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not move portfolio constituent");
+      }
+      return { payload, person };
+    },
+    onSuccess: async ({ payload, person }) => {
+      setPortfolioCategoryFeedback(
+        `${person?.name || "Constituent"} moved to ${payload?.category?.name || "Uncategorized"}.`,
+      );
+      await queryClient.invalidateQueries({ queryKey: portfolioCategoryQueryKey });
+    },
+    onError: (error) => {
+      setPortfolioCategoryError(
+        error instanceof Error ? error.message : "Could not move portfolio constituent.",
+      );
+    },
+    onSettled: () => {
+      setMovingPortfolioCategoryConstituentId("");
+    },
+  });
+
   const reorderMutation = useMutation({
     mutationFn: async (body) => {
       const res = await fetch("/api/prospects/reorder", {
@@ -8226,6 +8814,23 @@ export default function MyTopProspectsPage() {
     removeSolicitorAssignmentMutation.mutate(person);
   };
 
+  const createPortfolioCategory = (name) =>
+    createPortfolioCategoryMutation.mutateAsync(name);
+
+  const renamePortfolioCategory = (category, name) =>
+    renamePortfolioCategoryMutation.mutateAsync({ category, name });
+
+  const deletePortfolioCategory = (category) =>
+    deletePortfolioCategoryMutation.mutateAsync(category);
+
+  const movePortfolioCategory = (person, categoryId) => {
+    if (!person?.constituentId) {
+      setPortfolioCategoryError("Could not identify the linked NXT constituent.");
+      return;
+    }
+    movePortfolioCategoryMutation.mutate({ person, categoryId });
+  };
+
   const openStewardshipProspect = (item) => {
     if (!item?.prospect_id) return;
     setSelectedProspectId(Number(item.prospect_id));
@@ -8320,10 +8925,65 @@ export default function MyTopProspectsPage() {
   const filteredPortfolioSupportingSolicitor = portfolioSupportingSolicitor.filter((person) =>
     matchesPortfolioSearch(person, normalizedPortfolioSearch),
   );
-  const totalPortfolioConstituents =
-    portfolioLeadSolicitor.length + portfolioSupportingSolicitor.length;
-  const filteredPortfolioConstituents =
-    filteredPortfolioLeadSolicitor.length + filteredPortfolioSupportingSolicitor.length;
+  const portfolioConstituentById = new Map();
+  for (const person of [...portfolioLeadSolicitor, ...portfolioSupportingSolicitor]) {
+    const constituentId = String(person?.constituentId || "").trim();
+    if (!constituentId || portfolioConstituentById.has(constituentId)) continue;
+    portfolioConstituentById.set(constituentId, person);
+  }
+  const portfolioConstituents = Array.from(portfolioConstituentById.values());
+  const filteredPortfolioConstituentList = portfolioConstituents.filter((person) =>
+    matchesPortfolioSearch(person, normalizedPortfolioSearch),
+  );
+  const totalPortfolioConstituents = portfolioConstituents.length;
+  const filteredPortfolioConstituents = filteredPortfolioConstituentList.length;
+  const portfolioCategories = Array.isArray(portfolioCategoryData?.categories)
+    ? portfolioCategoryData.categories
+    : [];
+  const portfolioCategoryById = new Map(
+    portfolioCategories.map((category) => [String(category.id), category]),
+  );
+  const portfolioCategoryByConstituentId = {};
+  for (const assignment of Array.isArray(portfolioCategoryData?.assignments)
+    ? portfolioCategoryData.assignments
+    : []) {
+    const constituentId = String(assignment?.blackbaud_constituent_id || "").trim();
+    const category = portfolioCategoryById.get(String(assignment?.category_id || ""));
+    if (constituentId && category) {
+      portfolioCategoryByConstituentId[constituentId] = category;
+    }
+  }
+  const portfolioCategoryAccents = [
+    { background: "#EEF2FF", text: "#4338CA" },
+    { background: "#ECFDF5", text: "#065F46" },
+    { background: "#FFF7ED", text: "#9A3412" },
+    { background: "#FDF2F8", text: "#9D174D" },
+  ];
+  const portfolioCategoryTiers = [
+    ...portfolioCategories.map((category, index) => ({
+      key: `category-${category.id}`,
+      title: category.name,
+      description: "Your private JUMGOGPT organization category.",
+      accent: portfolioCategoryAccents[index % portfolioCategoryAccents.length],
+      items: filteredPortfolioConstituentList.filter(
+        (person) =>
+          String(
+            portfolioCategoryByConstituentId[String(person?.constituentId || "")]?.id ||
+              "",
+          ) === String(category.id),
+      ),
+    })),
+    {
+      key: "uncategorized",
+      title: "Uncategorized",
+      description: "NXT portfolio assignments not yet organized into a category.",
+      accent: { background: "#F3F4F6", text: "#374151" },
+      items: filteredPortfolioConstituentList.filter(
+        (person) =>
+          !portfolioCategoryByConstituentId[String(person?.constituentId || "")],
+      ),
+    },
+  ];
   const filteredActiveProspects = activeProspects.filter((prospect) => {
     const nextAction = getProspectNextAction(prospect);
     const matchesSearch =
@@ -8703,23 +9363,41 @@ export default function MyTopProspectsPage() {
                   </div>
                 ) : null}
                 {!isExecutiveReadOnly ? (
-                  <button
-                    type="button"
-                    onClick={() => syncMutation.mutate()}
-                    disabled={syncMutation.isPending}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: "10px",
-                      border: "1px solid #C7D2FE",
-                      backgroundColor: syncMutation.isPending ? "#F3F4F6" : "#EEF2FF",
-                      color: syncMutation.isPending ? "#6B7280" : "#4338CA",
-                      fontSize: "13px",
-                      fontWeight: 800,
-                      cursor: syncMutation.isPending ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {syncMutation.isPending ? "Syncing..." : "Sync NXT portfolio"}
-                  </button>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowPortfolioCategoryManager(true)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #C7D2FE",
+                        backgroundColor: "white",
+                        color: "#4338CA",
+                        fontSize: "13px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Manage categories
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => syncMutation.mutate()}
+                      disabled={syncMutation.isPending}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #C7D2FE",
+                        backgroundColor: syncMutation.isPending ? "#F3F4F6" : "#EEF2FF",
+                        color: syncMutation.isPending ? "#6B7280" : "#4338CA",
+                        fontSize: "13px",
+                        fontWeight: 800,
+                        cursor: syncMutation.isPending ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {syncMutation.isPending ? "Syncing..." : "Sync NXT portfolio"}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -8790,6 +9468,35 @@ export default function MyTopProspectsPage() {
                       backgroundColor: "white",
                     }}
                   />
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      color: "#4B5563",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Organize by
+                    <select
+                      aria-label="Organize portfolio by"
+                      value={portfolioOrganizationView}
+                      onChange={(event) => setPortfolioOrganizationView(event.target.value)}
+                      style={{
+                        padding: "10px 12px",
+                        border: "1px solid #D1D5DB",
+                        borderRadius: "10px",
+                        backgroundColor: "white",
+                        color: "#111827",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <option value="solicitor">Solicitor role</option>
+                      <option value="category">My categories</option>
+                    </select>
+                  </label>
                   {portfolioSearchTerm ? (
                     <button
                       type="button"
@@ -8844,6 +9551,39 @@ export default function MyTopProspectsPage() {
                 {portfolioSyncError}
               </div>
             ) : null}
+            {portfolioCategoryFeedback ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "12px",
+                  backgroundColor: "#ECFDF5",
+                  border: "1px solid #A7F3D0",
+                  color: "#047857",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                }}
+              >
+                {portfolioCategoryFeedback} This does not change anything in NXT.
+              </div>
+            ) : null}
+            {portfolioCategoryError || isPortfolioCategoryError ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: "12px",
+                  backgroundColor: "#FEF2F2",
+                  border: "1px solid #FECACA",
+                  color: "#991B1B",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                }}
+              >
+                {portfolioCategoryError ||
+                  "Portfolio categories could not load right now. Your NXT portfolio is unchanged."}
+              </div>
+            ) : null}
 
             {isBlackbaudPortfolioLoading ? (
               <div style={{ fontSize: "14px", color: "#6B7280" }}>
@@ -8865,6 +9605,48 @@ export default function MyTopProspectsPage() {
                   gap: "14px",
                 }}
               >
+                {portfolioOrganizationView === "category" ? (
+                  portfolioCategoryTiers.map((tier) => (
+                    <PortfolioTier
+                      key={tier.key}
+                      title={tier.title}
+                      description={tier.description}
+                      items={tier.items}
+                      accent={tier.accent}
+                      onAddToTopProspects={openPortfolioAddModal}
+                      isAdding={addMutation.isPending}
+                      isReadOnly={isExecutiveReadOnly}
+                      topProspectConstituentIds={topProspectConstituentIds}
+                      topProspectByConstituentId={topProspectByConstituentId}
+                      onRemoveFromTopProspects={removePortfolioTopProspect}
+                      isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
+                      onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
+                      onOpenPortfolioNextStep={(person) =>
+                        setPortfolioFollowUp({ kind: "next-step", person })
+                      }
+                      onOpenPortfolioDiscussion={(person) =>
+                        setPortfolioFollowUp({ kind: "discussion", person })
+                      }
+                      isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
+                      removingSolicitorConstituentId={removingSolicitorConstituentId}
+                      annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
+                      currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
+                      currentFiscalYearLabel={portfolioCurrentFyLabel}
+                      portfolioCategories={portfolioCategories}
+                      portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
+                      onMovePortfolioCategory={movePortfolioCategory}
+                      movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
+                      emptyMessage={
+                        normalizedPortfolioSearch
+                          ? "No constituents match this search."
+                          : tier.key === "uncategorized"
+                            ? "All current portfolio assignments have been organized."
+                            : "No constituents in this category yet."
+                      }
+                    />
+                  ))
+                ) : (
+                  <>
                 <PortfolioTier
                   title="Lead Solicitor"
                   description="Your primary portfolio assignments in NXT."
@@ -8889,6 +9671,10 @@ export default function MyTopProspectsPage() {
                   annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
                   currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
                   currentFiscalYearLabel={portfolioCurrentFyLabel}
+                  portfolioCategories={portfolioCategories}
+                  portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
+                  onMovePortfolioCategory={movePortfolioCategory}
+                  movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No Lead Solicitor assignments match this search."
@@ -8919,12 +9705,18 @@ export default function MyTopProspectsPage() {
                   annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
                   currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
                   currentFiscalYearLabel={portfolioCurrentFyLabel}
+                  portfolioCategories={portfolioCategories}
+                  portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
+                  onMovePortfolioCategory={movePortfolioCategory}
+                  movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
                   emptyMessage={
                     normalizedPortfolioSearch
                       ? "No supporting assignments match this search."
                       : "No current constituents in this tier right now."
                   }
                 />
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -10147,6 +10939,22 @@ export default function MyTopProspectsPage() {
           kind={portfolioFollowUp.kind}
           person={portfolioFollowUp.person}
           onClose={() => setPortfolioFollowUp(null)}
+        />
+      ) : null}
+
+      {showPortfolioCategoryManager ? (
+        <PortfolioCategoryManagerModal
+          categories={portfolioCategories}
+          onClose={() => {
+            setShowPortfolioCategoryManager(false);
+            setPortfolioCategoryError("");
+          }}
+          onCreate={createPortfolioCategory}
+          onRename={renamePortfolioCategory}
+          onDelete={deletePortfolioCategory}
+          isCreating={createPortfolioCategoryMutation.isPending}
+          renamingCategoryId={String(renamePortfolioCategoryMutation.variables?.category?.id || "")}
+          deletingCategoryId={String(deletePortfolioCategoryMutation.variables?.id || "")}
         />
       ) : null}
     </div>
