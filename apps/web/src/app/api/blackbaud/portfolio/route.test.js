@@ -124,7 +124,7 @@ describe("Blackbaud portfolio route", () => {
           ],
           summary: { leadCount: 0, supportingCount: 1 },
         },
-        blackbaud_portfolio_cache_key: "v10:800",
+        blackbaud_portfolio_cache_key: "v12:800",
         blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ]);
@@ -247,6 +247,107 @@ describe("Blackbaud portfolio route", () => {
         identityHydrationPending: true,
         unresolvedIdentityCount: 1,
       }),
+    );
+  });
+
+  it("excludes deceased assignments before returning portfolio cards", async () => {
+    const { GET } = await import("./route.js");
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue([
+      {
+        constituent_id: "11",
+        type: "Lead Solicitor",
+        constituent: { lookup_id: "11", name: "Active Donor" },
+      },
+      {
+        constituent_id: "12",
+        type: "Lead Solicitor",
+        constituent: {
+          lookup_id: "12",
+          name: "Deceased Donor",
+          deceased: true,
+        },
+      },
+    ]);
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.leadSolicitor).toEqual([
+      expect.objectContaining({ constituentId: "11", name: "Active Donor" }),
+    ]);
+    expect(payload.summary).toEqual(
+      expect.objectContaining({ leadCount: 1, supportingCount: 0 }),
+    );
+  });
+
+  it("lets a failed identity lookup yield to later unnamed portfolio cards", async () => {
+    const { GET } = await import("./route.js");
+    listBlackbaudFundraiserAssignmentsMock.mockResolvedValue(
+      Array.from({ length: 5 }, (_, index) => ({
+        constituent_id: String(index + 1),
+        type: "Lead Solicitor",
+      })),
+    );
+    getBlackbaudConstituentByIdMock.mockImplementation(async ({ constituentId }) => {
+      if (String(constituentId) === "1") return null;
+      return {
+        name: `Constituent ${constituentId}`,
+        lookupId: `L-${constituentId}`,
+      };
+    });
+
+    const firstResponse = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const firstPayload = await firstResponse.json();
+
+    expect(firstResponse.status).toBe(200);
+    expect(firstPayload.leadSolicitor).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          constituentId: "1",
+          name: "NXT constituent 1",
+          identityLookupRetryAt: expect.any(String),
+        }),
+        expect.objectContaining({ constituentId: "2", name: "Constituent 2" }),
+        expect.objectContaining({ constituentId: "5", name: "NXT constituent 5" }),
+      ]),
+    );
+
+    const cachedPayload = firstPayload;
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([
+      {
+        blackbaud_portfolio_cache: cachedPayload,
+        blackbaud_portfolio_cache_key: "v12:800",
+        blackbaud_portfolio_cached_at: new Date().toISOString(),
+      },
+    ]);
+    getBlackbaudConstituentByIdMock.mockClear();
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      name: "Constituent 5",
+      lookupId: "L-5",
+    });
+
+    const secondResponse = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const secondPayload = await secondResponse.json();
+
+    expect(secondResponse.status).toBe(200);
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "5" }),
+    );
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "1" }),
+    );
+    expect(secondPayload.leadSolicitor).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ constituentId: "5", name: "Constituent 5" }),
+      ]),
     );
   });
 });

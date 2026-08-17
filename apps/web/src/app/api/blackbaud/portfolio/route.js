@@ -16,9 +16,10 @@ const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE = 4;
 const PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY = 2;
-// v10 hydrates assignment records without names in small persisted batches.
-// It never loads full contact or gift summaries per card.
-const PORTFOLIO_CACHE_VERSION = "v10";
+const PORTFOLIO_IDENTITY_LOOKUP_RETRY_COOLDOWN_MS = 30 * 1000;
+// v12 excludes deceased assignments and lets failed identity lookups yield to
+// later portfolio cards instead of retrying the same records indefinitely.
+const PORTFOLIO_CACHE_VERSION = "v12";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -30,6 +31,57 @@ function isCurrentAssignment(assignment) {
   const parsed = new Date(endValue);
   if (Number.isNaN(parsed.getTime())) return true;
   return parsed.getTime() >= Date.now();
+}
+
+function isAffirmativeBoolean(value) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+
+  return ["true", "yes", "y", "1", "deceased"].includes(
+    String(value).trim().toLowerCase(),
+  );
+}
+
+function isDeceasedRecord(record) {
+  if (!record || typeof record !== "object") return false;
+
+  const deathIndicator =
+    record.deceased ??
+    record.is_deceased ??
+    record.isDeceased ??
+    record.deceased_indicator ??
+    record.deceasedIndicator ??
+    record.is_deceased_indicator;
+  if (isAffirmativeBoolean(deathIndicator)) return true;
+
+  return Boolean(
+    record.deceased_date ??
+      record.deceasedDate ??
+      record.deceased_on ??
+      record.deceasedOn ??
+      record.death_date ??
+      record.deathDate ??
+      record.death_on ??
+      record.deathOn ??
+      record.date_of_death ??
+      record.dateOfDeath ??
+      record.date_deceased ??
+      record.dateDeceased,
+  );
+}
+
+function isDeceasedAssignment(assignment) {
+  return (
+    isDeceasedRecord(assignment) ||
+    isDeceasedRecord(assignment?.constituent) ||
+    isDeceasedRecord(assignment?.assigned_constituent) ||
+    isDeceasedRecord(assignment?.assignedConstituent) ||
+    isDeceasedRecord(assignment?.constituent_details) ||
+    isDeceasedRecord(assignment?.constituentDetails) ||
+    isDeceasedRecord(assignment?.constituent_info) ||
+    isDeceasedRecord(assignment?.constituentInfo) ||
+    isDeceasedRecord(assignment?.record)
+  );
 }
 
 function getAssignmentType(assignment) {
@@ -178,7 +230,10 @@ async function getCachedNxtPortfolioDetails({
 
   return new Map(
     rows.flatMap((row) => {
-      const constituent = parseCachedPayload(row.payload)?.mapped?.constituent;
+      const cachedPayload = parseCachedPayload(row.payload);
+      const constituent = cachedPayload?.mapped?.constituent;
+      const rawConstituent =
+        cachedPayload?.raw?.constituent ?? cachedPayload?.raw ?? null;
       if (!constituent || !row.constituent_id) return [];
 
       return [
@@ -189,6 +244,8 @@ async function getCachedNxtPortfolioDetails({
             email: constituent.email || null,
             phone: constituent.phone || null,
             address: constituent.address || null,
+            isDeceased:
+              isDeceasedRecord(constituent) || isDeceasedRecord(rawConstituent),
           },
         ],
       ];
@@ -235,6 +292,11 @@ function enrichConstituents({
           totalReceivedGiving: null,
         },
         assignmentTypes: Array.from(entry.assignmentTypes),
+        isDeceased: Boolean(
+          entry.isDeceased || cachedNxtDetails.isDeceased || liveIdentity.isDeceased,
+        ),
+        identityLookupRetryAt:
+          liveIdentity.identityLookupRetryAt || entry.identityLookupRetryAt || null,
       };
     })
     .sort((left, right) =>
@@ -256,11 +318,13 @@ async function getLivePortfolioIdentities({
   origin,
   entries,
 }) {
+  const now = Date.now();
   const unresolvedEntries = entries
     .filter(
       (entry) =>
         entry?.constituentId &&
-        !hasResolvedConstituentName(entry.name, entry.constituentId),
+        !hasResolvedConstituentName(entry.name, entry.constituentId) &&
+        new Date(entry?.identityLookupRetryAt || 0).getTime() <= now,
     )
     .slice(0, PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE);
 
@@ -278,10 +342,22 @@ async function getLivePortfolioIdentities({
         constituentId: entry.constituentId,
       }).catch(() => null);
 
-      if (identity?.name || identity?.lookupId) {
+      if (isDeceasedRecord(identity) || isDeceasedRecord(identity?.raw)) {
         identities.set(String(entry.constituentId), {
-          name: identity.name || null,
+          isDeceased: true,
+        });
+      } else if (hasResolvedConstituentName(identity?.name, entry.constituentId)) {
+        identities.set(String(entry.constituentId), {
+          name: identity.name,
           lookupId: identity.lookupId || null,
+          identityLookupRetryAt: null,
+        });
+      } else {
+        // A failed identity lookup should never block all later portfolio cards.
+        identities.set(String(entry.constituentId), {
+          identityLookupRetryAt: new Date(
+            Date.now() + PORTFOLIO_IDENTITY_LOOKUP_RETRY_COOLDOWN_MS,
+          ).toISOString(),
         });
       }
     }
@@ -307,22 +383,35 @@ function mergePortfolioIdentities(payload, identities) {
 
   const hydrate = (constituents) =>
     Array.isArray(constituents)
-      ? constituents.map((constituent) => {
+      ? constituents.flatMap((constituent) => {
           const identity = identities.get(String(constituent?.constituentId || ""));
-          if (!identity) return constituent;
+          if (!identity) return constituent?.isDeceased ? [] : [constituent];
+          if (identity.isDeceased || constituent?.isDeceased) return [];
 
-          return {
-            ...constituent,
-            name: identity.name || constituent.name,
-            lookupId: constituent.lookupId || identity.lookupId || null,
-          };
+          return [
+            {
+              ...constituent,
+              name: identity.name || constituent.name,
+              lookupId: constituent.lookupId || identity.lookupId || null,
+              identityLookupRetryAt:
+                identity.identityLookupRetryAt || constituent.identityLookupRetryAt || null,
+            },
+          ];
         })
       : [];
 
+  const leadSolicitor = hydrate(payload?.leadSolicitor);
+  const supportingSolicitor = hydrate(payload?.supportingSolicitor);
+
   return {
     ...payload,
-    leadSolicitor: hydrate(payload?.leadSolicitor),
-    supportingSolicitor: hydrate(payload?.supportingSolicitor),
+    leadSolicitor,
+    supportingSolicitor,
+    summary: {
+      ...(payload?.summary || {}),
+      leadCount: leadSolicitor.length,
+      supportingCount: supportingSolicitor.length,
+    },
   };
 }
 
@@ -331,15 +420,32 @@ function getPortfolioIdentityHydrationMeta(payload) {
     ...(Array.isArray(payload?.leadSolicitor) ? payload.leadSolicitor : []),
     ...(Array.isArray(payload?.supportingSolicitor) ? payload.supportingSolicitor : []),
   ];
-  const unresolvedIdentityCount = allConstituents.filter(
+  const unresolvedConstituents = allConstituents.filter(
     (constituent) =>
       constituent?.constituentId &&
       !hasResolvedConstituentName(constituent.name, constituent.constituentId),
-  ).length;
+  );
+  const now = Date.now();
+  const retryTimestamps = unresolvedConstituents
+    .map((constituent) => new Date(constituent.identityLookupRetryAt || 0).getTime())
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp > now);
+  const hasEligibleIdentityLookup = unresolvedConstituents.some((constituent) => {
+    const retryAt = new Date(constituent.identityLookupRetryAt || 0).getTime();
+    return !Number.isFinite(retryAt) || retryAt <= now;
+  });
+  const nextRetryDelayMs = retryTimestamps.length
+    ? Math.max(1000, Math.min(...retryTimestamps) - now)
+    : null;
 
   return {
-    identityHydrationPending: unresolvedIdentityCount > 0,
-    unresolvedIdentityCount,
+    identityHydrationPending: unresolvedConstituents.length > 0,
+    unresolvedIdentityCount: unresolvedConstituents.length,
+    identityHydrationPollIntervalMs:
+      unresolvedConstituents.length === 0
+        ? null
+        : hasEligibleIdentityLookup
+          ? 3000
+          : Math.min(nextRetryDelayMs || 3000, PORTFOLIO_IDENTITY_LOOKUP_RETRY_COOLDOWN_MS),
   };
 }
 
@@ -771,6 +877,7 @@ export async function GET(request) {
 
     assignments
       .filter(isCurrentAssignment)
+      .filter((assignment) => !isDeceasedAssignment(assignment))
       .forEach((assignment) => {
         const constituentId = getAssignmentConstituentId(assignment);
         if (!constituentId) return;
@@ -859,7 +966,11 @@ export async function GET(request) {
       liveIdentityByConstituentId,
     });
 
-    const responsePayload = {
+    const allAssignmentCardsBuilt =
+      leadSolicitor.length + supportingSolicitor.length ===
+      leadAssignments.size + supportAssignments.size;
+
+    const responsePayload = mergePortfolioIdentities({
       leadSolicitor,
       supportingSolicitor,
       summary: {
@@ -887,18 +998,13 @@ export async function GET(request) {
             ),
           }
         : undefined,
-    };
+    }, liveIdentityByConstituentId);
     responsePayload.portfolioMeta = getPortfolioIdentityHydrationMeta(responsePayload);
-
-    const expectedConstituentCount = leadAssignments.size + supportAssignments.size;
-    const loadedConstituentCount = leadSolicitor.length + supportingSolicitor.length;
-    const allAssignedConstituentsLoaded =
-      loadedConstituentCount === expectedConstituentCount;
 
     if (
       !includeDiagnostics &&
       staleCachedPortfolio &&
-      !allAssignedConstituentsLoaded
+      !allAssignmentCardsBuilt
     ) {
       return Response.json(
         buildStaleCacheResponse(staleCachedPortfolio, {
@@ -909,7 +1015,7 @@ export async function GET(request) {
 
     // Cache a complete base portfolio even if optional gift data is delayed.
     // This avoids repeatedly rebuilding every constituent card on each visit.
-    if (!includeDiagnostics && allAssignedConstituentsLoaded) {
+    if (!includeDiagnostics && allAssignmentCardsBuilt) {
       await saveCachedPortfolio(
         workspaceUser.id,
         initialCacheKey,

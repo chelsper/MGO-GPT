@@ -8179,9 +8179,9 @@ export default function MyTopProspectsPage() {
       ),
     staleTime: 5 * 60 * 1000,
     // Names omitted by fundraiser assignments are hydrated in small server-side
-    // batches. Keep refreshing only while that safe background work remains.
+    // batches. Failed lookups yield briefly so later cards can continue loading.
     refetchInterval: (query) =>
-      query.state.data?.portfolioMeta?.identityHydrationPending ? 3000 : false,
+      query.state.data?.portfolioMeta?.identityHydrationPollIntervalMs || false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   });
