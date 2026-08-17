@@ -286,6 +286,94 @@ function DiscussionAlertBadge({ count, compact = false }) {
   );
 }
 
+function parseWorklistDate(value) {
+  const datePart = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+
+  const timestamp = new Date(`${datePart}T00:00:00`).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function formatWorklistDueDate(value) {
+  const timestamp = parseWorklistDate(value);
+  if (!timestamp) return "No date";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
+}
+
+function getHomepageAttentionItems(worklist) {
+  const today = new Date();
+  const todayTimestamp = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  ).getTime();
+  const upcomingEndTimestamp = todayTimestamp + 7 * 24 * 60 * 60 * 1000;
+  const overdue = [];
+  const upcoming = [];
+
+  const addItem = (bucket, item) => {
+    if (!item?.dueDate) return;
+    bucket.push(item);
+  };
+
+  (Array.isArray(worklist?.overdueNextSteps) ? worklist.overdueNextSteps : []).forEach((item) => {
+    addItem(overdue, {
+      id: `next-step-${item.id}`,
+      source: "Next step",
+      title: item.next_action_text || "Untitled next step",
+      context: item.prospect_name || "Prospect",
+      dueDate: item.next_action_due_date,
+      href: `/my-top-prospects?prospectId=${encodeURIComponent(item.id)}&panel=next-step`,
+    });
+  });
+
+  (Array.isArray(worklist?.upcomingNextSteps) ? worklist.upcomingNextSteps : []).forEach((item) => {
+    addItem(upcoming, {
+      id: `next-step-${item.id}`,
+      source: "Next step",
+      title: item.next_action_text || "Untitled next step",
+      context: item.prospect_name || "Prospect",
+      dueDate: item.next_action_due_date,
+      href: `/my-top-prospects?prospectId=${encodeURIComponent(item.id)}&panel=next-step`,
+    });
+  });
+
+  (Array.isArray(worklist?.discussionItems) ? worklist.discussionItems : []).forEach((item) => {
+    const dueTimestamp = parseWorklistDate(item.due_date);
+    if (!dueTimestamp) return;
+
+    const discussionItem = {
+      id: `discussion-${item.id}`,
+      source: "Team discussion",
+      title: item.subject || "Untitled discussion",
+      context: item.prospect_name || item.assigned_user_name || "Team discussion",
+      dueDate: item.due_date,
+      href: "/team-discussion",
+    };
+
+    if (dueTimestamp < todayTimestamp) {
+      addItem(overdue, discussionItem);
+    } else if (dueTimestamp <= upcomingEndTimestamp) {
+      addItem(upcoming, discussionItem);
+    }
+  });
+
+  const sortByDueDate = (left, right) => {
+    const leftTimestamp = parseWorklistDate(left.dueDate) || Number.MAX_SAFE_INTEGER;
+    const rightTimestamp = parseWorklistDate(right.dueDate) || Number.MAX_SAFE_INTEGER;
+    return leftTimestamp - rightTimestamp;
+  };
+
+  return {
+    overdue: overdue.sort(sortByDueDate).slice(0, 3),
+    upcoming: upcoming.sort(sortByDueDate).slice(0, 3),
+  };
+}
+
 export default function Page() {
   const queryClient = useQueryClient();
   const { data: user, loading } = useUser();
@@ -444,6 +532,8 @@ export default function Page() {
     staleTime: 60 * 1000,
   });
   const openDiscussionItems = Number(worklist?.summary?.openDiscussionItems || 0);
+  const attentionItems = useMemo(() => getHomepageAttentionItems(worklist), [worklist]);
+  const hasAttentionItems = isMgoView && (attentionItems.overdue.length || attentionItems.upcoming.length);
 
   async function handleViewModeChange(nextMode) {
     if (!isAdmin) return;
@@ -1082,6 +1172,172 @@ export default function Page() {
           >
             {workspaceSwitchMessage}
           </div>
+        ) : null}
+
+        {hasAttentionItems ? (
+          <section
+            aria-labelledby="attention-upcoming-title"
+            style={{
+              marginBottom: "24px",
+              backgroundColor: "white",
+              border: "1px solid #E5E7EB",
+              borderRadius: "16px",
+              padding: "18px",
+              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: "16px",
+                marginBottom: "14px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: "#6B7280",
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase",
+                    marginBottom: "5px",
+                  }}
+                >
+                  Today&apos;s focus
+                </div>
+                <h2
+                  id="attention-upcoming-title"
+                  style={{ margin: 0, color: "#111827", fontSize: "19px", lineHeight: 1.25 }}
+                >
+                  Attention &amp; Upcoming
+                </h2>
+              </div>
+              <a
+                href="/team-discussion"
+                style={{
+                  color: "#4F46E5",
+                  fontSize: "13px",
+                  fontWeight: 800,
+                  textDecoration: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                View all discussions
+              </a>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gap: "12px",
+              }}
+            >
+              {[
+                {
+                  title: "Needs attention",
+                  empty: "Nothing overdue.",
+                  items: attentionItems.overdue,
+                  accent: "#B45309",
+                  background: "#FFF7ED",
+                  border: "#FED7AA",
+                  dateLabel: "Overdue",
+                },
+                {
+                  title: "Coming up",
+                  empty: "Nothing due in the next seven days.",
+                  items: attentionItems.upcoming,
+                  accent: "#1D4ED8",
+                  background: "#EFF6FF",
+                  border: "#BFDBFE",
+                  dateLabel: "Due",
+                },
+              ].map((group) => (
+                <div
+                  key={group.title}
+                  style={{
+                    backgroundColor: group.background,
+                    border: `1px solid ${group.border}`,
+                    borderRadius: "12px",
+                    padding: "14px",
+                  }}
+                >
+                  <div style={{ color: group.accent, fontSize: "14px", fontWeight: 800, marginBottom: "10px" }}>
+                    {group.title}
+                  </div>
+                  {group.items.length ? (
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      {group.items.map((item) => (
+                        <a
+                          key={item.id}
+                          href={item.href}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "minmax(0, 1fr) auto",
+                            gap: "10px",
+                            alignItems: "start",
+                            color: "#111827",
+                            textDecoration: "none",
+                            backgroundColor: "rgba(255, 255, 255, 0.78)",
+                            border: `1px solid ${group.border}`,
+                            borderRadius: "10px",
+                            padding: "10px",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                color: group.accent,
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                letterSpacing: "0.04em",
+                                textTransform: "uppercase",
+                                marginBottom: "3px",
+                              }}
+                            >
+                              {item.source}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "13px",
+                                fontWeight: 800,
+                                lineHeight: 1.35,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {item.title}
+                            </div>
+                            <div
+                              style={{
+                                color: "#6B7280",
+                                fontSize: "12px",
+                                marginTop: "2px",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {item.context}
+                            </div>
+                          </div>
+                          <div style={{ color: group.accent, fontSize: "12px", fontWeight: 800, whiteSpace: "nowrap" }}>
+                            {group.dateLabel} {formatWorklistDueDate(item.dueDate)}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: "#6B7280", fontSize: "13px" }}>{group.empty}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
         ) : null}
 
         <div style={{ marginBottom: "10px", fontSize: "18px", color: "#111827", fontWeight: 700 }}>
