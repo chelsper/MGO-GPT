@@ -9162,33 +9162,41 @@ export default function MyTopProspectsPage() {
     { background: "#FFF7ED", text: "#9A3412" },
     { background: "#FDF2F8", text: "#9D174D" },
   ];
+  const categorizedPortfolioTiers = portfolioCategories.map((category, index) => ({
+    key: `category-${category.id}`,
+    title: category.displayName || category.name,
+    description: category.parentName
+      ? `Private subcategory within ${category.parentName}.`
+      : "Your private JUMGOGPT organization category.",
+    accent: portfolioCategoryAccents[index % portfolioCategoryAccents.length],
+    hierarchyDepth: category.hierarchyDepth || 0,
+    items: filteredPortfolioConstituentList.filter(
+      (person) =>
+        String(
+          portfolioCategoryByConstituentId[String(person?.constituentId || "")]
+            ?.id || "",
+        ) === String(category.id),
+    ),
+  }));
+  const uncategorizedPortfolioItems = filteredPortfolioConstituentList.filter(
+    (person) =>
+      !portfolioCategoryByConstituentId[String(person?.constituentId || "")],
+  );
   const portfolioCategoryTiers = [
-    ...portfolioCategories.map((category, index) => ({
-      key: `category-${category.id}`,
-      title: category.displayName || category.name,
-      description: category.parentName
-        ? `Private subcategory within ${category.parentName}.`
-        : "Your private JUMGOGPT organization category.",
-      accent: portfolioCategoryAccents[index % portfolioCategoryAccents.length],
-      hierarchyDepth: category.hierarchyDepth || 0,
-      items: filteredPortfolioConstituentList.filter(
-        (person) =>
-          String(
-            portfolioCategoryByConstituentId[String(person?.constituentId || "")]?.id ||
-              "",
-          ) === String(category.id),
-      ),
-    })),
-    {
-      key: "uncategorized",
-      title: "Uncategorized",
-      description: "NXT portfolio assignments not yet organized into a category.",
-      accent: { background: "#F3F4F6", text: "#374151" },
-      items: filteredPortfolioConstituentList.filter(
-        (person) =>
-          !portfolioCategoryByConstituentId[String(person?.constituentId || "")],
-      ),
-    },
+    ...categorizedPortfolioTiers,
+    // Do not reserve a column for the fallback category when every card is organized.
+    ...(uncategorizedPortfolioItems.length
+      ? [
+          {
+            key: "uncategorized",
+            title: "Uncategorized",
+            description:
+              "NXT portfolio assignments not yet organized into a category.",
+            accent: { background: "#F3F4F6", text: "#374151" },
+            items: uncategorizedPortfolioItems,
+          },
+        ]
+      : []),
   ];
   const filteredActiveProspects = activeProspects.filter((prospect) => {
     const nextAction = getProspectNextAction(prospect);
