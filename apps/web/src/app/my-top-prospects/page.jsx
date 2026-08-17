@@ -8178,6 +8178,11 @@ export default function MyTopProspectsPage() {
         profileStatus?.workspaceUser?.blackbaud_lookup_id
       ),
     staleTime: 5 * 60 * 1000,
+    // Names omitted by fundraiser assignments are hydrated in small server-side
+    // batches. Keep refreshing only while that safe background work remains.
+    refetchInterval: (query) =>
+      query.state.data?.portfolioMeta?.identityHydrationPending ? 3000 : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   });
 

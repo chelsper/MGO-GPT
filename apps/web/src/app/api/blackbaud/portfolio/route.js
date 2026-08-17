@@ -14,11 +14,11 @@ import {
 
 const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
 const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PORTFOLIO_IDENTITY_LOOKUP_TIMEOUT_MS = 1500;
-const PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY = 6;
-// v9 adds a bounded identity-only lookup for assignment records that omit a
-// constituent name. It never loads full contact or gift summaries per card.
-const PORTFOLIO_CACHE_VERSION = "v9";
+const PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE = 4;
+const PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY = 2;
+// v10 hydrates assignment records without names in small persisted batches.
+// It never loads full contact or gift summaries per card.
+const PORTFOLIO_CACHE_VERSION = "v10";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -242,44 +242,41 @@ function enrichConstituents({
     );
 }
 
-function withTimeout(promise, timeoutMs, fallback = null) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
-  ]);
+function hasResolvedConstituentName(name, constituentId) {
+  const normalizedName = String(name || "").trim();
+  return (
+    Boolean(normalizedName) &&
+    normalizedName !== `NXT constituent ${String(constituentId || "").trim()}`
+  );
 }
 
 async function getLivePortfolioIdentities({
   userId,
   authUserId,
   origin,
-  groupedAssignments,
-  localDetailsByConstituentId,
-  cachedNxtDetailsByConstituentId,
+  entries,
 }) {
-  const entries = Array.from(groupedAssignments.values()).filter((entry) => {
-    const localDetails = localDetailsByConstituentId.get(String(entry.constituentId)) || {};
-    const cachedNxtDetails =
-      cachedNxtDetailsByConstituentId.get(String(entry.constituentId)) || {};
-    return !cachedNxtDetails.name && !localDetails.name && !entry.name;
-  });
+  const unresolvedEntries = entries
+    .filter(
+      (entry) =>
+        entry?.constituentId &&
+        !hasResolvedConstituentName(entry.name, entry.constituentId),
+    )
+    .slice(0, PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE);
 
   const identities = new Map();
   let nextIndex = 0;
 
   async function worker() {
-    while (nextIndex < entries.length) {
-      const entry = entries[nextIndex];
+    while (nextIndex < unresolvedEntries.length) {
+      const entry = unresolvedEntries[nextIndex];
       nextIndex += 1;
-      const identity = await withTimeout(
-        getBlackbaudConstituentById({
-          userId,
-          authUserId,
-          origin,
-          constituentId: entry.constituentId,
-        }).catch(() => null),
-        PORTFOLIO_IDENTITY_LOOKUP_TIMEOUT_MS,
-      );
+      const identity = await getBlackbaudConstituentById({
+        userId,
+        authUserId,
+        origin,
+        constituentId: entry.constituentId,
+      }).catch(() => null);
 
       if (identity?.name || identity?.lookupId) {
         identities.set(String(entry.constituentId), {
@@ -292,12 +289,92 @@ async function getLivePortfolioIdentities({
 
   await Promise.all(
     Array.from(
-      { length: Math.min(PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY, entries.length) },
+      {
+        length: Math.min(
+          PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY,
+          unresolvedEntries.length,
+        ),
+      },
       () => worker(),
     ),
   );
 
   return identities;
+}
+
+function mergePortfolioIdentities(payload, identities) {
+  if (!identities.size) return payload;
+
+  const hydrate = (constituents) =>
+    Array.isArray(constituents)
+      ? constituents.map((constituent) => {
+          const identity = identities.get(String(constituent?.constituentId || ""));
+          if (!identity) return constituent;
+
+          return {
+            ...constituent,
+            name: identity.name || constituent.name,
+            lookupId: constituent.lookupId || identity.lookupId || null,
+          };
+        })
+      : [];
+
+  return {
+    ...payload,
+    leadSolicitor: hydrate(payload?.leadSolicitor),
+    supportingSolicitor: hydrate(payload?.supportingSolicitor),
+  };
+}
+
+function getPortfolioIdentityHydrationMeta(payload) {
+  const allConstituents = [
+    ...(Array.isArray(payload?.leadSolicitor) ? payload.leadSolicitor : []),
+    ...(Array.isArray(payload?.supportingSolicitor) ? payload.supportingSolicitor : []),
+  ];
+  const unresolvedIdentityCount = allConstituents.filter(
+    (constituent) =>
+      constituent?.constituentId &&
+      !hasResolvedConstituentName(constituent.name, constituent.constituentId),
+  ).length;
+
+  return {
+    identityHydrationPending: unresolvedIdentityCount > 0,
+    unresolvedIdentityCount,
+  };
+}
+
+async function hydrateCachedPortfolioIdentities({
+  cachedPortfolio,
+  workspaceUserId,
+  authUserId,
+  origin,
+}) {
+  const cachedPayload = cachedPortfolio?.payload || {};
+  const cachedConstituents = [
+    ...(Array.isArray(cachedPayload.leadSolicitor) ? cachedPayload.leadSolicitor : []),
+    ...(Array.isArray(cachedPayload.supportingSolicitor)
+      ? cachedPayload.supportingSolicitor
+      : []),
+  ];
+  const liveIdentities = await getLivePortfolioIdentities({
+    userId: workspaceUserId,
+    authUserId,
+    origin,
+    entries: cachedConstituents,
+  });
+  const payload = mergePortfolioIdentities(cachedPayload, liveIdentities);
+
+  if (liveIdentities.size > 0) {
+    await saveCachedPortfolio(workspaceUserId, cachedPortfolio.cacheKey, payload);
+  }
+
+  return {
+    ...payload,
+    portfolioMeta: {
+      ...(payload?.portfolioMeta || {}),
+      ...getPortfolioIdentityHydrationMeta(payload),
+    },
+  };
 }
 
 function getCacheAgeMs(timestamp) {
@@ -347,6 +424,7 @@ async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = fals
   return {
     payload: row.blackbaud_portfolio_cache,
     cachedAt: row.blackbaud_portfolio_cached_at,
+    cacheKey: row.blackbaud_portfolio_cache_key,
     isFresh,
   };
 }
@@ -456,6 +534,7 @@ function buildStaleCacheResponse(cachedPortfolio, { reason, diagnostics } = {}) 
   return {
     ...cachedPortfolio.payload,
     portfolioMeta: {
+      ...(cachedPortfolio.payload?.portfolioMeta || {}),
       source: "stale-cache",
       cachedAt: cachedPortfolio.cachedAt,
       reason,
@@ -504,12 +583,30 @@ export async function GET(request) {
       : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true });
 
     if (initialCachedPortfolio) {
+      const hydratedPayload = await hydrateCachedPortfolioIdentities({
+        cachedPortfolio: initialCachedPortfolio,
+        workspaceUserId: workspaceUser.id,
+        authUserId,
+        origin,
+      });
+      const hydratedCachedPortfolio = {
+        ...initialCachedPortfolio,
+        payload: hydratedPayload,
+      };
+
       if (initialCachedPortfolio.isFresh) {
-        return Response.json(initialCachedPortfolio.payload);
+        return Response.json({
+          ...hydratedPayload,
+          portfolioMeta: {
+            ...(hydratedPayload.portfolioMeta || {}),
+            source: "cache",
+            cachedAt: initialCachedPortfolio.cachedAt,
+          },
+        });
       }
 
       return Response.json(
-        buildStaleCacheResponse(initialCachedPortfolio, {
+        buildStaleCacheResponse(hydratedCachedPortfolio, {
           reason: "cached-portfolio-available",
         }),
       );
@@ -557,12 +654,30 @@ export async function GET(request) {
       : await getCachedPortfolio(workspaceUser.id, initialCacheKey, { allowStale: true });
 
     if (resolvedCachedPortfolio) {
+      const hydratedPayload = await hydrateCachedPortfolioIdentities({
+        cachedPortfolio: resolvedCachedPortfolio,
+        workspaceUserId: workspaceUser.id,
+        authUserId,
+        origin,
+      });
+      const hydratedCachedPortfolio = {
+        ...resolvedCachedPortfolio,
+        payload: hydratedPayload,
+      };
+
       if (resolvedCachedPortfolio.isFresh) {
-        return Response.json(resolvedCachedPortfolio.payload);
+        return Response.json({
+          ...hydratedPayload,
+          portfolioMeta: {
+            ...(hydratedPayload.portfolioMeta || {}),
+            source: "cache",
+            cachedAt: resolvedCachedPortfolio.cachedAt,
+          },
+        });
       }
 
       return Response.json(
-        buildStaleCacheResponse(resolvedCachedPortfolio, {
+        buildStaleCacheResponse(hydratedCachedPortfolio, {
           reason: "cached-portfolio-available",
         }),
       );
@@ -709,13 +824,23 @@ export async function GET(request) {
       }),
     ]);
 
+    const initialLeadSolicitor = enrichConstituents({
+      groupedAssignments: leadAssignments,
+      localDetailsByConstituentId,
+      cachedNxtDetailsByConstituentId,
+      liveIdentityByConstituentId: new Map(),
+    });
+    const initialSupportingSolicitor = enrichConstituents({
+      groupedAssignments: supportAssignments,
+      localDetailsByConstituentId,
+      cachedNxtDetailsByConstituentId,
+      liveIdentityByConstituentId: new Map(),
+    });
     const liveIdentityByConstituentId = await getLivePortfolioIdentities({
       userId: workspaceUser.id,
       authUserId,
       origin,
-      groupedAssignments: new Map([...leadAssignments, ...supportAssignments]),
-      localDetailsByConstituentId,
-      cachedNxtDetailsByConstituentId,
+      entries: [...initialLeadSolicitor, ...initialSupportingSolicitor],
     });
 
     // Portfolio assignment data is enough to render cards immediately. Full
@@ -763,6 +888,7 @@ export async function GET(request) {
           }
         : undefined,
     };
+    responsePayload.portfolioMeta = getPortfolioIdentityHydrationMeta(responsePayload);
 
     const expectedConstituentCount = leadAssignments.size + supportAssignments.size;
     const loadedConstituentCount = leadSolicitor.length + supportingSolicitor.length;
