@@ -119,7 +119,15 @@ async function fetchTeammateOptions() {
       .filter(
         (user) =>
           user.active !== false &&
-          ["mgo", "reviewer", "executive_admin", "admin"].includes(user.role),
+          [
+            "mgo",
+            "advancement_services",
+            "executive",
+            "admin",
+            "reviewer",
+            "advancement_admin",
+            "executive_admin",
+          ].includes(user.role),
       )
       .map((user) => ({
         id: user.id,
