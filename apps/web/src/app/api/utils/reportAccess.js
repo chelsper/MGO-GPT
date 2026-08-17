@@ -3,6 +3,7 @@ import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
 
 export const PORTFOLIO_GIVING_REPORT_KEY = "portfolio-fy-giving";
 export const FUTURE_MADE_PHASE_TWO_REPORT_KEY = "future-made-phase-ii";
+export const EXECUTIVE_TEAM_STANDINGS_REPORT_KEY = "executive-team-standings";
 
 const VISIBILITY_OPTIONS = new Set(["all_users", "executive", "specific_users"]);
 

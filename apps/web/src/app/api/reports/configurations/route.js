@@ -7,6 +7,7 @@ import {
 } from "@/utils/workspaceRoles";
 import {
   canUserViewReport,
+  EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
   FUTURE_MADE_PHASE_TWO_REPORT_KEY,
   normalizeReportVisibility,
   parseReportSpecificUserIds,
@@ -24,6 +25,12 @@ const REPORT_DEFINITIONS = [
     title: "Future. Made. Phase II",
     description:
       "View every constituent returned by the saved Future. Made. Phase II NXT query.",
+  },
+  {
+    key: EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
+    title: "Executive Team Standings",
+    description:
+      "Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.",
   },
 ];
 
@@ -63,7 +70,7 @@ export async function GET() {
     const records = await sql`
       SELECT report_key, title, description, visibility, specific_user_ids
       FROM report_configurations
-      WHERE report_key IN ('portfolio-fy-giving', 'future-made-phase-ii')
+      WHERE report_key IN ('portfolio-fy-giving', 'future-made-phase-ii', 'executive-team-standings')
     `;
     const recordsByKey = new Map(records.map((record) => [record.report_key, record]));
     const canManage = canManageWorkspaceRole(user.role);

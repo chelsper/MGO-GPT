@@ -1989,6 +1989,24 @@ export default async function ensureAppSchema() {
       )
       ON CONFLICT (report_key) DO NOTHING
     `;
+
+    await sql`
+      INSERT INTO report_configurations (
+        report_key,
+        title,
+        description,
+        visibility,
+        specific_user_ids
+      )
+      VALUES (
+        'executive-team-standings',
+        'Executive Team Standings',
+        'Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.',
+        'executive',
+        '[]'::jsonb
+      )
+      ON CONFLICT (report_key) DO NOTHING
+    `;
     await sql`
       INSERT INTO report_configurations (
         report_key,

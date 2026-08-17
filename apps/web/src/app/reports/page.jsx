@@ -397,6 +397,9 @@ export default function ReportsPage() {
         const futureMadeConfiguration = Array.isArray(payload?.configurations)
           ? payload.configurations.find((item) => item.key === "future-made-phase-ii")
           : null;
+        const teamStandingsConfiguration = Array.isArray(payload?.configurations)
+          ? payload.configurations.find((item) => item.key === "executive-team-standings")
+          : null;
         if (!configuration) {
           throw new Error("Portfolio Giving access could not be loaded.");
         }
@@ -404,6 +407,7 @@ export default function ReportsPage() {
           setReportAccessStatus({
             configuration,
             futureMadeConfiguration,
+            teamStandingsConfiguration,
             canManage: Boolean(payload?.canManage),
           });
         }
@@ -427,6 +431,7 @@ export default function ReportsPage() {
   const canUseExecutiveView = canUseExecutiveViewRole(profileStatus?.user?.role);
   const reportAccess = reportAccessStatus?.configuration || null;
   const futureMadeReportAccess = reportAccessStatus?.futureMadeConfiguration || null;
+  const teamStandingsReportAccess = reportAccessStatus?.teamStandingsConfiguration || null;
   const canManageReports = Boolean(reportAccessStatus?.canManage);
 
   useEffect(() => {
@@ -924,25 +929,6 @@ export default function ReportsPage() {
                 Configure access
               </a>
             ) : null}
-            {futureMadeReportAccess?.canView ? (
-              <a
-                href="/reports/future-made-phase-ii"
-                style={{
-                  minHeight: "42px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  borderRadius: "10px",
-                  border: "1px solid #C4B5FD",
-                  backgroundColor: "#F5F3FF",
-                  color: "#5B21B6",
-                  padding: "0 14px",
-                  fontSize: "14px",
-                  fontWeight: 800,
-                }}
-              >
-                Future. Made. Phase II
-              </a>
-            ) : null}
             <button
               type="button"
               onClick={() => setRefreshVersion((version) => version + 1)}
@@ -967,6 +953,79 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
+
+        <nav
+          aria-label="Reports"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flexWrap: "wrap",
+            marginBottom: "24px",
+            paddingBottom: "14px",
+            borderBottom: "1px solid #E2E8F0",
+          }}
+        >
+          <a
+            href="/reports"
+            aria-current="page"
+            style={{
+              minHeight: "40px",
+              display: "inline-flex",
+              alignItems: "center",
+              borderRadius: "999px",
+              border: "1px solid #4338CA",
+              backgroundColor: "#4F46E5",
+              color: "white",
+              padding: "0 15px",
+              fontSize: "14px",
+              fontWeight: 800,
+              textDecoration: "none",
+            }}
+          >
+            Portfolio Giving
+          </a>
+          {futureMadeReportAccess?.canView ? (
+            <a
+              href="/reports/future-made-phase-ii"
+              style={{
+                minHeight: "40px",
+                display: "inline-flex",
+                alignItems: "center",
+                borderRadius: "999px",
+                border: "1px solid #C4B5FD",
+                backgroundColor: "#FAF5FF",
+                color: "#5B21B6",
+                padding: "0 15px",
+                fontSize: "14px",
+                fontWeight: 800,
+                textDecoration: "none",
+              }}
+            >
+              Future. Made. Phase II
+            </a>
+          ) : null}
+          {teamStandingsReportAccess?.canView ? (
+            <a
+              href="/reports/executive-team-standings"
+              style={{
+                minHeight: "40px",
+                display: "inline-flex",
+                alignItems: "center",
+                borderRadius: "999px",
+                border: "1px solid #86EFAC",
+                backgroundColor: "#F0FDF4",
+                color: "#166534",
+                padding: "0 15px",
+                fontSize: "14px",
+                fontWeight: 800,
+                textDecoration: "none",
+              }}
+            >
+              Team Standings
+            </a>
+          ) : null}
+        </nav>
 
         <section
           style={{

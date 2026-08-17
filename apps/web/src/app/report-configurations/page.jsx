@@ -47,6 +47,7 @@ function AudienceOption({ checked, description, name, onChange, title, value }) 
 
 function getAudienceDescriptions(configuration) {
   const isGlobalQuery = configuration.key === "future-made-phase-ii";
+  const isTeamStandings = configuration.key === "executive-team-standings";
 
   if (isGlobalQuery) {
     return {
@@ -56,6 +57,17 @@ function getAudienceDescriptions(configuration) {
         "Executives can run this saved query globally. MGO users do not gain access.",
       specificUsers:
         "Choose individual active users who should be able to run this saved query globally.",
+    };
+  }
+
+  if (isTeamStandings) {
+    return {
+      allUsers:
+        "Every active user can view the local team standings. No Blackbaud report data is loaded.",
+      executives:
+        "Executives can view the local team standings. MGO users do not gain access.",
+      specificUsers:
+        "Choose individual active users who should be able to view the local team standings.",
     };
   }
 
@@ -289,6 +301,11 @@ export default function ReportConfigurationsPage() {
                         This report always uses the full saved NXT query, not the selected MGO portfolio.
                       </p>
                     ) : null}
+                    {configuration.key === "executive-team-standings" ? (
+                      <p style={{ margin: "10px 0 0", color: "#166534", lineHeight: 1.5, fontWeight: 700 }}>
+                        This report uses JUMGOGPT portfolio, opportunity, and next-step records. It does not load Blackbaud revenue data.
+                      </p>
+                    ) : null}
                   </div>
 
                   <fieldset style={{ border: 0, padding: 0, margin: "22px 0 0" }}>
@@ -370,7 +387,9 @@ export default function ReportConfigurationsPage() {
                   ) : null}
 
                   <p style={{ margin: "18px 0 0", color: "#64748B", lineHeight: 1.5, fontSize: "14px" }}>
-                    Each person still needs a connected Blackbaud account with permission to read the report&apos;s data.
+                    {configuration.key === "executive-team-standings"
+                      ? "This report uses only JUMGOGPT operational data and does not require a Blackbaud connection to load."
+                      : "Each person still needs a connected Blackbaud account with permission to read the report's data."}
                   </p>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", marginTop: "20px" }}>
