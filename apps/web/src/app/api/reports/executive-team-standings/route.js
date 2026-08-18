@@ -352,6 +352,8 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     drilldown: {
       activeProspects: activeProspectsByUser.get(Number(row.user_id)) || [],
       openOpportunities: openOpportunitiesByUser.get(Number(row.user_id)) || [],
+      nxtActions:
+        nxtActionSummaryByUser.get(Number(row.user_id))?.actions || [],
     },
   }));
 

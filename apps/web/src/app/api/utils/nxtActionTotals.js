@@ -32,6 +32,12 @@ function getActionDate(action) {
   ]);
 }
 
+function getActionId(action) {
+  return String(
+    firstDefined(action, ["id", "action_id", "actionId"]) || "",
+  ).trim();
+}
+
 function getActionFundraiserId(fundraiser) {
   return String(
     firstDefined(fundraiser, [
@@ -84,6 +90,78 @@ function getActionFundraiserCandidates(action) {
   }
 
   return candidates;
+}
+
+function getActionConstituentId(action) {
+  return String(
+    firstDefined(action, [
+      "constituent_id",
+      "constituentId",
+      "constituent.id",
+      "value.constituent_id",
+      "value.constituentId",
+      "value.constituent.id",
+    ]) || "",
+  ).trim();
+}
+
+function getActionConstituentName(action) {
+  return String(
+    firstDefined(action, [
+      "constituent_name",
+      "constituentName",
+      "constituent.name",
+      "constituent.display_name",
+      "constituent.displayName",
+      "value.constituent_name",
+      "value.constituentName",
+      "value.constituent.name",
+      "name",
+    ]) || "",
+  ).trim();
+}
+
+function getActionCategory(action) {
+  return String(
+    firstDefined(action, [
+      "category",
+      "action_category",
+      "actionCategory",
+      "type",
+      "type.name",
+      "type.description",
+      "interaction_type",
+      "interactionType",
+      "status",
+    ]) || "",
+  ).trim();
+}
+
+function getActionSummary(action) {
+  return String(
+    firstDefined(action, [
+      "summary",
+      "title",
+      "description",
+      "notes",
+      "comment",
+      "value.summary",
+      "value.title",
+      "value.description",
+      "value.notes",
+    ]) || "",
+  ).trim();
+}
+
+function normalizeActionRecord(action) {
+  return {
+    actionId: getActionId(action),
+    date: getActionDate(action),
+    category: getActionCategory(action),
+    summary: getActionSummary(action),
+    blackbaudConstituentId: getActionConstituentId(action),
+    constituentName: getActionConstituentName(action),
+  };
 }
 
 function normalizeWorkspaceFundraiserIds(user) {
@@ -146,12 +224,12 @@ export async function getNxtActionSummaryByWorkspaceUser({
   }).catch(() => []);
 
   const countsByUserId = new Map(
-    normalizedUsers.map((user) => [Number(user.id), { actionsThisFY: 0 }]),
+    normalizedUsers.map((user) => [Number(user.id), { actionsThisFY: 0, actions: [] }]),
   );
   const seenActionIds = new Set();
 
   for (const action of actions) {
-    const actionId = String(action?.id || "").trim();
+    const actionId = getActionId(action);
     if (actionId) {
       if (seenActionIds.has(actionId)) continue;
       seenActionIds.add(actionId);
@@ -169,14 +247,30 @@ export async function getNxtActionSummaryByWorkspaceUser({
 
     if (!fundraiserIds.size) continue;
 
+    const normalizedAction = normalizeActionRecord(action);
+
     for (const [userId, identitySet] of identitySetsByUserId.entries()) {
       if (!identitySet?.size) continue;
       const matched = Array.from(identitySet).some((identity) => fundraiserIds.has(identity));
       if (!matched) continue;
-      const current = countsByUserId.get(userId) || { actionsThisFY: 0 };
+      const current = countsByUserId.get(userId) || { actionsThisFY: 0, actions: [] };
       current.actionsThisFY += 1;
+      current.actions.push(normalizedAction);
       countsByUserId.set(userId, current);
     }
+  }
+
+  for (const current of countsByUserId.values()) {
+    current.actions.sort((left, right) => {
+      const leftTime = left?.date ? new Date(left.date).getTime() : Number.NaN;
+      const rightTime = right?.date ? new Date(right.date).getTime() : Number.NaN;
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
+        return rightTime - leftTime;
+      }
+      if (Number.isFinite(rightTime)) return 1;
+      if (Number.isFinite(leftTime)) return -1;
+      return String(left?.summary || "").localeCompare(String(right?.summary || ""));
+    });
   }
 
   return countsByUserId;

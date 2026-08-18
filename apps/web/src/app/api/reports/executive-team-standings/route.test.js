@@ -56,7 +56,24 @@ describe("Executive Team Standings report route", () => {
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
     getClosedFiscalYearSummaryMock.mockResolvedValue({ closedThisFY: 25000 });
     getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(
-      new Map([[8, { actionsThisFY: 11 }]]),
+      new Map([
+        [
+          8,
+          {
+            actionsThisFY: 11,
+            actions: [
+              {
+                actionId: "bb-action-1",
+                date: "2026-08-14",
+                category: "Cultivation",
+                summary: "Discovery call with donor",
+                blackbaudConstituentId: "bb-101",
+                constituentName: "Ada Donor",
+              },
+            ],
+          },
+        ],
+      ]),
     );
     getCachedReportSnapshotMock.mockResolvedValue(null);
     saveReportSnapshotMock.mockResolvedValue();
@@ -119,7 +136,7 @@ describe("Executive Team Standings report route", () => {
     });
   });
 
-  it("returns local team metrics without a Blackbaud request", async () => {
+  it("returns team metrics with underlying drilldowns", async () => {
     const { GET } = await import("./route.js");
     const response = await GET(new Request("https://jumgogpt.app/api/reports/executive-team-standings"));
     const payload = await response.json();
@@ -162,6 +179,16 @@ describe("Executive Team Standings report route", () => {
               title: "Leadership Gift",
               currentStage: "Cultivation",
               estimatedAmount: 125000,
+            }),
+          ],
+          nxtActions: [
+            expect.objectContaining({
+              actionId: "bb-action-1",
+              date: "2026-08-14",
+              category: "Cultivation",
+              summary: "Discovery call with donor",
+              blackbaudConstituentId: "bb-101",
+              constituentName: "Ada Donor",
             }),
           ],
         },

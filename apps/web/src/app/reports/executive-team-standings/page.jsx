@@ -230,6 +230,9 @@ export default function ExecutiveTeamStandingsPage() {
                     const openOpportunities = Array.isArray(entry.drilldown?.openOpportunities)
                       ? entry.drilldown.openOpportunities
                       : [];
+                    const nxtActions = Array.isArray(entry.drilldown?.nxtActions)
+                      ? entry.drilldown.nxtActions
+                      : [];
                     return (
                       <>
                   <div style={{ alignItems: "flex-start", display: "flex", gap: "12px", justifyContent: "space-between" }}>
@@ -337,7 +340,7 @@ export default function ExecutiveTeamStandingsPage() {
                           )}
                         </div>
 
-                        <div style={{ backgroundColor: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: "14px", padding: "14px" }}>
+                      <div style={{ backgroundColor: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: "14px", padding: "14px" }}>
                           <div style={{ color: "#0F172A", fontSize: "14px", fontWeight: 900, marginBottom: "10px" }}>
                             Open opportunities ({openOpportunities.length})
                           </div>
@@ -384,6 +387,54 @@ export default function ExecutiveTeamStandingsPage() {
                             <div style={{ color: "#64748B", fontSize: "14px" }}>No open opportunities are contributing right now.</div>
                           )}
                         </div>
+
+                        <div style={{ backgroundColor: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: "14px", padding: "14px" }}>
+                          <div style={{ color: "#0F172A", fontSize: "14px", fontWeight: 900, marginBottom: "10px" }}>
+                            {`${report?.fiscalYear?.label || "Current FY"} NXT actions (${nxtActions.length})`}
+                          </div>
+                          {nxtActions.length ? (
+                            <div style={{ display: "grid", gap: "10px" }}>
+                              {nxtActions.map((action, actionIndex) => {
+                                const actionKey = action.actionId || `${entry.userId}-${action.date || "undated"}-${actionIndex}`;
+                                const nxtUrl = buildBlackbaudConstituentProfileUrl(
+                                  action.blackbaudConstituentId,
+                                );
+                                return (
+                                  <div key={actionKey} style={{ backgroundColor: "white", border: "1px solid #E2E8F0", borderRadius: "12px", padding: "12px" }}>
+                                    <div style={{ alignItems: "flex-start", display: "flex", gap: "10px", justifyContent: "space-between" }}>
+                                      <div>
+                                        <div style={{ color: "#0F172A", fontSize: "15px", fontWeight: 800 }}>
+                                          {action.summary || action.category || "Untitled NXT action"}
+                                        </div>
+                                        <div style={{ color: "#334155", fontSize: "13px", fontWeight: 700, marginTop: "4px" }}>
+                                          {action.constituentName || "Unknown constituent"}
+                                          {action.category ? ` · ${action.category}` : ""}
+                                        </div>
+                                        <div style={{ color: "#64748B", fontSize: "13px", lineHeight: 1.45, marginTop: "4px" }}>
+                                          {action.date ? `Completed ${formatShortDate(action.date)}` : "Completed date unavailable"}
+                                          {action.blackbaudConstituentId
+                                            ? ` · NXT ID ${action.blackbaudConstituentId}`
+                                            : ""}
+                                        </div>
+                                      </div>
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end" }}>
+                                        {nxtUrl ? (
+                                          <a href={nxtUrl} rel="noreferrer" style={detailLinkStyle} target="_blank">
+                                            Open in NXT
+                                          </a>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color: "#64748B", fontSize: "14px" }}>
+                              No attributed NXT actions are contributing right now.
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -399,7 +450,7 @@ export default function ExecutiveTeamStandingsPage() {
         </section>
 
         <p style={{ color: "#64748B", fontSize: "13px", lineHeight: 1.5, margin: "18px 0 0" }}>
-          Source: {report?.source || "JUMGOGPT local operational records"}. Generated from app data only; no Blackbaud request is made.
+          Source: {report?.source || "JUMGOGPT local operational records"}. Pipeline and follow-up sections come from JUMGOGPT records; closed totals and NXT actions use Blackbaud fundraiser attribution.
         </p>
       </div>
     </main>
