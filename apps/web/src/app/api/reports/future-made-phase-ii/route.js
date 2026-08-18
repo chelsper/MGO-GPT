@@ -46,6 +46,11 @@ function isFailedQueryJob(status) {
   return /(?:fail|cancel|error)/i.test(status);
 }
 
+function isBlackbaudNotFoundError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /(?:404|not found|resource not found)/i.test(message);
+}
+
 function parseCsv(content) {
   const records = [];
   let row = [];
@@ -197,6 +202,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     let jobId = searchParams.get("jobId")?.trim() || "";
     let query = null;
+    let jobStartedThisRequest = false;
 
     if (!jobId) {
       query = await findBlackbaudQueryByName({
@@ -216,13 +222,33 @@ export async function GET(request) {
         origin,
         queryId: query.id,
       });
+      jobStartedThisRequest = true;
       jobId = getQueryJobId(createdJob);
       if (!jobId) {
         throw new Error("Blackbaud did not return a query job ID.");
       }
     }
 
-    const job = await getBlackbaudQueryJob({ userId: user.id, origin, jobId });
+    let job;
+    try {
+      job = await getBlackbaudQueryJob({ userId: user.id, origin, jobId });
+    } catch (error) {
+      // Blackbaud can briefly return 404 while a newly created query job is
+      // being materialized. Return a pollable response once, without masking a
+      // persistent missing-job error on subsequent client polls.
+      if (jobStartedThisRequest && isBlackbaudNotFoundError(error)) {
+        return Response.json(
+          {
+            status: "running",
+            jobId,
+            queryName: query?.name || QUERY_NAME,
+            jobStatus: "Starting",
+          },
+          { status: 202, headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
+      throw error;
+    }
     const status = getQueryJobStatus(job);
     const resultUrl = getQueryResultUrl(job);
     if (!resultUrl) {

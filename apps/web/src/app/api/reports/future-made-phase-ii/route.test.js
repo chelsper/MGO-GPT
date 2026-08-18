@@ -72,6 +72,36 @@ describe("Future. Made. Phase II report route", () => {
     );
   });
 
+  it("allows Blackbaud to materialize a newly created query job before polling again", async () => {
+    const { GET } = await import("./route.js");
+    getBlackbaudQueryJobMock.mockRejectedValue(
+      new Error("Blackbaud 404 Resource Not Found: Resource not found"),
+    );
+
+    const response = await GET(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toMatchObject({
+      status: "running",
+      jobId: "job-1",
+      jobStatus: "Starting",
+    });
+  });
+
+  it("keeps a missing existing query job visible as an error", async () => {
+    const { GET } = await import("./route.js");
+    getBlackbaudQueryJobMock.mockRejectedValue(
+      new Error("Blackbaud 404 Resource Not Found: Resource not found"),
+    );
+
+    const response = await GET(createRequest("?jobId=job-1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload.error).toMatch(/resource not found/i);
+  });
+
   it("returns every CSV row from a completed query without portfolio filtering", async () => {
     const { GET } = await import("./route.js");
     getBlackbaudQueryJobMock.mockResolvedValue({

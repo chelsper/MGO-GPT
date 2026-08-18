@@ -406,7 +406,9 @@ export async function findBlackbaudQueryByName({ userId, authUserId, origin, nam
   const normalizedName = String(name || "").trim().toLocaleLowerCase("en-US");
   if (!normalizedName) return null;
 
-  const endpoints = [BLACKBAUD_QUERY_V2_URL, BLACKBAUD_QUERY_V1_URL];
+  // Query execution uses the v1 jobs endpoint. Prefer a v1 query record so the
+  // identifier passed to that endpoint comes from the same API version.
+  const endpoints = [BLACKBAUD_QUERY_V1_URL, BLACKBAUD_QUERY_V2_URL];
   for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex += 1) {
     let path = endpoints[endpointIndex];
     try {
