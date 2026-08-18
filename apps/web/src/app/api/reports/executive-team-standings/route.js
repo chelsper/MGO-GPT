@@ -73,7 +73,7 @@ export async function GET(request) {
         SELECT id, name, email, blackbaud_constituent_id, blackbaud_lookup_id
         FROM users
         WHERE active = TRUE
-          AND LOWER(role) = 'mgo'
+          AND POSITION(',mgo,' IN ',' || REPLACE(LOWER(COALESCE(role, '')), ' ', '') || ',') > 0
       ),
       prospect_metrics AS (
         SELECT

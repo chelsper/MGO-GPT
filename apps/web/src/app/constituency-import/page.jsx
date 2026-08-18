@@ -5,6 +5,7 @@ import Papa from "papaparse";
 import { ArrowLeft, Check, Copy, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const IMPORT_FIELDS = [
@@ -2422,6 +2423,19 @@ function getImportRowLabel(row) {
     row?.input?.blackbaudConstituentId ||
     "this constituent"
   );
+}
+
+function getImportRowConstituentId(row) {
+  return (
+    row?.match?.blackbaudConstituentId ||
+    row?.input?.blackbaudConstituentId ||
+    row?.createdBlackbaudConstituentId ||
+    ""
+  );
+}
+
+function getImportRowConstituentProfileUrl(row) {
+  return buildBlackbaudConstituentProfileUrl(getImportRowConstituentId(row));
 }
 
 export default function ConstituencyImportPage() {
@@ -5659,22 +5673,18 @@ export default function ConstituencyImportPage() {
                 <button
                   type="button"
                   onClick={() => requestPreview({ saveRun: true })}
-                  disabled={savingRun || contactDecisionsDirty || fieldDecisionsDirty}
+                  disabled={savingRun}
                   style={{
                     border: "1px solid #A7F3D0",
                     borderRadius: "14px",
-                    backgroundColor: savingRun || contactDecisionsDirty || fieldDecisionsDirty ? "#E5E7EB" : "#ECFDF5",
-                    color: savingRun || contactDecisionsDirty || fieldDecisionsDirty ? "#64748B" : "#047857",
+                    backgroundColor: savingRun ? "#E5E7EB" : "#ECFDF5",
+                    color: savingRun ? "#64748B" : "#047857",
                     padding: "12px 16px",
                     fontWeight: 900,
-                    cursor: savingRun || contactDecisionsDirty || fieldDecisionsDirty ? "not-allowed" : "pointer",
+                    cursor: savingRun ? "not-allowed" : "pointer",
                   }}
                 >
-                  {savingRun
-                    ? "Saving batch review..."
-                    : contactDecisionsDirty || fieldDecisionsDirty
-                      ? "Refresh review plan before batch save"
-                      : "Save review for batch"}
+                  {savingRun ? "Saving batch review..." : "Save review for batch"}
                 </button>
               ) : null}
               <button
@@ -5711,7 +5721,7 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Review choices changed. Refresh the import review to rebuild the exact NXT write plan before saving this run.
+              Review choices changed. You can refresh the review plan now, or save the review directly and let JUMGOGPT rebuild the exact NXT write plan during save.
             </div>
           ) : null}
 
@@ -6079,7 +6089,7 @@ export default function ConstituencyImportPage() {
                 const isManuallySkipped = Boolean(
                   isSkippedRow && row.blackbaudResult?.type === "import_row_skipped",
                 );
-                const canSkipRow = ["Ready", "Needs Review", "Conflict"].includes(row.status);
+                const canSkipRow = ["Ready", "Needs Review", "Conflict", "Failed"].includes(row.status);
                 const isSkippingThisRow =
                   skippingRowId === String(row.id || row.rowNumber);
                 const rowReadyToSend = canApplyRow || canDirectSendPreviewRow;
@@ -6089,6 +6099,10 @@ export default function ConstituencyImportPage() {
                 const isEditingThisRow =
                   !preview?.savedRun && Number(editingPreviewRowNumber) === Number(row.rowNumber);
                 const editableFields = selectedFields.filter((field) => headers.includes(field.header));
+                const nxtProfileUrl = getImportRowConstituentProfileUrl(row);
+                const canOpenMatchedConstituent = Boolean(
+                  nxtProfileUrl && row.intentDisposition?.key !== "potential_new",
+                );
                 return (
                   <article
                     key={row.rowNumber}
@@ -6169,6 +6183,27 @@ export default function ConstituencyImportPage() {
                           >
                             Edit CSV values
                           </button>
+                        ) : null}
+                        {canOpenMatchedConstituent ? (
+                          <a
+                            href={nxtProfileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              border: "1px solid #C7D2FE",
+                              borderRadius: "999px",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              textDecoration: "none",
+                            }}
+                          >
+                            Open in Raiser's Edge NXT
+                          </a>
                         ) : null}
                         {canApplyRow && showBatchTools ? (
                           <label
@@ -6659,8 +6694,8 @@ export default function ConstituencyImportPage() {
                               : isManuallySkipped
                                 ? "Restore record"
                                 : preview?.savedRun
-                                  ? "Skip record"
-                                  : "Save and skip record"}
+                                  ? "Skip and open next record"
+                                  : "Save, skip, and open next record"}
                           </button>
                         ) : null}
                       </section>

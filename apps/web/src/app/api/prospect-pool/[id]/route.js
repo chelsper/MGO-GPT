@@ -860,7 +860,10 @@ export async function PATCH(request, { params }) {
             , email
           FROM users
           WHERE id = ${assignedUserId}
-            AND (role = 'mgo' OR id = ${currentUser.id})
+            AND (
+              POSITION(',mgo,' IN ',' || REPLACE(LOWER(COALESCE(role, '')), ' ', '') || ',') > 0
+              OR id = ${currentUser.id}
+            )
           LIMIT 1
         `;
         if (assigned.length === 0) {

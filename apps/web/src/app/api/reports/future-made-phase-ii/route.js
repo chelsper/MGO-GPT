@@ -1,12 +1,15 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import sql from "@/app/api/utils/sql";
 import {
   createBlackbaudQueryJob,
   downloadBlackbaudQueryResult,
   findBlackbaudQueryByName,
   getBlackbaudConfigIssues,
+  getBlackbaudConstituentById,
   getBlackbaudQueryJob,
+  listBlackbaudConstituentCustomFields,
 } from "@/app/api/utils/blackbaud";
 import {
   FUTURE_MADE_PHASE_TWO_REPORT_KEY,
@@ -15,6 +18,21 @@ import {
 
 const QUERY_NAME = "Future. Made. Phase II";
 const MAX_QUERY_ROWS = 10000;
+const FALLBACK_CUSTOM_FIELD_CATEGORY = "Prospect Research";
+const FALLBACK_CUSTOM_FIELD_DESCRIPTION = "Future. Made. Phase II";
+const FALLBACK_SCAN_CONCURRENCY = 8;
+
+function getFutureMadePhaseTwoQueryConfig() {
+  const queryId = String(process.env.BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_ID || "").trim();
+  const queryName = String(
+    process.env.BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_NAME || QUERY_NAME,
+  ).trim();
+
+  return {
+    queryId,
+    queryName: queryName || QUERY_NAME,
+  };
+}
 
 function getQueryJobId(job) {
   return String(job?.id ?? job?.job_id ?? job?.jobId ?? "").trim();
@@ -49,6 +67,350 @@ function isFailedQueryJob(status) {
 function isBlackbaudNotFoundError(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   return /(?:404|not found|resource not found)/i.test(message);
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("en-US");
+}
+
+function normalizeLooseBlackbaudText(value) {
+  return String(value || "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[.\-_/]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getFallbackDescriptionCandidates(field) {
+  const candidates = [
+    field?.description,
+    field?.value ??
+      field?.code_table_entry ??
+      field?.code_table_entry_name ??
+      field?.code_table_entry_description ??
+      field?.codetableentry_value ??
+      null,
+    field?.value,
+    field?.code_table_entry,
+    field?.code_table_entry_name,
+    field?.code_table_entry_description,
+    field?.codetableentry_value,
+    field?.comment,
+  ];
+  return candidates
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function getFallbackPrimaryDescription(field) {
+  return getFallbackDescriptionCandidates(field)[0] || "";
+}
+
+function fieldMatchesFutureMadePhaseTwo(field) {
+  const normalizedCategory = normalizeText(field?.category);
+  if (normalizedCategory !== normalizeText(FALLBACK_CUSTOM_FIELD_CATEGORY)) {
+    return false;
+  }
+
+  const normalizedDescription = normalizeLooseBlackbaudText(
+    FALLBACK_CUSTOM_FIELD_DESCRIPTION,
+  );
+  return getFallbackDescriptionCandidates(field).some(
+    (candidate) =>
+      normalizeLooseBlackbaudText(candidate) === normalizedDescription,
+  );
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length || 1));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+function mergeFallbackConstituentRows(rows) {
+  const merged = new Map();
+
+  for (const row of rows.flat()) {
+    const blackbaudConstituentId = String(row?.blackbaud_constituent_id || "").trim();
+    if (!blackbaudConstituentId) continue;
+
+    const existing =
+      merged.get(blackbaudConstituentId) || {
+        blackbaudConstituentId,
+        name: "",
+        email: "",
+        phone: "",
+        sources: new Set(),
+      };
+
+    if (!existing.name && row?.name) existing.name = String(row.name).trim();
+    if (!existing.email && row?.email) existing.email = String(row.email).trim();
+    if (!existing.phone && row?.phone) existing.phone = String(row.phone).trim();
+    if (row?.source) existing.sources.add(String(row.source).trim());
+
+    merged.set(blackbaudConstituentId, existing);
+  }
+
+  return Array.from(merged.values()).sort((left, right) =>
+    String(left.name || left.blackbaudConstituentId).localeCompare(
+      String(right.name || right.blackbaudConstituentId),
+      "en-US",
+    ),
+  );
+}
+
+async function listFallbackConstituents() {
+  const [prospectPoolRows, auditRows, requestRows, constituentRows, portfolioAssignmentRows] =
+    await Promise.all([
+      sql`
+        SELECT
+          blackbaud_constituent_id,
+          prospect_name AS name,
+          email,
+          phone,
+          'prospect_pool' AS source
+        FROM prospect_pool
+        WHERE blackbaud_constituent_id IS NOT NULL
+          AND TRIM(blackbaud_constituent_id) <> ''
+      `,
+      sql`
+        SELECT
+          blackbaud_constituent_id,
+          constituent_name AS name,
+          NULL::TEXT AS email,
+          NULL::TEXT AS phone,
+          'assignment_audit' AS source
+        FROM prospect_pool_assignment_audits
+        WHERE blackbaud_constituent_id IS NOT NULL
+          AND TRIM(blackbaud_constituent_id) <> ''
+      `,
+      sql`
+        SELECT
+          blackbaud_constituent_id,
+          constituent_name AS name,
+          NULL::TEXT AS email,
+          NULL::TEXT AS phone,
+          'data_change_request' AS source
+        FROM data_change_requests
+        WHERE blackbaud_constituent_id IS NOT NULL
+          AND TRIM(blackbaud_constituent_id) <> ''
+      `,
+      sql`
+        SELECT
+          blackbaud_constituent_id,
+          name,
+          NULL::TEXT AS email,
+          NULL::TEXT AS phone,
+          'constituent' AS source
+        FROM constituents
+        WHERE blackbaud_constituent_id IS NOT NULL
+          AND TRIM(blackbaud_constituent_id) <> ''
+      `,
+      sql`
+        SELECT
+          blackbaud_constituent_id,
+          NULL::TEXT AS name,
+          NULL::TEXT AS email,
+          NULL::TEXT AS phone,
+          'portfolio_assignment' AS source
+        FROM portfolio_category_assignments
+        WHERE blackbaud_constituent_id IS NOT NULL
+          AND TRIM(blackbaud_constituent_id) <> ''
+      `,
+    ]);
+
+  return mergeFallbackConstituentRows([
+    prospectPoolRows,
+    auditRows,
+    requestRows,
+    constituentRows,
+    portfolioAssignmentRows,
+  ]);
+}
+
+function buildFallbackReportResponse(rows, reason) {
+  return {
+    status: "complete",
+    queryName: QUERY_NAME,
+    mode: "custom-field-fallback",
+    fallbackReason: reason,
+    columns: [
+      "Constituent name",
+      "Constituent lookup ID",
+      "Constituent system record ID",
+      "Custom field category",
+      "Description",
+      "Comment",
+      "Date",
+      "Source",
+    ],
+    rows,
+    totalRows: rows.length,
+    truncated: false,
+  };
+}
+
+async function buildFutureMadePhaseTwoFallbackReport({ user, origin, reason }) {
+  const candidates = await listFallbackConstituents();
+  if (!candidates.length) {
+    return buildFallbackReportResponse([], reason);
+  }
+
+  const results = await mapWithConcurrency(
+    candidates,
+    FALLBACK_SCAN_CONCURRENCY,
+    async (candidate) => {
+      const customFields = await listBlackbaudConstituentCustomFields({
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+        constituentId: candidate.blackbaudConstituentId,
+      }).catch(() => []);
+
+      const matchingFields = customFields.filter(fieldMatchesFutureMadePhaseTwo);
+      if (!matchingFields.length) {
+        return [];
+      }
+
+      const profile = await getBlackbaudConstituentById({
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+        constituentId: candidate.blackbaudConstituentId,
+      }).catch(() => null);
+
+      return matchingFields.map((field, index) => ({
+        id: `fallback-${candidate.blackbaudConstituentId}-${field?.id || index + 1}`,
+        name:
+          profile?.name ||
+          candidate.name ||
+          `NXT constituent ${candidate.blackbaudConstituentId}`,
+        constituentId: candidate.blackbaudConstituentId,
+        values: {
+          "Constituent name":
+            profile?.name ||
+            candidate.name ||
+            `NXT constituent ${candidate.blackbaudConstituentId}`,
+          "Constituent lookup ID": profile?.lookupId || "",
+          "Constituent system record ID": candidate.blackbaudConstituentId,
+          "Custom field category": field?.category || "",
+          Description: getFallbackPrimaryDescription(field),
+          Comment: field?.comment || "",
+          Date: field?.date || "",
+          Source: Array.from(candidate.sources).filter(Boolean).join(", "),
+        },
+      }));
+    },
+  );
+
+  return buildFallbackReportResponse(results.flat(), reason);
+}
+
+async function createFutureMadeQueryJob({
+  user,
+  origin,
+  configuredQueryId,
+  queryName,
+}) {
+  const trimmedConfiguredQueryId = String(configuredQueryId || "").trim();
+
+  if (trimmedConfiguredQueryId) {
+    try {
+      const createdJob = await createBlackbaudQueryJob({
+        userId: user.id,
+        origin,
+        queryId: trimmedConfiguredQueryId,
+      });
+
+      return {
+        createdJob,
+        query: {
+          id: trimmedConfiguredQueryId,
+          name: queryName,
+        },
+        resolvedStaleConfiguredId: false,
+      };
+    } catch (error) {
+      if (!isBlackbaudNotFoundError(error)) throw error;
+
+      const fallbackQuery = await findBlackbaudQueryByName({
+        userId: user.id,
+        origin,
+        name: queryName,
+        versions: ["v1"],
+      });
+
+      if (!fallbackQuery) {
+        return {
+          createdJob: null,
+          query: {
+            id: trimmedConfiguredQueryId,
+            name: queryName,
+          },
+          resolvedStaleConfiguredId: false,
+        };
+      }
+
+      const createdJob = await createBlackbaudQueryJob({
+        userId: user.id,
+        origin,
+        queryId: fallbackQuery.id,
+      });
+
+      return {
+        createdJob,
+        query: fallbackQuery,
+        resolvedStaleConfiguredId: true,
+      };
+    }
+  }
+
+  const query = await findBlackbaudQueryByName({
+    userId: user.id,
+    origin,
+    name: queryName,
+    versions: ["v1"],
+  });
+
+  if (!query) {
+    return {
+      createdJob: null,
+      query: null,
+      resolvedStaleConfiguredId: false,
+    };
+  }
+
+  const createdJob = await createBlackbaudQueryJob({
+    userId: user.id,
+    origin,
+    queryId: query.id,
+  }).catch((error) => {
+    if (isBlackbaudNotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  return {
+    createdJob,
+    query,
+    resolvedStaleConfiguredId: false,
+  };
 }
 
 function parseCsv(content) {
@@ -200,28 +562,48 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url);
+    const queryConfig = getFutureMadePhaseTwoQueryConfig();
     let jobId = searchParams.get("jobId")?.trim() || "";
     let query = null;
     let jobStartedThisRequest = false;
+    let resolvedStaleConfiguredId = false;
 
     if (!jobId) {
-      query = await findBlackbaudQueryByName({
-        userId: user.id,
+      const result = await createFutureMadeQueryJob({
+        user,
         origin,
-        name: QUERY_NAME,
+        configuredQueryId: queryConfig.queryId,
+        queryName: queryConfig.queryName,
       });
+      query = result.query;
+      resolvedStaleConfiguredId = result.resolvedStaleConfiguredId;
+
       if (!query) {
-        return Response.json(
-          { error: `Saved NXT query \"${QUERY_NAME}\" was not found.` },
-          { status: 404 },
-        );
+        const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
+          user,
+          origin,
+          reason: `Saved NXT query \"${queryConfig.queryName}\" was not found in Blackbaud Query v1.`,
+        });
+        return Response.json(fallbackPayload, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
       }
 
-      const createdJob = await createBlackbaudQueryJob({
-        userId: user.id,
-        origin,
-        queryId: query.id,
-      });
+      if (!result.createdJob) {
+        const configuredLabel = queryConfig.queryId
+          ? `Configured query ID ${queryConfig.queryId}`
+          : `Saved NXT query \"${query.name || queryConfig.queryName}\"`;
+        const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
+          user,
+          origin,
+          reason: `${configuredLabel} could not be executed in Blackbaud Query v1.`,
+        });
+        return Response.json(fallbackPayload, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
+
+      const createdJob = result.createdJob;
       jobStartedThisRequest = true;
       jobId = getQueryJobId(createdJob);
       if (!jobId) {
@@ -241,11 +623,21 @@ export async function GET(request) {
           {
             status: "running",
             jobId,
-            queryName: query?.name || QUERY_NAME,
-            jobStatus: "Starting",
+            queryName: query?.name || queryConfig.queryName,
+            jobStatus: resolvedStaleConfiguredId ? "Starting (re-resolved query ID)" : "Starting",
           },
           { status: 202, headers: { "Cache-Control": "private, no-store" } },
         );
+      }
+      if (isBlackbaudNotFoundError(error)) {
+        const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
+          user,
+          origin,
+          reason: `Saved NXT query job ${jobId} could not be read in Blackbaud Query v1.`,
+        });
+        return Response.json(fallbackPayload, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
       }
       throw error;
     }
@@ -262,25 +654,54 @@ export async function GET(request) {
         {
           status: "running",
           jobId,
-          queryName: query?.name || QUERY_NAME,
+          queryName: query?.name || queryConfig.queryName,
           jobStatus: status || "Queued",
         },
         { status: 202, headers: { "Cache-Control": "private, no-store" } },
       );
     }
 
-    const content = await downloadBlackbaudQueryResult(resultUrl);
+    let content;
+    try {
+      content = await downloadBlackbaudQueryResult(resultUrl);
+    } catch (error) {
+      if (isBlackbaudNotFoundError(error)) {
+        const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
+          user,
+          origin,
+          reason: `Saved NXT query results for job ${jobId} could not be downloaded from Blackbaud Query v1.`,
+        });
+        return Response.json(fallbackPayload, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
+      throw error;
+    }
     return Response.json(
       {
         status: "complete",
         jobId,
-        queryName: query?.name || QUERY_NAME,
+        queryName: query?.name || queryConfig.queryName,
         ...parseQueryResult(content),
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {
     console.error("Future. Made. Phase II report error:", error);
+    if (isBlackbaudNotFoundError(error)) {
+      const user = await getCurrentUser();
+      if (user) {
+        const origin = new URL(request.url).origin;
+        const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
+          user,
+          origin,
+          reason: "Blackbaud Query v1 returned a resource-not-found response while running this saved query.",
+        });
+        return Response.json(fallbackPayload, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
+    }
     return Response.json(
       {
         error:

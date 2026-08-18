@@ -12,6 +12,8 @@ import {
   canManageWorkspaceRole,
   canUseMgoWorkspaceRole,
   normalizeWorkspaceRole,
+  normalizeWorkspaceRoles,
+  serializeWorkspaceRoles,
 } from "@/utils/workspaceRoles";
 
 async function resetPortfolioSeedState(userId) {
@@ -140,7 +142,9 @@ export async function POST(request) {
     const body = await request.json();
     const name = body?.name ? String(body.name).trim() : "";
     const email = normalizeEmail(body?.email);
-    const role = normalizeWorkspaceRole(body?.role);
+    const normalizedRoles = normalizeWorkspaceRoles(body?.roles ?? body?.role);
+    const role = normalizedRoles[0] || null;
+    const serializedRoles = serializeWorkspaceRoles(normalizedRoles);
     const provisionOnly = body?.provisionOnly === true;
     const blackbaudConstituentId = body?.blackbaudConstituentId
       ? String(body.blackbaudConstituentId).trim()
@@ -156,7 +160,7 @@ export async function POST(request) {
       return Response.json({ error: "Email is required" }, { status: 400 });
     }
 
-    assertAssignableRole(role);
+    assertAssignableRole(normalizedRoles);
 
     const existingUser = await sql`
       SELECT id
@@ -176,7 +180,7 @@ export async function POST(request) {
         UPDATE users
         SET
           name = COALESCE(NULLIF(${name}, ''), name),
-          role = ${role},
+          role = ${serializedRoles},
           blackbaud_constituent_id = COALESCE(${blackbaudConstituentId}, blackbaud_constituent_id),
           blackbaud_lookup_id = COALESCE(${blackbaudLookupId}, blackbaud_lookup_id),
           updated_at = NOW()
@@ -192,7 +196,7 @@ export async function POST(request) {
           String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
 
       if (
-        (canUseMgoWorkspaceRole(role) || canUseMgoWorkspaceRole(priorUser?.role)) &&
+        (canUseMgoWorkspaceRole(serializedRoles) || canUseMgoWorkspaceRole(priorUser?.role)) &&
         blackbaudLinkChanged
       ) {
         await resetPortfolioSeedState(existingUser[0].id);
@@ -212,7 +216,7 @@ export async function POST(request) {
         );
       }
 
-      if (!canUseMgoWorkspaceRole(role)) {
+      if (!canUseMgoWorkspaceRole(serializedRoles)) {
         return Response.json(
           {
             error:
@@ -235,7 +239,7 @@ export async function POST(request) {
         VALUES (
           ${name},
           ${email},
-          ${role},
+          ${serializedRoles},
           ${blackbaudConstituentId},
           ${blackbaudLookupId},
           NOW(),
@@ -244,7 +248,7 @@ export async function POST(request) {
         RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
       `;
 
-      if (canUseMgoWorkspaceRole(role) && (blackbaudConstituentId || blackbaudLookupId)) {
+      if (canUseMgoWorkspaceRole(serializedRoles) && (blackbaudConstituentId || blackbaudLookupId)) {
         await resetPortfolioSeedState(createdUser[0].id);
       }
 
@@ -272,7 +276,7 @@ export async function POST(request) {
       )
       VALUES (
         ${email},
-        ${role},
+        ${serializedRoles},
         ${blackbaudConstituentId},
         ${blackbaudLookupId},
         ${blackbaudName},
@@ -319,9 +323,14 @@ export async function PATCH(request) {
     const body = await request.json();
     const invitationId = Number(body?.invitationId);
     if (Number.isInteger(invitationId) && invitationId > 0) {
+      const serializedInvitationRoles =
+        body?.roles === undefined && body?.role === undefined
+          ? null
+          : serializeWorkspaceRoles(body?.roles ?? body?.role);
       const resentInvitation = await sql`
         UPDATE user_invitations
         SET
+          role = COALESCE(${serializedInvitationRoles}, role),
           blackbaud_constituent_id = COALESCE(${body?.blackbaudConstituentId ? String(body.blackbaudConstituentId).trim() : null}, blackbaud_constituent_id),
           blackbaud_lookup_id = COALESCE(${body?.blackbaudLookupId ? String(body.blackbaudLookupId).trim() : null}, blackbaud_lookup_id),
           blackbaud_name = COALESCE(${body?.blackbaudName ? String(body.blackbaudName).trim() : null}, blackbaud_name),
@@ -340,9 +349,12 @@ export async function PATCH(request) {
     }
 
     const userId = Number(body?.userId);
-    const requestedRole = body?.role;
-    const role =
-      requestedRole === undefined ? undefined : normalizeWorkspaceRole(requestedRole);
+    const requestedRoles = body?.roles ?? body?.role;
+    const normalizedRoles =
+      requestedRoles === undefined ? undefined : normalizeWorkspaceRoles(requestedRoles);
+    const role = normalizedRoles?.[0];
+    const serializedRoles =
+      normalizedRoles === undefined ? undefined : serializeWorkspaceRoles(normalizedRoles);
     const active =
       body?.active === undefined ? undefined : Boolean(body.active);
     const blackbaudConstituentId = body?.blackbaudConstituentId
@@ -367,18 +379,18 @@ export async function PATCH(request) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (requestedRole !== undefined && !role) {
+    if (requestedRoles !== undefined && !role) {
       return Response.json({ error: "Invalid role" }, { status: 400 });
     }
 
-    if (role !== undefined && role !== existingUser[0].role) {
-      assertAssignableRole(role);
+    if (serializedRoles !== undefined && serializedRoles !== existingUser[0].role) {
+      assertAssignableRole(normalizedRoles);
     }
 
     const updatedUser = await sql`
       UPDATE users
       SET
-        role = COALESCE(${role || null}, role),
+        role = COALESCE(${serializedRoles || null}, role),
         active = COALESCE(${active}, active),
         deactivated_at = CASE
           WHEN ${active} = FALSE THEN COALESCE(deactivated_at, NOW())
@@ -393,7 +405,7 @@ export async function PATCH(request) {
     `;
 
     const priorUser = existingUser[0] || null;
-    const nextRole = role || priorUser?.role;
+    const nextRole = serializedRoles || priorUser?.role;
     const blackbaudLinkChanged =
       String(priorUser?.blackbaud_constituent_id || "") !==
         String(blackbaudConstituentId || priorUser?.blackbaud_constituent_id || "") ||

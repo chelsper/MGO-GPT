@@ -4,8 +4,10 @@ import {
   canUseExecutiveViewRole,
   canUseMgoWorkspaceRole,
   canViewWorkspaceAsRole,
+  getWorkspaceRoleLabel,
   isMgoRole,
   normalizeWorkspaceRole,
+  normalizeWorkspaceRoles,
 } from "./workspaceRoles";
 
 describe("workspace roles", () => {
@@ -20,6 +22,7 @@ describe("workspace roles", () => {
     expect(canUseExecutiveViewRole("admin")).toBe(true);
     expect(canUseExecutiveViewRole("mgo")).toBe(false);
     expect(canUseExecutiveViewRole("advancement_services")).toBe(false);
+    expect(canUseExecutiveViewRole("executive,mgo")).toBe(true);
   });
 
   it("allows Admins, but not Executives, to view Executive workspaces", () => {
@@ -36,5 +39,16 @@ describe("workspace roles", () => {
     expect(canUseMgoWorkspaceRole("advancement_services")).toBe(false);
     expect(isMgoRole("executive")).toBe(false);
     expect(canManageWorkspaceRole("advancement_services")).toBe(true);
+    expect(canUseMgoWorkspaceRole("executive,mgo")).toBe(true);
+    expect(isMgoRole("executive,mgo")).toBe(true);
+  });
+
+  it("supports multiple workspace roles in one stored value", () => {
+    expect(normalizeWorkspaceRoles("executive, mgo, executive")).toEqual([
+      "executive",
+      "mgo",
+    ]);
+    expect(normalizeWorkspaceRole("executive, mgo")).toBe("executive");
+    expect(getWorkspaceRoleLabel("executive,mgo")).toBe("Executive, MGO");
   });
 });

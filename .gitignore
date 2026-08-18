@@ -11,3 +11,5 @@ apps/**/.env
 apps/**/.env.*
 !.env.example
 !apps/**/.env.example
+.vercel
+.env*

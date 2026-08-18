@@ -12,3 +12,4 @@ build/
 
 # Tool-generated local config
 src/tsconfig.json
+.env*

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
 import useUser from "@/utils/useUser";
+import SharedReportHeader from "@/app/reports/SharedReportHeader";
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-US", {
@@ -87,107 +88,35 @@ export default function ExecutiveTeamStandingsPage() {
   return (
     <main style={{ backgroundColor: "#F8FAFC", minHeight: "100vh", padding: "40px 24px 80px" }}>
       <div style={{ margin: "0 auto", maxWidth: "1400px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "18px", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
-            <a
-              href="/reports"
-              aria-label="Return to reports"
+        <SharedReportHeader
+          activeReportKey="executive-team-standings"
+          eyebrow="Executive dashboard"
+          title="Team Standings"
+          description="A local operational snapshot for active MGOs. This is not an NXT revenue report."
+          action={
+            <button
+              type="button"
+              onClick={() => setRefreshVersion((value) => value + 1)}
+              disabled={loading}
               style={{
-                width: "44px",
-                height: "44px",
-                display: "grid",
-                placeItems: "center",
-                borderRadius: "12px",
-                border: "1px solid #CBD5E1",
+                minHeight: "44px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "10px",
+                border: "1px solid #BFDBFE",
                 backgroundColor: "white",
-                color: "#334155",
+                color: "#1D4ED8",
+                padding: "0 15px",
+                fontWeight: 800,
+                cursor: loading ? "wait" : "pointer",
               }}
             >
-              <ArrowLeft size={20} />
-            </a>
-            <div>
-              <p style={{ color: "#4F46E5", fontSize: "13px", fontWeight: 900, letterSpacing: "0.08em", margin: "2px 0 8px", textTransform: "uppercase" }}>
-                Executive dashboard
-              </p>
-              <h1 style={{ color: "#0F172A", fontSize: "34px", margin: 0 }}>Team Standings</h1>
-              <p style={{ color: "#64748B", lineHeight: 1.5, margin: "8px 0 0", maxWidth: "760px" }}>
-                A local operational snapshot for active MGOs. This is not an NXT revenue report.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRefreshVersion((value) => value + 1)}
-            disabled={loading}
-            style={{
-              minHeight: "44px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              borderRadius: "10px",
-              border: "1px solid #BFDBFE",
-              backgroundColor: "white",
-              color: "#1D4ED8",
-              padding: "0 15px",
-              fontWeight: 800,
-              cursor: loading ? "wait" : "pointer",
-            }}
-          >
-            <RefreshCw size={17} />
-            Refresh standings
-          </button>
-        </div>
-
-        <nav
-          aria-label="Reports"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            flexWrap: "wrap",
-            marginTop: "24px",
-            paddingBottom: "14px",
-            borderBottom: "1px solid #E2E8F0",
-          }}
-        >
-          <a
-            href="/reports"
-            style={{
-              minHeight: "40px",
-              display: "inline-flex",
-              alignItems: "center",
-              borderRadius: "999px",
-              border: "1px solid #C7D2FE",
-              backgroundColor: "white",
-              color: "#4338CA",
-              padding: "0 15px",
-              fontSize: "14px",
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            Portfolio Giving
-          </a>
-          <a
-            href="/reports/executive-team-standings"
-            aria-current="page"
-            style={{
-              minHeight: "40px",
-              display: "inline-flex",
-              alignItems: "center",
-              borderRadius: "999px",
-              border: "1px solid #15803D",
-              backgroundColor: "#166534",
-              color: "white",
-              padding: "0 15px",
-              fontSize: "14px",
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            Team Standings
-          </a>
-        </nav>
+              <RefreshCw size={17} />
+              Refresh standings
+            </button>
+          }
+        />
 
         {error ? (
           <section style={{ ...panelStyle, borderColor: "#FECACA", backgroundColor: "#FEF2F2", color: "#991B1B", marginTop: "28px", padding: "18px" }}>

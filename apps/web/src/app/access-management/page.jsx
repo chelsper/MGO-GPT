@@ -8,7 +8,15 @@ import {
   canUseMgoWorkspaceRole,
   canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
+  normalizeWorkspaceRoles,
 } from "@/utils/workspaceRoles";
+
+const ROLE_OPTIONS = [
+  { value: "mgo", label: "MGO" },
+  { value: "executive", label: "Executive" },
+  { value: "advancement_services", label: "Advancement Services" },
+  { value: "admin", label: "Admin" },
+];
 
 const cardStyle = {
   backgroundColor: "white",
@@ -26,6 +34,56 @@ const inputStyle = {
   fontSize: "14px",
   boxSizing: "border-box",
 };
+
+function toggleRoleSelection(currentRoles, nextRole, checked) {
+  const normalized = normalizeWorkspaceRoles(currentRoles);
+  if (checked) {
+    return normalized.includes(nextRole) ? normalized : [...normalized, nextRole];
+  }
+  const filtered = normalized.filter((role) => role !== nextRole);
+  return filtered.length ? filtered : [ROLE_OPTIONS[0].value];
+}
+
+function WorkspaceRoleCheckboxGroup({ disabled = false, roles, onChange }) {
+  const normalizedRoles = normalizeWorkspaceRoles(roles);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px" }}>
+      {ROLE_OPTIONS.map((option) => {
+        const checked = normalizedRoles.includes(option.value);
+        return (
+          <label
+            key={option.value}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              minHeight: "42px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: checked ? "1px solid #6A5BFF" : "1px solid #D1D5DB",
+              backgroundColor: checked ? "#EEF2FF" : "white",
+              color: checked ? "#4338CA" : "#374151",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: disabled ? "not-allowed" : "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={disabled}
+              onChange={(event) =>
+                onChange(toggleRoleSelection(normalizedRoles, option.value, event.target.checked))
+              }
+            />
+            <span>{option.label}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
 
 function getBlackbaudLinkMeta(record) {
   if (record?.blackbaud_lookup_id || record?.blackbaud_constituent_id) {
@@ -164,7 +222,7 @@ export default function AccessManagementPage() {
   const [bootstrapAdminEmails, setBootstrapAdminEmails] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("mgo");
+  const [selectedRoles, setSelectedRoles] = useState(["mgo"]);
   const [blackbaudQuery, setBlackbaudQuery] = useState("");
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
@@ -278,7 +336,7 @@ export default function AccessManagementPage() {
   }, [sessionUser]);
 
   useEffect(() => {
-    if (!canUseMgoWorkspaceRole(role)) {
+    if (!canUseMgoWorkspaceRole(selectedRoles)) {
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
       return;
@@ -329,7 +387,7 @@ export default function AccessManagementPage() {
       active = false;
       clearTimeout(timeoutId);
     };
-  }, [blackbaudQuery, role]);
+  }, [blackbaudQuery, selectedRoles]);
 
   useEffect(() => {
     if (!editingUserId) {
@@ -447,15 +505,15 @@ export default function AccessManagementPage() {
         body: JSON.stringify({
           name,
           email,
-          role,
+          roles: selectedRoles,
           provisionOnly: options.provisionOnly === true,
-          blackbaudConstituentId: canUseMgoWorkspaceRole(role)
+          blackbaudConstituentId: canUseMgoWorkspaceRole(selectedRoles)
             ? selectedBlackbaudMatch?.blackbaudConstituentId || null
             : null,
-          blackbaudLookupId: canUseMgoWorkspaceRole(role)
+          blackbaudLookupId: canUseMgoWorkspaceRole(selectedRoles)
             ? selectedBlackbaudMatch?.lookupId || null
             : null,
-          blackbaudName: canUseMgoWorkspaceRole(role)
+          blackbaudName: canUseMgoWorkspaceRole(selectedRoles)
             ? selectedBlackbaudMatch?.name || null
             : null,
         }),
@@ -467,7 +525,7 @@ export default function AccessManagementPage() {
 
       setName("");
       setEmail("");
-      setRole("mgo");
+      setSelectedRoles(["mgo"]);
       setBlackbaudQuery("");
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
@@ -599,7 +657,7 @@ export default function AccessManagementPage() {
     }
   }
 
-  async function handleRoleChange(userId, nextRole) {
+  async function handleRoleChange(userId, nextRoles) {
     setUpdatingUserId(userId);
     setStatusMessage("");
     setError("");
@@ -608,7 +666,7 @@ export default function AccessManagementPage() {
       const response = await fetch("/api/admin/access", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, role: nextRole }),
+        body: JSON.stringify({ userId, roles: nextRoles }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1295,15 +1353,10 @@ export default function AccessManagementPage() {
               <label htmlFor="access-management-role" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Role
               </label>
-              <select id="access-management-role" name="role" value={role} onChange={(event) => setRole(event.target.value)} style={inputStyle}>
-                <option value="mgo">MGO</option>
-                <option value="executive">Executive</option>
-                <option value="advancement_services">Advancement Services</option>
-                <option value="admin">Admin</option>
-              </select>
+              <WorkspaceRoleCheckboxGroup roles={selectedRoles} onChange={setSelectedRoles} />
             </div>
           </div>
-          {canUseMgoWorkspaceRole(role) ? (
+          {canUseMgoWorkspaceRole(selectedRoles) ? (
             <div style={{ marginTop: "16px" }}>
               <label htmlFor="access-management-blackbaud-query" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Connect to Blackbaud user
@@ -1398,7 +1451,7 @@ export default function AccessManagementPage() {
             </div>
           ) : null}
           <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "wrap" }}>
-            {canUseMgoWorkspaceRole(role) ? (
+            {canUseMgoWorkspaceRole(selectedRoles) ? (
               <button
                 type="button"
                 onClick={(event) => handleInviteSubmit(event, { provisionOnly: true })}
@@ -1416,7 +1469,7 @@ export default function AccessManagementPage() {
               >
                 {saving
                   ? "Saving..."
-                  : `Create ${role === "executive" ? "Executive" : "MGO"} workspace`}
+                  : "Create workspace"}
               </button>
             ) : null}
             <button
@@ -1546,19 +1599,13 @@ export default function AccessManagementPage() {
                       {isBootstrapAdmin ? (
                         <div style={{ fontSize: "13px", fontWeight: 700, color: "#4338CA" }}>Bootstrap admin</div>
                       ) : (
-                        <select
-                          id={`access-management-user-role-${user.id}`}
-                          name={`userRole-${user.id}`}
-                          value={user.role}
-                          onChange={(event) => handleRoleChange(user.id, event.target.value)}
-                          disabled={updatingUserId === user.id}
-                          style={{ ...inputStyle, minWidth: "180px" }}
-                        >
-                          <option value="mgo">MGO</option>
-                          <option value="executive">Executive</option>
-                          <option value="advancement_services">Advancement Services</option>
-                          <option value="admin">Admin</option>
-                        </select>
+                        <div style={{ minWidth: "320px" }}>
+                          <WorkspaceRoleCheckboxGroup
+                            roles={user.role}
+                            disabled={updatingUserId === user.id}
+                            onChange={(nextRoles) => handleRoleChange(user.id, nextRoles)}
+                          />
+                        </div>
                       )}
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                         {canViewWorkspaceAsRole(profile?.role, user.role) ? (
@@ -1878,7 +1925,7 @@ export default function AccessManagementPage() {
                                 id: invitation.existing_user_id,
                                 name: invitation.existing_user_name || getWorkspaceSeedName(invitation),
                                 email: invitation.email,
-                                role: "mgo",
+                                role: invitation.role,
                               })
                             }
                             style={{

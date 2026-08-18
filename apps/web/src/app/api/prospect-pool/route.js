@@ -386,7 +386,10 @@ export async function POST(request) {
       SELECT id, name, email, role
       FROM users
       WHERE id = ${assignedUserId}
-        AND (role = 'mgo' OR id = ${reviewer.id})
+        AND (
+          POSITION(',mgo,' IN ',' || REPLACE(LOWER(COALESCE(role, '')), ' ', '') || ',') > 0
+          OR id = ${reviewer.id}
+        )
       LIMIT 1
     `;
 

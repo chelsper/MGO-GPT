@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, ExternalLink, RefreshCw, Search } from "lucide-react";
+import { ExternalLink, RefreshCw, Search } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import SharedReportHeader from "@/app/reports/SharedReportHeader";
 
 const QUERY_POLL_INTERVAL_MS = 1250;
 const MAX_QUERY_POLL_ATTEMPTS = 36;
@@ -117,77 +118,35 @@ export default function FutureMadePhaseTwoReportPage() {
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "32px 24px" }}>
       <div style={{ width: "min(1440px, 100%)", margin: "0 auto" }}>
-        <header
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "20px",
-            flexWrap: "wrap",
-            marginBottom: "28px",
-          }}
-        >
-          <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
-            <a
-              href="/reports"
-              aria-label="Back to reports"
+        <SharedReportHeader
+          activeReportKey="future-made-phase-ii"
+          eyebrow="Saved NXT query"
+          title="Future. Made. Phase II"
+          description="Every constituent returned by this NXT query. Results are not limited to any MGO portfolio or executive workspace."
+          action={
+            <button
+              type="button"
+              onClick={() => setRefreshVersion((version) => version + 1)}
+              disabled={isLoading}
               style={{
-                width: "42px",
-                height: "42px",
-                borderRadius: "12px",
-                border: "1px solid #E2E8F0",
-                display: "grid",
-                placeItems: "center",
+                minHeight: "42px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "10px",
+                border: "1px solid #C4B5FD",
                 backgroundColor: "white",
-                color: "#334155",
+                color: "#5B21B6",
+                padding: "0 14px",
+                fontWeight: 800,
+                cursor: isLoading ? "wait" : "pointer",
               }}
             >
-              <ArrowLeft size={20} />
-            </a>
-            <div>
-              <p
-                style={{
-                  margin: "2px 0 6px",
-                  color: "#6D28D9",
-                  fontSize: "13px",
-                  fontWeight: 800,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
-                Saved NXT query
-              </p>
-              <h1 style={{ margin: 0, color: "#0F172A", fontSize: "32px" }}>
-                Future. Made. Phase II
-              </h1>
-              <p style={{ margin: "8px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                Every constituent returned by this NXT query. Results are not limited to any MGO
-                portfolio or executive workspace.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRefreshVersion((version) => version + 1)}
-            disabled={isLoading}
-            style={{
-              minHeight: "42px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              borderRadius: "10px",
-              border: "1px solid #C4B5FD",
-              backgroundColor: "white",
-              color: "#5B21B6",
-              padding: "0 14px",
-              fontWeight: 800,
-              cursor: isLoading ? "wait" : "pointer",
-            }}
-          >
-            <RefreshCw size={17} />
-            Run query again
-          </button>
-        </header>
+              <RefreshCw size={17} />
+              Run query again
+            </button>
+          }
+        />
 
         {error ? (
           <section

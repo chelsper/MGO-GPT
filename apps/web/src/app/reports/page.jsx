@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { canUseExecutiveViewRole, isMgoRole } from "@/utils/workspaceRoles";
+import SharedReportHeader from "@/app/reports/SharedReportHeader";
 
 const REPORT_BATCH_SIZE = 10;
 const REPORT_BATCH_CONCURRENCY = 2;
@@ -431,8 +432,6 @@ export default function ReportsPage() {
 
   const canUseExecutiveView = canUseExecutiveViewRole(profileStatus?.user?.role);
   const reportAccess = reportAccessStatus?.configuration || null;
-  const futureMadeReportAccess = reportAccessStatus?.futureMadeConfiguration || null;
-  const teamStandingsReportAccess = reportAccessStatus?.teamStandingsConfiguration || null;
   const canManageReports = Boolean(reportAccessStatus?.canManage);
 
   useEffect(() => {
@@ -914,48 +913,42 @@ export default function ReportsPage() {
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
       <div style={{ maxWidth: "1240px", margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "18px",
-            flexWrap: "wrap",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <a
-              href="/"
-              aria-label="Return to home"
-              style={{
-                width: "42px",
-                height: "42px",
-                borderRadius: "12px",
-                border: "1px solid #E5E7EB",
-                display: "grid",
-                placeItems: "center",
-                color: "#374151",
-                backgroundColor: "white",
-              }}
-            >
-              <ArrowLeft size={20} />
-            </a>
-            <div>
-              <h1 style={{ margin: 0, fontSize: "30px", color: "#0F172A" }}>Reports</h1>
-              <p style={{ margin: "6px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                Review portfolio giving without adding background work to My Prospects.
-              </p>
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            {canManageReports ? (
-              <a
-                href="/report-configurations"
+        <SharedReportHeader
+          activeReportKey="portfolio-fy-giving"
+          title="Reports"
+          description="Review portfolio giving without adding background work to My Prospects."
+          backHref="/"
+          backLabel="Return to home"
+          action={
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              {canManageReports ? (
+                <a
+                  href="/report-configurations"
+                  style={{
+                    minHeight: "42px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    borderRadius: "10px",
+                    border: "1px solid #BFDBFE",
+                    backgroundColor: "white",
+                    color: "#1D4ED8",
+                    padding: "0 14px",
+                    fontSize: "14px",
+                    fontWeight: 800,
+                  }}
+                >
+                  Configure access
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setRefreshVersion((version) => version + 1)}
+                disabled={isLoadingReport || !workspaceUser}
                 style={{
-                  minHeight: "42px",
                   display: "inline-flex",
                   alignItems: "center",
+                  gap: "8px",
+                  minHeight: "42px",
                   borderRadius: "10px",
                   border: "1px solid #BFDBFE",
                   backgroundColor: "white",
@@ -963,108 +956,15 @@ export default function ReportsPage() {
                   padding: "0 14px",
                   fontSize: "14px",
                   fontWeight: 800,
+                  cursor: isLoadingReport ? "wait" : "pointer",
                 }}
               >
-                Configure access
-              </a>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setRefreshVersion((version) => version + 1)}
-              disabled={isLoadingReport || !workspaceUser}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                minHeight: "42px",
-                borderRadius: "10px",
-                border: "1px solid #BFDBFE",
-                backgroundColor: "white",
-                color: "#1D4ED8",
-                padding: "0 14px",
-                fontSize: "14px",
-                fontWeight: 800,
-                cursor: isLoadingReport ? "wait" : "pointer",
-              }}
-            >
-              <RefreshCw size={17} />
-              Refresh report
-            </button>
-          </div>
-        </div>
-
-        <nav
-          aria-label="Reports"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            flexWrap: "wrap",
-            marginBottom: "24px",
-            paddingBottom: "14px",
-            borderBottom: "1px solid #E2E8F0",
-          }}
-        >
-          <a
-            href="/reports"
-            aria-current="page"
-            style={{
-              minHeight: "40px",
-              display: "inline-flex",
-              alignItems: "center",
-              borderRadius: "999px",
-              border: "1px solid #4338CA",
-              backgroundColor: "#4F46E5",
-              color: "white",
-              padding: "0 15px",
-              fontSize: "14px",
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            Portfolio Giving
-          </a>
-          {futureMadeReportAccess?.canView ? (
-            <a
-              href="/reports/future-made-phase-ii"
-              style={{
-                minHeight: "40px",
-                display: "inline-flex",
-                alignItems: "center",
-                borderRadius: "999px",
-                border: "1px solid #C4B5FD",
-                backgroundColor: "#FAF5FF",
-                color: "#5B21B6",
-                padding: "0 15px",
-                fontSize: "14px",
-                fontWeight: 800,
-                textDecoration: "none",
-              }}
-            >
-              Future. Made. Phase II
-            </a>
-          ) : null}
-          {teamStandingsReportAccess?.canView ? (
-            <a
-              href="/reports/executive-team-standings"
-              style={{
-                minHeight: "40px",
-                display: "inline-flex",
-                alignItems: "center",
-                borderRadius: "999px",
-                border: "1px solid #86EFAC",
-                backgroundColor: "#F0FDF4",
-                color: "#166534",
-                padding: "0 15px",
-                fontSize: "14px",
-                fontWeight: 800,
-                textDecoration: "none",
-              }}
-            >
-              Team Standings
-            </a>
-          ) : null}
-        </nav>
+                <RefreshCw size={17} />
+                Refresh report
+              </button>
+            </div>
+          }
+        />
 
         <section
           style={{

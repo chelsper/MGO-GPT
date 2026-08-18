@@ -402,13 +402,33 @@ function isBlackbaudNotFoundError(error) {
   return /(?:404|not found|resource not found)/i.test(message);
 }
 
-export async function findBlackbaudQueryByName({ userId, authUserId, origin, name }) {
+export async function findBlackbaudQueryByName({
+  userId,
+  authUserId,
+  origin,
+  name,
+  versions = ["v1", "v2"],
+}) {
   const normalizedName = String(name || "").trim().toLocaleLowerCase("en-US");
   if (!normalizedName) return null;
 
-  // Query execution uses the v1 jobs endpoint. Prefer a v1 query record so the
-  // identifier passed to that endpoint comes from the same API version.
-  const endpoints = [BLACKBAUD_QUERY_V1_URL, BLACKBAUD_QUERY_V2_URL];
+  const normalizedVersions = Array.from(
+    new Set(
+      versions
+        .map((version) => String(version || "").trim().toLocaleLowerCase("en-US"))
+        .filter(Boolean),
+    ),
+  );
+  const endpoints = normalizedVersions
+    .map((version) => {
+      if (version === "v1") return BLACKBAUD_QUERY_V1_URL;
+      if (version === "v2") return BLACKBAUD_QUERY_V2_URL;
+      return null;
+    })
+    .filter(Boolean);
+
+  if (!endpoints.length) return null;
+
   for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex += 1) {
     let path = endpoints[endpointIndex];
     try {
