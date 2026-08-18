@@ -9,6 +9,7 @@ import {
 } from "@/app/api/utils/reportAccess";
 
 export const dynamic = "force-dynamic";
+const TREND_WINDOW_DAYS = 7;
 
 export function getFiscalYearWindow(now = new Date()) {
   const currentYear = now.getUTCFullYear();
@@ -25,6 +26,10 @@ export function getFiscalYearWindow(now = new Date()) {
 function asNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function asText(value) {
+  return String(value || "").trim();
 }
 
 async function getCurrentUser() {
@@ -121,6 +126,117 @@ export async function GET(request) {
       ORDER BY LOWER(COALESCE(NULLIF(BTRIM(m.name), ''), m.email)), m.id
     `;
 
+    const userIds = rows
+      .map((row) => Number(row.user_id))
+      .filter((value) => Number.isFinite(value));
+
+    const activeProspectRows = userIds.length
+      ? await sql`
+          SELECT
+            p.user_id,
+            p.id AS prospect_id,
+            p.prospect_name,
+            p.blackbaud_constituent_id,
+            p.next_action_text,
+            p.next_action_due_date,
+            p.next_action_completed_at,
+            p.updated_at
+          FROM prospects p
+          WHERE p.user_id = ANY(${userIds})
+            AND LOWER(COALESCE(p.status, '')) = 'active'
+          ORDER BY
+            p.user_id,
+            LOWER(COALESCE(NULLIF(BTRIM(p.prospect_name), ''), 'zzzz')),
+            p.id
+        `
+      : [];
+
+    const openOpportunityRows = userIds.length
+      ? await sql`
+          SELECT
+            p.user_id,
+            po.id AS opportunity_id,
+            po.prospect_id,
+            p.prospect_name,
+            p.blackbaud_constituent_id,
+            po.title,
+            po.current_stage,
+            po.estimated_amount,
+            po.expected_date,
+            po.close_date
+          FROM prospects p
+          INNER JOIN prospect_opportunities po ON po.prospect_id = p.id
+          WHERE p.user_id = ANY(${userIds})
+            AND LOWER(COALESCE(po.opportunity_status, '')) = 'active'
+          ORDER BY
+            p.user_id,
+            COALESCE(po.estimated_amount, 0) DESC,
+            LOWER(COALESCE(NULLIF(BTRIM(po.title), ''), 'zzzz')),
+            po.id
+        `
+      : [];
+
+    const recentTrendRows = userIds.length
+      ? await sql`
+          WITH recent_prospect_touches AS (
+            SELECT
+              p.user_id,
+              COUNT(*)::INTEGER AS prospects_touched
+            FROM prospects p
+            WHERE p.user_id = ANY(${userIds})
+              AND p.updated_at >= NOW() - INTERVAL '7 days'
+            GROUP BY p.user_id
+          ),
+          recent_update_logs AS (
+            SELECT
+              p.user_id,
+              COUNT(pu.id)::INTEGER AS updates_logged
+            FROM prospect_updates pu
+            INNER JOIN prospects p ON p.id = pu.prospect_id
+            WHERE p.user_id = ANY(${userIds})
+              AND pu.created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY p.user_id
+          ),
+          recent_opportunity_changes AS (
+            SELECT
+              p.user_id,
+              COUNT(po.id)::INTEGER AS opportunity_changes
+            FROM prospect_opportunities po
+            INNER JOIN prospects p ON p.id = po.prospect_id
+            WHERE p.user_id = ANY(${userIds})
+              AND po.updated_at >= NOW() - INTERVAL '7 days'
+            GROUP BY p.user_id
+          ),
+          recently_closed AS (
+            SELECT
+              p.user_id,
+              COALESCE(
+                SUM(COALESCE(po.closed_amount, po.estimated_amount, 0)),
+                0
+              ) AS recently_closed_value
+            FROM prospect_opportunities po
+            INNER JOIN prospects p ON p.id = po.prospect_id
+            WHERE p.user_id = ANY(${userIds})
+              AND po.close_date >= CURRENT_DATE - INTERVAL '6 days'
+              AND po.close_date <= CURRENT_DATE
+              AND LOWER(COALESCE(po.opportunity_status, '')) <> 'active'
+            GROUP BY p.user_id
+          )
+          SELECT
+            u.id AS user_id,
+            COALESCE(rpt.prospects_touched, 0)::INTEGER AS prospects_touched,
+            COALESCE(rul.updates_logged, 0)::INTEGER AS updates_logged,
+            COALESCE(roc.opportunity_changes, 0)::INTEGER AS opportunity_changes,
+            COALESCE(rc.recently_closed_value, 0) AS recently_closed_value
+          FROM users u
+          LEFT JOIN recent_prospect_touches rpt ON rpt.user_id = u.id
+          LEFT JOIN recent_update_logs rul ON rul.user_id = u.id
+          LEFT JOIN recent_opportunity_changes roc ON roc.user_id = u.id
+          LEFT JOIN recently_closed rc ON rc.user_id = u.id
+          WHERE u.id = ANY(${userIds})
+        `
+      : [];
+
     const origin = request?.url ? new URL(request.url).origin : null;
     const closedTotals = origin
       ? await mapWithConcurrency(rows, 2, async (row) => {
@@ -143,6 +259,55 @@ export async function GET(request) {
         })
       : [];
     const closedTotalsByUser = new Map(closedTotals);
+    const activeProspectsByUser = new Map();
+    for (const row of activeProspectRows) {
+      const userId = Number(row.user_id);
+      const current = activeProspectsByUser.get(userId) || [];
+      const hasOpenNextStep =
+        asText(row.next_action_text) && !row.next_action_completed_at;
+      current.push({
+        prospectId: Number(row.prospect_id),
+        prospectName: row.prospect_name || "Unnamed prospect",
+        blackbaudConstituentId: asText(row.blackbaud_constituent_id),
+        nextActionText: asText(row.next_action_text),
+        nextActionDueDate: row.next_action_due_date || null,
+        hasOpenNextStep: Boolean(hasOpenNextStep),
+        isOverdue:
+          Boolean(hasOpenNextStep) &&
+          row.next_action_due_date &&
+          row.next_action_due_date < new Date().toISOString().slice(0, 10),
+        updatedAt: row.updated_at || null,
+      });
+      activeProspectsByUser.set(userId, current);
+    }
+
+    const openOpportunitiesByUser = new Map();
+    for (const row of openOpportunityRows) {
+      const userId = Number(row.user_id);
+      const current = openOpportunitiesByUser.get(userId) || [];
+      current.push({
+        opportunityId: Number(row.opportunity_id),
+        prospectId: Number(row.prospect_id),
+        prospectName: row.prospect_name || "Unnamed prospect",
+        blackbaudConstituentId: asText(row.blackbaud_constituent_id),
+        title: row.title || "Untitled opportunity",
+        currentStage: row.current_stage || "Active",
+        estimatedAmount: asNumber(row.estimated_amount),
+        expectedDate: row.expected_date || null,
+        closeDate: row.close_date || null,
+      });
+      openOpportunitiesByUser.set(userId, current);
+    }
+
+    const recentTrendByUser = new Map();
+    for (const row of recentTrendRows) {
+      recentTrendByUser.set(Number(row.user_id), {
+        prospectsTouched: asNumber(row.prospects_touched),
+        updatesLogged: asNumber(row.updates_logged),
+        opportunityChanges: asNumber(row.opportunity_changes),
+        recentlyClosedValue: asNumber(row.recently_closed_value),
+      });
+    }
 
     const standings = rows.map((row) => ({
       userId: Number(row.user_id),
@@ -153,11 +318,23 @@ export async function GET(request) {
       fundedThisFiscalYear: asNumber(closedTotalsByUser.get(Number(row.user_id))),
       prospectsWithNextSteps: asNumber(row.prospects_with_next_steps),
       overdueNextSteps: asNumber(row.overdue_next_steps),
+      trend: {
+        windowDays: TREND_WINDOW_DAYS,
+        prospectsTouched: asNumber(recentTrendByUser.get(Number(row.user_id))?.prospectsTouched),
+        updatesLogged: asNumber(recentTrendByUser.get(Number(row.user_id))?.updatesLogged),
+        opportunityChanges: asNumber(recentTrendByUser.get(Number(row.user_id))?.opportunityChanges),
+        recentlyClosedValue: asNumber(recentTrendByUser.get(Number(row.user_id))?.recentlyClosedValue),
+      },
+      drilldown: {
+        activeProspects: activeProspectsByUser.get(Number(row.user_id)) || [],
+        openOpportunities: openOpportunitiesByUser.get(Number(row.user_id)) || [],
+      },
     }));
 
     return Response.json(
       {
         fiscalYear,
+        trendWindowDays: TREND_WINDOW_DAYS,
         source: "Raiser's Edge NXT gift-solicitor credits, plus JUMGOGPT pipeline and next-step records",
         generatedAt: new Date().toISOString(),
         standings,
