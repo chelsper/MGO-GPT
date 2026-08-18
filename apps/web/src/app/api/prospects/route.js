@@ -4,6 +4,7 @@ import { resolveConstituent } from "@/app/api/utils/constituents";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
+import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 import {
   getBlackbaudAction,
   getBlackbaudConfigIssues,
@@ -565,6 +566,8 @@ export async function POST(request) {
         RETURNING *
       `;
 
+      await clearUserDashboardDataCaches(user.id);
+
       return Response.json({
         ...restored[0],
         restored_to_top_prospects: true,
@@ -592,6 +595,8 @@ export async function POST(request) {
         dueDate: nextActionDueDate || null,
       });
     }
+
+    await clearUserDashboardDataCaches(user.id);
 
     return Response.json(result[0], { status: 201 });
   } catch (error) {

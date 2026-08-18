@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 import sql from "@/app/api/utils/sql";
 import {
   findBlackbaudConstituentByEmail,
@@ -204,20 +205,6 @@ async function resolveWorkspaceFundraiserRecord({ workspaceUser, authUserId, ori
   };
 }
 
-async function clearBlackbaudPortfolioCacheForUser(userId) {
-  if (!userId) return;
-
-  await sql`
-    UPDATE users
-    SET
-      blackbaud_portfolio_cache = NULL,
-      blackbaud_portfolio_cache_key = NULL,
-      blackbaud_portfolio_cached_at = NULL,
-      updated_at = NOW()
-    WHERE id = ${userId}
-  `;
-}
-
 export async function PATCH(request) {
   const session = await auth(request);
   if (!session?.user?.email) {
@@ -356,7 +343,7 @@ export async function PATCH(request) {
       });
     }
 
-    await clearBlackbaudPortfolioCacheForUser(workspaceUser.id);
+    await clearUserDashboardDataCaches(workspaceUser.id);
 
     return Response.json({
       ok: true,

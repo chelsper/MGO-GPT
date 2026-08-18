@@ -6,6 +6,7 @@ import {
   syncPendingActionDiscussion,
   syncPrimaryPendingAction,
 } from "@/app/api/utils/pendingActions";
+import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 
 export async function GET(request) {
   try {
@@ -130,6 +131,8 @@ export async function POST(request) {
       discussionNote: result?.discussion_note || body.discussionNote || null,
       existingDiscussionItemId: result?.discussion_item_id || null,
     });
+
+    await clearUserDashboardDataCaches(user.id);
 
     return Response.json(
       {

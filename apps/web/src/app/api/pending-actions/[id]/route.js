@@ -3,6 +3,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { syncPendingActionDiscussion } from "@/app/api/utils/pendingActions";
+import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 
 export async function PUT(request, { params }) {
   try {
@@ -79,6 +80,8 @@ export async function PUT(request, { params }) {
       discussionNote: updated?.discussion_note || null,
       existingDiscussionItemId: updated?.discussion_item_id || existing[0]?.discussion_item_id || null,
     });
+
+    await clearUserDashboardDataCaches(user.id);
 
     return Response.json({
       ...updated,

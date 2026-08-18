@@ -5,6 +5,7 @@ import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities"
 import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { getPendingActionsForProspect, syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
+import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -401,6 +402,8 @@ export async function PUT(request, { params }) {
       });
     }
 
+    await clearUserDashboardDataCaches(user.id);
+
     return Response.json(result[0]);
   } catch (error) {
     console.error("Error updating prospect:", error);
@@ -482,6 +485,8 @@ export async function DELETE(request, { params }) {
       WHERE p.id = match.id
       RETURNING p.id, p.status, p.constituent_id, p.blackbaud_constituent_id
     `;
+
+    await clearUserDashboardDataCaches(user.id);
 
     return Response.json({
       success: true,

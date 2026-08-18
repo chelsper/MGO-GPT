@@ -1,5 +1,6 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { invalidateReportSnapshots } from "@/app/api/utils/reportCache";
+import { clearAllDashboardDataCaches } from "@/app/api/utils/userDataCache";
 
 const DASHBOARD_REFRESH_HOURS = new Set([8, 15]);
 const REPORT_KEYS = [
@@ -61,11 +62,13 @@ export async function GET(request) {
     }
 
     const invalidated = await invalidateReportSnapshots(REPORT_KEYS);
+    await clearAllDashboardDataCaches();
 
     return Response.json({
       status: "invalidated",
       localTime: `${ny.year}-${ny.month}-${ny.day} ${ny.hour}:${ny.minute}:${ny.second}`,
       invalidated,
+      dashboardCaches: ["my-portfolio", "my-top-prospects"],
       forced: force,
     });
   } catch (error) {

@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 
 async function normalizeActiveProspectOrder(userId) {
   const activeProspects = await sql`
@@ -97,6 +98,8 @@ export async function POST(request) {
       sql`UPDATE prospects SET priority_order = ${neighborOrder} WHERE id = ${prospectId}`,
       sql`UPDATE prospects SET priority_order = ${currentOrder} WHERE id = ${neighborId}`,
     ]);
+
+    await clearUserDashboardDataCaches(user.id);
 
     return Response.json({ success: true });
   } catch (error) {
