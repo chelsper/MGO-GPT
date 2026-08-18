@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Search } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
 
 function getResultKey(result, index) {
   return (
@@ -54,12 +55,38 @@ export default function ConstituentLookupPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
+  const [viewerRole, setViewerRole] = useState("");
+  const [membershipStates, setMembershipStates] = useState({});
 
   useEffect(() => {
     if (!loadingUser && !user) {
       window.location.href = "/account/signin";
     }
   }, [loadingUser, user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const controller = new AbortController();
+    async function loadRole() {
+      try {
+        const response = await fetch("/api/users/profile", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || controller.signal.aborted) return;
+        setViewerRole(String(payload?.user?.role || ""));
+      } catch {
+        if (!controller.signal.aborted) {
+          setViewerRole("");
+        }
+      }
+    }
+
+    loadRole();
+    return () => controller.abort();
+  }, [user]);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -114,6 +141,57 @@ export default function ConstituentLookupPage() {
       window.clearTimeout(timeoutId);
     };
   }, [query]);
+
+  const canManageFutureMadePhaseTwo =
+    isAdminRole(viewerRole) || isExecutiveRole(viewerRole);
+
+  async function addToFutureMadePhaseTwo(result) {
+    const constituentId = String(
+      result?.blackbaudConstituentId || result?.blackbaudRecordId || "",
+    ).trim();
+    if (!constituentId) return;
+
+    setMembershipStates((current) => ({
+      ...current,
+      [constituentId]: { status: "loading", message: "" },
+    }));
+
+    try {
+      const response = await fetch("/api/reports/future-made-phase-ii/membership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ constituentId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload?.error || "Could not add this constituent to Future. Made. Phase II.",
+        );
+      }
+
+      const wasAlreadyPresent = payload?.status === "already_present";
+      setMembershipStates((current) => ({
+        ...current,
+        [constituentId]: {
+          status: "success",
+          message: wasAlreadyPresent
+            ? "Already on Future. Made. Phase II"
+            : "Added to Future. Made. Phase II",
+        },
+      }));
+    } catch (addError) {
+      setMembershipStates((current) => ({
+        ...current,
+        [constituentId]: {
+          status: "error",
+          message:
+            addError instanceof Error
+              ? addError.message
+              : "Could not add this constituent to Future. Made. Phase II.",
+        },
+      }));
+    }
+  }
 
   if (loadingUser || !user) {
     return (
@@ -269,6 +347,14 @@ export default function ConstituentLookupPage() {
                 const profileUrl = buildBlackbaudConstituentProfileUrl(
                   result.blackbaudConstituentId || result.blackbaudRecordId,
                 );
+                const constituentId = String(
+                  result.blackbaudConstituentId || result.blackbaudRecordId || "",
+                ).trim();
+                const membershipState = constituentId
+                  ? membershipStates[constituentId]
+                  : null;
+                const isAdding = membershipState?.status === "loading";
+                const isAdded = membershipState?.status === "success";
                 return (
                   <article
                     key={getResultKey(result, index)}
@@ -298,31 +384,73 @@ export default function ConstituentLookupPage() {
                             Lookup ID: {result.lookupId}
                           </div>
                         ) : null}
+                        {membershipState?.message ? (
+                          <div
+                            style={{
+                              color:
+                                membershipState.status === "error" ? "#991B1B" : "#166534",
+                              fontSize: "13px",
+                              fontWeight: 700,
+                              marginTop: "6px",
+                            }}
+                          >
+                            {membershipState.message}
+                          </div>
+                        ) : null}
                       </div>
-                      {profileUrl ? (
-                        <a
-                          href={profileUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            minHeight: "40px",
-                            padding: "9px 13px",
-                            borderRadius: "999px",
-                            border: "1px solid #93C5FD",
-                            backgroundColor: "#EFF6FF",
-                            color: "#1D4ED8",
-                            textDecoration: "none",
-                            fontSize: "14px",
-                            fontWeight: 800,
-                          }}
-                        >
-                          Open NXT profile
-                          <ExternalLink size={16} aria-hidden="true" />
-                        </a>
-                      ) : null}
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {canManageFutureMadePhaseTwo && constituentId ? (
+                          <button
+                            type="button"
+                            onClick={() => addToFutureMadePhaseTwo(result)}
+                            disabled={isAdding || isAdded}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              minHeight: "40px",
+                              padding: "9px 13px",
+                              borderRadius: "999px",
+                              border: "1px solid #C7D2FE",
+                              backgroundColor: isAdded ? "#ECFDF5" : "#F5F3FF",
+                              color: isAdded ? "#166534" : "#5B21B6",
+                              fontSize: "14px",
+                              fontWeight: 800,
+                              cursor: isAdding || isAdded ? "default" : "pointer",
+                            }}
+                          >
+                            {isAdding
+                              ? "Adding..."
+                              : isAdded
+                                ? "On Future. Made. Phase II"
+                                : "Add to Future. Made. Phase II"}
+                          </button>
+                        ) : null}
+                        {profileUrl ? (
+                          <a
+                            href={profileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              minHeight: "40px",
+                              padding: "9px 13px",
+                              borderRadius: "999px",
+                              border: "1px solid #93C5FD",
+                              backgroundColor: "#EFF6FF",
+                              color: "#1D4ED8",
+                              textDecoration: "none",
+                              fontSize: "14px",
+                              fontWeight: 800,
+                            }}
+                          >
+                            Open NXT profile
+                            <ExternalLink size={16} aria-hidden="true" />
+                          </a>
+                        ) : null}
+                      </div>
                     </div>
                     <div
                       style={{
