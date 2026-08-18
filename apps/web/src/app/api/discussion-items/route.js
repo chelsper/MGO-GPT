@@ -3,6 +3,39 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
+function normalizeNumericId(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function resolveLocalConstituentId(rawConstituentId) {
+  const normalizedConstituentId = normalizeNumericId(rawConstituentId);
+  if (normalizedConstituentId) {
+    const localMatch = await sql`
+      SELECT id
+      FROM constituents
+      WHERE id = ${normalizedConstituentId}
+      LIMIT 1
+    `;
+    if (localMatch.length > 0) {
+      return Number(localMatch[0].id);
+    }
+  }
+
+  const blackbaudConstituentId = String(rawConstituentId || "").trim();
+  if (!blackbaudConstituentId) {
+    return null;
+  }
+
+  const blackbaudMatch = await sql`
+    SELECT id
+    FROM constituents
+    WHERE blackbaud_constituent_id = ${blackbaudConstituentId}
+    LIMIT 1
+  `;
+  return blackbaudMatch.length > 0 ? Number(blackbaudMatch[0].id) : null;
+}
+
 export async function GET(request) {
   try {
     await ensureAppSchema();
@@ -134,17 +167,25 @@ export async function POST(request) {
       return Response.json({ error: "Subject is required" }, { status: 400 });
     }
 
-    if (prospectId) {
+    let resolvedProspectId = normalizeNumericId(prospectId);
+    let resolvedConstituentId = null;
+
+    if (resolvedProspectId) {
       const prospect = await sql`
         SELECT id, constituent_id
         FROM prospects
-        WHERE id = ${prospectId}
+        WHERE id = ${resolvedProspectId}
           AND user_id = ${user.id}
         LIMIT 1
       `;
       if (prospect.length === 0) {
         return Response.json({ error: "Prospect not found" }, { status: 404 });
       }
+      resolvedConstituentId = normalizeNumericId(prospect[0]?.constituent_id);
+    }
+
+    if (!resolvedConstituentId && constituentId != null) {
+      resolvedConstituentId = await resolveLocalConstituentId(constituentId);
     }
 
     const result = await sql`
@@ -167,8 +208,8 @@ export async function POST(request) {
         ${user.id},
         ${sessionUser?.id || user.id},
         ${assignedUserId || null},
-        ${prospectId || null},
-        ${constituentId || null},
+        ${resolvedProspectId || null},
+        ${resolvedConstituentId},
         ${prospectOpportunityId || null},
         ${initiativeName?.trim() || null},
         ${subject.trim()},
