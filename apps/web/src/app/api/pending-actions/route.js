@@ -67,9 +67,9 @@ export async function POST(request) {
     const body = await request.json();
 
     const prospectId = Number(body?.prospectId);
-    const constituentId = Number(body?.constituentId);
+    const constituentId = body?.constituentId;
     const hasProspectId = Number.isInteger(prospectId) && prospectId > 0;
-    const hasConstituentId = Number.isInteger(constituentId) && constituentId > 0;
+    const hasConstituentId = Boolean(String(constituentId || "").trim());
 
     if (!String(body?.title || "").trim() || (!hasProspectId && !hasConstituentId)) {
       return Response.json(

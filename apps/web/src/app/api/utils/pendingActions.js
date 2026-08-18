@@ -6,6 +6,43 @@ function normalizeText(value) {
   return text || null;
 }
 
+async function resolveOwnedConstituentId(ownerUserId, rawConstituentId) {
+  const normalizedNumericId =
+    Number.isInteger(Number(rawConstituentId)) && Number(rawConstituentId) > 0
+      ? Number(rawConstituentId)
+      : null;
+
+  if (normalizedNumericId) {
+    const localMatch = await sql`
+      SELECT id
+      FROM constituents
+      WHERE id = ${normalizedNumericId}
+        AND user_id = ${ownerUserId}
+      LIMIT 1
+    `;
+
+    if (localMatch[0]?.id) {
+      return Number(localMatch[0].id);
+    }
+  }
+
+  const blackbaudConstituentId = normalizeText(rawConstituentId);
+  if (!blackbaudConstituentId) {
+    return null;
+  }
+
+  const blackbaudMatch = await sql`
+    SELECT id
+    FROM constituents
+    WHERE user_id = ${ownerUserId}
+      AND blackbaud_constituent_id = ${blackbaudConstituentId}
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT 1
+  `;
+
+  return blackbaudMatch[0]?.id ? Number(blackbaudMatch[0].id) : null;
+}
+
 export async function syncPrimaryPendingAction({
   ownerUserId,
   prospectId,
@@ -31,12 +68,12 @@ export async function syncPrimaryPendingAction({
     Number.isInteger(Number(prospectId)) && Number(prospectId) > 0
       ? Number(prospectId)
       : null;
-  const normalizedConstituentId =
-    Number.isInteger(Number(constituentId)) && Number(constituentId) > 0
-      ? Number(constituentId)
-      : null;
+  const normalizedConstituentId = await resolveOwnedConstituentId(ownerUserId, constituentId);
 
   if (!normalizedProspectId && !normalizedConstituentId) {
+    if (normalizeText(constituentId)) {
+      throw new Error("Selected constituent could not be found.");
+    }
     throw new Error("A pending action must be connected to a prospect or constituent");
   }
 
@@ -204,6 +241,7 @@ export async function syncPendingActionDiscussion({
 
   const normalizedTitle = normalizeText(title);
   const normalizedDiscussionNote = normalizeText(discussionNote);
+  const resolvedConstituentId = await resolveOwnedConstituentId(ownerUserId, constituentId);
 
   if (!pendingActionId || !normalizedTitle) {
     return null;
@@ -266,7 +304,7 @@ export async function syncPendingActionDiscussion({
       ${ownerUserId},
       ${createdByUserId || ownerUserId},
       ${prospectId || null},
-      ${constituentId || null},
+      ${resolvedConstituentId},
       ${normalizedTitle},
       ${normalizedDiscussionNote || "Pending action flagged for discussion."},
       ${dueDate || null},
