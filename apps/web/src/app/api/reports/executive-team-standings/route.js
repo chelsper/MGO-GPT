@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getClosedFiscalYearSummary } from "@/app/api/utils/closedFyGiftTotals";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { getNxtActionSummaryByWorkspaceUser } from "@/app/api/utils/nxtActionTotals";
 import {
   getCachedReportSnapshot,
   getReportCacheHeaders,
@@ -260,6 +261,22 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     : [];
 
   const closedTotalsByUser = new Map(closedTotals);
+  const nxtActionSummaryByUser = origin
+    ? await getNxtActionSummaryByWorkspaceUser({
+        workspaceUsers: rows.map((row) => ({
+          id: Number(row.user_id),
+          name: row.name,
+          email: row.email,
+          blackbaud_constituent_id: row.blackbaud_constituent_id,
+          blackbaud_lookup_id: row.blackbaud_lookup_id,
+          blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
+        })),
+        authUserId: authUser.id,
+        origin,
+        fiscalYearStart: fiscalYear.startsOn,
+        fiscalYearEnd: fiscalYear.endsOn,
+      }).catch(() => new Map())
+    : new Map();
   const activeProspectsByUser = new Map();
   for (const row of activeProspectRows) {
     const userId = Number(row.user_id);
@@ -316,6 +333,9 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     activeProspects: asNumber(row.active_prospects),
     openPipeline: asNumber(row.open_pipeline),
     fundedThisFiscalYear: asNumber(closedTotalsByUser.get(Number(row.user_id))),
+    nxtActionsThisFiscalYear: asNumber(
+      nxtActionSummaryByUser.get(Number(row.user_id))?.actionsThisFY,
+    ),
     prospectsWithNextSteps: asNumber(row.prospects_with_next_steps),
     overdueNextSteps: asNumber(row.overdue_next_steps),
     trend: {
@@ -339,7 +359,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     fiscalYear,
     trendWindowDays: TREND_WINDOW_DAYS,
     source:
-      "Raiser's Edge NXT gift-solicitor credits, plus JUMGOGPT pipeline and next-step records",
+      "Raiser's Edge NXT gift and action fundraiser attribution, plus JUMGOGPT pipeline and next-step records",
     generatedAt: new Date().toISOString(),
     standings,
   };

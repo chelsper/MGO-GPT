@@ -6,6 +6,7 @@ const {
   getCachedReportSnapshotMock,
   getReportCacheHeadersMock,
   ensureAppSchemaMock,
+  getNxtActionSummaryByWorkspaceUserMock,
   getOrCreateUserMock,
   getReportAccessForUserMock,
   saveReportSnapshotMock,
@@ -17,6 +18,7 @@ const {
   getCachedReportSnapshotMock: vi.fn(),
   getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   ensureAppSchemaMock: vi.fn(),
+  getNxtActionSummaryByWorkspaceUserMock: vi.fn(),
   getOrCreateUserMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
@@ -28,6 +30,9 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/closedFyGiftTotals", () => ({
   getClosedFiscalYearSummary: getClosedFiscalYearSummaryMock,
+}));
+vi.mock("@/app/api/utils/nxtActionTotals", () => ({
+  getNxtActionSummaryByWorkspaceUser: getNxtActionSummaryByWorkspaceUserMock,
 }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: getOrCreateUserMock }));
 vi.mock("@/app/api/utils/reportAccess", () => ({
@@ -50,6 +55,9 @@ describe("Executive Team Standings report route", () => {
     getOrCreateUserMock.mockResolvedValue({ id: 7, role: "executive" });
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
     getClosedFiscalYearSummaryMock.mockResolvedValue({ closedThisFY: 25000 });
+    getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(
+      new Map([[8, { actionsThisFY: 11 }]]),
+    );
     getCachedReportSnapshotMock.mockResolvedValue(null);
     saveReportSnapshotMock.mockResolvedValue();
     sqlMock
@@ -125,6 +133,7 @@ describe("Executive Team Standings report route", () => {
         activeProspects: 12,
         openPipeline: 400000,
         fundedThisFiscalYear: 25000,
+        nxtActionsThisFiscalYear: 11,
         prospectsWithNextSteps: 8,
         overdueNextSteps: 2,
         trend: {
