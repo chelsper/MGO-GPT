@@ -44,6 +44,29 @@ function toggleRoleSelection(currentRoles, nextRole, checked) {
   return filtered.length ? filtered : [ROLE_OPTIONS[0].value];
 }
 
+function normalizeFundraiserAliasIdsInput(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set();
+  const results = [];
+
+  for (const rawValue of rawValues) {
+    const normalized = String(rawValue || "").trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
+function formatFundraiserAliasIdsForInput(value) {
+  return normalizeFundraiserAliasIdsInput(value).join("\n");
+}
+
 function WorkspaceRoleCheckboxGroup({ disabled = false, roles, onChange }) {
   const normalizedRoles = normalizeWorkspaceRoles(roles);
 
@@ -239,6 +262,7 @@ export default function AccessManagementPage() {
   const [userBlackbaudQuery, setUserBlackbaudQuery] = useState("");
   const [userBlackbaudMatches, setUserBlackbaudMatches] = useState([]);
   const [selectedUserBlackbaudMatch, setSelectedUserBlackbaudMatch] = useState(null);
+  const [userBlackbaudAliasIdsInput, setUserBlackbaudAliasIdsInput] = useState("");
   const [searchingUserBlackbaud, setSearchingUserBlackbaud] = useState(false);
   const [toast, setToast] = useState(null);
   const [fyGivingDiagnostic, setFyGivingDiagnostic] = useState(null);
@@ -769,6 +793,9 @@ export default function AccessManagementPage() {
         blackbaudLookupId:
           updates.blackbaudLookupId ?? selectedUserBlackbaudMatch?.lookupId ?? null,
       };
+      if (updates.blackbaudFundraiserAliasIds !== undefined) {
+        payload.blackbaudFundraiserAliasIds = updates.blackbaudFundraiserAliasIds;
+      }
       if (updates.role !== undefined) {
         payload.role = updates.role;
       }
@@ -794,6 +821,7 @@ export default function AccessManagementPage() {
       setUserBlackbaudQuery("");
       setUserBlackbaudMatches([]);
       setSelectedUserBlackbaudMatch(null);
+      setUserBlackbaudAliasIdsInput("");
       setStatusMessage("User updated.");
       setToast({ tone: "success", message: "User updated." });
     } catch (err) {
@@ -1632,6 +1660,13 @@ export default function AccessManagementPage() {
                             setUserBlackbaudQuery("");
                             setUserBlackbaudMatches([]);
                             setSelectedUserBlackbaudMatch(null);
+                            setUserBlackbaudAliasIdsInput(
+                              editingUserId === user.id
+                                ? ""
+                                : formatFundraiserAliasIdsForInput(
+                                    user.blackbaud_fundraiser_alias_ids,
+                                  ),
+                            );
                           }}
                           style={{
                             padding: "8px 12px",
@@ -1798,6 +1833,37 @@ export default function AccessManagementPage() {
                       <div style={{ marginTop: "12px", fontSize: "13px", color: "#6B7280" }}>
                         Current Lookup ID: {user.blackbaud_lookup_id || "Not linked"}
                       </div>
+                      <label
+                        htmlFor={`access-management-user-blackbaud-aliases-${user.id}`}
+                        style={{
+                          display: "block",
+                          marginTop: "14px",
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          color: "#374151",
+                        }}
+                      >
+                        Additional fundraiser IDs
+                      </label>
+                      <textarea
+                        id={`access-management-user-blackbaud-aliases-${user.id}`}
+                        value={userBlackbaudAliasIdsInput}
+                        onChange={(event) => setUserBlackbaudAliasIdsInput(event.target.value)}
+                        placeholder={"One ID per line or comma separated\nExample:\n152922\n172263"}
+                        rows={4}
+                        style={{
+                          ...inputStyle,
+                          marginTop: "8px",
+                          resize: "vertical",
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280", lineHeight: 1.5 }}>
+                        Use this when Blackbaud credits the same fundraiser under multiple IDs. Right now:{" "}
+                        {normalizeFundraiserAliasIdsInput(user.blackbaud_fundraiser_alias_ids).length > 0
+                          ? normalizeFundraiserAliasIdsInput(user.blackbaud_fundraiser_alias_ids).join(", ")
+                          : "No extra IDs saved"}
+                      </div>
                       <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
                         <button
                           type="button"
@@ -1806,6 +1872,7 @@ export default function AccessManagementPage() {
                             setUserBlackbaudQuery("");
                             setUserBlackbaudMatches([]);
                             setSelectedUserBlackbaudMatch(null);
+                            setUserBlackbaudAliasIdsInput("");
                           }}
                           style={{
                             padding: "8px 12px",
@@ -1827,6 +1894,8 @@ export default function AccessManagementPage() {
                                 selectedUserBlackbaudMatch?.blackbaudConstituentId || null,
                               blackbaudLookupId:
                                 selectedUserBlackbaudMatch?.lookupId || null,
+                              blackbaudFundraiserAliasIds:
+                                normalizeFundraiserAliasIdsInput(userBlackbaudAliasIdsInput),
                             })
                           }
                           disabled={updatingUserId === user.id || !selectedUserBlackbaudMatch}

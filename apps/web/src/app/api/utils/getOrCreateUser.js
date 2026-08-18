@@ -28,6 +28,7 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
       users.deactivated_at,
       users.blackbaud_constituent_id,
       users.blackbaud_lookup_id,
+      users.blackbaud_fundraiser_alias_ids,
       users.blackbaud_portfolio_seeded_at,
       users.blackbaud_portfolio_seed_attempted_at,
       users.blackbaud_portfolio_seed_error
@@ -60,6 +61,7 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
           deactivated_at,
           blackbaud_constituent_id,
           blackbaud_lookup_id,
+          blackbaud_fundraiser_alias_ids,
           blackbaud_portfolio_seeded_at,
           blackbaud_portfolio_seed_attempted_at,
           blackbaud_portfolio_seed_error
@@ -113,6 +115,7 @@ export default async function getOrCreateUser(session, fallbackRole = "mgo") {
       deactivated_at,
       blackbaud_constituent_id,
       blackbaud_lookup_id,
+      blackbaud_fundraiser_alias_ids,
       blackbaud_portfolio_seeded_at,
       blackbaud_portfolio_seed_attempted_at,
       blackbaud_portfolio_seed_error

@@ -16,6 +16,29 @@ import {
   serializeWorkspaceRoles,
 } from "@/utils/workspaceRoles";
 
+function normalizeBlackbaudFundraiserAliasIds(value, { preserveUndefined = false } = {}) {
+  if (value === undefined && preserveUndefined) {
+    return undefined;
+  }
+
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set();
+  const results = [];
+
+  for (const rawValue of rawValues) {
+    const normalized = String(rawValue || "").trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
 async function resetPortfolioSeedState(userId) {
   await sql`
     UPDATE users
@@ -77,6 +100,7 @@ export async function GET() {
           users.deactivated_at,
           users.blackbaud_constituent_id,
           users.blackbaud_lookup_id,
+          users.blackbaud_fundraiser_alias_ids,
           users.blackbaud_portfolio_seeded_at,
           users.blackbaud_portfolio_seed_attempted_at,
           users.blackbaud_portfolio_seed_error,
@@ -152,6 +176,10 @@ export async function POST(request) {
     const blackbaudLookupId = body?.blackbaudLookupId
       ? String(body.blackbaudLookupId).trim()
       : null;
+    const blackbaudFundraiserAliasIds = normalizeBlackbaudFundraiserAliasIds(
+      body?.blackbaudFundraiserAliasIds,
+      { preserveUndefined: true },
+    );
     const blackbaudName = body?.blackbaudName
       ? String(body.blackbaudName).trim()
       : null;
@@ -171,7 +199,7 @@ export async function POST(request) {
 
     if (existingUser.length > 0) {
       const existingUserState = await sql`
-        SELECT role, blackbaud_constituent_id, blackbaud_lookup_id
+        SELECT role, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids
         FROM users
         WHERE id = ${existingUser[0].id}
         LIMIT 1
@@ -183,9 +211,14 @@ export async function POST(request) {
           role = ${serializedRoles},
           blackbaud_constituent_id = COALESCE(${blackbaudConstituentId}, blackbaud_constituent_id),
           blackbaud_lookup_id = COALESCE(${blackbaudLookupId}, blackbaud_lookup_id),
+          blackbaud_fundraiser_alias_ids = CASE
+            WHEN ${blackbaudFundraiserAliasIds !== undefined}
+              THEN ${JSON.stringify(blackbaudFundraiserAliasIds || [])}::jsonb
+            ELSE blackbaud_fundraiser_alias_ids
+          END,
           updated_at = NOW()
         WHERE id = ${existingUser[0].id}
-        RETURNING id, name, email, role, blackbaud_lookup_id, created_at, updated_at
+        RETURNING id, name, email, role, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids, created_at, updated_at
       `;
 
       const priorUser = existingUserState[0] || null;
@@ -193,7 +226,13 @@ export async function POST(request) {
         String(priorUser?.blackbaud_constituent_id || "") !==
           String(blackbaudConstituentId || priorUser?.blackbaud_constituent_id || "") ||
         String(priorUser?.blackbaud_lookup_id || "") !==
-          String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
+          String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "") ||
+        JSON.stringify(normalizeBlackbaudFundraiserAliasIds(priorUser?.blackbaud_fundraiser_alias_ids)) !==
+          JSON.stringify(
+            blackbaudFundraiserAliasIds === undefined
+              ? normalizeBlackbaudFundraiserAliasIds(priorUser?.blackbaud_fundraiser_alias_ids)
+              : blackbaudFundraiserAliasIds,
+          );
 
       if (
         (canUseMgoWorkspaceRole(serializedRoles) || canUseMgoWorkspaceRole(priorUser?.role)) &&
@@ -233,6 +272,7 @@ export async function POST(request) {
           role,
           blackbaud_constituent_id,
           blackbaud_lookup_id,
+          blackbaud_fundraiser_alias_ids,
           created_at,
           updated_at
         )
@@ -242,10 +282,11 @@ export async function POST(request) {
           ${serializedRoles},
           ${blackbaudConstituentId},
           ${blackbaudLookupId},
+          ${JSON.stringify(blackbaudFundraiserAliasIds || [])}::jsonb,
           NOW(),
           NOW()
         )
-        RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
+        RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids, created_at, updated_at
       `;
 
       if (canUseMgoWorkspaceRole(serializedRoles) && (blackbaudConstituentId || blackbaudLookupId)) {
@@ -363,13 +404,19 @@ export async function PATCH(request) {
     const blackbaudLookupId = body?.blackbaudLookupId
       ? String(body.blackbaudLookupId).trim()
       : null;
+    const blackbaudFundraiserAliasIdsProvided =
+      Object.prototype.hasOwnProperty.call(body || {}, "blackbaudFundraiserAliasIds");
+    const blackbaudFundraiserAliasIds = normalizeBlackbaudFundraiserAliasIds(
+      body?.blackbaudFundraiserAliasIds,
+      { preserveUndefined: true },
+    );
 
     if (!Number.isInteger(userId) || userId <= 0) {
       return Response.json({ error: "User id is required" }, { status: 400 });
     }
 
     const existingUser = await sql`
-      SELECT role, blackbaud_constituent_id, blackbaud_lookup_id
+      SELECT role, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids
       FROM users
       WHERE id = ${userId}
       LIMIT 1
@@ -399,9 +446,14 @@ export async function PATCH(request) {
         END,
         blackbaud_constituent_id = COALESCE(${blackbaudConstituentId}, blackbaud_constituent_id),
         blackbaud_lookup_id = COALESCE(${blackbaudLookupId}, blackbaud_lookup_id),
+        blackbaud_fundraiser_alias_ids = CASE
+          WHEN ${blackbaudFundraiserAliasIdsProvided}
+            THEN ${JSON.stringify(blackbaudFundraiserAliasIds || [])}::jsonb
+          ELSE blackbaud_fundraiser_alias_ids
+        END,
         updated_at = NOW()
       WHERE id = ${userId}
-      RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, created_at, updated_at
+      RETURNING id, name, email, role, active, deactivated_at, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids, created_at, updated_at
     `;
 
     const priorUser = existingUser[0] || null;
@@ -410,7 +462,13 @@ export async function PATCH(request) {
       String(priorUser?.blackbaud_constituent_id || "") !==
         String(blackbaudConstituentId || priorUser?.blackbaud_constituent_id || "") ||
       String(priorUser?.blackbaud_lookup_id || "") !==
-        String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "");
+        String(blackbaudLookupId || priorUser?.blackbaud_lookup_id || "") ||
+      JSON.stringify(normalizeBlackbaudFundraiserAliasIds(priorUser?.blackbaud_fundraiser_alias_ids)) !==
+        JSON.stringify(
+          blackbaudFundraiserAliasIdsProvided
+            ? blackbaudFundraiserAliasIds || []
+            : normalizeBlackbaudFundraiserAliasIds(priorUser?.blackbaud_fundraiser_alias_ids),
+        );
 
     if (canUseMgoWorkspaceRole(nextRole) && blackbaudLinkChanged) {
       await resetPortfolioSeedState(userId);

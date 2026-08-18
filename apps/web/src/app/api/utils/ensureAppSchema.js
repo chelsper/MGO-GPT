@@ -16,6 +16,7 @@ export default async function ensureAppSchema() {
         deactivated_at TIMESTAMPTZ,
         blackbaud_constituent_id TEXT,
         blackbaud_lookup_id TEXT,
+        blackbaud_fundraiser_alias_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
         blackbaud_portfolio_seeded_at TIMESTAMPTZ,
         blackbaud_portfolio_seed_attempted_at TIMESTAMPTZ,
         blackbaud_portfolio_seed_error TEXT,
@@ -45,6 +46,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS blackbaud_lookup_id TEXT
+    `;
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS blackbaud_fundraiser_alias_ids JSONB NOT NULL DEFAULT '[]'::jsonb
     `;
     await sql`
       ALTER TABLE users

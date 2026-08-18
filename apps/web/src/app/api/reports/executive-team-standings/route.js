@@ -75,7 +75,13 @@ export async function GET(request) {
     const fiscalYear = getFiscalYearWindow();
     const rows = await sql`
       WITH active_mgos AS (
-        SELECT id, name, email, blackbaud_constituent_id, blackbaud_lookup_id
+        SELECT
+          id,
+          name,
+          email,
+          blackbaud_constituent_id,
+          blackbaud_lookup_id,
+          blackbaud_fundraiser_alias_ids
         FROM users
         WHERE active = TRUE
           AND POSITION(',mgo,' IN ',' || REPLACE(LOWER(COALESCE(role, '')), ' ', '') || ',') > 0
@@ -116,6 +122,7 @@ export async function GET(request) {
         m.email,
         m.blackbaud_constituent_id,
         m.blackbaud_lookup_id,
+        m.blackbaud_fundraiser_alias_ids,
         COALESCE(pm.active_prospects, 0)::INTEGER AS active_prospects,
         COALESCE(pm.prospects_with_next_steps, 0)::INTEGER AS prospects_with_next_steps,
         COALESCE(pm.overdue_next_steps, 0)::INTEGER AS overdue_next_steps,
@@ -248,6 +255,7 @@ export async function GET(request) {
                 email: row.email,
                 blackbaud_constituent_id: row.blackbaud_constituent_id,
                 blackbaud_lookup_id: row.blackbaud_lookup_id,
+                blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
               },
               authUserId: user.id,
               origin,

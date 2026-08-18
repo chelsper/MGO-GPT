@@ -21,6 +21,10 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
 vi.mock("@/app/api/utils/closedFyGiftTotals", () => ({
   getClosedFiscalYearDiagnostic: getClosedFiscalYearDiagnosticMock,
 }));
+vi.mock("@/utils/workspaceRoles", () => ({
+  isReviewerRole: (role) =>
+    ["reviewer", "admin", "advancement_services", "advancement_admin"].includes(role),
+}));
 
 describe("closed FY diagnostic route", () => {
   beforeEach(() => {

@@ -203,6 +203,25 @@ function getGiftFundraiserId(fundraiser) {
   ).trim();
 }
 
+function normalizeBlackbaudFundraiserAliasIds(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set();
+  const results = [];
+
+  for (const rawValue of rawValues) {
+    const normalized = String(rawValue || "").trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
 function normalizeWorkspaceFundraiserIds(user) {
   const results = [];
   const seen = new Set();
@@ -216,6 +235,10 @@ function normalizeWorkspaceFundraiserIds(user) {
       id: String(user?.blackbaud_lookup_id || "").trim(),
       source: "blackbaud_lookup_id",
     },
+    ...normalizeBlackbaudFundraiserAliasIds(user?.blackbaud_fundraiser_alias_ids).map((id) => ({
+      id,
+      source: "blackbaud_fundraiser_alias_ids",
+    })),
   ];
 
   for (const candidate of candidates) {
@@ -803,6 +826,7 @@ export async function GET(request) {
       user.id,
       user.blackbaud_constituent_id || "",
       user.blackbaud_lookup_id || "",
+      normalizeBlackbaudFundraiserAliasIds(user.blackbaud_fundraiser_alias_ids).join(","),
       user.email || "",
       user.name || "",
     ].join("|");

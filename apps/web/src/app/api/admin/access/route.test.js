@@ -50,6 +50,15 @@ vi.mock("@/utils/workspaceRoles", () => ({
       executive_admin: "executive",
       mgo: "mgo",
     })[role] || null,
+  normalizeWorkspaceRoles: (roles) => {
+    if (Array.isArray(roles)) return roles.filter(Boolean);
+    if (typeof roles === "string" && roles.trim()) {
+      return roles.split(",").map((value) => value.trim()).filter(Boolean);
+    }
+    return [];
+  },
+  serializeWorkspaceRoles: (roles) =>
+    Array.isArray(roles) ? roles.filter(Boolean).join(",") : String(roles || "").trim(),
 }));
 
 describe("admin access deletion", () => {
@@ -169,6 +178,51 @@ describe("admin access deletion", () => {
     });
     expect(sqlMockImpl.mock.calls.map((call) => call[0].join(" ")).join("\n")).toContain(
       "DELETE FROM users",
+    );
+  });
+
+  it("updates fundraiser alias ids for a workspace user", async () => {
+    const { PATCH } = await import("./route.js");
+    queueSqlResult([
+      {
+        role: "executive,mgo",
+        blackbaud_constituent_id: "186057",
+        blackbaud_lookup_id: "436887",
+        blackbaud_fundraiser_alias_ids: ["152922"],
+      },
+    ]);
+    queueSqlResult([
+      {
+        id: 12,
+        name: "Leslie M. Redd",
+        email: "lredd@ju.edu",
+        role: "executive,mgo",
+        active: true,
+        deactivated_at: null,
+        blackbaud_constituent_id: "186057",
+        blackbaud_lookup_id: "436887",
+        blackbaud_fundraiser_alias_ids: ["152922", "172263", "234684"],
+      },
+    ]);
+
+    const response = await PATCH(
+      new Request("https://example.com/api/admin/access", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: 12,
+          blackbaudFundraiserAliasIds: ["152922", "172263", "234684", "152922"],
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.user).toEqual(
+      expect.objectContaining({
+        id: 12,
+        blackbaud_fundraiser_alias_ids: ["152922", "172263", "234684"],
+      }),
     );
   });
 });

@@ -16,11 +16,30 @@ function normalizeInteger(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function normalizeBlackbaudFundraiserAliasIds(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  const seen = new Set();
+  const results = [];
+
+  for (const rawValue of rawValues) {
+    const normalized = String(rawValue || "").trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
 async function findTargetUser(searchParams, fallbackUser) {
   const userId = normalizeInteger(searchParams.get("userId"));
   if (userId) {
     const rows = await sql`
-      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id
+      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids
       FROM users
       WHERE id = ${userId}
       LIMIT 1
@@ -31,7 +50,7 @@ async function findTargetUser(searchParams, fallbackUser) {
   const email = normalizeText(searchParams.get("email"));
   if (email) {
     const rows = await sql`
-      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id
+      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids
       FROM users
       WHERE LOWER(email) = LOWER(${email})
       LIMIT 1
@@ -42,7 +61,7 @@ async function findTargetUser(searchParams, fallbackUser) {
   const blackbaudConstituentId = normalizeText(searchParams.get("blackbaudConstituentId"));
   if (blackbaudConstituentId) {
     const rows = await sql`
-      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id
+      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids
       FROM users
       WHERE blackbaud_constituent_id = ${blackbaudConstituentId}
       LIMIT 1
@@ -53,7 +72,7 @@ async function findTargetUser(searchParams, fallbackUser) {
   const blackbaudLookupId = normalizeText(searchParams.get("blackbaudLookupId"));
   if (blackbaudLookupId) {
     const rows = await sql`
-      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id
+      SELECT id, name, email, role, active, blackbaud_constituent_id, blackbaud_lookup_id, blackbaud_fundraiser_alias_ids
       FROM users
       WHERE blackbaud_lookup_id = ${blackbaudLookupId}
       LIMIT 1
@@ -111,6 +130,9 @@ export async function GET(request) {
           active: targetUser.active !== false,
           blackbaudConstituentId: targetUser.blackbaud_constituent_id || null,
           blackbaudLookupId: targetUser.blackbaud_lookup_id || null,
+          blackbaudFundraiserAliasIds: normalizeBlackbaudFundraiserAliasIds(
+            targetUser.blackbaud_fundraiser_alias_ids,
+          ),
         },
         ...diagnostic,
       },
