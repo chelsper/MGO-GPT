@@ -195,7 +195,7 @@ export default function ExecutiveTeamStandingsPage() {
               </p>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-              <TrendChip color="#1D4ED8" label={pluralize(totals.prospectsTouched, "prospect touched")} />
+              <TrendChip color="#1D4ED8" label={pluralize(totals.prospectsTouched, "prospect touch", "prospect touches")} />
               <TrendChip color="#7C3AED" label={pluralize(totals.updatesLogged, "update logged")} />
               <TrendChip color="#0F766E" label={pluralize(totals.opportunityChanges, "opportunity change")} />
               <TrendChip color="#166534" label={`${formatCurrency(totals.recentlyClosedValue)} recently closed`} />
@@ -248,7 +248,7 @@ export default function ExecutiveTeamStandingsPage() {
                       Last {entry.trend?.windowDays || report?.trendWindowDays || 7} days
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                      <TrendChip color="#1D4ED8" label={pluralize(Number(entry.trend?.prospectsTouched || 0), "prospect touched")} />
+                      <TrendChip color="#1D4ED8" label={pluralize(Number(entry.trend?.prospectsTouched || 0), "prospect touch", "prospect touches")} />
                       <TrendChip color="#7C3AED" label={pluralize(Number(entry.trend?.updatesLogged || 0), "update logged")} />
                       <TrendChip color="#0F766E" label={pluralize(Number(entry.trend?.opportunityChanges || 0), "opportunity change")} />
                       <TrendChip color="#166534" label={`${formatCurrency(entry.trend?.recentlyClosedValue || 0)} closed`} />

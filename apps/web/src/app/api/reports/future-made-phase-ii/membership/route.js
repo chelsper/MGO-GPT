@@ -10,7 +10,6 @@ import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
 
 const CUSTOM_FIELD_CATEGORY = "Prospect Research";
 const CUSTOM_FIELD_DESCRIPTION = "Future. Made. Phase II";
-const DEFAULT_COMMENT = "Added from JUMGOGPT";
 const APP_TIME_ZONE = "America/New_York";
 
 function canManageFutureMadePhaseTwoList(role) {
@@ -24,6 +23,11 @@ function getTodayDate(now = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(now);
+}
+
+function buildMembershipComment(user) {
+  const addedBy = String(user?.name || user?.email || "").trim();
+  return addedBy ? `Added from JUMGOGPT by ${addedBy}` : "Added from JUMGOGPT";
 }
 
 function normalizeText(value) {
@@ -142,7 +146,7 @@ export async function POST(request) {
         parent_id: constituentId,
         category: CUSTOM_FIELD_CATEGORY,
         description: CUSTOM_FIELD_DESCRIPTION,
-        comment: DEFAULT_COMMENT,
+        comment: buildMembershipComment(user),
         date: getTodayDate(),
       },
     });

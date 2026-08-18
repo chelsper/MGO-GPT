@@ -21,6 +21,12 @@ const MAX_QUERY_ROWS = 10000;
 const FALLBACK_CUSTOM_FIELD_CATEGORY = "Prospect Research";
 const FALLBACK_CUSTOM_FIELD_DESCRIPTION = "Future. Made. Phase II";
 const FALLBACK_SCAN_CONCURRENCY = 8;
+const REPORT_COLUMNS = [
+  "Constituent name",
+  "Constituent lookup ID",
+  "Date added",
+  "Added by",
+];
 
 function getFutureMadePhaseTwoQueryConfig() {
   const queryId = String(process.env.BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_ID || "").trim();
@@ -83,6 +89,34 @@ function normalizeLooseBlackbaudText(value) {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function formatSimpleDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[2]}/${match[3]}/${match[1].slice(-2)}`;
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    return text;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "America/New_York",
+  }).format(parsed);
+}
+
+function extractAddedBy(field) {
+  const comment = String(field?.comment || "").trim();
+  const match = comment.match(/^Added from JUMGOGPT by (.+)$/i);
+  return match?.[1]?.trim() || "";
 }
 
 function getFallbackDescriptionCandidates(field) {
@@ -249,16 +283,7 @@ function buildFallbackReportResponse(rows, reason) {
     queryName: QUERY_NAME,
     mode: "custom-field-fallback",
     fallbackReason: reason,
-    columns: [
-      "Constituent name",
-      "Constituent lookup ID",
-      "Constituent system record ID",
-      "Custom field category",
-      "Description",
-      "Comment",
-      "Date",
-      "Source",
-    ],
+    columns: REPORT_COLUMNS,
     rows,
     totalRows: rows.length,
     truncated: false,
@@ -307,12 +332,8 @@ async function buildFutureMadePhaseTwoFallbackReport({ user, origin, reason }) {
             candidate.name ||
             `NXT constituent ${candidate.blackbaudConstituentId}`,
           "Constituent lookup ID": profile?.lookupId || "",
-          "Constituent system record ID": candidate.blackbaudConstituentId,
-          "Custom field category": field?.category || "",
-          Description: getFallbackPrimaryDescription(field),
-          Comment: field?.comment || "",
-          Date: field?.date || "",
-          Source: Array.from(candidate.sources).filter(Boolean).join(", "),
+          "Date added": formatSimpleDate(field?.date || ""),
+          "Added by": extractAddedBy(field),
         },
       }));
     },
@@ -493,14 +514,28 @@ function getRowName(values, rowNumber) {
 }
 
 function getConstituentId(values) {
-  return findValue(values, [
+  const aliasPriority = [
     "constituentsystemrecordid",
     "systemrecordid",
     "constituentid",
     "constituentlookupid",
     "lookupid",
     "recordid",
-  ]);
+  ];
+
+  for (const alias of aliasPriority) {
+    const match = Object.entries(values).find(
+      ([header]) => normalizeColumnName(header) === alias,
+    );
+    const value = String(match?.[1] || "").trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getLookupId(values) {
+  return findValue(values, ["constituentlookupid", "lookupid"]);
 }
 
 function parseQueryResult(content) {
@@ -528,6 +563,62 @@ function parseQueryResult(content) {
     totalRows: sourceRows.length,
     truncated: sourceRows.length > rows.length,
   };
+}
+
+async function enrichQueryRows({ rows, user, origin }) {
+  const results = await mapWithConcurrency(
+    rows,
+    FALLBACK_SCAN_CONCURRENCY,
+    async (row) => {
+      const blackbaudConstituentId = String(row?.constituentId || "").trim();
+      let matchedField = null;
+      let profile = null;
+
+      if (blackbaudConstituentId) {
+        const customFields = await listBlackbaudConstituentCustomFields({
+          userId: user.id,
+          authUserId: user.id,
+          origin,
+          constituentId: blackbaudConstituentId,
+        }).catch(() => []);
+
+        matchedField = (Array.isArray(customFields) ? customFields : []).find(
+          fieldMatchesFutureMadePhaseTwo,
+        ) || null;
+
+        profile = await getBlackbaudConstituentById({
+          userId: user.id,
+          authUserId: user.id,
+          origin,
+          constituentId: blackbaudConstituentId,
+        }).catch(() => null);
+      }
+
+      const constituentName =
+        profile?.name ||
+        row?.values?.["Constituent name"] ||
+        row?.name ||
+        `NXT constituent ${blackbaudConstituentId || row?.id}`;
+      const lookupId =
+        profile?.lookupId ||
+        getLookupId(row?.values || {}) ||
+        "";
+
+      return {
+        id: row.id,
+        name: constituentName,
+        constituentId: blackbaudConstituentId,
+        values: {
+          "Constituent name": constituentName,
+          "Constituent lookup ID": lookupId,
+          "Date added": formatSimpleDate(matchedField?.date || ""),
+          "Added by": extractAddedBy(matchedField),
+        },
+      };
+    },
+  );
+
+  return results;
 }
 
 async function getCurrentUser() {
@@ -677,12 +768,22 @@ export async function GET(request) {
       }
       throw error;
     }
+    const parsedResult = parseQueryResult(content);
+    const enrichedRows = await enrichQueryRows({
+      rows: parsedResult.rows,
+      user,
+      origin,
+    });
+
     return Response.json(
       {
         status: "complete",
         jobId,
         queryName: query?.name || queryConfig.queryName,
-        ...parseQueryResult(content),
+        columns: REPORT_COLUMNS,
+        rows: enrichedRows,
+        totalRows: parsedResult.totalRows,
+        truncated: parsedResult.truncated,
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

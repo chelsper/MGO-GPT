@@ -38,7 +38,12 @@ describe("Future. Made. Phase II membership route", () => {
     vi.clearAllMocks();
     authMock.mockResolvedValue({ user: { email: "executive@example.edu" } });
     ensureAppSchemaMock.mockResolvedValue();
-    getOrCreateUserMock.mockResolvedValue({ id: 17, role: "executive" });
+    getOrCreateUserMock.mockResolvedValue({
+      id: 17,
+      role: "executive",
+      name: "Jordan Executive",
+      email: "executive@example.edu",
+    });
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
     listBlackbaudConstituentCustomFieldsMock.mockResolvedValue([]);
     createBlackbaudConstituentCustomFieldMock.mockResolvedValue({ id: "cf-900" });
@@ -99,7 +104,7 @@ describe("Future. Made. Phase II membership route", () => {
           parent_id: "555321",
           category: "Prospect Research",
           description: "Future. Made. Phase II",
-          comment: "Added from JUMGOGPT",
+          comment: "Added from JUMGOGPT by Jordan Executive",
         }),
       }),
     );

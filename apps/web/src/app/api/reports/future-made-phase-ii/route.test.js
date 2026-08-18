@@ -153,8 +153,8 @@ describe("Future. Made. Phase II report route", () => {
           constituentId: "555321",
           values: expect.objectContaining({
             "Constituent lookup ID": "A123",
-            Description: "Future.Made.Phase II",
-            Source: "prospect_pool",
+            "Date added": "08/18/26",
+            "Added by": "",
           }),
         },
       ],
@@ -266,8 +266,38 @@ describe("Future. Made. Phase II report route", () => {
       sas_uri: "https://download.example.com/query.csv",
     });
     downloadBlackbaudQueryResultMock.mockResolvedValue(
-      "Constituent name,Constituent lookup ID,Status\nAda Lovelace,123,Active\nGrace Hopper,456,Active\n",
+      "Constituent name,Constituent lookup ID,Constituent system record ID,Status\nAda Lovelace,ADA1,123,Active\nGrace Hopper,GRACE2,456,Active\n",
     );
+    listBlackbaudConstituentCustomFieldsMock
+      .mockResolvedValueOnce([
+        {
+          id: "cf-1",
+          category: "Prospect Research",
+          description: "Future. Made. Phase II",
+          comment: "Added from JUMGOGPT by Jordan Executive",
+          date: "2026-08-18",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "cf-2",
+          category: "Prospect Research",
+          description: "Future. Made. Phase II",
+          comment: "Added from JUMGOGPT by Pat Admin",
+          date: "2026-08-17",
+        },
+      ]);
+    getBlackbaudConstituentByIdMock
+      .mockResolvedValueOnce({
+        blackbaudConstituentId: "123",
+        lookupId: "ADA1",
+        name: "Ada Lovelace",
+      })
+      .mockResolvedValueOnce({
+        blackbaudConstituentId: "456",
+        lookupId: "GRACE2",
+        name: "Grace Hopper",
+      });
 
     const response = await GET(createRequest("?jobId=job-1"));
     const payload = await response.json();
@@ -275,10 +305,32 @@ describe("Future. Made. Phase II report route", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       status: "complete",
+      columns: [
+        "Constituent name",
+        "Constituent lookup ID",
+        "Date added",
+        "Added by",
+      ],
       totalRows: 2,
       rows: [
-        { name: "Ada Lovelace", constituentId: "123" },
-        { name: "Grace Hopper", constituentId: "456" },
+        {
+          name: "Ada Lovelace",
+          constituentId: "123",
+          values: expect.objectContaining({
+            "Constituent lookup ID": "ADA1",
+            "Date added": "08/18/26",
+            "Added by": "Jordan Executive",
+          }),
+        },
+        {
+          name: "Grace Hopper",
+          constituentId: "456",
+          values: expect.objectContaining({
+            "Constituent lookup ID": "GRACE2",
+            "Date added": "08/17/26",
+            "Added by": "Pat Admin",
+          }),
+        },
       ],
     });
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
