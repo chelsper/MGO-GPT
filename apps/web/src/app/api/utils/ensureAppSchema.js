@@ -112,6 +112,19 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS report_snapshots_cache (
+        report_key TEXT PRIMARY KEY,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_report_snapshots_cache_updated_at
+      ON report_snapshots_cache (updated_at)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS user_invitations (
         id BIGSERIAL PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,

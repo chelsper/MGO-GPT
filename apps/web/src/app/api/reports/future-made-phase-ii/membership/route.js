@@ -6,7 +6,10 @@ import {
   getBlackbaudConfigIssues,
   listBlackbaudConstituentCustomFields,
 } from "@/app/api/utils/blackbaud";
+import { invalidateReportSnapshot } from "@/app/api/utils/reportCache";
 import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
+
+const FUTURE_MADE_PHASE_TWO_CACHE_KEY = "report:future-made-phase-ii";
 
 const CUSTOM_FIELD_CATEGORY = "Prospect Research";
 const CUSTOM_FIELD_DESCRIPTION = "Future. Made. Phase II";
@@ -150,6 +153,8 @@ export async function POST(request) {
         date: getTodayDate(),
       },
     });
+
+    await invalidateReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY);
 
     return Response.json({
       status: "added",

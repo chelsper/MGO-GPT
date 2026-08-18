@@ -84,7 +84,8 @@ export default function ExecutiveTeamStandingsPage() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/reports/executive-team-standings", {
+        const searchParams = refreshVersion > 0 ? "?refresh=1" : "";
+        const response = await fetch(`/api/reports/executive-team-standings${searchParams}`, {
           cache: "no-store",
           signal: controller.signal,
         });

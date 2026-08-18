@@ -49,10 +49,12 @@ export default function FutureMadePhaseTwoReportPage() {
 
       try {
         let jobId = "";
+        const shouldForceRefresh = refreshVersion > 0;
         for (let attempt = 0; attempt < MAX_QUERY_POLL_ATTEMPTS; attempt += 1) {
-          const searchParams = jobId
-            ? `?${new URLSearchParams({ jobId }).toString()}`
-            : "";
+          const params = new URLSearchParams();
+          if (jobId) params.set("jobId", jobId);
+          if (shouldForceRefresh) params.set("refresh", "1");
+          const searchParams = params.toString() ? `?${params.toString()}` : "";
           const response = await fetch(
             `/api/reports/future-made-phase-ii${searchParams}`,
             { cache: "no-store" },

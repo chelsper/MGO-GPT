@@ -5,6 +5,7 @@ const {
   ensureAppSchemaMock,
   getOrCreateUserMock,
   getBlackbaudConfigIssuesMock,
+  invalidateReportSnapshotMock,
   listBlackbaudConstituentCustomFieldsMock,
   createBlackbaudConstituentCustomFieldMock,
 } = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const {
   ensureAppSchemaMock: vi.fn(),
   getOrCreateUserMock: vi.fn(),
   getBlackbaudConfigIssuesMock: vi.fn(),
+  invalidateReportSnapshotMock: vi.fn(),
   listBlackbaudConstituentCustomFieldsMock: vi.fn(),
   createBlackbaudConstituentCustomFieldMock: vi.fn(),
 }));
@@ -23,6 +25,9 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   createBlackbaudConstituentCustomField: createBlackbaudConstituentCustomFieldMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   listBlackbaudConstituentCustomFields: listBlackbaudConstituentCustomFieldsMock,
+}));
+vi.mock("@/app/api/utils/reportCache", () => ({
+  invalidateReportSnapshot: invalidateReportSnapshotMock,
 }));
 
 function createRequest(body) {
@@ -45,6 +50,7 @@ describe("Future. Made. Phase II membership route", () => {
       email: "executive@example.edu",
     });
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
+    invalidateReportSnapshotMock.mockResolvedValue();
     listBlackbaudConstituentCustomFieldsMock.mockResolvedValue([]);
     createBlackbaudConstituentCustomFieldMock.mockResolvedValue({ id: "cf-900" });
   });
@@ -108,5 +114,6 @@ describe("Future. Made. Phase II membership route", () => {
         }),
       }),
     );
+    expect(invalidateReportSnapshotMock).toHaveBeenCalledWith("report:future-made-phase-ii");
   });
 });

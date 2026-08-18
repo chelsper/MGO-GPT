@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   authMock,
   ensureAppSchemaMock,
+  getCachedReportSnapshotMock,
+  getReportCacheHeadersMock,
   getOrCreateUserMock,
   sqlMock,
   getReportAccessForUserMock,
+  saveReportSnapshotMock,
+  shouldBypassReportCacheMock,
   getBlackbaudConfigIssuesMock,
   findBlackbaudQueryByNameMock,
   createBlackbaudQueryJobMock,
@@ -16,9 +20,13 @@ const {
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   ensureAppSchemaMock: vi.fn(),
+  getCachedReportSnapshotMock: vi.fn(),
+  getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   getOrCreateUserMock: vi.fn(),
   sqlMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
+  saveReportSnapshotMock: vi.fn(),
+  shouldBypassReportCacheMock: vi.fn(() => false),
   getBlackbaudConfigIssuesMock: vi.fn(),
   findBlackbaudQueryByNameMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
@@ -35,6 +43,12 @@ vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 vi.mock("@/app/api/utils/reportAccess", () => ({
   FUTURE_MADE_PHASE_TWO_REPORT_KEY: "future-made-phase-ii",
   getReportAccessForUser: getReportAccessForUserMock,
+}));
+vi.mock("@/app/api/utils/reportCache", () => ({
+  getCachedReportSnapshot: getCachedReportSnapshotMock,
+  getReportCacheHeaders: getReportCacheHeadersMock,
+  saveReportSnapshot: saveReportSnapshotMock,
+  shouldBypassReportCache: shouldBypassReportCacheMock,
 }));
 vi.mock("@/app/api/utils/blackbaud", () => ({
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
@@ -59,7 +73,9 @@ describe("Future. Made. Phase II report route", () => {
     ensureAppSchemaMock.mockResolvedValue();
     getOrCreateUserMock.mockResolvedValue({ id: 7, role: "mgo" });
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
+    getCachedReportSnapshotMock.mockResolvedValue(null);
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
+    saveReportSnapshotMock.mockResolvedValue();
     sqlMock.mockResolvedValue([]);
     findBlackbaudQueryByNameMock.mockResolvedValue({
       id: "query-1",
@@ -84,6 +100,26 @@ describe("Future. Made. Phase II report route", () => {
     expect(createBlackbaudQueryJobMock).toHaveBeenCalledWith(
       expect.objectContaining({ queryId: "query-1" }),
     );
+  });
+
+  it("returns a cached report snapshot when available", async () => {
+    const { GET } = await import("./route.js");
+    getCachedReportSnapshotMock.mockResolvedValueOnce({
+      status: "complete",
+      totalRows: 1,
+      rows: [{ id: "cached-row" }],
+    });
+
+    const response = await GET(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "complete",
+      totalRows: 1,
+      rows: [{ id: "cached-row" }],
+    });
+    expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
   it("uses an explicit query ID override when configured", async () => {

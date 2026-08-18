@@ -1,6 +1,12 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import {
+  getCachedReportSnapshot,
+  getReportCacheHeaders,
+  saveReportSnapshot,
+  shouldBypassReportCache,
+} from "@/app/api/utils/reportCache";
 import sql from "@/app/api/utils/sql";
 import {
   createBlackbaudQueryJob,
@@ -21,6 +27,7 @@ const MAX_QUERY_ROWS = 10000;
 const FALLBACK_CUSTOM_FIELD_CATEGORY = "Prospect Research";
 const FALLBACK_CUSTOM_FIELD_DESCRIPTION = "Future. Made. Phase II";
 const FALLBACK_SCAN_CONCURRENCY = 8;
+export const FUTURE_MADE_PHASE_TWO_CACHE_KEY = "report:future-made-phase-ii";
 const REPORT_COLUMNS = [
   "Constituent name",
   "Constituent lookup ID",
@@ -283,6 +290,7 @@ function buildFallbackReportResponse(rows, reason) {
     queryName: QUERY_NAME,
     mode: "custom-field-fallback",
     fallbackReason: reason,
+    generatedAt: new Date().toISOString(),
     columns: REPORT_COLUMNS,
     rows,
     totalRows: rows.length,
@@ -629,6 +637,7 @@ async function getCurrentUser() {
 }
 
 export async function GET(request) {
+  let forceRefresh = false;
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -653,11 +662,21 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url);
+    forceRefresh = shouldBypassReportCache(request);
     const queryConfig = getFutureMadePhaseTwoQueryConfig();
     let jobId = searchParams.get("jobId")?.trim() || "";
     let query = null;
     let jobStartedThisRequest = false;
     let resolvedStaleConfiguredId = false;
+
+    if (!jobId && !forceRefresh) {
+      const cachedPayload = await getCachedReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY);
+      if (cachedPayload) {
+        return Response.json(cachedPayload, {
+          headers: getReportCacheHeaders("hit"),
+        });
+      }
+    }
 
     if (!jobId) {
       const result = await createFutureMadeQueryJob({
@@ -675,8 +694,9 @@ export async function GET(request) {
           origin,
           reason: `Saved NXT query \"${queryConfig.queryName}\" was not found in Blackbaud Query v1.`,
         });
+        await saveReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY, fallbackPayload);
         return Response.json(fallbackPayload, {
-          headers: { "Cache-Control": "private, no-store" },
+          headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
         });
       }
 
@@ -689,8 +709,9 @@ export async function GET(request) {
           origin,
           reason: `${configuredLabel} could not be executed in Blackbaud Query v1.`,
         });
+        await saveReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY, fallbackPayload);
         return Response.json(fallbackPayload, {
-          headers: { "Cache-Control": "private, no-store" },
+          headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
         });
       }
 
@@ -726,8 +747,9 @@ export async function GET(request) {
           origin,
           reason: `Saved NXT query job ${jobId} could not be read in Blackbaud Query v1.`,
         });
+        await saveReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY, fallbackPayload);
         return Response.json(fallbackPayload, {
-          headers: { "Cache-Control": "private, no-store" },
+          headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
         });
       }
       throw error;
@@ -762,8 +784,9 @@ export async function GET(request) {
           origin,
           reason: `Saved NXT query results for job ${jobId} could not be downloaded from Blackbaud Query v1.`,
         });
+        await saveReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY, fallbackPayload);
         return Response.json(fallbackPayload, {
-          headers: { "Cache-Control": "private, no-store" },
+          headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
         });
       }
       throw error;
@@ -775,18 +798,21 @@ export async function GET(request) {
       origin,
     });
 
-    return Response.json(
-      {
-        status: "complete",
-        jobId,
-        queryName: query?.name || queryConfig.queryName,
-        columns: REPORT_COLUMNS,
-        rows: enrichedRows,
-        totalRows: parsedResult.totalRows,
-        truncated: parsedResult.truncated,
-      },
-      { headers: { "Cache-Control": "private, no-store" } },
-    );
+    const payload = {
+      status: "complete",
+      jobId,
+      queryName: query?.name || queryConfig.queryName,
+      generatedAt: new Date().toISOString(),
+      columns: REPORT_COLUMNS,
+      rows: enrichedRows,
+      totalRows: parsedResult.totalRows,
+      truncated: parsedResult.truncated,
+    };
+    await saveReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY, payload);
+
+    return Response.json(payload, {
+      headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
+    });
   } catch (error) {
     console.error("Future. Made. Phase II report error:", error);
     if (isBlackbaudNotFoundError(error)) {
@@ -798,8 +824,9 @@ export async function GET(request) {
           origin,
           reason: "Blackbaud Query v1 returned a resource-not-found response while running this saved query.",
         });
+        await saveReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY, fallbackPayload);
         return Response.json(fallbackPayload, {
-          headers: { "Cache-Control": "private, no-store" },
+          headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
         });
       }
     }

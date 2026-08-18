@@ -3,16 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   authMock,
   getClosedFiscalYearSummaryMock,
+  getCachedReportSnapshotMock,
+  getReportCacheHeadersMock,
   ensureAppSchemaMock,
   getOrCreateUserMock,
   getReportAccessForUserMock,
+  saveReportSnapshotMock,
+  shouldBypassReportCacheMock,
   sqlMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   getClosedFiscalYearSummaryMock: vi.fn(),
+  getCachedReportSnapshotMock: vi.fn(),
+  getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   ensureAppSchemaMock: vi.fn(),
   getOrCreateUserMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
+  saveReportSnapshotMock: vi.fn(),
+  shouldBypassReportCacheMock: vi.fn(() => false),
   sqlMock: vi.fn(),
 }));
 
@@ -26,6 +34,12 @@ vi.mock("@/app/api/utils/reportAccess", () => ({
   EXECUTIVE_TEAM_STANDINGS_REPORT_KEY: "executive-team-standings",
   getReportAccessForUser: getReportAccessForUserMock,
 }));
+vi.mock("@/app/api/utils/reportCache", () => ({
+  getCachedReportSnapshot: getCachedReportSnapshotMock,
+  getReportCacheHeaders: getReportCacheHeadersMock,
+  saveReportSnapshot: saveReportSnapshotMock,
+  shouldBypassReportCache: shouldBypassReportCacheMock,
+}));
 vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 
 describe("Executive Team Standings report route", () => {
@@ -36,6 +50,8 @@ describe("Executive Team Standings report route", () => {
     getOrCreateUserMock.mockResolvedValue({ id: 7, role: "executive" });
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
     getClosedFiscalYearSummaryMock.mockResolvedValue({ closedThisFY: 25000 });
+    getCachedReportSnapshotMock.mockResolvedValue(null);
+    saveReportSnapshotMock.mockResolvedValue();
     sqlMock
       .mockResolvedValueOnce([
         {
@@ -101,6 +117,7 @@ describe("Executive Team Standings report route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(saveReportSnapshotMock).toHaveBeenCalledTimes(1);
     expect(payload.standings).toEqual([
       expect.objectContaining({
         userId: 8,
@@ -141,6 +158,24 @@ describe("Executive Team Standings report route", () => {
         },
       }),
     ]);
+  });
+
+  it("returns the cached snapshot when one is available", async () => {
+    const { GET } = await import("./route.js");
+    getCachedReportSnapshotMock.mockResolvedValueOnce({
+      standings: [{ userId: 99, name: "Cached User" }],
+      generatedAt: "2026-08-18T12:00:00.000Z",
+    });
+
+    const response = await GET(
+      new Request("https://jumgogpt.app/api/reports/executive-team-standings"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.standings).toEqual([{ userId: 99, name: "Cached User" }]);
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 
   it("refuses access when the report is not shared with the current user", async () => {
