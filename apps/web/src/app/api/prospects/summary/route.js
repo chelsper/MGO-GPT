@@ -6,6 +6,7 @@ import {
   getBlackbaudFundraiserById,
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
+import { getClosedFiscalYearSummary } from "@/app/api/utils/closedFyGiftTotals";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 
 function getNestedValue(source, path) {
@@ -813,39 +814,13 @@ export async function GET(request) {
 
     if (includeClosed && origin) {
       if (!debug) {
-        const cachedSummary = await getCachedBlackbaudSummary(user.id, summaryCacheKey);
-        if (cachedSummary && typeof cachedSummary === "object") {
-          closedThisFY = Number(cachedSummary.closedThisFY || 0);
-          closedPriorFY = Number(cachedSummary.closedPriorFY || 0);
-        } else {
-          const [currentClosed, priorClosed] = await Promise.all([
-            getLiveBlackbaudClosedThisFY({
-              user,
-              authUserId,
-              origin,
-              fiscalYearStart,
-              fiscalYearEnd,
-              debug: false,
-            }).catch(() => 0),
-            getLiveBlackbaudClosedThisFY({
-              user,
-              authUserId,
-              origin,
-              fiscalYearStart: priorFiscalYearStart,
-              fiscalYearEnd: priorFiscalYearEnd,
-              debug: false,
-            }).catch(() => 0),
-          ]);
-          closedThisFY = Number(currentClosed || 0);
-          closedPriorFY = Number(priorClosed || 0);
-
-          await saveCachedBlackbaudSummary(user.id, summaryCacheKey, {
-            currentFY,
-            priorFY,
-            closedThisFY,
-            closedPriorFY,
-          });
-        }
+        const closedSummary = await getClosedFiscalYearSummary({
+          workspaceUser: user,
+          authUserId,
+          origin,
+        });
+        closedThisFY = Number(closedSummary.closedThisFY || 0);
+        closedPriorFY = Number(closedSummary.closedPriorFY || 0);
       } else {
         const [closedPayload, priorClosedPayload] = await Promise.all([
           getLiveBlackbaudClosedThisFY({

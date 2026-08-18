@@ -343,6 +343,7 @@ export default function ReportsPage() {
   const [reportError, setReportError] = useState("");
   const [reportWarnings, setReportWarnings] = useState([]);
   const [hardCreditTotals, setHardCreditTotals] = useState({ received: 0, committed: 0 });
+  const [closedGiftSummary, setClosedGiftSummary] = useState(undefined);
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
@@ -474,6 +475,38 @@ export default function ReportsPage() {
   }, [canUseExecutiveView, user]);
 
   const workspaceUser = profileStatus?.workspaceUser || null;
+
+  useEffect(() => {
+    if (
+      reportAccessLoading ||
+      reportAccessError ||
+      reportAccess?.canView !== true ||
+      !workspaceUser?.id
+    ) {
+      setClosedGiftSummary(undefined);
+      return undefined;
+    }
+
+    let active = true;
+    async function loadClosedGiftSummary() {
+      setClosedGiftSummary(undefined);
+      try {
+        const response = await fetch("/api/prospects/summary");
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Could not load the My Prospects closed-gift total.");
+        }
+        if (active) setClosedGiftSummary(payload);
+      } catch {
+        if (active) setClosedGiftSummary(null);
+      }
+    }
+
+    loadClosedGiftSummary();
+    return () => {
+      active = false;
+    };
+  }, [refreshVersion, reportAccess?.canView, reportAccessError, reportAccessLoading, workspaceUser?.id]);
 
   useEffect(() => {
     if (
@@ -800,8 +833,14 @@ export default function ReportsPage() {
 
   const selectedMgoId = actingWorkspaceStatus?.actingUser?.id || "";
   const totalReceived = hardCreditTotals.received;
-  const totalCommitted = hardCreditTotals.committed;
-  const yearLabel = period?.yearLabel || "Current FY";
+  const closedGiftSummaryIsLoading = closedGiftSummary === undefined;
+  const closedGiftSummaryIsAvailable =
+    Boolean(closedGiftSummary && typeof closedGiftSummary === "object");
+  const totalCommitted = closedGiftSummaryIsAvailable
+    ? Number(closedGiftSummary.closedThisFY || 0)
+    : 0;
+  const yearLabel = period?.yearLabel || closedGiftSummary?.currentFY || "Current FY";
+  const closedYearLabel = closedGiftSummary?.currentFY || yearLabel;
 
   if (loadingUser || !user) {
     return (
@@ -1153,9 +1192,21 @@ export default function ReportsPage() {
                 hint="Gift-solicitor-attributed hard-credit revenue, including DAF gifts"
               />
               <MetricCard
-                label={`${yearLabel} Total Committed`}
-                value={formatCurrency(totalCommitted)}
-                hint="Hard-credit gift commitments only"
+                label={`${closedYearLabel} Total Committed`}
+                value={
+                  closedGiftSummaryIsLoading
+                    ? "Loading..."
+                    : closedGiftSummaryIsAvailable
+                      ? formatCurrency(totalCommitted)
+                      : "Unavailable"
+                }
+                hint={
+                  closedGiftSummaryIsLoading
+                    ? "Loading the My Prospects closed-gift total from Raiser's Edge NXT."
+                    : closedGiftSummaryIsAvailable
+                      ? "Closed gifts credited to this MGO in Raiser's Edge NXT, matching My Prospects."
+                      : "The My Prospects closed-gift total could not be loaded."
+                }
               />
               <MetricCard
                 label="Acknowledgment recipients"

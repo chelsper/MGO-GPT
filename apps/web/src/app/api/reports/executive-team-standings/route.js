@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import { getClosedFiscalYearSummary } from "@/app/api/utils/closedFyGiftTotals";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import sql from "@/app/api/utils/sql";
 import {
@@ -33,7 +34,25 @@ async function getCurrentUser() {
   return getOrCreateUser(session, "admin");
 }
 
-export async function GET() {
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(concurrency, 1), items.length) }, worker),
+  );
+  return results;
+}
+
+export async function GET(request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -51,7 +70,7 @@ export async function GET() {
     const fiscalYear = getFiscalYearWindow();
     const rows = await sql`
       WITH active_mgos AS (
-        SELECT id, name, email
+        SELECT id, name, email, blackbaud_constituent_id, blackbaud_lookup_id
         FROM users
         WHERE active = TRUE
           AND LOWER(role) = 'mgo'
@@ -81,16 +100,7 @@ export async function GET() {
           p.user_id,
           COALESCE(SUM(COALESCE(po.estimated_amount, 0)) FILTER (
             WHERE LOWER(COALESCE(po.opportunity_status, '')) = 'active'
-          ), 0) AS open_pipeline,
-          COALESCE(SUM(COALESCE(NULLIF(po.closed_amount, 0), po.estimated_amount, 0)) FILTER (
-            WHERE LOWER(COALESCE(po.opportunity_status, '')) IN (
-              'closed - gift secured',
-              'closed – gift secured',
-              'funded'
-            )
-              AND COALESCE(po.close_date, DATE(po.updated_at)) >= CAST(${fiscalYear.startsOn} AS DATE)
-              AND COALESCE(po.close_date, DATE(po.updated_at)) <= CAST(${fiscalYear.endsOn} AS DATE)
-          ), 0) AS funded_this_fiscal_year
+          ), 0) AS open_pipeline
         FROM prospects p
         LEFT JOIN prospect_opportunities po ON po.prospect_id = p.id
         GROUP BY p.user_id
@@ -99,16 +109,40 @@ export async function GET() {
         m.id AS user_id,
         m.name,
         m.email,
+        m.blackbaud_constituent_id,
+        m.blackbaud_lookup_id,
         COALESCE(pm.active_prospects, 0)::INTEGER AS active_prospects,
         COALESCE(pm.prospects_with_next_steps, 0)::INTEGER AS prospects_with_next_steps,
         COALESCE(pm.overdue_next_steps, 0)::INTEGER AS overdue_next_steps,
-        COALESCE(om.open_pipeline, 0) AS open_pipeline,
-        COALESCE(om.funded_this_fiscal_year, 0) AS funded_this_fiscal_year
+        COALESCE(om.open_pipeline, 0) AS open_pipeline
       FROM active_mgos m
       LEFT JOIN prospect_metrics pm ON pm.user_id = m.id
       LEFT JOIN opportunity_metrics om ON om.user_id = m.id
       ORDER BY LOWER(COALESCE(NULLIF(BTRIM(m.name), ''), m.email)), m.id
     `;
+
+    const origin = request?.url ? new URL(request.url).origin : null;
+    const closedTotals = origin
+      ? await mapWithConcurrency(rows, 2, async (row) => {
+          try {
+            const summary = await getClosedFiscalYearSummary({
+              workspaceUser: {
+                id: Number(row.user_id),
+                name: row.name,
+                email: row.email,
+                blackbaud_constituent_id: row.blackbaud_constituent_id,
+                blackbaud_lookup_id: row.blackbaud_lookup_id,
+              },
+              authUserId: user.id,
+              origin,
+            });
+            return [Number(row.user_id), asNumber(summary.closedThisFY)];
+          } catch {
+            return [Number(row.user_id), 0];
+          }
+        })
+      : [];
+    const closedTotalsByUser = new Map(closedTotals);
 
     const standings = rows.map((row) => ({
       userId: Number(row.user_id),
@@ -116,7 +150,7 @@ export async function GET() {
       email: row.email || "",
       activeProspects: asNumber(row.active_prospects),
       openPipeline: asNumber(row.open_pipeline),
-      fundedThisFiscalYear: asNumber(row.funded_this_fiscal_year),
+      fundedThisFiscalYear: asNumber(closedTotalsByUser.get(Number(row.user_id))),
       prospectsWithNextSteps: asNumber(row.prospects_with_next_steps),
       overdueNextSteps: asNumber(row.overdue_next_steps),
     }));
@@ -124,7 +158,7 @@ export async function GET() {
     return Response.json(
       {
         fiscalYear,
-        source: "JUMGOGPT portfolio, opportunity, and next-step records",
+        source: "Raiser's Edge NXT gift-solicitor credits, plus JUMGOGPT pipeline and next-step records",
         generatedAt: new Date().toISOString(),
         standings,
       },
