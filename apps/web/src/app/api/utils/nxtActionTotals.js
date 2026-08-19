@@ -188,6 +188,40 @@ function isDateInRange(value, startDate, endDate) {
   return parsed >= startDate && parsed <= endDate;
 }
 
+async function listBlackbaudActionsWithFallback({
+  authUserId,
+  normalizedUsers,
+  origin,
+  pageLimit,
+  maxPages,
+}) {
+  const candidateUserIds = [];
+  const seen = new Set();
+
+  for (const candidate of [authUserId, ...normalizedUsers.map((user) => user?.id)]) {
+    const userId = Number(candidate);
+    if (!Number.isFinite(userId) || seen.has(userId)) continue;
+    seen.add(userId);
+    candidateUserIds.push(userId);
+  }
+
+  for (const candidateUserId of candidateUserIds) {
+    try {
+      return await listBlackbaudActions({
+        userId: candidateUserId,
+        authUserId: candidateUserId,
+        origin,
+        pageLimit,
+        maxPages,
+      });
+    } catch {
+      // Try the next connected workspace user before giving up.
+    }
+  }
+
+  return [];
+}
+
 export async function getNxtActionSummaryByWorkspaceUser({
   workspaceUsers,
   authUserId,
@@ -213,15 +247,13 @@ export async function getNxtActionSummaryByWorkspaceUser({
 
   const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
-  const seedUserId = Number(normalizedUsers[0]?.id || authUserId);
-
-  const actions = await listBlackbaudActions({
-    userId: seedUserId,
+  const actions = await listBlackbaudActionsWithFallback({
     authUserId,
+    normalizedUsers,
     origin,
     pageLimit: 250,
     maxPages: 20,
-  }).catch(() => []);
+  });
 
   const countsByUserId = new Map(
     normalizedUsers.map((user) => [Number(user.id), { actionsThisFY: 0, actions: [] }]),
