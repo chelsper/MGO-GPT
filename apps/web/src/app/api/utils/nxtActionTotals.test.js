@@ -6,6 +6,8 @@ const { listBlackbaudActionsMock } = vi.hoisted(() => ({
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
   listBlackbaudActions: listBlackbaudActionsMock,
+  getBlackbaudFundraiserById: vi.fn(),
+  getBlackbaudConstituentById: vi.fn(),
 }));
 
 import { getNxtActionSummaryByWorkspaceUser } from "./nxtActionTotals";
@@ -73,6 +75,43 @@ describe("getNxtActionSummaryByWorkspaceUser", () => {
           constituentName: "Leslie M. Redd",
         },
       ],
+    });
+  });
+
+  it("matches actions by fundraiser name when Blackbaud ids are not returned in a usable shape", async () => {
+    listBlackbaudActionsMock.mockResolvedValueOnce([
+      {
+        id: "action-2",
+        completed_date: "2026-09-03",
+        fundraisers: [{ name: "Leslie M. Redd" }],
+        constituent_id: "186057",
+        constituent_name: "Leslie M. Redd",
+        category: "Visit",
+        summary: "Strategy session",
+      },
+    ]);
+
+    const results = await getNxtActionSummaryByWorkspaceUser({
+      workspaceUsers: [
+        {
+          id: 22,
+          name: "Leslie M. Redd",
+          blackbaud_constituent_id: "999999",
+          blackbaud_lookup_id: "999999",
+          blackbaud_fundraiser_alias_ids: [],
+        },
+      ],
+      authUserId: 7,
+      origin: "https://www.jumgogpt.app",
+      fiscalYearStart: "2026-07-01",
+      fiscalYearEnd: "2027-06-30",
+    });
+
+    expect(results.get(22)?.actionsThisFY).toBe(1);
+    expect(results.get(22)?.actions?.[0]).toMatchObject({
+      actionId: "action-2",
+      constituentName: "Leslie M. Redd",
+      summary: "Strategy session",
     });
   });
 });

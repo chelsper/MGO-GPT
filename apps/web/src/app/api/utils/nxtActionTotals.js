@@ -1,4 +1,8 @@
-import { listBlackbaudActions } from "@/app/api/utils/blackbaud";
+import {
+  getBlackbaudConstituentById,
+  getBlackbaudFundraiserById,
+  listBlackbaudActions,
+} from "@/app/api/utils/blackbaud";
 import { normalizeBlackbaudFundraiserAliasIds } from "@/app/api/utils/closedFyGiftTotals";
 
 function getNestedValue(source, path) {
@@ -50,6 +54,34 @@ function getActionFundraiserId(fundraiser) {
       "lookupId",
     ]) || "",
   ).trim();
+}
+
+function getActionFundraiserName(fundraiser) {
+  const direct = String(
+    firstDefined(fundraiser, [
+      "fundraiser_name",
+      "fundraiserName",
+      "name",
+      "full_name",
+      "fullName",
+      "display_name",
+      "displayName",
+    ]) || "",
+  ).trim();
+
+  if (direct) return direct;
+
+  const first = String(
+    firstDefined(fundraiser, ["first_name", "firstName", "first"]) || "",
+  ).trim();
+  const middle = String(
+    firstDefined(fundraiser, ["middle_name", "middleName", "middle"]) || "",
+  ).trim();
+  const last = String(
+    firstDefined(fundraiser, ["last_name", "lastName", "last"]) || "",
+  ).trim();
+
+  return [first, middle, last].filter(Boolean).join(" ").trim();
 }
 
 function getActionFundraiserCandidates(action) {
@@ -164,6 +196,14 @@ function normalizeActionRecord(action) {
   };
 }
 
+function normalizePersonName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 function normalizeWorkspaceFundraiserIds(user) {
   const results = [];
   const seen = new Set();
@@ -188,6 +228,82 @@ function isDateInRange(value, startDate, endDate) {
   return parsed >= startDate && parsed <= endDate;
 }
 
+function isWorkspaceFundraiserMatchByName(fundraiserName, workspaceUser) {
+  const workspaceTokens = normalizePersonName(
+    workspaceUser?.name || workspaceUser?.full_name || workspaceUser?.display_name,
+  );
+  const fundraiserTokens = normalizePersonName(fundraiserName);
+
+  if (workspaceTokens.length < 2 || fundraiserTokens.length < 2) {
+    return false;
+  }
+
+  const workspaceFirst = workspaceTokens[0];
+  const workspaceLast = workspaceTokens[workspaceTokens.length - 1];
+  const fundraiserFirst = fundraiserTokens[0];
+  const fundraiserLast = fundraiserTokens[fundraiserTokens.length - 1];
+
+  if (workspaceFirst === fundraiserFirst && workspaceLast === fundraiserLast) {
+    return true;
+  }
+
+  const workspaceFull = workspaceTokens.join(" ");
+  const fundraiserFull = fundraiserTokens.join(" ");
+
+  return (
+    fundraiserFull.includes(workspaceFull) ||
+    workspaceFull.includes(fundraiserFull) ||
+    fundraiserLast === workspaceLast
+  );
+}
+
+async function resolveActionFundraiserDisplayName({
+  fundraiser,
+  workspaceUser,
+  authUserId,
+  apiUserId,
+  origin,
+  cache,
+}) {
+  const directName = getActionFundraiserName(fundraiser);
+  if (directName) {
+    return directName;
+  }
+
+  const fundraiserId = getActionFundraiserId(fundraiser);
+  if (!fundraiserId) {
+    return null;
+  }
+
+  if (cache.has(fundraiserId)) {
+    return cache.get(fundraiserId) || null;
+  }
+
+  const fundraiserRecord = await getBlackbaudFundraiserById({
+    userId: apiUserId,
+    authUserId,
+    origin,
+    fundraiserId,
+  }).catch(() => null);
+
+  const fundraiserRecordName = String(fundraiserRecord?.name || "").trim() || null;
+  if (fundraiserRecordName) {
+    cache.set(fundraiserId, fundraiserRecordName);
+    return fundraiserRecordName;
+  }
+
+  const resolved = await getBlackbaudConstituentById({
+    userId: apiUserId,
+    authUserId,
+    origin,
+    constituentId: fundraiserId,
+  }).catch(() => null);
+
+  const resolvedName = String(resolved?.name || "").trim() || null;
+  cache.set(fundraiserId, resolvedName);
+  return resolvedName;
+}
+
 async function listBlackbaudActionsWithFallback({
   authUserId,
   normalizedUsers,
@@ -207,19 +323,20 @@ async function listBlackbaudActionsWithFallback({
 
   for (const candidateUserId of candidateUserIds) {
     try {
-      return await listBlackbaudActions({
+      const actions = await listBlackbaudActions({
         userId: candidateUserId,
         authUserId: candidateUserId,
         origin,
         pageLimit,
         maxPages,
       });
+      return { actions, connectionUserId: candidateUserId };
     } catch {
       // Try the next connected workspace user before giving up.
     }
   }
 
-  return [];
+  return { actions: [], connectionUserId: Number(authUserId) || null };
 }
 
 export async function getNxtActionSummaryByWorkspaceUser({
@@ -247,13 +364,14 @@ export async function getNxtActionSummaryByWorkspaceUser({
 
   const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
-  const actions = await listBlackbaudActionsWithFallback({
+  const { actions, connectionUserId } = await listBlackbaudActionsWithFallback({
     authUserId,
     normalizedUsers,
     origin,
     pageLimit: 250,
     maxPages: 20,
   });
+  const resolvedNameCache = new Map();
 
   const countsByUserId = new Map(
     normalizedUsers.map((user) => [Number(user.id), { actionsThisFY: 0, actions: [] }]),
@@ -283,7 +401,27 @@ export async function getNxtActionSummaryByWorkspaceUser({
 
     for (const [userId, identitySet] of identitySetsByUserId.entries()) {
       if (!identitySet?.size) continue;
-      const matched = Array.from(identitySet).some((identity) => fundraiserIds.has(identity));
+      let matched = Array.from(identitySet).some((identity) => fundraiserIds.has(identity));
+      if (!matched) {
+        const workspaceUser = normalizedUsers.find((user) => Number(user.id) === userId);
+        if (workspaceUser) {
+          for (const fundraiser of getActionFundraiserCandidates(action)) {
+            const fundraiserValue = fundraiser?.id ? fundraiser : fundraiser;
+            const resolvedName = await resolveActionFundraiserDisplayName({
+              fundraiser: fundraiserValue,
+              workspaceUser,
+              authUserId: connectionUserId || authUserId,
+              apiUserId: connectionUserId || authUserId,
+              origin,
+              cache: resolvedNameCache,
+            });
+            if (resolvedName && isWorkspaceFundraiserMatchByName(resolvedName, workspaceUser)) {
+              matched = true;
+              break;
+            }
+          }
+        }
+      }
       if (!matched) continue;
       const current = countsByUserId.get(userId) || { actionsThisFY: 0, actions: [] };
       current.actionsThisFY += 1;
