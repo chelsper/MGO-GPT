@@ -25,6 +25,8 @@ const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
 const BLACKBAUD_QUERY_V1_URL = "https://api.sky.blackbaud.com/query/v1/queries";
 const BLACKBAUD_QUERY_V2_URL = "https://api.sky.blackbaud.com/query/v2/queries";
 const BLACKBAUD_QUERY_JOBS_URL = "https://api.sky.blackbaud.com/query/v1/jobs";
+const BLACKBAUD_LIST_V2_EXECUTE_QUERY_URL =
+  "https://api.sky.blackbaud.com/list/v2/execute-query";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
 const DEFAULT_BLACKBAUD_SCOPES = "offline_access rnxt.r rnxt.w rnxt.d";
@@ -1336,6 +1338,57 @@ export async function listBlackbaudActions({
     nextPath = payload?.next_link || null;
     nextSearchParams = undefined;
     pageCount += 1;
+  }
+
+  return results;
+}
+
+export async function executeBlackbaudListQuery({
+  userId,
+  authUserId,
+  origin,
+  dataModelName,
+  definition = {},
+  limit = 1000,
+  maxPages = 20,
+} = {}) {
+  const normalizedDataModelName = String(dataModelName || "").trim();
+  if (!normalizedDataModelName) {
+    throw new Error("A Blackbaud data model name is required");
+  }
+
+  const results = [];
+  let continuationToken = null;
+  let pageCount = 0;
+
+  while (pageCount < maxPages) {
+    const payload = await blackbaudApiFetch(BLACKBAUD_LIST_V2_EXECUTE_QUERY_URL, {
+      userId,
+      authUserId,
+      origin,
+      method: "POST",
+      body: {
+        data_model_name: normalizedDataModelName,
+        definition,
+        limit,
+        ...(continuationToken ? { continuation_token: continuationToken } : {}),
+      },
+    });
+
+    const rows = Array.isArray(payload?.items) ? payload.items : [];
+    results.push(...rows);
+
+    continuationToken =
+      typeof payload?.continuation_token === "string" && payload.continuation_token.trim()
+        ? payload.continuation_token.trim()
+        : typeof payload?.continuationToken === "string" && payload.continuationToken.trim()
+          ? payload.continuationToken.trim()
+          : null;
+
+    pageCount += 1;
+    if (!continuationToken || !rows.length) {
+      break;
+    }
   }
 
   return results;

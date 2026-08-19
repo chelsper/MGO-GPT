@@ -1,4 +1,5 @@
 import {
+  executeBlackbaudListQuery,
   getBlackbaudConstituentById,
   getBlackbaudFundraiserById,
   listBlackbaudActions,
@@ -24,13 +25,18 @@ function firstDefined(source, paths) {
 
 function getActionDate(action) {
   return firstDefined(action, [
+    "action_date",
+    "action_summary.action_date",
     "completed_date",
     "completedDate",
+    "status_composite.completed_date",
+    "statusComposite.completedDate",
     "date",
-    "action_date",
     "actionDate",
     "date_added",
     "dateAdded",
+    "date_last_changed",
+    "dateLastChanged",
     "created_at",
     "createdAt",
   ]);
@@ -159,6 +165,12 @@ function getActionConstituentId(action) {
     firstDefined(action, [
       "constituent_id",
       "constituentId",
+      "constituent_summary.system_record_id",
+      "constituentSummary.systemRecordId",
+      "action_summary.constituent_summary.system_record_id",
+      "actionSummary.constituentSummary.systemRecordId",
+      "constituent_summary.lookup_id",
+      "constituentSummary.lookupId",
       "constituent.id",
       "value.constituent_id",
       "value.constituentId",
@@ -172,6 +184,10 @@ function getActionConstituentName(action) {
     firstDefined(action, [
       "constituent_name",
       "constituentName",
+      "constituent_summary.formatted_name",
+      "constituentSummary.formattedName",
+      "action_summary.constituent_summary.formatted_name",
+      "actionSummary.constituentSummary.formattedName",
       "constituent.name",
       "constituent.display_name",
       "constituent.displayName",
@@ -187,6 +203,7 @@ function getActionCategory(action) {
   return String(
     firstDefined(action, [
       "category",
+      "type.description",
       "action_category",
       "actionCategory",
       "type",
@@ -203,6 +220,10 @@ function getActionSummary(action) {
   return String(
     firstDefined(action, [
       "summary",
+      "action_summary.note_summary",
+      "actionSummary.noteSummary",
+      "action_summary.note",
+      "actionSummary.note",
       "title",
       "description",
       "notes",
@@ -361,16 +382,58 @@ async function listBlackbaudActionsWithFallback({
 
   for (const candidateUserId of candidateUserIds) {
     try {
-      const actions = await listBlackbaudActions({
+      const actions = await executeBlackbaudListQuery({
         userId: candidateUserId,
         authUserId: candidateUserId,
         origin,
-        pageLimit,
+        dataModelName: "renxt-action",
+        definition: {
+          output: {
+            items: [
+              { field_id: "constituent_summary" },
+              { field_id: "action_date" },
+              { field_id: "status_composite" },
+              { field_id: "action_summary" },
+              { field_id: "type.description" },
+              { field_id: "category" },
+              { field_id: "priority" },
+              { field_id: "fundraisers" },
+              { field_id: "date_added" },
+              { field_id: "date_last_changed" },
+            ],
+          },
+          sort: {
+            sort_fields: [
+              {
+                field_name: "action_date",
+                field_id: "action_date",
+                sort_order: "desc",
+              },
+              {
+                field_name: "date_added",
+                field_id: "date_added",
+                sort_order: "desc",
+              },
+            ],
+          },
+        },
+        limit: Math.min(pageLimit, 1000),
         maxPages,
       });
       return { actions, connectionUserId: candidateUserId };
     } catch {
-      // Try the next connected workspace user before giving up.
+      try {
+        const actions = await listBlackbaudActions({
+          userId: candidateUserId,
+          authUserId: candidateUserId,
+          origin,
+          pageLimit,
+          maxPages,
+        });
+        return { actions, connectionUserId: candidateUserId };
+      } catch {
+        // Try the next connected workspace user before giving up.
+      }
     }
   }
 
