@@ -254,6 +254,7 @@ export default function AccessManagementPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState(null);
+  const [reauthorizingUserId, setReauthorizingUserId] = useState(null);
   const [deletingUserId, setDeletingUserId] = useState(null);
   const [userStatusView, setUserStatusView] = useState("active");
   const [revokingInvitationId, setRevokingInvitationId] = useState(null);
@@ -874,6 +875,52 @@ export default function AccessManagementPage() {
     }
   }
 
+  async function handleCreateBlackbaudAuthorizationLink(user) {
+    const displayName = user?.name || user?.email || `User ${user?.id}`;
+    setReauthorizingUserId(user.id);
+    setStatusMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/access/${user.id}/blackbaud-authorization`,
+        {
+          method: "POST",
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to create reauthorization link");
+      }
+
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(data.authorizeUrl);
+        copied = true;
+      } catch (clipboardError) {
+        console.warn("Could not copy Blackbaud authorization link:", clipboardError);
+      }
+
+      if (!copied && typeof window !== "undefined") {
+        window.prompt(`Copy the Blackbaud reauthorization link for ${displayName}`, data.authorizeUrl);
+      }
+
+      const successMessage = copied
+        ? `Copied a fresh Blackbaud reauthorization link for ${displayName}. It expires in 15 minutes.`
+        : `Generated a fresh Blackbaud reauthorization link for ${displayName}. It expires in 15 minutes.`;
+      setStatusMessage(successMessage);
+      setToast({ tone: "success", message: successMessage });
+    } catch (err) {
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : "Failed to create reauthorization link";
+      setError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setReauthorizingUserId(null);
+    }
+  }
+
   if (loading || !sessionUser || profileLoading) {
     return (
       <div
@@ -1238,6 +1285,28 @@ export default function AccessManagementPage() {
                       Sync error: {user.blackbaud_portfolio_seed_error}
                     </div>
                   ) : null}
+
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleCreateBlackbaudAuthorizationLink(user)}
+                      disabled={reauthorizingUserId === user.id}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "10px",
+                        border: "1px solid #D1D5DB",
+                        backgroundColor: "white",
+                        color: "#111827",
+                        fontWeight: 700,
+                        cursor: reauthorizingUserId === user.id ? "wait" : "pointer",
+                        opacity: reauthorizingUserId === user.id ? 0.7 : 1,
+                      }}
+                    >
+                      {reauthorizingUserId === user.id
+                        ? "Generating link..."
+                        : "Copy reauth link"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
