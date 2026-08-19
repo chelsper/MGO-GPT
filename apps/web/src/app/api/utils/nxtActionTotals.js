@@ -92,12 +92,32 @@ function getActionFundraiserCandidates(action) {
     "assignedFundraisers",
     "fundraiser_assignments",
     "fundraiserAssignments",
+    "action_fundraisers",
+    "actionFundraisers",
+    "fundraiser_credits",
+    "fundraiserCredits",
+    "solicitor_credits",
+    "solicitorCredits",
   ];
   const scalarPaths = [
     "fundraiser_id",
     "fundraiserId",
     "constituent_id",
     "constituentId",
+    "fundraiser",
+    "solicitor",
+    "primary_fundraiser",
+    "primaryFundraiser",
+    "assigned_fundraiser",
+    "assignedFundraiser",
+    "fundraiser_credit",
+    "fundraiserCredit",
+    "solicitor_credit",
+    "solicitorCredit",
+    "fundraiser_name",
+    "fundraiserName",
+    "solicitor_name",
+    "solicitorName",
   ];
 
   const candidates = [];
@@ -118,7 +138,17 @@ function getActionFundraiserCandidates(action) {
   for (const path of scalarPaths) {
     const value = getNestedValue(action, path);
     if (value === undefined || value === null || value === "") continue;
-    candidates.push({ id: String(value).trim() });
+    if (typeof value === "string" || typeof value === "number") {
+      const textValue = String(value).trim();
+      if (!textValue) continue;
+      if (/^\d+$/.test(textValue)) {
+        candidates.push({ id: textValue });
+      } else {
+        candidates.push({ fundraiser_name: textValue, name: textValue });
+      }
+      continue;
+    }
+    candidates.push(value);
   }
 
   return candidates;
@@ -194,6 +224,14 @@ function normalizeActionRecord(action) {
     blackbaudConstituentId: getActionConstituentId(action),
     constituentName: getActionConstituentName(action),
   };
+}
+
+function summarizeActionFundraisers(action) {
+  return getActionFundraiserCandidates(action).map((fundraiser) => ({
+    fundraiserId: getActionFundraiserId(fundraiser) || null,
+    fundraiserName: getActionFundraiserName(fundraiser) || null,
+    raw: fundraiser,
+  }));
 }
 
 function normalizePersonName(value) {
@@ -444,4 +482,135 @@ export async function getNxtActionSummaryByWorkspaceUser({
   }
 
   return countsByUserId;
+}
+
+export async function getNxtActionSummaryDiagnostic({
+  workspaceUsers,
+  authUserId,
+  origin,
+  fiscalYearStart,
+  fiscalYearEnd,
+}) {
+  const normalizedUsers = Array.isArray(workspaceUsers)
+    ? workspaceUsers.filter((user) => user?.id)
+    : [];
+
+  const identitySetsByUserId = new Map();
+  for (const user of normalizedUsers) {
+    identitySetsByUserId.set(
+      Number(user.id),
+      new Set(normalizeWorkspaceFundraiserIds(user)),
+    );
+  }
+
+  const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
+  const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
+  const { actions, connectionUserId } = await listBlackbaudActionsWithFallback({
+    authUserId,
+    normalizedUsers,
+    origin,
+    pageLimit: 250,
+    maxPages: 40,
+  });
+  const resolvedNameCache = new Map();
+  const samples = [];
+  const matchedByUserId = new Map();
+  const noFundraiserCount = { count: 0 };
+  const outOfRangeCount = { count: 0 };
+
+  for (const action of actions) {
+    const actionDate = getActionDate(action);
+    const inRange = isDateInRange(actionDate, startDate, endDate);
+    if (!inRange) {
+      outOfRangeCount.count += 1;
+      continue;
+    }
+
+    const fundraiserCandidates = getActionFundraiserCandidates(action);
+    if (!fundraiserCandidates.length) {
+      noFundraiserCount.count += 1;
+    }
+
+    const fundraiserIds = new Set(
+      fundraiserCandidates
+        .map((fundraiser) => getActionFundraiserId(fundraiser))
+        .filter(Boolean),
+    );
+
+    const userMatches = [];
+    for (const [userId, identitySet] of identitySetsByUserId.entries()) {
+      if (!identitySet?.size) continue;
+      let matched = Array.from(identitySet).some((identity) => fundraiserIds.has(identity));
+      let matchedBy = matched ? "id" : null;
+
+      if (!matched) {
+        const workspaceUser = normalizedUsers.find((user) => Number(user.id) === userId);
+        if (workspaceUser) {
+          for (const fundraiser of fundraiserCandidates) {
+            const resolvedName = await resolveActionFundraiserDisplayName({
+              fundraiser,
+              workspaceUser,
+              authUserId: connectionUserId || authUserId,
+              apiUserId: connectionUserId || authUserId,
+              origin,
+              cache: resolvedNameCache,
+            });
+            if (resolvedName && isWorkspaceFundraiserMatchByName(resolvedName, workspaceUser)) {
+              matched = true;
+              matchedBy = "name";
+              break;
+            }
+          }
+        }
+      }
+
+      if (matched) {
+        userMatches.push({
+          userId,
+          matchedBy,
+        });
+        const current = matchedByUserId.get(userId) || 0;
+        matchedByUserId.set(userId, current + 1);
+      }
+    }
+
+    if (samples.length < 40) {
+      samples.push({
+        actionId: getActionId(action) || null,
+        date: actionDate || null,
+        category: getActionCategory(action) || null,
+        summary: getActionSummary(action) || null,
+        constituentId: getActionConstituentId(action) || null,
+        constituentName: getActionConstituentName(action) || null,
+        fundraiserCandidates: summarizeActionFundraisers(action),
+        matchedUsers: userMatches,
+      });
+    }
+  }
+
+  return {
+    fiscalYearRange: {
+      start: fiscalYearStart,
+      end: fiscalYearEnd,
+    },
+    connectionUserId: connectionUserId || authUserId || null,
+    totalActionsFetched: actions.length,
+    outOfRangeCount: outOfRangeCount.count,
+    noFundraiserCount: noFundraiserCount.count,
+    workspaceUsers: normalizedUsers.map((user) => ({
+      id: Number(user.id),
+      name: user.name || null,
+      email: user.email || null,
+      blackbaudConstituentId: user.blackbaud_constituent_id || null,
+      blackbaudLookupId: user.blackbaud_lookup_id || null,
+      blackbaudFundraiserAliasIds: normalizeBlackbaudFundraiserAliasIds(
+        user.blackbaud_fundraiser_alias_ids,
+      ),
+    })),
+    matchedByUser: Array.from(matchedByUserId.entries()).map(([userId, count]) => ({
+      userId,
+      count,
+    })),
+    sampledActions: samples,
+  };
 }
