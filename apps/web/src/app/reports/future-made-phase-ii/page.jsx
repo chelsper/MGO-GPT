@@ -5,6 +5,7 @@ import { ExternalLink, RefreshCw, Search } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
+import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
 
 const QUERY_POLL_INTERVAL_MS = 1250;
 const MAX_QUERY_POLL_ATTEMPTS = 36;
@@ -24,6 +25,15 @@ function wait(delayMs) {
   return new Promise((resolve) => window.setTimeout(resolve, delayMs));
 }
 
+function getLookupResultKey(result, index) {
+  return (
+    result?.blackbaudConstituentId ||
+    result?.blackbaudRecordId ||
+    result?.lookupId ||
+    `${result?.name || "constituent"}-${index}`
+  );
+}
+
 export default function FutureMadePhaseTwoReportPage() {
   const { data: user, loading: loadingUser } = useUser();
   const [report, setReport] = useState(null);
@@ -31,12 +41,44 @@ export default function FutureMadePhaseTwoReportPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [search, setSearch] = useState("");
+  const [viewerRole, setViewerRole] = useState("");
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [lookupResults, setLookupResults] = useState([]);
+  const [lookupError, setLookupError] = useState("");
+  const [lookupWarning, setLookupWarning] = useState("");
+  const [isSearchingLookup, setIsSearchingLookup] = useState(false);
+  const [hasSearchedLookup, setHasSearchedLookup] = useState(false);
+  const [membershipStates, setMembershipStates] = useState({});
 
   useEffect(() => {
     if (!loadingUser && !user) {
       window.location.href = "/account/signin";
     }
   }, [loadingUser, user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const controller = new AbortController();
+    async function loadRole() {
+      try {
+        const response = await fetch("/api/users/profile", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || controller.signal.aborted) return;
+        setViewerRole(String(payload?.workspaceUser?.role || payload?.user?.role || ""));
+      } catch {
+        if (!controller.signal.aborted) {
+          setViewerRole("");
+        }
+      }
+    }
+
+    loadRole();
+    return () => controller.abort();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -104,10 +146,114 @@ export default function FutureMadePhaseTwoReportPage() {
     };
   }, [refreshVersion, user]);
 
+  useEffect(() => {
+    const normalizedQuery = lookupQuery.trim();
+    if (normalizedQuery.length < 2) {
+      setLookupResults([]);
+      setIsSearchingLookup(false);
+      setHasSearchedLookup(false);
+      setLookupError("");
+      setLookupWarning("");
+      return undefined;
+    }
+
+    setLookupResults([]);
+    setHasSearchedLookup(false);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsSearchingLookup(true);
+      setLookupError("");
+      setLookupWarning("");
+      try {
+        const response = await fetch(
+          `/api/blackbaud/constituents/search?q=${encodeURIComponent(normalizedQuery)}`,
+          { signal: controller.signal },
+        );
+        const payload = await response.json().catch(() => null);
+        if (controller.signal.aborted) return;
+
+        if (!response.ok) {
+          setLookupResults([]);
+          setLookupError(payload?.error || "Could not search Raiser's Edge NXT right now.");
+          return;
+        }
+
+        setLookupResults(Array.isArray(payload?.results) ? payload.results : []);
+        setLookupWarning(payload?.warning || "");
+      } catch (searchError) {
+        if (!controller.signal.aborted) {
+          console.error("Future. Made. Phase II lookup error:", searchError);
+          setLookupResults([]);
+          setLookupError("Could not search Raiser's Edge NXT right now.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSearchingLookup(false);
+          setHasSearchedLookup(true);
+        }
+      }
+    }, 250);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [lookupQuery]);
+
   const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
   const visibleRows = (report?.rows || []).filter(
     (row) => !normalizedSearch || getSearchText(row).includes(normalizedSearch),
   );
+  const canManageFutureMadePhaseTwo =
+    isAdminRole(viewerRole) || isExecutiveRole(viewerRole);
+
+  async function addToFutureMadePhaseTwo(result) {
+    const constituentId = String(
+      result?.blackbaudConstituentId || result?.blackbaudRecordId || "",
+    ).trim();
+    if (!constituentId) return;
+
+    setMembershipStates((current) => ({
+      ...current,
+      [constituentId]: { status: "loading", message: "" },
+    }));
+
+    try {
+      const response = await fetch("/api/reports/future-made-phase-ii/membership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ constituentId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload?.error || "Could not add this constituent to Future. Made. Phase II.",
+        );
+      }
+
+      const wasAlreadyPresent = payload?.status === "already_present";
+      setMembershipStates((current) => ({
+        ...current,
+        [constituentId]: {
+          status: "success",
+          message: wasAlreadyPresent
+            ? "Already on Future. Made. Phase II"
+            : "Added to Future. Made. Phase II. Run the query again to refresh this table.",
+        },
+      }));
+    } catch (addError) {
+      setMembershipStates((current) => ({
+        ...current,
+        [constituentId]: {
+          status: "error",
+          message:
+            addError instanceof Error
+              ? addError.message
+              : "Could not add this constituent to Future. Made. Phase II.",
+        },
+      }));
+    }
+  }
 
   if (loadingUser || !user) {
     return (
@@ -181,6 +327,231 @@ export default function FutureMadePhaseTwoReportPage() {
             <p style={{ margin: "8px 0 0", color: "#6B7280" }}>
               The complete query result will load here when NXT finishes preparing it.
             </p>
+          </section>
+        ) : null}
+
+        {canManageFutureMadePhaseTwo ? (
+          <section
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #DDD6FE",
+              borderRadius: "18px",
+              padding: "22px 24px",
+              backgroundColor: "#FAF5FF",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", flexWrap: "wrap" }}>
+              <div>
+                <h2 style={{ margin: 0, color: "#0F172A", fontSize: "22px" }}>Add a constituent to this list</h2>
+                <p style={{ margin: "6px 0 0", color: "#64748B", lineHeight: 1.5 }}>
+                  Search Raiser's Edge NXT and add someone to Future. Made. Phase II without leaving this report.
+                </p>
+              </div>
+              <div style={{ color: "#5B21B6", fontSize: "13px", fontWeight: 800 }}>
+                Executives and admins only
+              </div>
+            </div>
+
+            <div style={{ marginTop: "16px", position: "relative" }}>
+              <Search
+                aria-hidden="true"
+                size={20}
+                color="#64748B"
+                style={{ position: "absolute", left: "15px", top: "50%", transform: "translateY(-50%)" }}
+              />
+              <input
+                name="future-made-phase-ii-lookup"
+                type="search"
+                value={lookupQuery}
+                onChange={(event) => setLookupQuery(event.target.value)}
+                placeholder="Search NXT by first name, last name, or constituent name"
+                autoComplete="off"
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  minHeight: "50px",
+                  borderRadius: "12px",
+                  border: "1px solid #C4B5FD",
+                  padding: "12px 16px 12px 46px",
+                  color: "#111827",
+                  backgroundColor: "#FFFFFF",
+                  fontSize: "16px",
+                }}
+              />
+            </div>
+            <p style={{ margin: "10px 0 0", color: "#64748B", fontSize: "13px", lineHeight: 1.5 }}>
+              Enter at least two characters. Search results come directly from your Raiser's Edge NXT connection.
+            </p>
+
+            {lookupError ? (
+              <div
+                role="alert"
+                style={{
+                  marginTop: "16px",
+                  border: "1px solid #FECACA",
+                  backgroundColor: "#FEF2F2",
+                  color: "#991B1B",
+                  borderRadius: "14px",
+                  padding: "14px 16px",
+                  fontWeight: 700,
+                }}
+              >
+                {lookupError}
+              </div>
+            ) : null}
+
+            {lookupWarning ? (
+              <div
+                role="status"
+                style={{
+                  marginTop: "16px",
+                  border: "1px solid #FDE68A",
+                  backgroundColor: "#FFFBEB",
+                  color: "#92400E",
+                  borderRadius: "14px",
+                  padding: "14px 16px",
+                  fontWeight: 700,
+                }}
+              >
+                {lookupWarning}
+              </div>
+            ) : null}
+
+            {isSearchingLookup ? (
+              <div style={{ marginTop: "16px", color: "#64748B", fontWeight: 700 }}>
+                Searching NXT...
+              </div>
+            ) : null}
+
+            {hasSearchedLookup && !isSearchingLookup && !lookupError && lookupResults.length === 0 ? (
+              <div
+                style={{
+                  marginTop: "16px",
+                  border: "1px solid #E2E8F0",
+                  borderRadius: "16px",
+                  backgroundColor: "white",
+                  padding: "18px",
+                  color: "#475569",
+                }}
+              >
+                No NXT constituents matched “{lookupQuery.trim()}”. Try another version of the name.
+              </div>
+            ) : null}
+
+            {lookupResults.length > 0 ? (
+              <div style={{ display: "grid", gap: "12px", marginTop: "16px" }}>
+                {lookupResults.map((result, index) => {
+                  const profileUrl = buildBlackbaudConstituentProfileUrl(
+                    result.blackbaudConstituentId || result.blackbaudRecordId,
+                  );
+                  const constituentId = String(
+                    result.blackbaudConstituentId || result.blackbaudRecordId || "",
+                  ).trim();
+                  const membershipState = constituentId ? membershipStates[constituentId] : null;
+                  const isAdding = membershipState?.status === "loading";
+                  const isAdded = membershipState?.status === "success";
+
+                  return (
+                    <article
+                      key={getLookupResultKey(result, index)}
+                      style={{
+                        backgroundColor: "white",
+                        border: "1px solid #DCE7F7",
+                        borderRadius: "16px",
+                        padding: "16px 18px",
+                        boxShadow: "0 8px 22px rgba(15, 23, 42, 0.04)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          justifyContent: "space-between",
+                          gap: "16px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div>
+                          <h3 style={{ margin: 0, color: "#111827", fontSize: "19px" }}>
+                            {result.name || "Unnamed constituent"}
+                          </h3>
+                          <div style={{ color: "#64748B", fontSize: "13px", marginTop: "5px" }}>
+                            {result.lookupId ? `Lookup ID: ${result.lookupId}` : "No lookup ID available"}
+                            {constituentId ? ` · NXT ID ${constituentId}` : ""}
+                          </div>
+                          {membershipState?.message ? (
+                            <div
+                              style={{
+                                color:
+                                  membershipState.status === "error" ? "#991B1B" : "#166534",
+                                fontSize: "13px",
+                                fontWeight: 700,
+                                marginTop: "6px",
+                              }}
+                            >
+                              {membershipState.message}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {constituentId ? (
+                            <button
+                              type="button"
+                              onClick={() => addToFutureMadePhaseTwo(result)}
+                              disabled={isAdding || isAdded}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                minHeight: "40px",
+                                padding: "9px 13px",
+                                borderRadius: "999px",
+                                border: "1px solid #C7D2FE",
+                                backgroundColor: isAdded ? "#ECFDF5" : "#F5F3FF",
+                                color: isAdded ? "#166534" : "#5B21B6",
+                                fontSize: "14px",
+                                fontWeight: 800,
+                                cursor: isAdding || isAdded ? "default" : "pointer",
+                              }}
+                            >
+                              {isAdding
+                                ? "Adding..."
+                                : isAdded
+                                  ? "Added"
+                                  : "Add to Future. Made. Phase II"}
+                            </button>
+                          ) : null}
+                          {profileUrl ? (
+                            <a
+                              href={profileUrl}
+                              rel="noreferrer"
+                              target="_blank"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                minHeight: "40px",
+                                padding: "9px 13px",
+                                borderRadius: "999px",
+                                border: "1px solid #CBD5E1",
+                                color: "#334155",
+                                fontSize: "14px",
+                                fontWeight: 800,
+                                textDecoration: "none",
+                                backgroundColor: "white",
+                              }}
+                            >
+                              <ExternalLink size={15} />
+                              Open in NXT
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
