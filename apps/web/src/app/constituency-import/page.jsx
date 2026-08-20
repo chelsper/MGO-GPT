@@ -2516,6 +2516,7 @@ export default function ConstituencyImportPage() {
   const [educationClassYearDrafts, setEducationClassYearDrafts] = useState({});
   const [savingEducationClassYearRowId, setSavingEducationClassYearRowId] = useState("");
   const [savingCombinedReviewRowId, setSavingCombinedReviewRowId] = useState("");
+  const [savingReviewOnlyRowId, setSavingReviewOnlyRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -3279,6 +3280,44 @@ export default function ConstituencyImportPage() {
     setSaveMessage(
       `Saved import run #${savedRunId}. No NXT records were changed. Complete the required NXT row selections below before sending this record.`,
     );
+  }
+
+  async function saveRowReviewOnly(row, { openNextRecord = false } = {}) {
+    if (!row || savingRun || previewing || savingReviewOnlyRowId) return;
+    if (preview?.savedRun?.id) {
+      if (openNextRecord) {
+        focusNextUnresolvedRow(preview?.rows, row.id);
+      } else {
+        focusImportRow(row.id);
+      }
+      return;
+    }
+
+    setSavingReviewOnlyRowId(String(row.id || row.rowNumber));
+    setError("");
+    setSaveMessage("");
+    try {
+      const savedPayload = await requestPreview({ saveRun: true, scrollToResults: false });
+      const savedRunId = savedPayload?.savedRun?.id;
+      const savedRow = findSavedRow(savedPayload, row);
+      if (!savedRunId || !savedRow?.id) {
+        throw new Error("The review run could not be saved. Please try again.");
+      }
+
+      if (openNextRecord) {
+        focusNextUnresolvedRow(savedPayload?.rows, savedRow.id);
+      } else {
+        focusImportRow(savedRow.id);
+      }
+
+      setSaveMessage(
+        `Saved import run #${savedRunId}. No NXT records were changed.`,
+      );
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save this review.");
+    } finally {
+      setSavingReviewOnlyRowId("");
+    }
   }
 
   function navigateImportRows(direction) {
@@ -4068,24 +4107,14 @@ export default function ConstituencyImportPage() {
       const savedRowId = String(savedRow.id);
       savedRowForFocus = savedRow;
       previewBeforeSkip = !isRestore && preview?.savedRun?.id ? preview : null;
-      let nextUnresolvedRow = null;
-
       if (previewBeforeSkip) {
         const rowsAfterSkip = previewBeforeSkip.rows.map((candidate) =>
           String(candidate.id) === savedRowId ? { ...candidate, status: "Skipped" } : candidate,
         );
-        const skippedIndex = rowsAfterSkip.findIndex((candidate) => String(candidate.id) === savedRowId);
-        nextUnresolvedRow = rowsAfterSkip.find(
-          (candidate, index) => index > skippedIndex && isUnresolvedImportRow(candidate),
-        ) || rowsAfterSkip.find(isUnresolvedImportRow);
-
         setPreview({ ...previewBeforeSkip, rows: rowsAfterSkip });
         setSelectedApplyRowIds((current) => current.filter((id) => id !== savedRowId));
-        if (nextUnresolvedRow) {
-          focusImportRowState(nextUnresolvedRow);
-        } else {
-          setFocusedRowId("");
-        }
+        setReviewMode(false);
+        setFocusedRowId(savedRowId);
       }
 
       const response = await fetch(
@@ -4109,10 +4138,11 @@ export default function ConstituencyImportPage() {
         if (!refreshedPayload) {
           throw new Error("The row was updated, but the import run could not be refreshed.");
         }
-        if (!isRestore) {
-          focusNextUnresolvedRow(refreshedPayload.rows, savedRow.id);
-        } else {
+        if (isRestore) {
           focusImportRow(savedRow.id);
+        } else {
+          setReviewMode(false);
+          setFocusedRowId(String(savedRow.id));
         }
       }
       setSaveMessage(payload?.message || "Updated this import row.");
@@ -6846,19 +6876,28 @@ export default function ConstituencyImportPage() {
                         ) : needsFreshPreview ? (
                           <button
                             type="button"
-                            onClick={requestPreview}
-                            disabled={previewing}
+                            onClick={() =>
+                              reviewTargetKey
+                                ? startRequiredReview(row, reviewTargetKey)
+                                : requestPreview()
+                            }
+                            disabled={previewing || savingRun}
                             style={{
                               border: "1px solid #B45309",
                               borderRadius: "999px",
-                              backgroundColor: previewing ? "#FEF3C7" : "#B45309",
-                              color: previewing ? "#92400E" : "white",
+                              backgroundColor:
+                                previewing || savingRun ? "#FEF3C7" : "#B45309",
+                              color: previewing || savingRun ? "#92400E" : "white",
                               padding: "9px 14px",
                               fontWeight: 900,
-                              cursor: previewing ? "not-allowed" : "pointer",
+                              cursor: previewing || savingRun ? "not-allowed" : "pointer",
                             }}
                           >
-                            {previewing ? "Refreshing review plan..." : "Refresh review plan"}
+                            {previewing || savingRun
+                              ? "Saving review..."
+                              : reviewTargetKey
+                                ? "Save review and continue"
+                                : "Refresh review plan"}
                           </button>
                         ) : rowNeedsReviewAction && row.status !== "Failed" ? (
                           <button
@@ -6880,7 +6919,50 @@ export default function ConstituencyImportPage() {
                               ? "Saving review..."
                               : preview?.savedRun
                                 ? "Open required review"
-                                : "Save review and choose NXT records"}
+                              : "Save review and choose NXT records"}
+                          </button>
+                        ) : null}
+                        {rowReadyToSend ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              preview?.savedRun
+                                ? focusNextUnresolvedRow(preview?.rows, row.id)
+                                : saveRowReviewOnly(row, { openNextRecord: true })
+                            }
+                            disabled={
+                              Boolean(directSendingRowNumber) ||
+                              savingRun ||
+                              applyingRun ||
+                              savingReviewOnlyRowId === String(row.id || row.rowNumber)
+                            }
+                            style={{
+                              border: "1px solid #1D4ED8",
+                              borderRadius: "999px",
+                              backgroundColor:
+                                directSendingRowNumber ||
+                                savingRun ||
+                                applyingRun ||
+                                savingReviewOnlyRowId === String(row.id || row.rowNumber)
+                                  ? "#DBEAFE"
+                                  : "white",
+                              color: "#1D4ED8",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor:
+                                directSendingRowNumber ||
+                                savingRun ||
+                                applyingRun ||
+                                savingReviewOnlyRowId === String(row.id || row.rowNumber)
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            {savingReviewOnlyRowId === String(row.id || row.rowNumber)
+                              ? "Saving review..."
+                              : preview?.savedRun
+                                ? "Open next record"
+                                : "Save review and open next record"}
                           </button>
                         ) : null}
                         {canSkipRow || isManuallySkipped ? (
@@ -6922,8 +7004,8 @@ export default function ConstituencyImportPage() {
                               : isManuallySkipped
                                 ? "Restore record"
                                 : preview?.savedRun
-                                  ? "Skip and open next record"
-                                  : "Save, skip, and open next record"}
+                                  ? "Skip record"
+                                  : "Save review and skip record"}
                           </button>
                         ) : null}
                       </section>

@@ -1260,11 +1260,16 @@ async function applyEmailAddressUpdate({ request, user, row, write }) {
 
 function getAddressPayload(write, constituentId, options = {}) {
   const payload = {
-    address_lines: [cleanText(write?.addressLine1), cleanText(write?.addressLine2)].filter(Boolean),
-    city: cleanText(write?.city),
-    state: cleanText(write?.state),
-    postal_code: cleanText(write?.postalCode),
-    country: cleanText(write?.country),
+    address: {
+      address_lines: [
+        cleanText(write?.addressLine1),
+        cleanText(write?.addressLine2),
+      ].filter(Boolean),
+      city: cleanText(write?.city),
+      state: cleanText(write?.state),
+      postal_code: cleanText(write?.postalCode),
+      country: cleanText(write?.country),
+    },
   };
   const validFrom = formatDateForBlackbaud(write?.validFrom);
   if (validFrom) payload.valid_from = validFrom;
