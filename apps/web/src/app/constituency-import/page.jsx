@@ -1228,6 +1228,67 @@ function getIncomingContactValue(contact, kind) {
     : address;
 }
 
+function normalizeReviewText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeReviewPostalCode(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^0-9a-z]/g, "");
+}
+
+function normalizeReviewEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeReviewPhone(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function addressesMatchForReview(currentAddress, proposedAddress) {
+  if (!currentAddress || !proposedAddress) return false;
+
+  const currentLine1 = normalizeReviewText(currentAddress.addressLine1);
+  const proposedLine1 = normalizeReviewText(proposedAddress.addressLine1);
+  if (!currentLine1 || !proposedLine1 || currentLine1 !== proposedLine1) return false;
+
+  const currentCity = normalizeReviewText(currentAddress.city);
+  const proposedCity = normalizeReviewText(proposedAddress.city);
+  if (currentCity && proposedCity && currentCity !== proposedCity) return false;
+
+  const currentState = normalizeReviewText(currentAddress.state);
+  const proposedState = normalizeReviewText(proposedAddress.state);
+  if (currentState && proposedState && currentState !== proposedState) return false;
+
+  const currentPostal = normalizeReviewPostalCode(currentAddress.postalCode).slice(0, 5);
+  const proposedPostal = normalizeReviewPostalCode(proposedAddress.postalCode).slice(0, 5);
+  if (currentPostal && proposedPostal && currentPostal !== proposedPostal) return false;
+
+  return true;
+}
+
+function findMatchingReviewContact(contacts, incoming, kind) {
+  if (!Array.isArray(contacts) || !incoming) return null;
+
+  if (kind === "email") {
+    const incomingEmail = normalizeReviewEmail(incoming.address);
+    return contacts.find((contact) => normalizeReviewEmail(contact.address) === incomingEmail) || null;
+  }
+
+  if (kind === "phone") {
+    const incomingPhone = normalizeReviewPhone(incoming.number);
+    return contacts.find((contact) => normalizeReviewPhone(contact.number) === incomingPhone) || null;
+  }
+
+  return contacts.find((contact) => addressesMatchForReview(contact, incoming)) || null;
+}
+
 function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisionChange }) {
   const sections = [
     { kind: "email", label: "Email addresses", values: row.input?.emailUpdates || [], contacts: row.currentContacts?.emails || [] },
@@ -1265,15 +1326,32 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
         const sectionDecision = getContactSectionDecision(decisions, row.rowNumber, section.kind);
         const hasIncomingPrimary = ["email", "phone"].includes(section.kind) && section.values.some((value, index) => {
           const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
-          const mode = decision.mode === "replace" ? "replace" : decision.mode === "skip" ? "skip" : "add";
+          const matchingContact = findMatchingReviewContact(section.contacts, value, section.kind);
+          const mode =
+            decision.mode === "replace"
+              ? "replace"
+              : decision.mode === "skip"
+                ? "skip"
+                : matchingContact
+                  ? "skip"
+                  : "add";
           const makePrimary = decision.makePrimary === undefined
-            ? index === defaultPrimaryIndex
+            ? index === defaultPrimaryIndex && !matchingContact?.primary
             : decision.makePrimary === true;
           return mode === "add" && makePrimary;
         });
         const hasIncomingAddress = section.kind === "address" && section.values.some((value, index) => {
           const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
-          return decision.mode !== "replace" && decision.mode !== "skip";
+          const matchingContact = findMatchingReviewContact(section.contacts, value, section.kind);
+          const mode =
+            decision.mode === "replace"
+              ? "replace"
+              : decision.mode === "skip"
+                ? "skip"
+                : matchingContact
+                  ? "skip"
+                  : "add";
+          return mode !== "replace" && mode !== "skip";
         });
         const selectedExistingPrimary = section.contacts.find(
           (contact) => contact.id === sectionDecision.existingPrimaryTargetId,
@@ -1415,12 +1493,20 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
 
             {section.values.map((incoming, index) => {
               const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
-              const mode = decision.mode === "replace" ? "replace" : decision.mode === "skip" ? "skip" : "add";
+              const matchingContact = findMatchingReviewContact(section.contacts, incoming, section.kind);
+              const mode =
+                decision.mode === "replace"
+                  ? "replace"
+                  : decision.mode === "skip"
+                    ? "skip"
+                    : matchingContact
+                      ? "skip"
+                      : "add";
               const selectedTarget = section.contacts.find((contact) => contact.id === decision.targetId) || null;
               const makePrimary =
                 mode === "add" &&
                 (decision.makePrimary === undefined
-                  ? index === defaultPrimaryIndex
+                  ? index === defaultPrimaryIndex && !matchingContact?.primary
                   : decision.makePrimary === true);
               const datalistId = `contact-types-${row.rowNumber}-${section.kind}-${index}`;
 
@@ -1467,8 +1553,15 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
                   </label>
 
                   {mode === "skip" ? (
-                    <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
-                      This CSV value will be ignored. No {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"} write will be sent to NXT.
+                    <div style={{ display: "grid", gap: "6px", color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                      <div>
+                        This CSV value will be ignored. No {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"} write will be sent to NXT.
+                      </div>
+                      {matchingContact ? (
+                        <div>
+                          Current NXT {section.kind === "email" ? "email" : section.kind === "phone" ? "phone number" : "address"} already matches this CSV value.
+                        </div>
+                      ) : null}
                     </div>
                   ) : mode === "replace" ? (
                     <>
