@@ -1483,22 +1483,29 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
                     </>
                   ) : (
                     <>
-                      <label style={{ display: "flex", gap: "8px", alignItems: "center", color: "#374151", fontWeight: 800 }}>
-                        <input
-                          type="checkbox"
+                      <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
+                        Primary {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"}
+                        <select
                           name={`contact-primary-${row.rowNumber}-${section.kind}-${index}`}
-                          checked={makePrimary}
+                          value={makePrimary ? "csv" : "keep"}
                           onChange={(event) =>
                             onDecisionChange(
                               row.rowNumber,
                               section.kind,
                               index,
-                              { makePrimary: event.target.checked },
+                              { makePrimary: event.target.value === "csv" },
                               section.values.length,
                             )
                           }
-                        />
-                        Make the CSV value primary
+                          style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
+                        >
+                          <option value="keep">
+                            Keep {primary ? `${getContactValue(primary, section.kind)} as primary` : "the current primary setting"}
+                          </option>
+                          <option value="csv">
+                            Change {getContactValue(value, section.kind)} to primary
+                          </option>
+                        </select>
                       </label>
                       {makePrimary && primary ? (
                         <div style={{ display: "grid", gap: "6px", padding: "10px", borderRadius: "10px", backgroundColor: "#DCFCE7", color: "#166534" }}>
