@@ -1270,11 +1270,13 @@ function getAddressPayload(write, constituentId, options = {}) {
     cleanText(write?.addressLine2),
   ].filter(Boolean);
   const payload = {
-    address_lines: addressLines.join("\r\n"),
-    city: cleanText(write?.city),
-    state: cleanText(write?.state),
-    postal_code: cleanText(write?.postalCode),
-    country: cleanText(write?.country),
+    address: {
+      address_lines: addressLines.join("\r\n"),
+      city: cleanText(write?.city),
+      state: cleanText(write?.state),
+      postal_code: cleanText(write?.postalCode),
+      country: cleanText(write?.country),
+    },
   };
   const validFrom = formatDateForBlackbaud(write?.validFrom);
   if (validFrom) payload.valid_from = validFrom;
