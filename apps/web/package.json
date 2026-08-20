@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "react-router dev",
-		"build": "react-router build",
+		"build": "BROWSERSLIST_IGNORE_OLD_DATA=1 react-router build",
 		"test": "vitest run",
 		"typecheck": "react-router typegen && tsc --noEmit",
 		"check:release": "node ./scripts/check-release-worktree.mjs",
