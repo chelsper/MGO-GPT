@@ -1618,7 +1618,6 @@ function EducationTargetReviewPanel({
   saving,
   onLoadCandidates,
   onCandidateChange,
-  onSelectCandidate,
 }) {
   const pendingWrite = (row.writePlan || []).find(
     (item) =>
@@ -1799,38 +1798,9 @@ function EducationTargetReviewPanel({
               </div>
             );
           })}
-          <div
-            style={{
-              borderTop: "1px solid #FDE68A",
-              marginTop: "3px",
-              paddingTop: "12px",
-              display: "grid",
-              gap: "7px",
-              justifyItems: "start",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => onSelectCandidate(row, selectedCandidateId)}
-              disabled={!selectedCandidateId || saving || loading}
-              style={{
-                border: "1px solid #92400E",
-                borderRadius: "999px",
-                backgroundColor:
-                  selectedCandidateId && !saving && !loading ? "#92400E" : "#FEF3C7",
-                color: selectedCandidateId && !saving && !loading ? "white" : "#92400E",
-                padding: "9px 14px",
-                fontWeight: 900,
-                cursor:
-                  selectedCandidateId && !saving && !loading ? "pointer" : "not-allowed",
-              }}
-            >
-              {saving ? "Confirming selected row..." : "Confirm selected NXT education row"}
-            </button>
-            <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 700 }}>
-              Confirming records this source row in the import audit. It does not write to NXT until
-              you send this record.
-            </div>
+          <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 700 }}>
+            Your selected NXT education row will be saved when you confirm the full row review
+            below.
           </div>
         </div>
       ) : (
@@ -1846,10 +1816,11 @@ function EducationTargetReviewPanel({
 function ConstituencyReplaceReviewPanel({
   row,
   candidates,
+  selectedCandidateId,
   loading,
   saving,
   onLoadCandidates,
-  onSelectCandidate,
+  onCandidateChange,
 }) {
   const write = (row.writePlan || []).find(
     (item) => item?.type === "constituent_code" && item?.action === "replace",
@@ -1989,48 +1960,55 @@ function ConstituencyReplaceReviewPanel({
           <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
             Current NXT code candidates
           </div>
-          {candidates.map((candidate) => (
-            <div
-              key={candidate.id}
-              style={{
-                border: "1px solid #FDE68A",
-                borderRadius: "11px",
-                backgroundColor: "white",
-                padding: "11px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <div style={{ color: "#111827", fontWeight: 900 }}>{candidate.label}</div>
-                <div style={{ marginTop: "3px", color: "#6B7280", fontSize: "14px" }}>
-                  Start: {formatCodeDate(candidate.startDate)} · End: {formatCodeDate(candidate.endDate)}
-                </div>
-                <div style={{ marginTop: "4px", color: "#92400E", fontSize: "12px", fontWeight: 800 }}>
-                  NXT constituent-code ID {candidate.id}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onSelectCandidate(row, candidate.id)}
-                disabled={saving || loading}
+          {candidates.map((candidate) => {
+            const isSelected = String(selectedCandidateId || "") === String(candidate.id);
+            return (
+              <div
+                key={candidate.id}
                 style={{
-                  border: "1px solid #B45309",
-                  borderRadius: "999px",
-                  backgroundColor: saving ? "#FEF3C7" : "white",
-                  color: "#92400E",
-                  padding: "8px 12px",
-                  fontWeight: 900,
-                  cursor: saving || loading ? "not-allowed" : "pointer",
+                  border: "1px solid #FDE68A",
+                  borderRadius: "11px",
+                  backgroundColor: "white",
+                  padding: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
                 }}
               >
-                {saving ? "Saving selection..." : "Use this NXT code"}
-              </button>
-            </div>
-          ))}
+                <div>
+                  <div style={{ color: "#111827", fontWeight: 900 }}>{candidate.label}</div>
+                  <div style={{ marginTop: "3px", color: "#6B7280", fontSize: "14px" }}>
+                    Start: {formatCodeDate(candidate.startDate)} · End: {formatCodeDate(candidate.endDate)}
+                  </div>
+                  <div style={{ marginTop: "4px", color: "#92400E", fontSize: "12px", fontWeight: 800 }}>
+                    NXT constituent-code ID {candidate.id}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => onCandidateChange(row, candidate.id)}
+                  disabled={saving || loading}
+                  style={{
+                    border: "1px solid #B45309",
+                    borderRadius: "999px",
+                    backgroundColor: isSelected ? "#B45309" : saving ? "#FEF3C7" : "white",
+                    color: isSelected ? "white" : "#92400E",
+                    padding: "8px 12px",
+                    fontWeight: 900,
+                    cursor: saving || loading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {isSelected ? "Selected NXT code" : "Select this NXT code"}
+                </button>
+              </div>
+            );
+          })}
+          <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 700 }}>
+            Your selected current NXT code will be saved when you confirm the full row review below.
+          </div>
         </div>
       ) : (
         <div style={{ color: "#92400E", fontWeight: 800 }}>
@@ -2052,12 +2030,58 @@ function getEducationClassYearReviewWrite(row) {
   );
 }
 
+function getPendingEducationTargetReviewWrite(row) {
+  return (row?.writePlan || []).find(
+    (item) =>
+      item?.type === "education_relationship" && item?.action === "review_existing",
+  );
+}
+
+function getPendingConstituencyTargetReviewWrite(row) {
+  return (row?.writePlan || []).find(
+    (item) =>
+      item?.type === "constituent_code" &&
+      item?.action === "replace" &&
+      !item?.sourceCodeId,
+  );
+}
+
+function summarizePreviewRows(rows) {
+  return (Array.isArray(rows) ? rows : []).reduce(
+    (summary, row) => {
+      summary.total += 1;
+      if (row?.status === "Ready") summary.ready += 1;
+      if (row?.status === "Needs Review") summary.needsReview += 1;
+      if (row?.status === "Conflict") summary.conflict += 1;
+      if (row?.status === "Skipped") summary.skipped += 1;
+      if (row?.status === "Applied") summary.applied += 1;
+      if (row?.status === "Failed") summary.failed += 1;
+      if (
+        row?.intentDisposition?.key === "potential_new" &&
+        !row?.createdBlackbaudConstituentId
+      ) {
+        summary.potentialNew += 1;
+      }
+      return summary;
+    },
+    {
+      total: 0,
+      ready: 0,
+      needsReview: 0,
+      conflict: 0,
+      skipped: 0,
+      applied: 0,
+      failed: 0,
+      potentialNew: 0,
+    },
+  );
+}
+
 function EducationClassYearReviewPanel({
   row,
   draftValue,
   saving,
   onDraftChange,
-  onSave,
 }) {
   const write = getEducationClassYearReviewWrite(row);
   if (!write) return null;
@@ -2107,26 +2131,15 @@ function EducationClassYearReviewPanel({
             color: "#111827",
             fontWeight: 800,
           }}
-        />
+          />
       </label>
-
-      <button
-        type="button"
-        onClick={() => onSave(row, draftValue)}
-        disabled={saving || !validClassYear}
-        style={{
-          width: "fit-content",
-          border: "1px solid #B45309",
-          borderRadius: "999px",
-          backgroundColor: saving || !validClassYear ? "#FEF3C7" : "#B45309",
-          color: saving || !validClassYear ? "#92400E" : "white",
-          padding: "9px 14px",
-          fontWeight: 900,
-          cursor: saving || !validClassYear ? "not-allowed" : "pointer",
-        }}
-      >
-        {saving ? "Saving review..." : "Save review and unlock NXT send"}
-      </button>
+      <div style={{ color: validClassYear ? "#166534" : "#92400E", fontSize: "12px", fontWeight: 700 }}>
+        {saving
+          ? "Saving row review..."
+          : validClassYear
+            ? "This class year will be saved when you confirm the full row review below."
+            : "Enter a two- or four-digit class year to include it in the full row review."}
+      </div>
     </section>
   );
 }
@@ -2497,10 +2510,12 @@ export default function ConstituencyImportPage() {
   const [loadingEducationCandidateRowId, setLoadingEducationCandidateRowId] = useState("");
   const [savingEducationTargetRowId, setSavingEducationTargetRowId] = useState("");
   const [constituencyCandidatesByRowId, setConstituencyCandidatesByRowId] = useState({});
+  const [selectedConstituencyCandidateByRowId, setSelectedConstituencyCandidateByRowId] = useState({});
   const [loadingConstituencyCandidateRowId, setLoadingConstituencyCandidateRowId] = useState("");
   const [savingConstituencyTargetRowId, setSavingConstituencyTargetRowId] = useState("");
   const [educationClassYearDrafts, setEducationClassYearDrafts] = useState({});
   const [savingEducationClassYearRowId, setSavingEducationClassYearRowId] = useState("");
+  const [savingCombinedReviewRowId, setSavingCombinedReviewRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -3014,6 +3029,10 @@ export default function ConstituencyImportPage() {
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
     setTableSuggestions({});
+    setEducationCandidatesByRowId({});
+    setSelectedEducationCandidateByRowId({});
+    setConstituencyCandidatesByRowId({});
+    setSelectedConstituencyCandidateByRowId({});
     setEducationClassYearDrafts({});
     setLoadingSuggestionFieldKey("");
     setContactDecisions({});
@@ -3069,6 +3088,10 @@ export default function ConstituencyImportPage() {
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
     setTableSuggestions({});
+    setEducationCandidatesByRowId({});
+    setSelectedEducationCandidateByRowId({});
+    setConstituencyCandidatesByRowId({});
+    setSelectedConstituencyCandidateByRowId({});
     setEducationClassYearDrafts({});
     setLoadingSuggestionFieldKey("");
     setShowBatchTools(false);
@@ -3127,6 +3150,7 @@ export default function ConstituencyImportPage() {
       setEducationCandidatesByRowId({});
       setSelectedEducationCandidateByRowId({});
       setConstituencyCandidatesByRowId({});
+      setSelectedConstituencyCandidateByRowId({});
       setEducationClassYearDrafts({});
       setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
       return payload;
@@ -3577,6 +3601,14 @@ export default function ConstituencyImportPage() {
     }));
   }
 
+  function chooseConstituencyCandidate(row, constituentCodeId) {
+    if (!row?.id || !constituentCodeId) return;
+    setSelectedConstituencyCandidateByRowId((current) => ({
+      ...current,
+      [String(row.id)]: String(constituentCodeId),
+    }));
+  }
+
   async function loadConstituencyCandidates(row, runIdOverride = null) {
     const runId = runIdOverride || preview?.savedRun?.id;
     if (
@@ -3651,6 +3683,142 @@ export default function ConstituencyImportPage() {
       );
     } finally {
       setSavingConstituencyTargetRowId("");
+    }
+  }
+
+  function getCombinedRowReviewDraft(row) {
+    const rowId = String(row?.id || "");
+    const pendingEducationTargetWrite = getPendingEducationTargetReviewWrite(row);
+    const pendingConstituencyWrite = getPendingConstituencyTargetReviewWrite(row);
+    const pendingClassYearWrite = getEducationClassYearReviewWrite(row);
+
+    return {
+      educationId: pendingEducationTargetWrite
+        ? String(selectedEducationCandidateByRowId[rowId] || "")
+        : "",
+      constituentCodeId: pendingConstituencyWrite
+        ? String(selectedConstituencyCandidateByRowId[rowId] || "")
+        : "",
+      classYear: pendingClassYearWrite
+        ? String(
+            educationClassYearDrafts[rowId] ??
+              String(pendingClassYearWrite?.classYear || ""),
+          ).trim()
+        : "",
+    };
+  }
+
+  function getCombinedRowReviewMissingItems(row) {
+    const draft = getCombinedRowReviewDraft(row);
+    const missing = [];
+
+    if (getPendingEducationTargetReviewWrite(row) && !draft.educationId) {
+      missing.push("select the current NXT education row");
+    }
+    if (getPendingConstituencyTargetReviewWrite(row) && !draft.constituentCodeId) {
+      missing.push("select the current NXT constituent-code row");
+    }
+    if (
+      getEducationClassYearReviewWrite(row) &&
+      !/^\d{2}(\d{2})?$/.test(draft.classYear)
+    ) {
+      missing.push("confirm a valid Education Class Year");
+    }
+
+    return missing;
+  }
+
+  async function saveCombinedRowReview(row) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || savingCombinedReviewRowId) return;
+
+    const missing = getCombinedRowReviewMissingItems(row);
+    if (missing.length) {
+      setError(
+        `Finish this row review before continuing: ${missing.join(", ")}.`,
+      );
+      return;
+    }
+
+    const rowId = String(row.id);
+    const draft = getCombinedRowReviewDraft(row);
+    setSavingCombinedReviewRowId(rowId);
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/review`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draft),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not save this row review.");
+      }
+
+      setPreview((current) => {
+        if (!current) return current;
+        const nextRows = (current.rows || []).map((candidate) =>
+          String(candidate.id) === rowId
+            ? {
+                ...candidate,
+                status: payload?.status || candidate.status,
+                writePlan: Array.isArray(payload?.writePlan) ? payload.writePlan : candidate.writePlan,
+                reasons: Array.isArray(payload?.reasons) ? payload.reasons : candidate.reasons,
+                preview: payload?.preview && typeof payload.preview === "object"
+                  ? {
+                      ...candidate.preview,
+                      ...payload.preview,
+                    }
+                  : candidate.preview,
+                blackbaudResult:
+                  payload?.blackbaudResult && typeof payload.blackbaudResult === "object"
+                    ? payload.blackbaudResult
+                    : candidate.blackbaudResult,
+                blackbaudError: null,
+              }
+            : candidate,
+        );
+
+        return {
+          ...current,
+          rows: nextRows,
+          summary: summarizePreviewRows(nextRows),
+        };
+      });
+
+      setSelectedEducationCandidateByRowId((current) => {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+      setSelectedConstituencyCandidateByRowId((current) => {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+      setEducationClassYearDrafts((current) => {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+
+      setSaveMessage(
+        payload?.message ||
+          "Saved this row review. You can keep working in the same view.",
+      );
+      fetchSavedRuns();
+    } catch (reviewError) {
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "Could not save this row review.",
+      );
+    } finally {
+      setSavingCombinedReviewRowId("");
     }
   }
 
@@ -6079,6 +6247,17 @@ export default function ConstituencyImportPage() {
                 const reviewRequirements = getRowReviewRequirements(row);
                 const reviewTargetKey = getRowReviewTargetKey(reviewRequirements);
                 const reviewTargetId = `constituency-import-row-${row.id}-${reviewTargetKey}`;
+                const combinedReviewMissingItems = getCombinedRowReviewMissingItems(row);
+                const rowHasCombinedReviewItems = Boolean(
+                  getPendingEducationTargetReviewWrite(row) ||
+                    getPendingConstituencyTargetReviewWrite(row) ||
+                    getEducationClassYearReviewWrite(row),
+                );
+                const canSaveCombinedReview =
+                  preview?.savedRun &&
+                  rowHasCombinedReviewItems &&
+                  !combinedReviewMissingItems.length &&
+                  !savingCombinedReviewRowId;
                 const canVerifyRow = Boolean(
                   preview?.savedRun &&
                     row.status === "Applied" &&
@@ -6408,9 +6587,8 @@ export default function ConstituencyImportPage() {
                             educationClassYearDrafts[String(row.id)] ??
                             String(getEducationClassYearReviewWrite(row)?.classYear || "")
                           }
-                          saving={savingEducationClassYearRowId === String(row.id)}
+                          saving={savingCombinedReviewRowId === String(row.id)}
                           onDraftChange={updateEducationClassYearDraft}
-                          onSave={saveEducationClassYear}
                         />
                       </div>
                     ) : null}
@@ -6422,10 +6600,9 @@ export default function ConstituencyImportPage() {
                           candidates={educationCandidatesByRowId[String(row.id)]}
                           selectedCandidateId={selectedEducationCandidateByRowId[String(row.id)]}
                           loading={loadingEducationCandidateRowId === String(row.id)}
-                          saving={savingEducationTargetRowId === String(row.id)}
+                          saving={savingCombinedReviewRowId === String(row.id)}
                           onLoadCandidates={loadEducationCandidates}
                           onCandidateChange={chooseEducationCandidate}
-                          onSelectCandidate={selectEducationTarget}
                         />
                       </div>
                     ) : null}
@@ -6435,12 +6612,63 @@ export default function ConstituencyImportPage() {
                         <ConstituencyReplaceReviewPanel
                           row={row}
                           candidates={constituencyCandidatesByRowId[String(row.id)]}
+                          selectedCandidateId={selectedConstituencyCandidateByRowId[String(row.id)]}
                           loading={loadingConstituencyCandidateRowId === String(row.id)}
-                          saving={savingConstituencyTargetRowId === String(row.id)}
+                          saving={savingCombinedReviewRowId === String(row.id)}
                           onLoadCandidates={loadConstituencyCandidates}
-                          onSelectCandidate={selectConstituencyTarget}
+                          onCandidateChange={chooseConstituencyCandidate}
                         />
                       </div>
+                    ) : null}
+
+                    {preview?.savedRun && rowHasCombinedReviewItems ? (
+                      <section
+                        style={{
+                          border: "1px solid #FCD34D",
+                          borderRadius: "12px",
+                          backgroundColor: "#FFF7ED",
+                          padding: "12px",
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ color: "#9A3412", fontWeight: 900 }}>
+                          Confirm this full row review
+                        </div>
+                        <div style={{ color: "#9A3412", fontSize: "14px", lineHeight: 1.45 }}>
+                          Finish all row review selections above, then save them together once.
+                          This keeps you in the same view and updates the row in place.
+                        </div>
+                        {combinedReviewMissingItems.length ? (
+                          <div style={{ color: "#92400E", fontSize: "13px", fontWeight: 800 }}>
+                            Still needed: {combinedReviewMissingItems.join(", ")}.
+                          </div>
+                        ) : (
+                          <div style={{ color: "#166534", fontSize: "13px", fontWeight: 800 }}>
+                            This row review is complete and ready to save.
+                          </div>
+                        )}
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => saveCombinedRowReview(row)}
+                            disabled={!canSaveCombinedReview}
+                            style={{
+                              border: "1px solid #B45309",
+                              borderRadius: "999px",
+                              backgroundColor: canSaveCombinedReview ? "#B45309" : "#FED7AA",
+                              color: canSaveCombinedReview ? "white" : "#9A3412",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: canSaveCombinedReview ? "pointer" : "not-allowed",
+                            }}
+                          >
+                            {savingCombinedReviewRowId === String(row.id)
+                              ? "Saving full row review..."
+                              : "Save full row review"}
+                          </button>
+                        </div>
+                      </section>
                     ) : null}
 
                     {row.writePlan?.length ? (
