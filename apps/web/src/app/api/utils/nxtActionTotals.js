@@ -380,6 +380,7 @@ async function listBlackbaudActionsWithFallback({
     : Number.NaN;
   const candidateUserIds = [];
   const seen = new Set();
+  const candidateResults = [];
 
   for (const candidate of [authUserId, ...normalizedUsers.map((user) => user?.id)]) {
     const userId = Number(candidate);
@@ -493,19 +494,37 @@ async function listBlackbaudActionsWithFallback({
         return 0;
       })[0];
 
-    if (bestAttempt) {
-      return {
-        actions: bestAttempt.actions,
-        connectionUserId: candidateUserId,
-        source: bestAttempt.source,
-        attempts: attempts.map((attempt) => ({
-          source: attempt.source,
-          totalCount: attempt.totalCount,
-          inRangeCount: attempt.inRangeCount,
-          error: attempt.error,
-        })),
-      };
-    }
+    candidateResults.push({
+      candidateUserId,
+      bestAttempt: bestAttempt || null,
+      attempts: attempts.map((attempt) => ({
+        source: attempt.source,
+        totalCount: attempt.totalCount,
+        inRangeCount: attempt.inRangeCount,
+        error: attempt.error,
+      })),
+    });
+  }
+
+  const bestCandidate = candidateResults
+    .filter((candidate) => candidate.bestAttempt)
+    .sort((left, right) => {
+      if (right.bestAttempt.inRangeCount !== left.bestAttempt.inRangeCount) {
+        return right.bestAttempt.inRangeCount - left.bestAttempt.inRangeCount;
+      }
+      if (right.bestAttempt.totalCount !== left.bestAttempt.totalCount) {
+        return right.bestAttempt.totalCount - left.bestAttempt.totalCount;
+      }
+      return 0;
+    })[0];
+
+  if (bestCandidate?.bestAttempt) {
+    return {
+      actions: bestCandidate.bestAttempt.actions,
+      connectionUserId: bestCandidate.candidateUserId,
+      source: bestCandidate.bestAttempt.source,
+      attempts: bestCandidate.attempts,
+    };
   }
 
   return {

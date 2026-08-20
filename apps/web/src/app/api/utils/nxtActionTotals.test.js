@@ -118,9 +118,55 @@ describe("getNxtActionSummaryByWorkspaceUser", () => {
       fiscalYearEnd: "2027-06-30",
     });
 
-    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(1);
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
     expect(listBlackbaudActionsMock).toHaveBeenCalled();
     expect(results.get(22)?.actionsThisFY).toBe(1);
     expect(results.get(22)?.actions?.[0]?.summary).toBe("Legacy action payload");
+  });
+
+  it("keeps searching candidate connections until it finds the one with in-range FY actions", async () => {
+    executeBlackbaudListQueryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "action-7",
+          action_date: "2026-08-14",
+          fundraisers: [{ constituent_id: "436887" }],
+          constituent_summary: {
+            system_record_id: "186057",
+            formatted_name: "Leslie M. Redd",
+          },
+          type: { description: "Visit" },
+          action_summary: {
+            note_summary: "FY27 match from second connection",
+          },
+        },
+      ]);
+    listBlackbaudActionsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const results = await getNxtActionSummaryByWorkspaceUser({
+      workspaceUsers: [
+        {
+          id: 22,
+          blackbaud_constituent_id: "186057",
+          blackbaud_lookup_id: "436887",
+          blackbaud_fundraiser_alias_ids: [],
+        },
+      ],
+      authUserId: 7,
+      origin: "https://www.jumgogpt.app",
+      fiscalYearStart: "2026-07-01",
+      fiscalYearEnd: "2027-06-30",
+    });
+
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
+    expect(results.get(22)?.actionsThisFY).toBe(1);
+    expect(results.get(22)?.actions?.[0]?.summary).toBe(
+      "FY27 match from second connection",
+    );
   });
 });
