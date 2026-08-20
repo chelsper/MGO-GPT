@@ -1591,30 +1591,42 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
                     </>
                   ) : (
                     <>
-                      <label style={{ display: "grid", gap: "5px", color: "#374151", fontWeight: 800 }}>
-                        Primary {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"}
-                        <select
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          color: "#166534",
+                          fontWeight: 900,
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
                           name={`contact-primary-${row.rowNumber}-${section.kind}-${index}`}
-                          value={makePrimary ? "csv" : "keep"}
+                          checked={makePrimary}
                           onChange={(event) =>
                             onDecisionChange(
                               row.rowNumber,
                               section.kind,
                               index,
-                              { makePrimary: event.target.value === "csv" },
+                              { makePrimary: event.target.checked },
                               section.values.length,
                             )
                           }
-                          style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
-                        >
-                          <option value="keep">
-                            Keep {primary ? `${getContactValue(primary, section.kind)} as primary` : "the current primary setting"}
-                          </option>
-                          <option value="csv">
-                            Change {getIncomingContactValue(incoming, section.kind)} to primary
-                          </option>
-                        </select>
+                          style={{ width: "18px", height: "18px" }}
+                        />
+                        <span>
+                          Make this CSV {section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"} primary
+                        </span>
                       </label>
+                      <div style={{ color: "#166534", fontSize: "14px", lineHeight: 1.4 }}>
+                        {makePrimary
+                          ? `The CSV value will become the primary ${section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"}.`
+                          : primary
+                            ? `${getContactValue(primary, section.kind)} will stay primary.`
+                            : `The new ${section.kind === "email" ? "email address" : section.kind === "phone" ? "phone number" : "address"} will be added without changing the primary designation.`}
+                      </div>
                       {makePrimary && primary ? (
                         <div style={{ display: "grid", gap: "6px", padding: "10px", borderRadius: "10px", backgroundColor: "#DCFCE7", color: "#166534" }}>
                           <div style={{ fontWeight: 800 }}>
@@ -2511,7 +2523,11 @@ function CsvRowEditor({
 }
 
 function isUnresolvedImportRow(row) {
-  return row?.status !== "Applied" && row?.status !== "Skipped";
+  return (
+    row?.status !== "Applied" &&
+    row?.status !== "Skipped" &&
+    !(row?.intentDisposition?.key === "ready_new" && !row?.createdBlackbaudConstituentId)
+  );
 }
 
 function getRowReviewRequirements(row) {
@@ -2611,6 +2627,7 @@ export default function ConstituencyImportPage() {
   const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
   const [showBatchTools, setShowBatchTools] = useState(false);
   const [reviewMode, setReviewMode] = useState(true);
+  const [startingReviewMode, setStartingReviewMode] = useState(false);
   const [focusedRowId, setFocusedRowId] = useState("");
   const [reconcilingRun, setReconcilingRun] = useState(false);
   const [creatingRowId, setCreatingRowId] = useState("");
@@ -2814,7 +2831,8 @@ export default function ConstituencyImportPage() {
     preview?.savedRun && Array.isArray(preview?.rows)
       ? preview.rows.filter(
           (row) =>
-            row.intentDisposition?.key === "potential_new" &&
+            (row.intentDisposition?.key === "potential_new" ||
+              row.intentDisposition?.key === "ready_new") &&
             !row.createdBlackbaudConstituentId,
         ).length
       : 0;
@@ -3432,6 +3450,33 @@ export default function ConstituencyImportPage() {
       setError(saveError instanceof Error ? saveError.message : "Failed to save this review.");
     } finally {
       setSavingReviewOnlyRowId("");
+    }
+  }
+
+  async function startSavedRunReview() {
+    if (savingRun || previewing || startingReviewMode || preview?.savedRun?.id) return;
+
+    setStartingReviewMode(true);
+    setError("");
+    setSaveMessage("");
+    try {
+      const savedPayload = await requestPreview({ saveRun: true, scrollToResults: false });
+      const nextRow = getReviewQueueRows(savedPayload?.rows)[0] || savedPayload?.rows?.[0] || null;
+      if (nextRow?.id) {
+        setReviewMode(true);
+        focusImportRow(nextRow.id);
+      }
+      setSaveMessage(
+        savedPayload?.savedRun?.id
+          ? `Saved import run #${savedPayload.savedRun.id}. Review is ready and you can move record by record without re-saving first.`
+          : "Saved the import review.",
+      );
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error ? saveError.message : "Failed to start the saved review.",
+      );
+    } finally {
+      setStartingReviewMode(false);
     }
   }
 
@@ -5985,16 +6030,37 @@ export default function ConstituencyImportPage() {
               {!preview?.savedRun ? (
                 <button
                   type="button"
+                  onClick={() => startSavedRunReview()}
+                  disabled={savingRun || startingReviewMode}
+                  style={{
+                    border: "1px solid #1D4ED8",
+                    borderRadius: "14px",
+                    backgroundColor:
+                      savingRun || startingReviewMode ? "#DBEAFE" : "#EFF6FF",
+                    color: savingRun || startingReviewMode ? "#64748B" : "#1D4ED8",
+                    padding: "12px 16px",
+                    fontWeight: 900,
+                    cursor: savingRun || startingReviewMode ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {savingRun || startingReviewMode
+                    ? "Preparing row review..."
+                    : "Start row-by-row review"}
+                </button>
+              ) : null}
+              {!preview?.savedRun ? (
+                <button
+                  type="button"
                   onClick={() => requestPreview({ saveRun: true })}
-                  disabled={savingRun}
+                  disabled={savingRun || startingReviewMode}
                   style={{
                     border: "1px solid #A7F3D0",
                     borderRadius: "14px",
-                    backgroundColor: savingRun ? "#E5E7EB" : "#ECFDF5",
-                    color: savingRun ? "#64748B" : "#047857",
+                    backgroundColor: savingRun || startingReviewMode ? "#E5E7EB" : "#ECFDF5",
+                    color: savingRun || startingReviewMode ? "#64748B" : "#047857",
                     padding: "12px 16px",
                     fontWeight: 900,
-                    cursor: savingRun ? "not-allowed" : "pointer",
+                    cursor: savingRun || startingReviewMode ? "not-allowed" : "pointer",
                   }}
                 >
                   {savingRun ? "Saving batch review..." : "Save review for batch"}
@@ -6053,7 +6119,7 @@ export default function ConstituencyImportPage() {
             >
               <strong>Choose how to continue</strong>
               <span>
-                Review a ready row below, then use <strong>Confirm and send to NXT</strong> to save the audit run and update that one record now. Use <strong>Save review for batch</strong> only when you want to confirm several rows first and send them together later. Saving alone never changes NXT.
+                Use <strong>Start row-by-row review</strong> when you want the audit run saved up front so the first record moves faster. Use <strong>Save review for batch</strong> only when you want to confirm several rows first and send them together later. Saving alone never changes NXT.
               </span>
             </div>
           ) : null}
@@ -6120,7 +6186,7 @@ export default function ConstituencyImportPage() {
                           ? `${rowsNeedingAttention} record${rowsNeedingAttention === 1 ? " needs" : "s need"} attention before anything can be sent to NXT. Open the highlighted record below to resolve the required review.`
                           : "No reviewed updates are ready to send from this run."}
                     {potentialNewRows
-                      ? ` ${potentialNewRows} potential new record${potentialNewRows === 1 ? " requires" : "s require"} separate individual review below.`
+                      ? ` ${potentialNewRows} unmatched row${potentialNewRows === 1 ? " is" : "s are"} available for new-record handling below.`
                       : ""}
                   </div>
                 </div>
@@ -6374,11 +6440,18 @@ export default function ConstituencyImportPage() {
                   preview?.savedRun &&
                     row.status === "Ready" &&
                     !row.appliedAt &&
+                    row.intentDisposition?.key !== "ready_new" &&
                     !hasUnselectedConstituencyReplacement,
+                );
+                const canCreateReadyNewRow = Boolean(
+                  preview?.savedRun &&
+                    row.intentDisposition?.key === "ready_new" &&
+                    !row.createdBlackbaudConstituentId,
                 );
                 const canDirectSendPreviewRow = Boolean(
                   !preview?.savedRun &&
                     row.status === "Ready" &&
+                    row.intentDisposition?.key !== "ready_new" &&
                     !row.appliedAt &&
                     Array.isArray(row.writePlan) &&
                     row.writePlan.length &&
@@ -6417,7 +6490,11 @@ export default function ConstituencyImportPage() {
                 const isSkippingThisRow =
                   skippingRowId === String(row.id || row.rowNumber);
                 const rowReadyToSend = canApplyRow || canDirectSendPreviewRow;
-                const rowNeedsReviewAction = !rowReadyToSend && !canVerifyRow && !isSkippedRow;
+                const rowNeedsReviewAction =
+                  !rowReadyToSend &&
+                  !canCreateReadyNewRow &&
+                  !canVerifyRow &&
+                  !isSkippedRow;
                 const applyRowSelected = selectedApplyRowIds.includes(String(row.id));
                 const isFocusedRow = String(row.id) === String(focusedReviewRow?.id);
                 const isEditingThisRow =
@@ -6425,7 +6502,12 @@ export default function ConstituencyImportPage() {
                 const editableFields = selectedFields.filter((field) => headers.includes(field.header));
                 const nxtProfileUrl = getImportRowConstituentProfileUrl(row);
                 const canOpenMatchedConstituent = Boolean(
-                  nxtProfileUrl && row.intentDisposition?.key !== "potential_new",
+                  nxtProfileUrl &&
+                    row.intentDisposition?.key !== "potential_new" &&
+                    !(
+                      row.intentDisposition?.key === "ready_new" &&
+                      !row.createdBlackbaudConstituentId
+                    ),
                 );
                 return (
                   <article
@@ -6463,7 +6545,8 @@ export default function ConstituencyImportPage() {
                         <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
                           {row.match?.name
                             ? `Matched to ${row.match.name}${row.match.lookupId ? ` · Lookup ID ${row.match.lookupId}` : ""}`
-                            : row.intentDisposition?.key === "potential_new"
+                            : row.intentDisposition?.key === "potential_new" ||
+                                row.intentDisposition?.key === "ready_new"
                               ? "No likely NXT match found"
                               : "No NXT match selected"}
                         </p>
@@ -6485,7 +6568,7 @@ export default function ConstituencyImportPage() {
                         <Pill tone="neutral">{row.confidence}% confidence</Pill>
                         <Pill tone="blue">{row.matchMethod}</Pill>
                         {row.intentDisposition?.label ? (
-                          <Pill tone={row.intentDisposition.key === "potential_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" ? "amber" : "green"}>
+                          <Pill tone={row.intentDisposition.key === "potential_new" || row.intentDisposition.key === "ready_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" ? "amber" : "green"}>
                             {row.intentDisposition.label}
                           </Pill>
                         ) : null}
@@ -6858,6 +6941,8 @@ export default function ConstituencyImportPage() {
                           border: `1px solid ${
                             rowReadyToSend
                               ? "#6EE7B7"
+                              : canCreateReadyNewRow
+                              ? "#6EE7B7"
                               : canVerifyRow
                                 ? "#7DD3FC"
                                 : isSkippedRow
@@ -6869,6 +6954,8 @@ export default function ConstituencyImportPage() {
                           borderRadius: "12px",
                           backgroundColor: rowReadyToSend
                             ? "#F0FDF4"
+                            : canCreateReadyNewRow
+                              ? "#F0FDF4"
                             : canVerifyRow
                               ? "#F0F9FF"
                               : isSkippedRow
@@ -6890,6 +6977,8 @@ export default function ConstituencyImportPage() {
                             gap: "5px",
                             color: rowReadyToSend
                               ? "#166534"
+                              : canCreateReadyNewRow
+                                ? "#166534"
                               : canVerifyRow
                                 ? "#075985"
                                 : isSkippedRow
@@ -6902,6 +6991,8 @@ export default function ConstituencyImportPage() {
                           <strong>
                             {rowReadyToSend
                               ? "Review complete: ready to send"
+                              : canCreateReadyNewRow
+                                ? "Clean new record: ready to create"
                               : canVerifyRow
                                 ? "NXT update complete"
                                 : isSkippedRow
@@ -6917,6 +7008,8 @@ export default function ConstituencyImportPage() {
                               ? preview?.savedRun
                                 ? `Send only this record to NXT. Its outcome stays in import run #${preview.savedRun.id}.`
                                 : "Confirming saves the audit run, then sends only this reviewed record to NXT."
+                              : canCreateReadyNewRow
+                                ? "This unmatched row can skip manual review and move straight to the guarded new-record create step."
                               : canVerifyRow
                                 ? "The NXT write is recorded in this import run. Recheck this record only if you want an immediate verification result."
                                 : isSkippedRow
@@ -6970,6 +7063,28 @@ export default function ConstituencyImportPage() {
                               : applyingRun
                                 ? "Sending to NXT..."
                                 : "Confirm and send to NXT"}
+                          </button>
+                        ) : canCreateReadyNewRow ? (
+                          <button
+                            type="button"
+                            onClick={() => createReviewedNxtRecord(row)}
+                            disabled={Boolean(creatingRowId)}
+                            style={{
+                              border: "1px solid #1D4ED8",
+                              borderRadius: "999px",
+                              backgroundColor:
+                                creatingRowId === String(row.id) ? "#DBEAFE" : "#1D4ED8",
+                              color:
+                                creatingRowId === String(row.id) ? "#1E40AF" : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor:
+                                creatingRowId === String(row.id) ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {creatingRowId === String(row.id)
+                              ? "Creating NXT record..."
+                              : "Create new NXT record"}
                           </button>
                         ) : canVerifyRow ? (
                           <button

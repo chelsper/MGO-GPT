@@ -1732,6 +1732,15 @@ function classifyImportRow(importIntent, matchResult, status) {
           "A possible NXT match was found. Resolve the duplicate check before treating this row as a new constituent.",
       };
     }
+    if (status === STATUS.ready || status === STATUS.skipped) {
+      return {
+        key: "ready_new",
+        label: "Ready new record",
+        allowApply: true,
+        message:
+          "No likely NXT record was found, and this row is clean enough to create as a new constituent after one final duplicate check.",
+      };
+    }
     return {
       key: "potential_new",
       label: "Potential new record",
@@ -1760,6 +1769,15 @@ function classifyImportRow(importIntent, matchResult, status) {
         allowApply: false,
         message:
           "A possible NXT match was found. Resolve the match before deciding whether this row updates an existing record or becomes a new-record candidate.",
+      };
+    }
+    if (status === STATUS.ready || status === STATUS.skipped) {
+      return {
+        key: "ready_new",
+        label: "Ready new record",
+        allowApply: true,
+        message:
+          "No likely NXT record was found, and this row is clean enough to create as a new constituent after one final duplicate check.",
       };
     }
     return {
@@ -2201,7 +2219,11 @@ export async function POST(request) {
         writePlan,
       );
       const intentDisposition = classifyImportRow(importIntent, matchResult, initialStatus);
-      const status = intentDisposition.allowApply ? initialStatus :
+      const status =
+        intentDisposition.key === "ready_new"
+          ? STATUS.ready
+          : intentDisposition.allowApply
+            ? initialStatus :
         initialStatus === STATUS.conflict ? STATUS.conflict :
         initialStatus === STATUS.skipped && intentDisposition.key === "other" ? STATUS.skipped :
         STATUS.needsReview;
