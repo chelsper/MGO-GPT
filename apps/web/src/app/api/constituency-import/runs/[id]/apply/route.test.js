@@ -916,6 +916,69 @@ describe("constituency import run apply route", () => {
     expect(payload.rows[0].blackbaudResult.results).toEqual(savedResult.results);
   });
 
+  it("includes address endpoint diagnostics when Blackbaud rejects an address write", async () => {
+    const { POST } = await import("./route.js");
+    const addWrite = {
+      type: "address",
+      action: "add",
+      addressLine1: "15795 Baxter Creek Dr.",
+      city: "Jacksonville",
+      state: "FL",
+      postalCode: "32218",
+      country: "United States",
+      addressType: "Home",
+      makePrimary: true,
+      validFrom: "2024-01-10",
+    };
+    const row = {
+      id: "29",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [addWrite],
+      preview: {
+        input: {},
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [addWrite],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Failed" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ status: "previewed", failed_count: 1, ready_count: 0 })])
+      .mockResolvedValueOnce([{ ...row, status: "Failed", blackbaud_error: "Blackbaud 400 Bad Request" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockRejectedValueOnce(new Error("Blackbaud 400 Bad Request"));
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+    const savedAudit = getSavedApplyAudit();
+
+    expect(response.status).toBe(200);
+    expect(payload.applySummary.failed).toBe(1);
+    expect(savedAudit.results[0].status).toBe("failed");
+    expect(savedAudit.results[0].diagnostic).toEqual({
+      endpoint: "/constituent/v1/addresses",
+      payload: {
+        constituent_id: "123",
+        address_lines: "15795 Baxter Creek Dr.",
+        city: "Jacksonville",
+        state: "FL",
+        postal_code: "32218",
+        country: "United States",
+        valid_from: "2024-01-10",
+        type: "Home",
+        primary: true,
+      },
+    });
+  });
+
   it("deletes the reviewed source code and creates the target code", async () => {
     const { POST } = await import("./route.js");
     const write = {

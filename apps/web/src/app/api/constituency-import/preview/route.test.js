@@ -725,6 +725,93 @@ describe("constituency import preview route", () => {
     ]);
   });
 
+  it("defaults near-matching addresses to no action and defaults demoted primary addresses to Previous Address", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "address-home",
+            address_lines: ["8983 Craven Rd."],
+            city: "Jacksonville",
+            state: "FL",
+            postal_code: "32257-5050",
+            type: "Home",
+            primary: true,
+          },
+          {
+            id: "address-old-primary",
+            address_lines: ["PO Box 9334"],
+            city: "Jacksonville",
+            state: "FL",
+            postal_code: "32208-0334",
+            type: "Home",
+            primary: true,
+          },
+        ],
+      });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Address Line 1": "8983 Craven Rd.",
+            City: "Jacksonville",
+            State: "FL",
+            "Postal Code": "32257",
+            "Address Type": "Home",
+          },
+          {
+            "NXT Lookup ID": "440085",
+            "Address Line 1": "15795 Baxter Creek Dr.",
+            City: "Jacksonville",
+            State: "FL",
+            "Postal Code": "32218",
+            "Address Type": "Home",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          addressLine1: "Address Line 1",
+          city: "City",
+          state: "State",
+          postalCode: "Postal Code",
+          addressType: "Address Type",
+        },
+        defaults: { updateAddressFields: true },
+        contactDecisions: {
+          2: {
+            address: {
+              0: {
+                makePrimary: true,
+              },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].writePlan).toEqual([]);
+    expect(payload.rows[1].writePlan).toEqual([
+      expect.objectContaining({
+        type: "address",
+        action: "add",
+        addressLine1: "15795 Baxter Creek Dr.",
+        demotedPrimaryType: "Previous Address",
+      }),
+    ]);
+  });
+
   it("omits an individual text update when the reviewer selects take no action", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({

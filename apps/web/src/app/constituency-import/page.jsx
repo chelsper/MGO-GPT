@@ -1104,6 +1104,21 @@ function formatApplyResultItem(result) {
   return result.message || result.status || "Apply result recorded.";
 }
 
+function formatApplyDiagnostic(result) {
+  const diagnostic = result?.diagnostic;
+  if (!diagnostic || typeof diagnostic !== "object") return "";
+  const parts = [];
+  if (diagnostic.endpoint) parts.push(String(diagnostic.endpoint));
+  if (diagnostic.payload) {
+    try {
+      parts.push(`payload ${JSON.stringify(diagnostic.payload)}`);
+    } catch {
+      parts.push("payload unavailable");
+    }
+  }
+  return parts.join(" · ");
+}
+
 function renderApplyAudit(result) {
   const attempts = Array.isArray(result?.attempts)
     ? result.attempts
@@ -7065,7 +7080,20 @@ export default function ConstituencyImportPage() {
                               lineHeight: 1.4,
                             }}
                           >
-                            {formatApplyResultItem(result)}
+                            <div>{formatApplyResultItem(result)}</div>
+                            {result.status === "failed" && formatApplyDiagnostic(result) ? (
+                              <div
+                                style={{
+                                  marginTop: "4px",
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                  color: "#7F1D1D",
+                                  wordBreak: "break-word",
+                                }}
+                              >
+                                Diagnostic: {formatApplyDiagnostic(result)}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>

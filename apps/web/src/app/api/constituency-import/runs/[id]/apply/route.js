@@ -1038,6 +1038,12 @@ async function updateExistingContact({ request, user, path, payload }) {
   });
 }
 
+function attachWriteDiagnostic(error, diagnostic) {
+  if (!error || typeof error !== "object") return error;
+  error.diagnostic = diagnostic;
+  return error;
+}
+
 function manualContactResult(type, action, message) {
   return { status: "manual_required", type, action, message };
 }
@@ -1396,12 +1402,19 @@ async function applyAddressUpdate({ request, user, row, write }) {
     if (duplicate) {
       return manualContactResult("address", action, `${addressLine1} already exists as a different NXT address.`);
     }
-    const result = await updateExistingContact({
-      request,
-      user,
-      path: `/constituent/v1/addresses/${encodeURIComponent(targetId)}`,
-      payload: getAddressPayload(write, constituentId, { existing: true }),
-    });
+    const endpoint = `/constituent/v1/addresses/${encodeURIComponent(targetId)}`;
+    const payload = getAddressPayload(write, constituentId, { existing: true });
+    let result;
+    try {
+      result = await updateExistingContact({
+        request,
+        user,
+        path: endpoint,
+        payload,
+      });
+    } catch (error) {
+      throw attachWriteDiagnostic(error, { endpoint, payload });
+    }
     return {
       status: "applied",
       type: "address",
@@ -1420,13 +1433,20 @@ async function applyAddressUpdate({ request, user, row, write }) {
   if (demotion?.stale) {
     return manualContactResult("address", action, "The NXT primary address changed after preview. Refresh the preview before applying.");
   }
-  const result = await blackbaudApiFetch("/constituent/v1/addresses", {
-    userId: user.id,
-    authUserId: user.id,
-    origin: new URL(request.url).origin,
-    method: "POST",
-    body: getAddressPayload(write, constituentId),
-  });
+  const endpoint = "/constituent/v1/addresses";
+  const payload = getAddressPayload(write, constituentId);
+  let result;
+  try {
+    result = await blackbaudApiFetch(endpoint, {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "POST",
+      body: payload,
+    });
+  } catch (error) {
+    throw attachWriteDiagnostic(error, { endpoint, payload });
+  }
   return {
     status: "applied",
     type: "address",
@@ -1464,15 +1484,22 @@ async function applyAddressPreviousUpdate({ request, user, row, write }) {
       "The selected current NXT address is no longer available. Refresh the preview before applying.",
     );
   }
-  const result = await updateExistingContact({
-    request,
-    user,
-    path: getContactEndpoint("address", targetId),
-    payload: {
-      type: "Previous Address",
-      valid_to: formatDateForBlackbaud(validTo),
-    },
-  });
+  const endpoint = getContactEndpoint("address", targetId);
+  const payload = {
+    type: "Previous Address",
+    valid_to: formatDateForBlackbaud(validTo),
+  };
+  let result;
+  try {
+    result = await updateExistingContact({
+      request,
+      user,
+      path: endpoint,
+      payload,
+    });
+  } catch (error) {
+    throw attachWriteDiagnostic(error, { endpoint, payload });
+  }
   return {
     status: "applied",
     type: "address",
@@ -1877,6 +1904,10 @@ function createFailedWriteResult(write, writeIndex, error) {
     action: write?.action || "apply",
     writeIndex,
     message: error instanceof Error ? error.message : "NXT rejected this staged write.",
+    diagnostic:
+      error && typeof error === "object" && error.diagnostic && typeof error.diagnostic === "object"
+        ? error.diagnostic
+        : null,
   };
 }
 

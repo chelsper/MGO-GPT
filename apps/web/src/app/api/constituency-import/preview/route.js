@@ -60,6 +60,32 @@ function normalizeText(value) {
     .trim();
 }
 
+function normalizePostalCode(value) {
+  return cleanText(value).replace(/[^0-9a-z]/gi, "").toLowerCase();
+}
+
+function addressesNearlyMatch(currentAddress, proposedAddress) {
+  if (!currentAddress || !proposedAddress) return false;
+
+  const currentLine1 = normalizeText(currentAddress.addressLine1);
+  const proposedLine1 = normalizeText(proposedAddress.addressLine1);
+  if (!currentLine1 || !proposedLine1 || currentLine1 !== proposedLine1) return false;
+
+  const currentCity = normalizeText(currentAddress.city);
+  const proposedCity = normalizeText(proposedAddress.city);
+  if (currentCity && proposedCity && currentCity !== proposedCity) return false;
+
+  const currentState = normalizeText(currentAddress.state);
+  const proposedState = normalizeText(proposedAddress.state);
+  if (currentState && proposedState && currentState !== proposedState) return false;
+
+  const currentPostal = normalizePostalCode(currentAddress.postalCode).slice(0, 5);
+  const proposedPostal = normalizePostalCode(proposedAddress.postalCode).slice(0, 5);
+  if (currentPostal && proposedPostal && currentPostal !== proposedPostal) return false;
+
+  return true;
+}
+
 function parseBoolean(value) {
   const normalized = normalizeText(value);
   if (["true", "yes", "y", "1"].includes(normalized)) return true;
@@ -674,6 +700,10 @@ function buildContactWrites({
   return values.map((value, index) => {
     const decision = getDecision(decisions, kind, index);
     if (decision.mode === "skip") return null;
+    if (kind === "address" && !cleanText(decision.mode)) {
+      const nearMatch = contacts.find((contact) => addressesNearlyMatch(contact, value));
+      if (nearMatch) return null;
+    }
     const action = decision.mode === "replace" ? "replace" : "add";
     const targetId = cleanText(decision.targetId);
     const makePrimary =
@@ -689,7 +719,10 @@ function buildContactWrites({
       [config.typeKey]: value.type || "",
       makePrimary,
       existingPrimaryId: existingPrimary?.id || "",
-      demotedPrimaryType: cleanText(decision.demotedPrimaryType),
+      demotedPrimaryType:
+        kind === "address" && makePrimary
+          ? cleanText(decision.demotedPrimaryType) || "Previous Address"
+          : cleanText(decision.demotedPrimaryType),
       blankValuePolicy: "leave_unchanged",
     };
 
