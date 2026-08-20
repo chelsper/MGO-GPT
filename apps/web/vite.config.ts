@@ -13,6 +13,21 @@ import { nextPublicProcessEnv } from './plugins/nextPublicProcessEnv';
 import { restart } from './plugins/restart';
 import { restartEnvFileChange } from './plugins/restartEnvFileChange';
 
+function isBenignSourcemapResolutionWarning(warning: unknown) {
+  const text = [
+    typeof warning === 'string' ? warning : '',
+    warning && typeof warning === 'object' && 'message' in warning ? String(warning.message) : '',
+    warning && typeof warning === 'object' && 'frame' in warning ? String(warning.frame) : '',
+  ]
+    .join('\n')
+    .toLowerCase();
+
+  return (
+    text.includes('error when using sourcemap for reporting an error') &&
+    text.includes("can't resolve original location of error")
+  );
+}
+
 export default defineConfig(({ isSsrBuild, mode }) => ({
   // Keep them available via import.meta.env.NEXT_PUBLIC_*
   envPrefix: 'NEXT_PUBLIC_',
@@ -84,6 +99,12 @@ export default defineConfig(({ isSsrBuild, mode }) => ({
       ? {
           // Ensure Vercel SSR uses the custom Hono server entrypoint.
           input: './__create/index.ts',
+          onwarn(warning, warn) {
+            if (isBenignSourcemapResolutionWarning(warning)) {
+              return;
+            }
+            warn(warning);
+          },
         }
       : undefined,
   },
