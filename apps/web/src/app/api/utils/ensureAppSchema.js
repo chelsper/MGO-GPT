@@ -1359,8 +1359,22 @@ export default async function ensureAppSchema() {
       ON prospects (user_id, status, priority_order, created_at DESC)
     `;
     await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospects_user_active_priority
+      ON prospects (user_id, priority_order, created_at DESC)
+      WHERE status = 'Active'
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospects_user_active_updated
+      ON prospects (user_id, updated_at DESC)
+      WHERE status = 'Active'
+    `;
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_prospects_user_constituent
       ON prospects (user_id, constituent_id)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospects_user_constituent_updated
+      ON prospects (user_id, constituent_id, updated_at DESC, created_at DESC)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_prospect_status
@@ -1369,6 +1383,10 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_prospect_close
       ON prospect_opportunities (prospect_id, close_date)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_opportunities_prospect_updated_created
+      ON prospect_opportunities (prospect_id, updated_at DESC, created_at DESC)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_prospect_opportunity_gift_links_opportunity
@@ -1381,6 +1399,10 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_prospect_updates_prospect_created
       ON prospect_updates (prospect_id, created_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_updates_prospect_date_created
+      ON prospect_updates (prospect_id, update_date DESC, created_at DESC)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_submissions_user_prospect_activity
@@ -1423,6 +1445,11 @@ export default async function ensureAppSchema() {
       ON pending_actions (owner_user_id, status, due_date, updated_at DESC)
     `;
     await sql`
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_open_due_prospect
+      ON pending_actions (owner_user_id, due_date, updated_at DESC, prospect_id)
+      WHERE status = 'Open'
+    `;
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_pending_actions_owner_category_status_due
       ON pending_actions (owner_user_id, category, status, due_date, updated_at DESC)
     `;
@@ -1445,6 +1472,10 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_data_change_requests_owner
       ON data_change_requests (owner_user_id, status, updated_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_prospect_pool_assigned_sync_updated
+      ON prospect_pool (assigned_user_id, solicitor_assignment_sync_state, updated_at DESC)
     `;
 
     await sql`
