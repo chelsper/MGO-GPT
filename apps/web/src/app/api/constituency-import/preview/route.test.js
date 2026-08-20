@@ -611,7 +611,11 @@ describe("constituency import preview route", () => {
     const duplicatePayload = await duplicateResponse.json();
 
     expect(duplicateResponse.status).toBe(200);
+    expect(duplicatePayload.rows[0].status).toBe("Skipped");
     expect(duplicatePayload.rows[0].writePlan).toEqual([]);
+    expect(duplicatePayload.rows[0].reasons).toContain(
+      "Matching NXT email already exists, so no email write will be sent.",
+    );
 
     const promoteResponse = await POST(
       makeRequest({
@@ -691,7 +695,11 @@ describe("constituency import preview route", () => {
     const duplicatePayload = await duplicateResponse.json();
 
     expect(duplicateResponse.status).toBe(200);
+    expect(duplicatePayload.rows[0].status).toBe("Skipped");
     expect(duplicatePayload.rows[0].writePlan).toEqual([]);
+    expect(duplicatePayload.rows[0].reasons).toContain(
+      "Matching NXT phone number already exists, so no phone write will be sent.",
+    );
 
     const promoteResponse = await POST(
       makeRequest({

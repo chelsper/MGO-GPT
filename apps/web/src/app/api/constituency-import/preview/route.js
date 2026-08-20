@@ -693,6 +693,7 @@ function buildContactWrites({
   values,
   contacts = [],
   decisions = {},
+  noopReasons = [],
 }) {
   if (!Array.isArray(values)) return [];
 
@@ -729,6 +730,7 @@ function buildContactWrites({
             blankValuePolicy: "leave_unchanged",
           };
         }
+        noopReasons.push("Matching NXT email already exists, so no email write will be sent.");
         return null;
       }
     }
@@ -747,12 +749,16 @@ function buildContactWrites({
             blankValuePolicy: "leave_unchanged",
           };
         }
+        noopReasons.push("Matching NXT phone number already exists, so no phone write will be sent.");
         return null;
       }
     }
     if (kind === "address" && !cleanText(decision.mode)) {
       const nearMatch = contacts.find((contact) => addressesNearlyMatch(contact, value));
-      if (nearMatch) return null;
+      if (nearMatch) {
+        noopReasons.push("Current NXT address already closely matches the CSV address, so no address write will be sent.");
+        return null;
+      }
     }
     const action = decision.mode === "replace" ? "replace" : "add";
     const targetId = cleanText(decision.targetId);
@@ -884,12 +890,14 @@ function buildPreviousAddressWrite({ contacts = [], decisions = {}, addressWrite
 }
 
 function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
+  const noopReasons = [];
   const emailWrites = buildContactWrites({
     input,
     kind: "email",
     values: input.emailUpdates,
     contacts: currentContacts?.emails,
     decisions: contactDecisions,
+    noopReasons,
   });
   const phoneWrites = buildContactWrites({
     input,
@@ -897,6 +905,7 @@ function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
     values: input.phoneUpdates,
     contacts: currentContacts?.phones,
     decisions: contactDecisions,
+    noopReasons,
   });
   const addressWrites = buildContactWrites({
     input,
@@ -904,6 +913,7 @@ function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
     values: input.addressUpdates,
     contacts: currentContacts?.addresses,
     decisions: contactDecisions,
+    noopReasons,
   });
   const emailPrimaryWrite = buildExistingPrimaryWrite({
     kind: "email",
@@ -923,14 +933,17 @@ function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
     addressWrites,
   });
 
-  return [
-    ...emailWrites,
-    emailPrimaryWrite,
-    ...phoneWrites,
-    phonePrimaryWrite,
-    ...addressWrites,
-    previousAddressWrite,
-  ].filter(Boolean);
+  return {
+    writes: [
+      ...emailWrites,
+      emailPrimaryWrite,
+      ...phoneWrites,
+      phonePrimaryWrite,
+      ...addressWrites,
+      previousAddressWrite,
+    ].filter(Boolean),
+    noopReasons: [...new Set(noopReasons)],
+  };
 }
 
 function getEducationId(value) {
@@ -1188,6 +1201,7 @@ function buildWritePlan(
   currentEducations = null,
 ) {
   const writes = [];
+  const reasons = [];
 
   const hasReplaceSourceCandidates =
     input.action === "replace" && Array.isArray(changePreview.sourceCandidates) &&
@@ -1246,9 +1260,11 @@ function buildWritePlan(
 
   writes.push(...buildNameFormatWrites(input, currentNameFormats, fieldDecisions));
 
-  writes.push(...buildContactUpdateWrites(input, currentContacts, contactDecisions));
+  const contactUpdatePreview = buildContactUpdateWrites(input, currentContacts, contactDecisions);
+  writes.push(...contactUpdatePreview.writes);
+  reasons.push(...contactUpdatePreview.noopReasons);
 
-  return writes;
+  return { writes, reasons: [...new Set(reasons)] };
 }
 
 function getConstituencyLabel(value) {
@@ -2106,7 +2122,7 @@ export async function POST(request) {
       }
 
       const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
-      const writePlan = buildWritePlan(
+      const { writes: writePlan, reasons: writePlanReasons } = buildWritePlan(
         input,
         changePreview,
         matchResult.match,
@@ -2169,6 +2185,7 @@ export async function POST(request) {
               "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting. Address Valid From is included when provided.",
             ]
           : []),
+        ...writePlanReasons,
         ...writePlan
           .filter((write) => write.validationMessage)
           .map((write) => write.validationMessage),
