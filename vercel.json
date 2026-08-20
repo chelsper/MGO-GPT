@@ -1,6 +1,6 @@
 {
   "framework": "react-router",
-  "installCommand": "cd apps/web && npm install",
+  "installCommand": "cd apps/web && npm ci --no-audit --no-fund",
   "buildCommand": "cd apps/web && npm run build",
   "crons": [
     {

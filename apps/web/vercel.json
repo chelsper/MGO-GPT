@@ -1,5 +1,5 @@
 {
   "framework": "react-router",
-  "installCommand": "npm install",
+  "installCommand": "npm ci --no-audit --no-fund",
   "buildCommand": "npm run build"
 }
