@@ -566,6 +566,166 @@ describe("constituency import preview route", () => {
     ]);
   });
 
+  it("skips duplicate email writes and promotes an existing matching email when the CSV marks it primary", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
+          { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [
+          { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
+          { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] });
+
+    const duplicateResponse = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Email Address": "jbender@ju.edu",
+            "Email Type": "Preferred Email 2",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          email: "Email Address",
+          emailType: "Email Type",
+        },
+        defaults: { updateEmailFields: true },
+      }),
+    );
+    const duplicatePayload = await duplicateResponse.json();
+
+    expect(duplicateResponse.status).toBe(200);
+    expect(duplicatePayload.rows[0].writePlan).toEqual([]);
+
+    const promoteResponse = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Email Address": "jbender@ju.edu",
+            "Email Type": "Preferred Email 2",
+            "Email Make Primary?": "Yes",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          email: "Email Address",
+          emailType: "Email Type",
+          emailMakePrimary: "Email Make Primary?",
+        },
+        defaults: { updateEmailFields: true },
+      }),
+    );
+    const promotePayload = await promoteResponse.json();
+
+    expect(promoteResponse.status).toBe(200);
+    expect(promotePayload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "email_address",
+        action: "set_primary",
+        targetId: "email-other",
+        existingPrimaryId: "email-primary",
+        demoteExistingPrimary: true,
+      }),
+    ]);
+  });
+
+  it("skips duplicate phone writes and promotes an existing matching phone when the CSV marks it primary", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [
+          { id: "phone-primary", number: "904-555-0100", type: "Home", primary: true },
+          { id: "phone-mobile", number: "(904) 555-0199", type: "Mobile", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({
+        value: [
+          { id: "phone-primary", number: "904-555-0100", type: "Home", primary: true },
+          { id: "phone-mobile", number: "(904) 555-0199", type: "Mobile", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [] });
+
+    const duplicateResponse = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Phone Number": "9045550199",
+            "Phone Type": "Mobile",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          phoneNumber: "Phone Number",
+          phoneType: "Phone Type",
+        },
+        defaults: { updatePhoneFields: true },
+      }),
+    );
+    const duplicatePayload = await duplicateResponse.json();
+
+    expect(duplicateResponse.status).toBe(200);
+    expect(duplicatePayload.rows[0].writePlan).toEqual([]);
+
+    const promoteResponse = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Phone Number": "9045550199",
+            "Phone Type": "Mobile",
+            "Phone Make Primary?": "Yes",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          phoneNumber: "Phone Number",
+          phoneType: "Phone Type",
+          phoneMakePrimary: "Phone Make Primary?",
+        },
+        defaults: { updatePhoneFields: true },
+      }),
+    );
+    const promotePayload = await promoteResponse.json();
+
+    expect(promoteResponse.status).toBe(200);
+    expect(promotePayload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "phone",
+        action: "set_primary",
+        targetId: "phone-mobile",
+        existingPrimaryId: "phone-primary",
+        demoteExistingPrimary: true,
+      }),
+    ]);
+  });
+
   it("omits a contact write when the reviewer selects take no action", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

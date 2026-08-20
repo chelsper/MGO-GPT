@@ -64,6 +64,14 @@ function normalizePostalCode(value) {
   return cleanText(value).replace(/[^0-9a-z]/gi, "").toLowerCase();
 }
 
+function normalizeEmailValue(value) {
+  return cleanText(value).toLowerCase();
+}
+
+function normalizePhoneValue(value) {
+  return cleanText(value).replace(/\D/g, "");
+}
+
 function addressesNearlyMatch(currentAddress, proposedAddress) {
   if (!currentAddress || !proposedAddress) return false;
 
@@ -700,18 +708,55 @@ function buildContactWrites({
   return values.map((value, index) => {
     const decision = getDecision(decisions, kind, index);
     if (decision.mode === "skip") return null;
+    const requestedMakePrimary =
+      decision.mode === "replace"
+        ? false
+        : decision.makePrimary === undefined
+          ? index === defaultPrimaryIndex
+          : decision.makePrimary === true;
+    if (!cleanText(decision.mode) && kind === "email") {
+      const matchingEmail = contacts.find(
+        (contact) => normalizeEmailValue(contact.address) === normalizeEmailValue(value.address),
+      );
+      if (matchingEmail) {
+        if (requestedMakePrimary && matchingEmail.id && !matchingEmail.primary) {
+          return {
+            type: "email_address",
+            action: "set_primary",
+            targetId: matchingEmail.id,
+            existingPrimaryId: existingPrimary?.id || "",
+            demoteExistingPrimary: Boolean(existingPrimary?.id && existingPrimary.id !== matchingEmail.id),
+            blankValuePolicy: "leave_unchanged",
+          };
+        }
+        return null;
+      }
+    }
+    if (!cleanText(decision.mode) && kind === "phone") {
+      const matchingPhone = contacts.find(
+        (contact) => normalizePhoneValue(contact.number) === normalizePhoneValue(value.number),
+      );
+      if (matchingPhone) {
+        if (requestedMakePrimary && matchingPhone.id && !matchingPhone.primary) {
+          return {
+            type: "phone",
+            action: "set_primary",
+            targetId: matchingPhone.id,
+            existingPrimaryId: existingPrimary?.id || "",
+            demoteExistingPrimary: Boolean(existingPrimary?.id && existingPrimary.id !== matchingPhone.id),
+            blankValuePolicy: "leave_unchanged",
+          };
+        }
+        return null;
+      }
+    }
     if (kind === "address" && !cleanText(decision.mode)) {
       const nearMatch = contacts.find((contact) => addressesNearlyMatch(contact, value));
       if (nearMatch) return null;
     }
     const action = decision.mode === "replace" ? "replace" : "add";
     const targetId = cleanText(decision.targetId);
-    const makePrimary =
-      action === "replace"
-        ? false
-        : decision.makePrimary === undefined
-          ? index === defaultPrimaryIndex
-          : decision.makePrimary === true;
+    const makePrimary = action === "replace" ? false : requestedMakePrimary;
     const write = {
       type: config.type,
       action,
