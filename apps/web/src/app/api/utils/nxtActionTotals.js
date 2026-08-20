@@ -369,7 +369,15 @@ async function listBlackbaudActionsWithFallback({
   origin,
   pageLimit,
   maxPages,
+  fiscalYearStart,
+  fiscalYearEnd,
 }) {
+  const startDate = fiscalYearStart
+    ? new Date(`${fiscalYearStart}T00:00:00Z`).getTime()
+    : Number.NaN;
+  const endDate = fiscalYearEnd
+    ? new Date(`${fiscalYearEnd}T23:59:59Z`).getTime()
+    : Number.NaN;
   const candidateUserIds = [];
   const seen = new Set();
 
@@ -381,8 +389,34 @@ async function listBlackbaudActionsWithFallback({
   }
 
   for (const candidateUserId of candidateUserIds) {
-    try {
-      const actions = await executeBlackbaudListQuery({
+    const attempts = [];
+
+    const runAttempt = async (source, loader) => {
+      try {
+        const actions = await loader();
+        const inRangeCount = actions.reduce((count, action) => {
+          return isDateInRange(getActionDate(action), startDate, endDate) ? count + 1 : count;
+        }, 0);
+        attempts.push({
+          source,
+          actions,
+          totalCount: actions.length,
+          inRangeCount,
+          error: null,
+        });
+      } catch (error) {
+        attempts.push({
+          source,
+          actions: [],
+          totalCount: 0,
+          inRangeCount: 0,
+          error: error instanceof Error ? error.message : String(error || "Unknown error"),
+        });
+      }
+    };
+
+    await runAttempt("list-v2-sorted", async () =>
+      executeBlackbaudListQuery({
         userId: candidateUserId,
         authUserId: candidateUserId,
         origin,
@@ -419,25 +453,67 @@ async function listBlackbaudActionsWithFallback({
         },
         limit: Math.min(pageLimit, 1000),
         maxPages,
-      });
-      return { actions, connectionUserId: candidateUserId };
-    } catch {
-      try {
-        const actions = await listBlackbaudActions({
-          userId: candidateUserId,
-          authUserId: candidateUserId,
-          origin,
-          pageLimit,
-          maxPages,
-        });
-        return { actions, connectionUserId: candidateUserId };
-      } catch {
-        // Try the next connected workspace user before giving up.
-      }
+      }),
+    );
+
+    await runAttempt("legacy-last-modified", async () =>
+      listBlackbaudActions({
+        userId: candidateUserId,
+        authUserId: candidateUserId,
+        origin,
+        searchParams: fiscalYearStart
+          ? {
+              last_modified: fiscalYearStart,
+            }
+          : undefined,
+        pageLimit,
+        maxPages,
+      }),
+    );
+
+    await runAttempt("legacy-default", async () =>
+      listBlackbaudActions({
+        userId: candidateUserId,
+        authUserId: candidateUserId,
+        origin,
+        pageLimit,
+        maxPages,
+      }),
+    );
+
+    const bestAttempt = attempts
+      .filter((attempt) => !attempt.error)
+      .sort((left, right) => {
+        if (right.inRangeCount !== left.inRangeCount) {
+          return right.inRangeCount - left.inRangeCount;
+        }
+        if (right.totalCount !== left.totalCount) {
+          return right.totalCount - left.totalCount;
+        }
+        return 0;
+      })[0];
+
+    if (bestAttempt) {
+      return {
+        actions: bestAttempt.actions,
+        connectionUserId: candidateUserId,
+        source: bestAttempt.source,
+        attempts: attempts.map((attempt) => ({
+          source: attempt.source,
+          totalCount: attempt.totalCount,
+          inRangeCount: attempt.inRangeCount,
+          error: attempt.error,
+        })),
+      };
     }
   }
 
-  return { actions: [], connectionUserId: Number(authUserId) || null };
+  return {
+    actions: [],
+    connectionUserId: Number(authUserId) || null,
+    source: "none",
+    attempts: [],
+  };
 }
 
 export async function getNxtActionSummaryByWorkspaceUser({
@@ -471,6 +547,8 @@ export async function getNxtActionSummaryByWorkspaceUser({
     origin,
     pageLimit: 250,
     maxPages: 20,
+    fiscalYearStart,
+    fiscalYearEnd,
   });
   const resolvedNameCache = new Map();
 
@@ -568,21 +646,32 @@ export async function getNxtActionSummaryDiagnostic({
 
   const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
-  const { actions, connectionUserId } = await listBlackbaudActionsWithFallback({
+  const { actions, connectionUserId, source, attempts } = await listBlackbaudActionsWithFallback({
     authUserId,
     normalizedUsers,
     origin,
     pageLimit: 250,
     maxPages: 40,
+    fiscalYearStart,
+    fiscalYearEnd,
   });
   const resolvedNameCache = new Map();
   const samples = [];
+  const fetchedDateSamples = [];
   const matchedByUserId = new Map();
   const noFundraiserCount = { count: 0 };
   const outOfRangeCount = { count: 0 };
 
   for (const action of actions) {
     const actionDate = getActionDate(action);
+    if (fetchedDateSamples.length < 20) {
+      fetchedDateSamples.push({
+        actionId: getActionId(action) || null,
+        date: actionDate || null,
+        category: getActionCategory(action) || null,
+        constituentName: getActionConstituentName(action) || null,
+      });
+    }
     const inRange = isDateInRange(actionDate, startDate, endDate);
     if (!inRange) {
       outOfRangeCount.count += 1;
@@ -657,9 +746,12 @@ export async function getNxtActionSummaryDiagnostic({
       end: fiscalYearEnd,
     },
     connectionUserId: connectionUserId || authUserId || null,
+    source,
+    attempts,
     totalActionsFetched: actions.length,
     outOfRangeCount: outOfRangeCount.count,
     noFundraiserCount: noFundraiserCount.count,
+    fetchedDateSamples,
     workspaceUsers: normalizedUsers.map((user) => ({
       id: Number(user.id),
       name: user.name || null,

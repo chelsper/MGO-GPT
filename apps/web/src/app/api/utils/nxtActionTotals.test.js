@@ -72,7 +72,7 @@ describe("getNxtActionSummaryByWorkspaceUser", () => {
         authUserId: 22,
       }),
     );
-    expect(listBlackbaudActionsMock).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudActionsMock).toHaveBeenCalled();
 
     expect(results.get(22)).toEqual({
       actionsThisFY: 1,
@@ -119,7 +119,7 @@ describe("getNxtActionSummaryByWorkspaceUser", () => {
     });
 
     expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(1);
-    expect(listBlackbaudActionsMock).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudActionsMock).toHaveBeenCalled();
     expect(results.get(22)?.actionsThisFY).toBe(1);
     expect(results.get(22)?.actions?.[0]?.summary).toBe("Legacy action payload");
   });
