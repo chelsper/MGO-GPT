@@ -1518,7 +1518,7 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
                             Keep {primary ? `${getContactValue(primary, section.kind)} as primary` : "the current primary setting"}
                           </option>
                           <option value="csv">
-                            Change {getContactValue(value, section.kind)} to primary
+                            Change {getIncomingContactValue(incoming, section.kind)} to primary
                           </option>
                         </select>
                       </label>
