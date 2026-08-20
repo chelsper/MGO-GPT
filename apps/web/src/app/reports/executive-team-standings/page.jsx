@@ -266,7 +266,7 @@ export default function ExecutiveTeamStandingsPage() {
                   <div style={{ borderTop: "1px solid #E2E8F0", display: "grid", gap: "12px", marginTop: "18px", paddingTop: "18px" }}>
                     <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "space-between" }}>
                       <div style={{ color: "#475569", fontSize: "14px", lineHeight: 1.45 }}>
-                        Show the exact active prospects and open opportunities behind this standing.
+                        Break this out into active prospects, open opportunities, and attributed NXT actions.
                       </div>
                       <button
                         type="button"
@@ -288,7 +288,7 @@ export default function ExecutiveTeamStandingsPage() {
                           padding: "8px 12px",
                         }}
                       >
-                        {isExpanded ? "Hide underlying records" : "Show underlying records"}
+                        {isExpanded ? "Hide breakout details" : "Show breakout details"}
                       </button>
                     </div>
 
