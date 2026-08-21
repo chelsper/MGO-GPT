@@ -2636,6 +2636,8 @@ export default function ConstituencyImportPage() {
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
   const lastReadFileRef = useRef(null);
+  const previewRequestVersionRef = useRef(0);
+  const previewAbortControllerRef = useRef(null);
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
@@ -4451,6 +4453,13 @@ export default function ConstituencyImportPage() {
     scrollToResults = true,
     preferReviewMode = null,
   } = {}) {
+    const requestVersion = previewRequestVersionRef.current + 1;
+    previewRequestVersionRef.current = requestVersion;
+    previewAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortControllerRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 90000);
+
     if (saveRun) {
       setSavingRun(true);
     } else {
@@ -4458,13 +4467,12 @@ export default function ConstituencyImportPage() {
     }
     setError("");
     setSaveMessage("");
-    if (!saveRun) {
-      setPreview(null);
-    }
     try {
       const response = await fetch("/api/constituency-import/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        signal: controller.signal,
         body: JSON.stringify({
           rows: rowsOverride || rows,
           mappings,
@@ -4494,6 +4502,9 @@ export default function ConstituencyImportPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to review constituency import");
       }
+      if (previewRequestVersionRef.current !== requestVersion) {
+        return null;
+      }
       setPreview(payload);
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
@@ -4521,6 +4532,13 @@ export default function ConstituencyImportPage() {
       }
       return payload;
     } catch (previewError) {
+      if (previewRequestVersionRef.current !== requestVersion) {
+        return null;
+      }
+      if (previewError?.name === "AbortError") {
+        setError("Import review timed out before NXT finished responding. Please try again.");
+        return null;
+      }
       setError(
         previewError instanceof Error
           ? previewError.message
@@ -4528,8 +4546,14 @@ export default function ConstituencyImportPage() {
       );
       return null;
     } finally {
-      setPreviewing(false);
-      setSavingRun(false);
+      window.clearTimeout(timeoutId);
+      if (previewAbortControllerRef.current === controller) {
+        previewAbortControllerRef.current = null;
+      }
+      if (previewRequestVersionRef.current === requestVersion) {
+        setPreviewing(false);
+        setSavingRun(false);
+      }
     }
   }
 

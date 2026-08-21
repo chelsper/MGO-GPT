@@ -2265,6 +2265,7 @@ async function savePreviewRun({
 
 export async function POST(request) {
   try {
+    const previewStartedAt = Date.now();
     await ensureAppSchema();
 
     const session = await auth();
@@ -2318,6 +2319,16 @@ export async function POST(request) {
     const previewCache = createPreviewRequestCache();
     const rowConcurrency =
       rowsToPreview.length >= 50 ? 2 : rowsToPreview.length >= 20 ? 3 : 4;
+    const previewMetrics = {
+      rows: rowsToPreview.length,
+      rowConcurrency,
+      matchMs: 0,
+      codeMs: 0,
+      detailMs: 0,
+      contactMs: 0,
+      nameFormatMs: 0,
+      educationMs: 0,
+    };
 
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const input = getRowInput(row, mappings, defaults);
@@ -2336,6 +2347,7 @@ export async function POST(request) {
 
       try {
         const matchCacheKey = buildMatchCacheKey(input);
+        const matchStartedAt = Date.now();
         matchResult = await getOrLoadCached(
           previewCache.matchResults,
           matchCacheKey,
@@ -2347,6 +2359,7 @@ export async function POST(request) {
               origin,
             }),
         );
+        previewMetrics.matchMs += Date.now() - matchStartedAt;
       } catch (error) {
         matchResult = {
           status: "not_matched",
@@ -2359,6 +2372,7 @@ export async function POST(request) {
 
       if (matchResult.match?.blackbaudConstituentId && hasConstituencyChange(input)) {
         try {
+          const codeStartedAt = Date.now();
           currentCodes = await getOrLoadCached(
             previewCache.constituencyCodes,
             String(matchResult.match.blackbaudConstituentId),
@@ -2370,6 +2384,7 @@ export async function POST(request) {
                 constituentId: matchResult.match.blackbaudConstituentId,
               }),
           );
+          previewMetrics.codeMs += Date.now() - codeStartedAt;
         } catch (error) {
           codeFetchError =
             error instanceof Error ? error.message : "Could not load current constituencies.";
@@ -2386,6 +2401,7 @@ export async function POST(request) {
         )
       ) {
         try {
+          const detailStartedAt = Date.now();
           const detailedMatch = await getOrLoadCached(
             previewCache.constituentDetails,
             String(matchResult.match.blackbaudConstituentId),
@@ -2404,6 +2420,7 @@ export async function POST(request) {
               raw: detailedMatch.raw || matchResult.match.raw || null,
             };
           }
+          previewMetrics.detailMs += Date.now() - detailStartedAt;
         } catch {
           // Retain the matched record when a supplemental detail fetch is unavailable.
         }
@@ -2418,6 +2435,7 @@ export async function POST(request) {
           hasContactSectionAction(contactDecisions[String(index + 1)] || {})
         )
       ) {
+        const contactStartedAt = Date.now();
         const contactPreview = await getOrLoadCached(
           previewCache.currentContacts,
           String(matchResult.match.blackbaudConstituentId),
@@ -2430,12 +2448,14 @@ export async function POST(request) {
               input,
             }),
         );
+        previewMetrics.contactMs += Date.now() - contactStartedAt;
         currentContacts = contactPreview.contacts;
         contactFetchErrors = contactPreview.errors;
       }
 
       if (matchResult.match?.blackbaudConstituentId && input.nameFormatUpdate) {
         try {
+          const nameFormatStartedAt = Date.now();
           currentNameFormats = await getOrLoadCached(
             previewCache.currentNameFormats,
             String(matchResult.match.blackbaudConstituentId),
@@ -2447,6 +2467,7 @@ export async function POST(request) {
                 constituentId: matchResult.match.blackbaudConstituentId,
               }),
           );
+          previewMetrics.nameFormatMs += Date.now() - nameFormatStartedAt;
         } catch (error) {
           nameFormatFetchError =
             error instanceof Error ? error.message : "Could not load the current primary name formats.";
@@ -2455,6 +2476,7 @@ export async function POST(request) {
 
       if (matchResult.match?.blackbaudConstituentId && input.educationRelationship) {
         try {
+          const educationStartedAt = Date.now();
           currentEducations = await getOrLoadCached(
             previewCache.currentEducations,
             String(matchResult.match.blackbaudConstituentId),
@@ -2466,6 +2488,7 @@ export async function POST(request) {
                 constituentId: matchResult.match.blackbaudConstituentId,
               }),
           );
+          previewMetrics.educationMs += Date.now() - educationStartedAt;
         } catch (error) {
           educationFetchError =
             error instanceof Error
@@ -2621,6 +2644,20 @@ export async function POST(request) {
           runId: savedRun?.id || null,
         }))
       : previewRows;
+
+    console.info("constituency import preview completed", {
+      rows: previewMetrics.rows,
+      rowConcurrency: previewMetrics.rowConcurrency,
+      durationMs: Date.now() - previewStartedAt,
+      matchMs: previewMetrics.matchMs,
+      codeMs: previewMetrics.codeMs,
+      detailMs: previewMetrics.detailMs,
+      contactMs: previewMetrics.contactMs,
+      nameFormatMs: previewMetrics.nameFormatMs,
+      educationMs: previewMetrics.educationMs,
+      savedRunId: savedRun?.id || null,
+      summary,
+    });
 
     return Response.json({
       previewOnly: true,
