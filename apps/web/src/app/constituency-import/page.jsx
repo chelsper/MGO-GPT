@@ -1743,6 +1743,7 @@ function EducationTargetReviewPanel({
   selectedCandidateId,
   loading,
   saving,
+  autoLoad = false,
   onLoadCandidates,
   onCandidateChange,
 }) {
@@ -1771,10 +1772,10 @@ function EducationTargetReviewPanel({
   const hasLoadedCandidates = Array.isArray(candidates);
 
   useEffect(() => {
-    if (!confirmedWrite && !hasLoadedCandidates && !loading && !saving) {
+    if (autoLoad && !confirmedWrite && !hasLoadedCandidates && !loading && !saving) {
       onLoadCandidates(row);
     }
-  }, [confirmedWrite, hasLoadedCandidates, loading, onLoadCandidates, row, saving]);
+  }, [autoLoad, confirmedWrite, hasLoadedCandidates, loading, onLoadCandidates, row, saving]);
 
   if (confirmedWrite) {
     const source = confirmedWrite.existingEducation || {};
@@ -1948,6 +1949,7 @@ function ConstituencyReplaceReviewPanel({
   selectedCandidateId,
   loading,
   saving,
+  autoLoad = false,
   onLoadCandidates,
   onCandidateChange,
 }) {
@@ -1966,10 +1968,10 @@ function ConstituencyReplaceReviewPanel({
   ];
 
   useEffect(() => {
-    if (!write.sourceCodeId && !hasLoadedCandidates && !loading && !saving) {
+    if (autoLoad && !write.sourceCodeId && !hasLoadedCandidates && !loading && !saving) {
       onLoadCandidates(row);
     }
-  }, [hasLoadedCandidates, loading, onLoadCandidates, row, saving, write.sourceCodeId]);
+  }, [autoLoad, hasLoadedCandidates, loading, onLoadCandidates, row, saving, write.sourceCodeId]);
 
   if (write.sourceCodeId && selectedSourceCode) {
     return (
@@ -7088,6 +7090,7 @@ export default function ConstituencyImportPage() {
                           selectedCandidateId={selectedEducationCandidateByRowId[String(row.id)]}
                           loading={loadingEducationCandidateRowId === String(row.id)}
                           saving={savingCombinedReviewRowId === String(row.id)}
+                          autoLoad={String(focusedReviewRow?.id || "") === String(row.id)}
                           onLoadCandidates={loadEducationCandidates}
                           onCandidateChange={chooseEducationCandidate}
                         />
@@ -7102,6 +7105,7 @@ export default function ConstituencyImportPage() {
                           selectedCandidateId={selectedConstituencyCandidateByRowId[String(row.id)]}
                           loading={loadingConstituencyCandidateRowId === String(row.id)}
                           saving={savingCombinedReviewRowId === String(row.id)}
+                          autoLoad={String(focusedReviewRow?.id || "") === String(row.id)}
                           onLoadCandidates={loadConstituencyCandidates}
                           onCandidateChange={chooseConstituencyCandidate}
                         />
