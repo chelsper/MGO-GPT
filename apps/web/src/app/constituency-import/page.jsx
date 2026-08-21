@@ -871,6 +871,17 @@ function statusTone(status) {
   }
 }
 
+function isNxtChecksPausedRow(row) {
+  return Boolean(row?.nxtChecksPaused || row?.matchMethod === "NXT checks paused");
+}
+
+function getNxtChecksPausedNotice(text = "") {
+  const details = String(text || "");
+  const waitMatch = details.match(/about\s+(\d+)\s+minutes?/i);
+  const wait = waitMatch ? ` Blackbaud estimates availability in about ${waitMatch[1]} minutes.` : "";
+  return `Blackbaud's call-volume quota is temporarily unavailable.${wait} This import row was saved safely; no NXT record was checked and no NXT change will be sent until the quota is restored.`;
+}
+
 function Pill({ children, tone = "neutral" }) {
   const tones = {
     blue: { bg: "#EFF6FF", fg: "#1D4ED8", border: "#BFDBFE" },
@@ -6455,10 +6466,12 @@ export default function ConstituencyImportPage() {
                 backgroundColor: "#FFFBEB",
                 color: "#92400E",
                 padding: "12px",
-                fontWeight: 800,
-              }}
+              fontWeight: 800,
+            }}
             >
-              {preview.warnings.join(" ")}
+              {preview.warnings.some((warning) => /call-volume quota|nxt checks are paused/i.test(String(warning || "")))
+                ? getNxtChecksPausedNotice(preview.warnings.join(" "))
+                : preview.warnings.join(" ")}
             </div>
           ) : null}
 
@@ -6758,6 +6771,7 @@ export default function ConstituencyImportPage() {
             <div style={{ display: "grid", gap: "12px" }}>
               {visiblePreviewRows.map((row) => {
                 const colors = statusTone(row.status);
+                const isNxtChecksPaused = isNxtChecksPausedRow(row);
                 const nameWrites = (row.writePlan || []).filter(
                   (write) => write.type === "constituent_name",
                 );
@@ -6834,6 +6848,7 @@ export default function ConstituencyImportPage() {
                   skippingRowId === String(row.id || row.rowNumber);
                 const rowReadyToSend = canApplyRow || canDirectSendPreviewRow;
                 const rowNeedsReviewAction =
+                  !isNxtChecksPaused &&
                   !rowReadyToSend &&
                   !canCreateReadyNewRow &&
                   !canVerifyRow &&
@@ -6886,7 +6901,9 @@ export default function ConstituencyImportPage() {
                             "Unnamed row"}
                         </h3>
                         <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
-                          {row.match?.name
+                          {isNxtChecksPaused
+                            ? "NXT lookup paused by Blackbaud's call-volume quota"
+                            : row.match?.name
                             ? `Matched to ${row.match.name}${row.match.lookupId ? ` · Lookup ID ${row.match.lookupId}` : ""}`
                             : row.intentDisposition?.key === "potential_new" ||
                                 row.intentDisposition?.key === "ready_new"
@@ -6911,7 +6928,7 @@ export default function ConstituencyImportPage() {
                         <Pill tone="neutral">{row.confidence}% confidence</Pill>
                         <Pill tone="blue">{row.matchMethod}</Pill>
                         {row.intentDisposition?.label ? (
-                          <Pill tone={row.intentDisposition.key === "potential_new" || row.intentDisposition.key === "ready_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" ? "amber" : "green"}>
+                          <Pill tone={row.intentDisposition.key === "potential_new" || row.intentDisposition.key === "ready_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" || row.intentDisposition.key === "nxt_checks_paused" ? "amber" : "green"}>
                             {row.intentDisposition.label}
                           </Pill>
                         ) : null}
@@ -7334,7 +7351,9 @@ export default function ConstituencyImportPage() {
                           }}
                         >
                           <strong>
-                            {rowReadyToSend
+                            {isNxtChecksPaused
+                              ? "NXT checks paused by Blackbaud"
+                              : rowReadyToSend
                               ? "Review complete: ready to send"
                               : canCreateReadyNewRow
                                 ? "Clean new record: ready to create"
@@ -7349,7 +7368,9 @@ export default function ConstituencyImportPage() {
                                     : "Action required before this record can be sent"}
                           </strong>
                           <span style={{ fontSize: "14px", lineHeight: 1.4 }}>
-                            {rowReadyToSend
+                            {isNxtChecksPaused
+                              ? "The row is saved, but NXT could not be queried. No record or field was evaluated, and nothing can be sent to NXT until Blackbaud restores the quota."
+                              : rowReadyToSend
                               ? preview?.savedRun
                                 ? `Send only this record to NXT. Its outcome stays in import run #${preview.savedRun.id}.`
                                 : "Confirming saves the audit run, then sends only this reviewed record to NXT."
@@ -7370,6 +7391,7 @@ export default function ConstituencyImportPage() {
                                     : "Resolve the required review below before sending this record to NXT."}
                           </span>
                           {rowNeedsReviewAction &&
+                          !isNxtChecksPaused &&
                           row.status !== "Failed" &&
                           reviewRequirements.length ? (
                             <span style={{ fontSize: "13px", lineHeight: 1.4 }}>
@@ -7748,10 +7770,12 @@ export default function ConstituencyImportPage() {
                           backgroundColor: "#F9FAFB",
                         }}
                       >
-                        {row.reasons.join(" ")}
+                        {isNxtChecksPaused
+                          ? getNxtChecksPausedNotice(row.reasons.join(" "))
+                          : row.reasons.join(" ")}
                       </div>
                     ) : null}
-                    {row.intentDisposition?.message ? (
+                    {!isNxtChecksPaused && row.intentDisposition?.message ? (
                       <div
                         style={{
                           border: "1px solid #BFDBFE",

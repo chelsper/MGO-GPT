@@ -2890,82 +2890,96 @@ export async function POST(request) {
         }
       }
 
-      const changePreview = previewConstituencyChange(input, currentCodes, { useHierarchy });
-      const { writes: writePlan, reasons: writePlanReasons } = buildWritePlan(
-        input,
-        changePreview,
-        matchResult.match,
-        currentContacts,
-        contactDecisions[String(rowNumber)] || {},
-        fieldDecisions[String(rowNumber)] || {},
-        currentNameFormats,
-        currentEducations,
-        {
-          deferHeavyReview: deferredHydration.educations,
-        },
-      );
+      const quotaPaused = matchResult.method === "NXT checks paused";
+      const changePreview = quotaPaused
+        ? {
+            status: STATUS.needsReview,
+            reasons: [],
+            proposedCodes: [],
+          }
+        : previewConstituencyChange(input, currentCodes, { useHierarchy });
+      const { writes: writePlan, reasons: writePlanReasons } = quotaPaused
+        ? { writes: [], reasons: [] }
+        : buildWritePlan(
+            input,
+            changePreview,
+            matchResult.match,
+            currentContacts,
+            contactDecisions[String(rowNumber)] || {},
+            fieldDecisions[String(rowNumber)] || {},
+            currentNameFormats,
+            currentEducations,
+            {
+              deferHeavyReview: deferredHydration.educations,
+            },
+          );
       const hasDeferredHydration = Object.values(deferredHydration).some(Boolean);
-      const reasons = [
-        ...matchResult.notes,
-        ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
-        ...contactFetchErrors,
-        ...(nameFormatFetchError
-          ? [`Could not load current NXT addressee and salutation formats: ${nameFormatFetchError}`]
-          : []),
-        ...(educationFetchError
-          ? [`Could not load current NXT education relationships: ${educationFetchError}`]
-          : []),
-        ...changePreview.reasons,
-        ...(input.educationRelationship
-          ? [
-              input.educationRelationship.action === "review-update"
-                ? "Education relationship data is staged for review. Choose the exact current NXT education row to update; no education relationship is changed automatically."
-                : "Education relationship data is staged as a new NXT education record. Existing education records are never replaced or end-dated, and an identical record is skipped.",
-            ]
-          : []),
-        ...(input.organizationRelationship
-          ? [
-              "Organization relationship data is add-only. The import will link a single exact existing NXT organization, skip an existing link, and keep missing or ambiguous organization matches in review.",
-            ]
-          : []),
-        ...(writePlan.some((write) => write.type === "constituent_name")
-          ? [
-              "Selected name fields are staged to update the matched NXT constituent. Blank name cells will be left unchanged.",
-            ]
-          : []),
-        ...(writePlan.some((write) => write.type === "constituent_profile")
-          ? [
-              "Selected title, gender, ethnicity, birth date, and suffix values are staged for the matched individual constituent. Blank CSV cells will be left unchanged.",
-            ]
-          : []),
-        ...(writePlan.some((write) => write.type === "constituent_name_format")
-          ? [
-              "Primary addressee and salutation values are staged as custom NXT name formats. Review the current and proposed values before applying.",
-            ]
-          : []),
-        ...(writePlan.some((write) => write.type === "email_address")
-          ? [
-              "Review the current NXT email address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT email type and primary setting.",
-            ]
-          : []),
-        ...(writePlan.some((write) => write.type === "phone")
-          ? [
-              "Review the current NXT phone number and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT phone type and primary setting.",
-            ]
-          : []),
-        ...(writePlan.some((write) => write.type === "address")
-          ? [
-              "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting. Address Valid From is included when provided.",
-            ]
-          : []),
-        ...(hasDeferredHydration
-          ? ["Open this row to finish loading the current NXT details needed for final review."]
-          : []),
-        ...writePlanReasons,
-        ...writePlan
-          .filter((write) => write.validationMessage)
-          .map((write) => write.validationMessage),
-      ].filter(Boolean);
+      const reasons = quotaPaused
+        ? [
+            ...matchResult.notes,
+            "No NXT record, constituency, education, contact, or profile data was checked for this row. No NXT change is staged or will be sent until the quota is available.",
+          ]
+        : [
+            ...matchResult.notes,
+            ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
+            ...contactFetchErrors,
+            ...(nameFormatFetchError
+              ? [`Could not load current NXT addressee and salutation formats: ${nameFormatFetchError}`]
+              : []),
+            ...(educationFetchError
+              ? [`Could not load current NXT education relationships: ${educationFetchError}`]
+              : []),
+            ...changePreview.reasons,
+            ...(input.educationRelationship
+              ? [
+                  input.educationRelationship.action === "review-update"
+                    ? "Education relationship data is staged for review. Choose the exact current NXT education row to update; no education relationship is changed automatically."
+                    : "Education relationship data is staged as a new NXT education record. Existing education records are never replaced or end-dated, and an identical record is skipped.",
+                ]
+              : []),
+            ...(input.organizationRelationship
+              ? [
+                  "Organization relationship data is add-only. The import will link a single exact existing NXT organization, skip an existing link, and keep missing or ambiguous organization matches in review.",
+                ]
+              : []),
+            ...(writePlan.some((write) => write.type === "constituent_name")
+              ? [
+                  "Selected name fields are staged to update the matched NXT constituent. Blank name cells will be left unchanged.",
+                ]
+              : []),
+            ...(writePlan.some((write) => write.type === "constituent_profile")
+              ? [
+                  "Selected title, gender, ethnicity, birth date, and suffix values are staged for the matched individual constituent. Blank CSV cells will be left unchanged.",
+                ]
+              : []),
+            ...(writePlan.some((write) => write.type === "constituent_name_format")
+              ? [
+                  "Primary addressee and salutation values are staged as custom NXT name formats. Review the current and proposed values before applying.",
+                ]
+              : []),
+            ...(writePlan.some((write) => write.type === "email_address")
+              ? [
+                  "Review the current NXT email address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT email type and primary setting.",
+                ]
+              : []),
+            ...(writePlan.some((write) => write.type === "phone")
+              ? [
+                  "Review the current NXT phone number and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT phone type and primary setting.",
+                ]
+              : []),
+            ...(writePlan.some((write) => write.type === "address")
+              ? [
+                  "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting. Address Valid From is included when provided.",
+                ]
+              : []),
+            ...(hasDeferredHydration
+              ? ["Open this row to finish loading the current NXT details needed for final review."]
+              : []),
+            ...writePlanReasons,
+            ...writePlan
+              .filter((write) => write.validationMessage)
+              .map((write) => write.validationMessage),
+          ].filter(Boolean);
 
       const initialStatus = deriveStatus(
         matchResult,
@@ -2980,11 +2994,15 @@ export async function POST(request) {
         hasDeferredHydration && initialStatus === STATUS.ready
           ? STATUS.needsReview
           : initialStatus;
-      const intentDisposition = classifyImportRow(
-        importIntent,
-        matchResult,
-        effectiveInitialStatus,
-      );
+      const intentDisposition = quotaPaused
+        ? {
+            key: "nxt_checks_paused",
+            label: "NXT checks paused",
+            allowApply: false,
+            message:
+              "This import row is saved safely. Blackbaud did not allow an NXT lookup, so it cannot be reviewed or sent until the quota is replenished.",
+          }
+        : classifyImportRow(importIntent, matchResult, effectiveInitialStatus);
       const status =
         intentDisposition.key === "ready_new"
           ? STATUS.ready
@@ -2999,6 +3017,7 @@ export async function POST(request) {
       return {
         rowNumber,
         status,
+        nxtChecksPaused: quotaPaused,
         importIntent,
         intentDisposition,
         matchStatus: matchResult.status,

@@ -1562,12 +1562,17 @@ describe("constituency import preview route", () => {
     const response = await POST(
       makeRequest({
         rows: [
-          { "NXT ID": "100" },
-          { "NXT ID": "101" },
-          { "NXT ID": "102" },
-          { "NXT ID": "103" },
+          { "NXT ID": "100", "Current Constituency": "Student", "New Constituency": "Alumni" },
+          { "NXT ID": "101", "Current Constituency": "Student", "New Constituency": "Alumni" },
+          { "NXT ID": "102", "Current Constituency": "Student", "New Constituency": "Alumni" },
+          { "NXT ID": "103", "Current Constituency": "Student", "New Constituency": "Alumni" },
         ],
-        mappings: { blackbaudConstituentId: "NXT ID" },
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          sourceConstituency: "Current Constituency",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "replace" },
         appendRun: true,
         fastPreview: true,
         rowNumberOffset: 8,
@@ -1582,6 +1587,10 @@ describe("constituency import preview route", () => {
     expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledTimes(2);
     expect(payload.rows.map((row) => row.rowNumber)).toEqual([9, 10, 11, 12]);
     expect(payload.rows.every((row) => row.status === "Needs Review")).toBe(true);
+    expect(payload.rows.every((row) => row.nxtChecksPaused)).toBe(true);
+    expect(payload.rows.every((row) => row.intentDisposition.key === "nxt_checks_paused")).toBe(true);
+    expect(payload.rows.every((row) => row.writePlan.length === 0)).toBe(true);
+    expect(payload.rows.every((row) => !row.reasons.join(" ").includes("was not found"))).toBe(true);
     expect(payload.rows[1].reasons.join(" ")).toContain(
       "saved safely without attempting further NXT calls",
     );

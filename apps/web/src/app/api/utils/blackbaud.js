@@ -89,9 +89,19 @@ function formatQuotaMessage({ responseText, retryAfterMs }) {
   const retryMessage = seconds
     ? ` NXT checks will resume after Blackbaud replenishes the quota (about ${Math.ceil(seconds / 60)} minute${Math.ceil(seconds / 60) === 1 ? "" : "s"}).`
     : "";
-  const providerMessage = String(responseText || "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const rawProviderMessage = String(responseText || "").trim();
+  let providerMessage = rawProviderMessage;
+
+  try {
+    const parsed = JSON.parse(rawProviderMessage);
+    if (parsed && typeof parsed === "object") {
+      providerMessage = String(parsed.title || parsed.message || parsed.error?.message || "");
+    }
+  } catch {
+    // Non-JSON error payloads are already suitable for a short user-facing summary.
+  }
+
+  providerMessage = providerMessage.replace(/\s+/g, " ").trim();
   return `Blackbaud call-volume quota is temporarily unavailable.${retryMessage}${
     providerMessage ? ` Provider response: ${providerMessage}` : ""
   }`;
