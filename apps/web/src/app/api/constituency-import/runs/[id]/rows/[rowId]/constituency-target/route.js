@@ -46,7 +46,8 @@ function getConstituencyLabel(value) {
   if (!value) return "";
   if (typeof value === "string") return cleanText(value);
   return cleanText(
-    value.description ||
+    value.label ||
+      value.description ||
       value.constituent_code ||
       value.constituentCode ||
       value.constituency ||
@@ -78,8 +79,10 @@ function serializeCode(value) {
   return {
     id: getCodeId(value),
     label: getConstituencyLabel(value),
-    startDate: formatDate(value?.date_from || value?.start_date || value?.start),
-    endDate: formatDate(value?.date_to || value?.end_date || value?.end),
+    startDate: formatDate(
+      value?.date_from || value?.start_date || value?.startDate || value?.start,
+    ),
+    endDate: formatDate(value?.date_to || value?.end_date || value?.endDate || value?.end),
   };
 }
 
@@ -186,6 +189,26 @@ async function loadReviewContext({ request, user, runId, rowId }) {
   }
 
   const sourceConstituency = cleanText(writePlan[writeIndex]?.sourceConstituency);
+  const savedCandidates = (Array.isArray(getPreview(row).currentCodeDetails)
+    ? getPreview(row).currentCodeDetails
+    : [])
+    .map(serializeCode)
+    .filter(
+      (code) =>
+        code.id && normalizeText(code.label) === normalizeText(sourceConstituency),
+    );
+  if (savedCandidates.length) {
+    return {
+      row,
+      writePlan,
+      writeIndex,
+      candidates: savedCandidates,
+      constituentId,
+      sourceConstituency,
+      candidatesFromSavedPreview: true,
+    };
+  }
+
   const payload = await blackbaudApiFetch(
     `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/constituentcodes`,
     {
@@ -207,7 +230,41 @@ async function loadReviewContext({ request, user, runId, rowId }) {
     };
   }
 
-  return { row, writePlan, writeIndex, candidates, constituentId, sourceConstituency };
+  return {
+    row,
+    writePlan,
+    writeIndex,
+    candidates,
+    constituentId,
+    sourceConstituency,
+    candidatesFromSavedPreview: false,
+  };
+}
+
+async function saveConstituencyCandidateSnapshot(context, { runId, rowId }) {
+  if (context.candidatesFromSavedPreview || !context.candidates.length) return;
+
+  const preview = getPreview(context.row);
+  const existingCandidates = Array.isArray(preview.currentCodeDetails)
+    ? preview.currentCodeDetails
+    : [];
+  const nextCandidates = Array.from(
+    new Map(
+      [...existingCandidates, ...context.candidates.map(serializeCode)]
+        .map(serializeCode)
+        .filter((candidate) => candidate.id)
+        .map((candidate) => [candidate.id, candidate]),
+    ).values(),
+  );
+  const nextPreview = {
+    ...preview,
+    currentCodeDetails: nextCandidates,
+  };
+  await sql`
+    UPDATE constituency_import_rows
+    SET preview = ${JSON.stringify(nextPreview)}::jsonb, updated_at = NOW()
+    WHERE id = ${rowId} AND run_id = ${runId}
+  `;
 }
 
 export async function GET(request, { params }) {
@@ -225,6 +282,7 @@ export async function GET(request, { params }) {
       ...routeParams,
     });
     if (context.error) return Response.json({ error: context.error }, { status: context.status });
+    await saveConstituencyCandidateSnapshot(context, routeParams);
 
     return Response.json({
       constituentId: context.constituentId,

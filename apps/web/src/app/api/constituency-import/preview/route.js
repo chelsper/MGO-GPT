@@ -25,7 +25,10 @@ export const maxDuration = 60;
 const MAX_PREVIEW_ROWS = 100;
 const DEFER_HEAVY_ROW_DETAILS_THRESHOLD = 40;
 const PREVIEW_BATCH_SIZE = 4;
-const IMPORT_MATCH_CACHE_TTL_HOURS = 24;
+// System and lookup IDs are stable identifiers. Keeping confirmed mappings for longer
+// avoids repeating the same NXT lookup every time an import is reopened or retried.
+// The guarded apply route still validates NXT immediately before a write.
+const IMPORT_MATCH_CACHE_TTL_HOURS = 30 * 24;
 const FAST_PREVIEW_REQUEST_OPTIONS = {
   // Return a safe review queue when NXT is slow instead of holding the browser for minutes.
   timeoutMs: 4000,
@@ -1811,17 +1814,37 @@ function buildMatchCacheKey(input) {
   return fallbackParts.length ? fallbackParts.join("|") : "";
 }
 
-function buildPersistentMatchCacheKey(input) {
-  if (input.blackbaudConstituentId) return `id:${input.blackbaudConstituentId}`;
-  if (input.lookupId) return `lookup:${input.lookupId}`;
-  return "";
+function buildPersistentMatchCacheKeys(input) {
+  return Array.from(
+    new Set(
+      [
+        cleanText(input?.blackbaudConstituentId)
+          ? `id:${cleanText(input.blackbaudConstituentId)}`
+          : "",
+        cleanText(input?.lookupId) ? `lookup:${cleanText(input.lookupId)}` : "",
+      ].filter(Boolean),
+    ),
+  );
+}
+
+function getPersistentMatchCacheKeys(input, matchResult) {
+  const match = matchResult?.match;
+  return Array.from(
+    new Set([
+      ...buildPersistentMatchCacheKeys(input),
+      ...buildPersistentMatchCacheKeys({
+        blackbaudConstituentId: match?.blackbaudConstituentId,
+        lookupId: match?.lookupId || match?.blackbaudLookupId,
+      }),
+    ]),
+  );
 }
 
 function deserializePersistedMatch(payload) {
   const match = payload?.match;
   const constituentId = cleanText(match?.blackbaudConstituentId);
   const lookupId = cleanText(match?.lookupId || match?.blackbaudLookupId);
-  if (!constituentId || !lookupId) return null;
+  if (!constituentId) return null;
 
   return {
     status: "matched",
@@ -1829,7 +1852,7 @@ function deserializePersistedMatch(payload) {
     confidence: Math.max(0, Math.min(100, Number(payload?.confidence) || 0)),
     match: {
       blackbaudConstituentId: constituentId,
-      lookupId,
+      lookupId: lookupId || null,
       name: cleanText(match?.name) || null,
       email: cleanText(match?.email) || null,
     },
@@ -1838,9 +1861,7 @@ function deserializePersistedMatch(payload) {
 }
 
 async function loadPersistedImportMatches({ workspaceUserId, authUserId, inputs }) {
-  const cacheKeys = Array.from(
-    new Set(inputs.map(buildPersistentMatchCacheKey).filter(Boolean)),
-  );
+  const cacheKeys = Array.from(new Set(inputs.flatMap(buildPersistentMatchCacheKeys)));
   if (!workspaceUserId || !authUserId || !cacheKeys.length) return new Map();
   const minimumUpdatedAt = new Date(
     Date.now() - IMPORT_MATCH_CACHE_TTL_HOURS * 60 * 60 * 1000,
@@ -1874,8 +1895,7 @@ function serializePersistedMatch(matchResult) {
   const match = matchResult?.match;
   if (
     matchResult?.status !== "matched" ||
-    !cleanText(match?.blackbaudConstituentId) ||
-    !cleanText(match?.lookupId || match?.blackbaudLookupId)
+    !cleanText(match?.blackbaudConstituentId)
   ) {
     return null;
   }
@@ -1885,7 +1905,7 @@ function serializePersistedMatch(matchResult) {
     confidence: Math.max(0, Math.min(100, Number(matchResult.confidence) || 0)),
     match: {
       blackbaudConstituentId: cleanText(match.blackbaudConstituentId),
-      lookupId: cleanText(match.lookupId || match.blackbaudLookupId),
+      lookupId: cleanText(match.lookupId || match.blackbaudLookupId) || null,
       name: cleanText(match.name) || null,
       email: cleanText(match.email) || null,
     },
@@ -2791,7 +2811,7 @@ export async function POST(request) {
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const rowNumber = rowNumberOffset + index + 1;
       const input = rowInputs[index];
-      const persistedMatchCacheKey = buildPersistentMatchCacheKey(input);
+      const persistedMatchCacheKeys = buildPersistentMatchCacheKeys(input);
       let matchResult;
       let currentCodes = [];
       let codeFetchError = "";
@@ -2813,7 +2833,9 @@ export async function POST(request) {
         codes: false,
       };
 
-      const persistedMatch = persistedImportMatches.get(persistedMatchCacheKey);
+      const persistedMatch = persistedMatchCacheKeys
+        .map((cacheKey) => persistedImportMatches.get(cacheKey))
+        .find(Boolean);
       if (persistedMatch) {
         previewMetrics.persistedMatchCacheHits += 1;
         matchResult = persistedMatch;
@@ -2835,8 +2857,10 @@ export async function POST(request) {
                 requestOptions: matchRequestOptions,
               }),
           );
-          if (persistedMatchCacheKey && matchResult.status === "matched") {
-            newlyConfirmedMatches.set(persistedMatchCacheKey, matchResult);
+          if (matchResult.status === "matched") {
+            getPersistentMatchCacheKeys(input, matchResult).forEach((cacheKey) => {
+              newlyConfirmedMatches.set(cacheKey, matchResult);
+            });
           }
           previewMetrics.matchMs += Date.now() - matchStartedAt;
         } catch (error) {

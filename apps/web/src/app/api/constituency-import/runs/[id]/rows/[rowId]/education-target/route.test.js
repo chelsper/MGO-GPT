@@ -89,6 +89,29 @@ describe("constituency import education-target review route", () => {
     expect(payload.candidates.map((candidate) => candidate.id)).toEqual(["e-1", "e-2", "e-3"]);
   });
 
+  it("reuses saved education candidates without another NXT read", async () => {
+    const { GET } = await import("./route.js");
+    const row = makeRow();
+    row.preview.currentEducations = [
+      {
+        id: "e-1",
+        school: "Jacksonville University",
+        degrees: ["Bachelor of Science"],
+        classYear: "2010",
+      },
+    ];
+    sqlMock.mockResolvedValueOnce([row]);
+
+    const response = await GET(makeRequest("GET"), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.candidates).toEqual([
+      expect.objectContaining({ id: "e-1", school: "Jacksonville University" }),
+    ]);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("records the explicit target and makes the row Ready", async () => {
     const { POST } = await import("./route.js");
     sqlMock
@@ -112,5 +135,31 @@ describe("constituency import education-target review route", () => {
     expect(payload.status).toBe("Ready");
     expect(payload.targetEducationId).toBe("e-2");
     expect(sqlMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("records a saved education candidate without another NXT read", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.currentEducations = [
+      {
+        id: "e-2",
+        school: "Florida State University",
+        degrees: ["Bachelor of Science"],
+      },
+    ];
+    sqlMock
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+
+    const response = await POST(makeRequest("POST", { educationId: "e-2" }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.targetEducationId).toBe("e-2");
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 });

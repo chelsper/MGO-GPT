@@ -85,7 +85,7 @@ function serializeEducation(value) {
     degrees: getEducationValues(value, "degrees", ["degree", "degree_name"]),
     majors: getEducationValues(value, "majors", ["major", "major_name"]),
     minors: getEducationValues(value, "minors", ["minor", "minor_name"]),
-    schoolType: getEducationValueText(value?.type ?? value?.school_type),
+    schoolType: getEducationValueText(value?.type ?? value?.school_type ?? value?.schoolType),
     campus: getEducationValueText(value?.campus),
     fraternitySorority: getEducationValueText(
       value?.social_organization ?? value?.fraternity_sorority,
@@ -93,9 +93,11 @@ function serializeEducation(value) {
     gpa: cleanText(value?.gpa),
     classYear: getEducationClassYear(value),
     status: getEducationValueText(value?.status),
-    dateGraduated: formatEducationDate(value?.date_graduated ?? value?.graduation_date),
-    dateEntered: formatEducationDate(value?.date_entered),
-    dateLeft: formatEducationDate(value?.date_left),
+    dateGraduated: formatEducationDate(
+      value?.date_graduated ?? value?.graduation_date ?? value?.dateGraduated,
+    ),
+    dateEntered: formatEducationDate(value?.date_entered ?? value?.dateEntered),
+    dateLeft: formatEducationDate(value?.date_left ?? value?.dateLeft),
     primary: Boolean(value?.primary ?? value?.is_primary),
   };
 }
@@ -103,7 +105,9 @@ function serializeEducation(value) {
 function getSelectableEducations(currentEducations) {
   // The CSV can correct any education detail, including the institution. Show every current
   // education row and require an explicit source-row selection rather than guessing a match.
-  return currentEducations.filter((education) => getEducationId(education));
+  return (Array.isArray(currentEducations) ? currentEducations : []).filter((education) =>
+    getEducationId(education),
+  );
 }
 
 function summarizeRows(rows) {
@@ -209,6 +213,18 @@ async function loadReviewContext({ request, user, runId, rowId }) {
     };
   }
 
+  const savedCandidates = getSelectableEducations(getPreview(row).currentEducations);
+  if (savedCandidates.length) {
+    return {
+      row,
+      writePlan,
+      writeIndex,
+      candidates: savedCandidates,
+      constituentId,
+      candidatesFromSavedPreview: true,
+    };
+  }
+
   const payload = await blackbaudApiFetch(
     `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/educations`,
     {
@@ -226,7 +242,28 @@ async function loadReviewContext({ request, user, runId, rowId }) {
     };
   }
 
-  return { row, writePlan, writeIndex, candidates, constituentId };
+  return {
+    row,
+    writePlan,
+    writeIndex,
+    candidates,
+    constituentId,
+    candidatesFromSavedPreview: false,
+  };
+}
+
+async function saveEducationCandidateSnapshot(context, { runId, rowId }) {
+  if (context.candidatesFromSavedPreview || !context.candidates.length) return;
+
+  const nextPreview = {
+    ...getPreview(context.row),
+    currentEducations: context.candidates.map(serializeEducation),
+  };
+  await sql`
+    UPDATE constituency_import_rows
+    SET preview = ${JSON.stringify(nextPreview)}::jsonb, updated_at = NOW()
+    WHERE id = ${rowId} AND run_id = ${runId}
+  `;
 }
 
 export async function GET(request, { params }) {
@@ -244,6 +281,7 @@ export async function GET(request, { params }) {
       ...routeParams,
     });
     if (context.error) return Response.json({ error: context.error }, { status: context.status });
+    await saveEducationCandidateSnapshot(context, routeParams);
 
     return Response.json({
       constituentId: context.constituentId,

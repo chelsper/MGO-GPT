@@ -1634,6 +1634,78 @@ describe("constituency import preview route", () => {
     });
   });
 
+  it("reuses a cached lookup alias for a fast preview", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        match_key: "lookup:A123",
+        payload: {
+          method: "NXT lookup ID",
+          confidence: 100,
+          match: {
+            blackbaudConstituentId: "123",
+            lookupId: "A123",
+            name: "Jane Dolphin",
+          },
+        },
+      },
+    ]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123", "Lookup ID": "A123" }],
+        mappings: { blackbaudConstituentId: "NXT ID", lookupId: "Lookup ID" },
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 1,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
+    expect(payload.rows[0]).toMatchObject({
+      matchMethod: "NXT lookup ID",
+      match: { blackbaudConstituentId: "123", lookupId: "A123" },
+    });
+  });
+
+  it("reuses a confirmed system ID when no lookup ID is available", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        match_key: "id:123",
+        payload: {
+          method: "NXT system ID",
+          confidence: 100,
+          match: {
+            blackbaudConstituentId: "123",
+            lookupId: null,
+            name: "Jane Dolphin",
+          },
+        },
+      },
+    ]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123" }],
+        mappings: { blackbaudConstituentId: "NXT ID" },
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 1,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(payload.rows[0].match).toEqual(
+      expect.objectContaining({ blackbaudConstituentId: "123", lookupId: null }),
+    );
+  });
+
   it("discards partial contact review data when a later NXT request reports quota exhaustion", async () => {
     const { POST } = await import("./route.js");
     const quotaError = new Error(

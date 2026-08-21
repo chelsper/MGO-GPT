@@ -97,7 +97,7 @@ function serializeEducation(value) {
     degrees: getEducationValues(value, "degrees", ["degree", "degree_name"]),
     majors: getEducationValues(value, "majors", ["major", "major_name"]),
     minors: getEducationValues(value, "minors", ["minor", "minor_name"]),
-    schoolType: getEducationValueText(value?.type ?? value?.school_type),
+    schoolType: getEducationValueText(value?.type ?? value?.school_type ?? value?.schoolType),
     campus: getEducationValueText(value?.campus),
     fraternitySorority: getEducationValueText(
       value?.social_organization ?? value?.fraternity_sorority,
@@ -105,9 +105,11 @@ function serializeEducation(value) {
     gpa: cleanText(value?.gpa),
     classYear: getEducationClassYear(value),
     status: getEducationValueText(value?.status),
-    dateGraduated: formatEducationDate(value?.date_graduated ?? value?.graduation_date),
-    dateEntered: formatEducationDate(value?.date_entered),
-    dateLeft: formatEducationDate(value?.date_left),
+    dateGraduated: formatEducationDate(
+      value?.date_graduated ?? value?.graduation_date ?? value?.dateGraduated,
+    ),
+    dateEntered: formatEducationDate(value?.date_entered ?? value?.dateEntered),
+    dateLeft: formatEducationDate(value?.date_left ?? value?.dateLeft),
     primary: Boolean(value?.primary ?? value?.is_primary),
   };
 }
@@ -116,7 +118,8 @@ function getConstituencyLabel(value) {
   if (!value) return "";
   if (typeof value === "string") return cleanText(value);
   return cleanText(
-    value.description ||
+    value.label ||
+      value.description ||
       value.constituent_code ||
       value.constituentCode ||
       value.constituency ||
@@ -148,9 +151,31 @@ function serializeCode(value) {
   return {
     id: getCodeId(value),
     label: getConstituencyLabel(value),
-    startDate: formatDate(value?.date_from || value?.start_date || value?.start),
-    endDate: formatDate(value?.date_to || value?.end_date || value?.end),
+    startDate: formatDate(
+      value?.date_from || value?.start_date || value?.startDate || value?.start,
+    ),
+    endDate: formatDate(value?.date_to || value?.end_date || value?.endDate || value?.end),
   };
+}
+
+function getSavedEducationCandidates(row) {
+  const candidates = Array.isArray(getPreview(row).currentEducations)
+    ? getPreview(row).currentEducations
+    : [];
+  return candidates.filter((candidate) => getEducationId(candidate));
+}
+
+function getSavedConstituencyCandidates(row, sourceConstituency) {
+  const candidates = Array.isArray(getPreview(row).currentCodeDetails)
+    ? getPreview(row).currentCodeDetails
+    : [];
+  return candidates
+    .map(serializeCode)
+    .filter(
+      (candidate) =>
+        candidate.id &&
+        normalizeText(candidate.label) === normalizeText(sourceConstituency),
+    );
 }
 
 function summarizeRows(rows) {
@@ -331,15 +356,18 @@ export async function POST(request, { params }) {
           { status: 400 },
         );
       }
-      const payload = await blackbaudApiFetch(
-        `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/educations`,
-        {
-          userId: authResult.user.id,
-          authUserId: authResult.user.id,
-          origin: new URL(request.url).origin,
-        },
-      );
-      educations = getCollection(payload);
+      educations = getSavedEducationCandidates(row);
+      if (!educations.length) {
+        const payload = await blackbaudApiFetch(
+          `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/educations`,
+          {
+            userId: authResult.user.id,
+            authUserId: authResult.user.id,
+            origin: new URL(request.url).origin,
+          },
+        );
+        educations = getCollection(payload);
+      }
       const target = educations.find((candidate) => getEducationId(candidate) === educationId);
       if (!target) {
         return Response.json(
@@ -382,23 +410,26 @@ export async function POST(request, { params }) {
         );
       }
 
-      const payload = await blackbaudApiFetch(
-        `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/constituentcodes`,
-        {
-          userId: authResult.user.id,
-          authUserId: authResult.user.id,
-          origin: new URL(request.url).origin,
-        },
-      );
       const sourceConstituency = cleanText(
         nextWritePlan[pendingConstituencyIndex]?.sourceConstituency,
       );
-      codes = getCollection(payload)
-        .map(serializeCode)
-        .filter(
-          (code) =>
-            code.id && normalizeText(code.label) === normalizeText(sourceConstituency),
+      codes = getSavedConstituencyCandidates(row, sourceConstituency);
+      if (!codes.length) {
+        const payload = await blackbaudApiFetch(
+          `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/constituentcodes`,
+          {
+            userId: authResult.user.id,
+            authUserId: authResult.user.id,
+            origin: new URL(request.url).origin,
+          },
         );
+        codes = getCollection(payload)
+          .map(serializeCode)
+          .filter(
+            (code) =>
+              code.id && normalizeText(code.label) === normalizeText(sourceConstituency),
+          );
+      }
       const selectedSourceCode = codes.find((candidate) => candidate.id === constituentCodeId);
       if (!selectedSourceCode) {
         return Response.json(

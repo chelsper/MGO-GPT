@@ -84,6 +84,24 @@ describe("constituency import constituency-target review route", () => {
     ]);
   });
 
+  it("reuses saved constituent-code candidates without another NXT read", async () => {
+    const { GET } = await import("./route.js");
+    const row = makeRow();
+    row.preview.currentCodeDetails = [
+      { id: "student-1", label: "Student", startDate: "2020-08-15", endDate: "" },
+    ];
+    sqlMock.mockResolvedValueOnce([row]);
+
+    const response = await GET(makeRequest("GET"), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.candidates).toEqual([
+      { id: "student-1", label: "Student", startDate: "2020-08-15", endDate: "" },
+    ]);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("records the selected source row and makes the record ready when no other review remains", async () => {
     const { POST } = await import("./route.js");
     sqlMock
@@ -107,5 +125,27 @@ describe("constituency import constituency-target review route", () => {
     expect(payload.status).toBe("Ready");
     expect(payload.sourceCodeId).toBe("student-2");
     expect(sqlMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("records a saved code candidate without another NXT read", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.currentCodeDetails = [
+      { id: "student-2", label: "Student", startDate: "", endDate: "" },
+    ];
+    sqlMock
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+
+    const response = await POST(makeRequest("POST", { constituentCodeId: "student-2" }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.sourceCodeId).toBe("student-2");
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 });
