@@ -2611,12 +2611,15 @@ export default function ConstituencyImportPage() {
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
   const lastReadFileRef = useRef(null);
+  const autoPreviewStartedRef = useRef("");
+  const latestAutoPreviewSignatureRef = useRef("");
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [savingRun, setSavingRun] = useState(false);
+  const [backgroundPreviewing, setBackgroundPreviewing] = useState(false);
   const [savedRuns, setSavedRuns] = useState([]);
   const [loadingSavedRuns, setLoadingSavedRuns] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState("");
@@ -2798,6 +2801,50 @@ export default function ConstituencyImportPage() {
     identityRequirementMet &&
     hasImportOperation &&
     mappedImportOperation;
+  const autoPreviewSignature = useMemo(
+    () =>
+      JSON.stringify({
+        sourceFilename,
+        rowCount: rows.length,
+        headerCount: headers.length,
+        importIntent,
+        constituencyAction,
+        educationRelationshipAction,
+        useHierarchy,
+        updateNameFields,
+        updateIndividualProfileFields,
+        updateNameFormatFields,
+        buildNameFormats,
+        addresseeFormat,
+        salutationFormat,
+        updateEmailFields,
+        updatePhoneFields,
+        updateAddressFields,
+        activeFieldKeys: Object.entries(activeFields)
+          .filter(([, active]) => active)
+          .map(([key]) => key)
+          .sort(),
+      }),
+    [
+      sourceFilename,
+      rows.length,
+      headers.length,
+      importIntent,
+      constituencyAction,
+      educationRelationshipAction,
+      useHierarchy,
+      updateNameFields,
+      updateIndividualProfileFields,
+      updateNameFormatFields,
+      buildNameFormats,
+      addresseeFormat,
+      salutationFormat,
+      updateEmailFields,
+      updatePhoneFields,
+      updateAddressFields,
+      activeFields,
+    ],
+  );
   const previewBlockers = [
     rows.length === 0 ? "Add at least one CSV data row." : "",
     identityRequirementMet ? "" : identityRequirementCopy,
@@ -2838,10 +2885,21 @@ export default function ConstituencyImportPage() {
       : 0;
   const importRows = Array.isArray(preview?.rows) ? preview.rows : [];
   const reviewQueueRows = preview?.savedRun ? getReviewQueueRows(importRows) : [];
-  const reviewNavigationRows = reviewQueueRows.length ? reviewQueueRows : importRows;
-  const rowsNeedingAttention = reviewQueueRows.filter((row) => row.status !== "Ready").length;
+  const reviewActionRows = preview?.savedRun
+    ? reviewQueueRows.filter((row) => row.status !== "Ready")
+    : [];
+  const reviewNavigationRows = preview?.savedRun
+    ? reviewActionRows.length
+      ? reviewActionRows
+      : readyApplyRows.length
+        ? readyApplyRows
+        : reviewQueueRows.length
+          ? reviewQueueRows
+          : importRows
+    : importRows;
+  const rowsNeedingAttention = reviewActionRows.length;
   const progressReviewRows = preview?.savedRun
-    ? reviewQueueRows
+    ? reviewActionRows
     : importRows.filter(isUnresolvedImportRow);
   const progressRowsNeedingAttention = progressReviewRows.filter(
     (row) => row.status !== "Ready",
@@ -2963,9 +3021,47 @@ export default function ConstituencyImportPage() {
   }
 
   useEffect(() => {
+    latestAutoPreviewSignatureRef.current = autoPreviewSignature;
+  }, [autoPreviewSignature]);
+
+  useEffect(() => {
     if (!isReviewer) return;
     fetchSavedRuns();
   }, [isReviewer]);
+
+  useEffect(() => {
+    if (!isReviewer) return;
+    if (!canPreview || !rows.length || !sourceFilename) return;
+    if (preview || previewing || savingRun || backgroundPreviewing || loadingRunId) return;
+    if (contactDecisionsDirty || fieldDecisionsDirty) return;
+    if (autoPreviewStartedRef.current === autoPreviewSignature) return;
+
+    autoPreviewStartedRef.current = autoPreviewSignature;
+    void requestPreview({
+      saveRun: true,
+      scrollToResults: false,
+      background: true,
+      preferReviewMode: false,
+      expectedAutoPreviewSignature: autoPreviewSignature,
+    }).then((payload) => {
+      if (!payload && latestAutoPreviewSignatureRef.current === autoPreviewSignature) {
+        autoPreviewStartedRef.current = "";
+      }
+    });
+  }, [
+    isReviewer,
+    canPreview,
+    rows.length,
+    sourceFilename,
+    preview,
+    previewing,
+    savingRun,
+    backgroundPreviewing,
+    loadingRunId,
+    contactDecisionsDirty,
+    fieldDecisionsDirty,
+    autoPreviewSignature,
+  ]);
 
   useEffect(() => {
     const input = fileInputRef.current;
@@ -3386,12 +3482,65 @@ export default function ConstituencyImportPage() {
     }
   }
 
+  async function persistReviewChoices({
+    focusRow = null,
+    openNextRecord = false,
+    continueRequiredReview = false,
+  } = {}) {
+    const payload = await requestPreview({
+      saveRun: Boolean(preview?.savedRun),
+      scrollToResults: false,
+    });
+    const targetRow = focusRow ? findSavedRow(payload, focusRow) : null;
+    const runIdOverride = payload?.savedRun?.id || null;
+
+    if (targetRow?.id) {
+      if (continueRequiredReview) {
+        setFocusedRowId(String(targetRow.id));
+        setReviewMode(Boolean(payload?.savedRun));
+        preloadRequiredReviewChoices(targetRow, runIdOverride);
+        const targetKey = getRowReviewTargetKey(getRowReviewRequirements(targetRow));
+        if (targetKey) {
+          focusRowReviewTarget(targetRow, targetKey, runIdOverride);
+        }
+      } else if (openNextRecord) {
+        focusNextUnresolvedRow(payload?.rows, targetRow.id);
+      } else {
+        focusImportRow(targetRow.id);
+      }
+    }
+
+    return payload;
+  }
+
   async function startRequiredReview(row, requestedTargetKey = "") {
     if (!row || savingRun || previewing) return;
 
-    if (preview?.savedRun?.id) {
+    if (preview?.savedRun?.id && !(contactDecisionsDirty || fieldDecisionsDirty)) {
       focusImportRow(row.id);
       openRemainingRequiredReview(row);
+      return;
+    }
+
+    if (preview?.savedRun?.id && (contactDecisionsDirty || fieldDecisionsDirty)) {
+      try {
+        const savedPayload = await persistReviewChoices({
+          focusRow: row,
+          continueRequiredReview: true,
+        });
+        const savedRunId = savedPayload?.savedRun?.id;
+        if (savedRunId) {
+          setSaveMessage(
+            `Saved updated review choices in import run #${savedRunId}. Complete the required NXT row selections below before sending this record.`,
+          );
+        }
+      } catch (saveError) {
+        setError(
+          saveError instanceof Error
+            ? saveError.message
+            : "Failed to save the updated review choices.",
+        );
+      }
       return;
     }
 
@@ -3417,7 +3566,7 @@ export default function ConstituencyImportPage() {
 
   async function saveRowReviewOnly(row, { openNextRecord = false } = {}) {
     if (!row || savingRun || previewing || savingReviewOnlyRowId) return;
-    if (preview?.savedRun?.id) {
+    if (preview?.savedRun?.id && !(contactDecisionsDirty || fieldDecisionsDirty)) {
       if (openNextRecord) {
         focusNextUnresolvedRow(preview?.rows, row.id);
       } else {
@@ -3430,7 +3579,10 @@ export default function ConstituencyImportPage() {
     setError("");
     setSaveMessage("");
     try {
-      const savedPayload = await requestPreview({ saveRun: true, scrollToResults: false });
+      const savedPayload =
+        preview?.savedRun?.id && (contactDecisionsDirty || fieldDecisionsDirty)
+          ? await persistReviewChoices({ focusRow: row, openNextRecord })
+          : await requestPreview({ saveRun: true, scrollToResults: false });
       const savedRunId = savedPayload?.savedRun?.id;
       const savedRow = findSavedRow(savedPayload, row);
       if (!savedRunId || !savedRow?.id) {
@@ -4323,15 +4475,20 @@ export default function ConstituencyImportPage() {
     rowsOverride = null,
     successMessage = "",
     scrollToResults = true,
+    background = false,
+    preferReviewMode = null,
+    expectedAutoPreviewSignature = "",
   } = {}) {
-    if (saveRun) {
+    if (background) {
+      setBackgroundPreviewing(true);
+    } else if (saveRun) {
       setSavingRun(true);
     } else {
       setPreviewing(true);
     }
     setError("");
     setSaveMessage("");
-    if (!saveRun) {
+    if (!saveRun && !background) {
       setPreview(null);
     }
     try {
@@ -4366,10 +4523,19 @@ export default function ConstituencyImportPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to review constituency import");
       }
+      if (
+        background &&
+        expectedAutoPreviewSignature &&
+        latestAutoPreviewSignatureRef.current !== expectedAutoPreviewSignature
+      ) {
+        return null;
+      }
       setPreview(payload);
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
-      setReviewMode(Boolean(payload?.savedRun));
+      setReviewMode(
+        typeof preferReviewMode === "boolean" ? preferReviewMode : Boolean(payload?.savedRun),
+      );
       setShowBatchTools(false);
       setContactDecisionsDirty(false);
       setFieldDecisionsDirty(false);
@@ -4383,7 +4549,10 @@ export default function ConstituencyImportPage() {
             ?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 0);
       }
-      if (saveRun && payload?.savedRun?.id) {
+      if (background && payload?.savedRun?.id) {
+        setFileReadStatus("Draft import review is ready.");
+        fetchSavedRuns();
+      } else if (saveRun && payload?.savedRun?.id) {
         setSaveMessage(`Saved import run #${payload.savedRun.id}. No NXT records were changed.`);
         fetchSavedRuns();
       } else if (successMessage) {
@@ -4400,6 +4569,7 @@ export default function ConstituencyImportPage() {
     } finally {
       setPreviewing(false);
       setSavingRun(false);
+      setBackgroundPreviewing(false);
     }
   }
 
@@ -5846,20 +6016,24 @@ export default function ConstituencyImportPage() {
             <button
               type="button"
               onClick={() => requestPreview()}
-              disabled={previewing}
+              disabled={previewing || backgroundPreviewing}
               style={{
                 justifySelf: "start",
                 border: "none",
                 borderRadius: "14px",
-                backgroundColor: previewing ? "#CBD5E1" : "#6D5DFB",
+                backgroundColor: previewing || backgroundPreviewing ? "#CBD5E1" : "#6D5DFB",
                 color: "white",
                 padding: "13px 18px",
                 fontWeight: 900,
                 fontSize: "15px",
-                cursor: previewing ? "not-allowed" : "pointer",
+                cursor: previewing || backgroundPreviewing ? "not-allowed" : "pointer",
               }}
             >
-              {previewing ? "Checking import..." : "Review uploaded CSV"}
+              {previewing
+                ? "Checking import..."
+                : backgroundPreviewing
+                  ? "Preparing import review..."
+                  : "Review uploaded CSV"}
             </button>
           )}
 
@@ -6008,25 +6182,35 @@ export default function ConstituencyImportPage() {
           ) : null}
 
           {preview?.rows?.length ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
-              {contactDecisionsDirty || fieldDecisionsDirty ? (
-                <button
-                  type="button"
-                  onClick={() => requestPreview()}
-                  disabled={previewing}
-                  style={{
-                    border: "1px solid #C7D2FE",
-                    borderRadius: "14px",
-                    backgroundColor: previewing ? "#E5E7EB" : "#EEF2FF",
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+                {contactDecisionsDirty || fieldDecisionsDirty ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      preview?.savedRun
+                        ? persistReviewChoices()
+                        : requestPreview()
+                    }
+                    disabled={previewing}
+                    style={{
+                      border: "1px solid #C7D2FE",
+                      borderRadius: "14px",
+                      backgroundColor: previewing ? "#E5E7EB" : "#EEF2FF",
                     color: previewing ? "#64748B" : "#4338CA",
                     padding: "12px 16px",
                     fontWeight: 900,
                     cursor: previewing ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {previewing ? "Refreshing review plan..." : "Refresh review plan"}
-                </button>
-              ) : null}
+                    }}
+                  >
+                    {previewing
+                      ? preview?.savedRun
+                        ? "Saving review changes..."
+                        : "Refreshing review plan..."
+                      : preview?.savedRun
+                        ? "Save review changes"
+                        : "Refresh review plan"}
+                  </button>
+                ) : null}
               {!preview?.savedRun ? (
                 <button
                   type="button"
@@ -6201,12 +6385,14 @@ export default function ConstituencyImportPage() {
                     }}
                   >
                     <div style={{ color: "#1D4ED8", fontSize: "13px", fontWeight: 900 }}>
-                      Review one record at a time
+                      {reviewActionRows.length ? "Review one record at a time" : "Work through ready records"}
                     </div>
                     <div style={{ color: "#1E3A8A", fontSize: "14px" }}>
-                      {reviewQueueRows.length
+                      {reviewActionRows.length
                         ? `Record ${focusedReviewRowIndex + 1} of ${reviewNavigationRows.length} needs your review or action.`
-                        : `All rows are applied or skipped. Browse the ${reviewNavigationRows.length} recorded row${reviewNavigationRows.length === 1 ? "" : "s"} in this batch.`}
+                        : readyApplyRows.length
+                          ? `${reviewNavigationRows.length} ready row${reviewNavigationRows.length === 1 ? "" : "s"} can be sent without additional review.`
+                          : `All rows are applied or skipped. Browse the ${reviewNavigationRows.length} recorded row${reviewNavigationRows.length === 1 ? "" : "s"} in this batch.`}
                     </div>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
@@ -6436,12 +6622,14 @@ export default function ConstituencyImportPage() {
                     write?.action === "replace" &&
                     !write?.sourceCodeId,
                 );
+                const hasDirtyReviewChoices = contactDecisionsDirty || fieldDecisionsDirty;
                 const canApplyRow = Boolean(
                   preview?.savedRun &&
                     row.status === "Ready" &&
                     !row.appliedAt &&
                     row.intentDisposition?.key !== "ready_new" &&
-                    !hasUnselectedConstituencyReplacement,
+                    !hasUnselectedConstituencyReplacement &&
+                    !hasDirtyReviewChoices,
                 );
                 const canCreateReadyNewRow = Boolean(
                   preview?.savedRun &&
@@ -6459,9 +6647,7 @@ export default function ConstituencyImportPage() {
                     !fieldDecisionsDirty &&
                     !editingPreviewRowNumber,
                 );
-                const needsFreshPreview = Boolean(
-                  !preview?.savedRun && (contactDecisionsDirty || fieldDecisionsDirty),
-                );
+                const needsFreshPreview = Boolean(hasDirtyReviewChoices);
                 const reviewRequirements = getRowReviewRequirements(row);
                 const reviewTargetKey = getRowReviewTargetKey(reviewRequirements);
                 const reviewTargetId = `constituency-import-row-${row.id}-${reviewTargetKey}`;
@@ -7018,8 +7204,10 @@ export default function ConstituencyImportPage() {
                                     : "This row has no staged NXT changes and was skipped during import review."
                                 : row.status === "Failed"
                                   ? "Review the failed-write result below before retrying the affected NXT changes."
-                                  : needsFreshPreview
-                                    ? "Refresh the review plan after changing a contact or profile decision, then confirm the refreshed row."
+                                : needsFreshPreview
+                                    ? preview?.savedRun
+                                      ? "Save the review changes for this row before sending it to NXT."
+                                      : "Refresh the review plan after changing a contact or profile decision, then confirm the refreshed row."
                                     : "Resolve the required review below before sending this record to NXT."}
                           </span>
                           {rowNeedsReviewAction &&
@@ -7109,7 +7297,9 @@ export default function ConstituencyImportPage() {
                             onClick={() =>
                               reviewTargetKey
                                 ? startRequiredReview(row, reviewTargetKey)
-                                : requestPreview()
+                                : preview?.savedRun
+                                  ? persistReviewChoices({ focusRow: row })
+                                  : requestPreview()
                             }
                             disabled={previewing || savingRun}
                             style={{
@@ -7124,10 +7314,14 @@ export default function ConstituencyImportPage() {
                             }}
                           >
                             {previewing || savingRun
-                              ? "Saving review..."
+                              ? preview?.savedRun
+                                ? "Saving review changes..."
+                                : "Saving review..."
                               : reviewTargetKey
                                 ? "Save review and continue"
-                                : "Refresh review plan"}
+                                : preview?.savedRun
+                                  ? "Save review changes"
+                                  : "Refresh review plan"}
                           </button>
                         ) : rowNeedsReviewAction && row.status !== "Failed" ? (
                           <button

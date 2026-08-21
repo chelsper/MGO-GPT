@@ -1673,6 +1673,63 @@ async function fetchCurrentEducations({ userId, authUserId, origin, constituentI
   return getCollection(payload);
 }
 
+function createPreviewRequestCache() {
+  return {
+    matchResults: new Map(),
+    constituentDetails: new Map(),
+    constituencyCodes: new Map(),
+    currentContacts: new Map(),
+    currentNameFormats: new Map(),
+    currentEducations: new Map(),
+  };
+}
+
+async function getOrLoadCached(cacheMap, key, loader) {
+  if (!key) return loader();
+  if (!cacheMap.has(key)) {
+    cacheMap.set(
+      key,
+      Promise.resolve()
+        .then(loader)
+        .catch((error) => {
+          cacheMap.delete(key);
+          throw error;
+        }),
+    );
+  }
+  return cacheMap.get(key);
+}
+
+function buildMatchCacheKey(input) {
+  if (input.blackbaudConstituentId) return `id:${input.blackbaudConstituentId}`;
+  if (input.lookupId) return `lookup:${input.lookupId}`;
+
+  const fallbackParts = [
+    input.constituentName ? `name:${normalizeText(input.constituentName)}` : "",
+    input.email ? `email:${normalizeEmailValue(input.email)}` : "",
+    input.addressLine1 ? `address:${normalizeText(input.addressLine1)}` : "",
+  ].filter(Boolean);
+  return fallbackParts.length ? fallbackParts.join("|") : "";
+}
+
+async function mapWithConcurrency(items, limit, iteratee) {
+  const concurrency = Math.max(1, Math.min(limit || 1, items.length || 1));
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) return;
+      results[currentIndex] = await iteratee(items[currentIndex], currentIndex);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return results;
+}
+
 function deriveStatus(
   matchResult,
   codeFetchError,
@@ -2012,10 +2069,10 @@ export async function POST(request) {
     const saveRun = Boolean(body?.saveRun);
     const origin = new URL(request.url).origin;
     const authUserId = user.id;
+    const previewCache = createPreviewRequestCache();
+    const rowConcurrency = Math.min(6, Math.max(2, rowsToPreview.length >= 12 ? 6 : 4));
 
-    const previewRows = [];
-    for (let index = 0; index < rowsToPreview.length; index += 1) {
-      const row = rowsToPreview[index];
+    const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const input = getRowInput(row, mappings, defaults);
       let matchResult;
       let currentCodes = [];
@@ -2031,12 +2088,18 @@ export async function POST(request) {
       let educationFetchError = "";
 
       try {
-        matchResult = await resolveMatch({
-          input,
-          userId: user.id,
-          authUserId,
-          origin,
-        });
+        const matchCacheKey = buildMatchCacheKey(input);
+        matchResult = await getOrLoadCached(
+          previewCache.matchResults,
+          matchCacheKey,
+          () =>
+            resolveMatch({
+              input,
+              userId: user.id,
+              authUserId,
+              origin,
+            }),
+        );
       } catch (error) {
         matchResult = {
           status: "not_matched",
@@ -2049,12 +2112,17 @@ export async function POST(request) {
 
       if (matchResult.match?.blackbaudConstituentId && hasConstituencyChange(input)) {
         try {
-          currentCodes = await fetchConstituencyCodes({
-            userId: user.id,
-            authUserId,
-            origin,
-            constituentId: matchResult.match.blackbaudConstituentId,
-          });
+          currentCodes = await getOrLoadCached(
+            previewCache.constituencyCodes,
+            String(matchResult.match.blackbaudConstituentId),
+            () =>
+              fetchConstituencyCodes({
+                userId: user.id,
+                authUserId,
+                origin,
+                constituentId: matchResult.match.blackbaudConstituentId,
+              }),
+          );
         } catch (error) {
           codeFetchError =
             error instanceof Error ? error.message : "Could not load current constituencies.";
@@ -2071,12 +2139,17 @@ export async function POST(request) {
         )
       ) {
         try {
-          const detailedMatch = await getBlackbaudConstituentById({
-            userId: user.id,
-            authUserId,
-            origin,
-            constituentId: matchResult.match.blackbaudConstituentId,
-          });
+          const detailedMatch = await getOrLoadCached(
+            previewCache.constituentDetails,
+            String(matchResult.match.blackbaudConstituentId),
+            () =>
+              getBlackbaudConstituentById({
+                userId: user.id,
+                authUserId,
+                origin,
+                constituentId: matchResult.match.blackbaudConstituentId,
+              }),
+          );
           if (detailedMatch && typeof detailedMatch === "object") {
             matchResult.match = {
               ...matchResult.match,
@@ -2098,25 +2171,35 @@ export async function POST(request) {
           hasContactSectionAction(contactDecisions[String(index + 1)] || {})
         )
       ) {
-        const contactPreview = await fetchCurrentContacts({
-          userId: user.id,
-          authUserId,
-          origin,
-          constituentId: matchResult.match.blackbaudConstituentId,
-          input,
-        });
+        const contactPreview = await getOrLoadCached(
+          previewCache.currentContacts,
+          String(matchResult.match.blackbaudConstituentId),
+          () =>
+            fetchCurrentContacts({
+              userId: user.id,
+              authUserId,
+              origin,
+              constituentId: matchResult.match.blackbaudConstituentId,
+              input,
+            }),
+        );
         currentContacts = contactPreview.contacts;
         contactFetchErrors = contactPreview.errors;
       }
 
       if (matchResult.match?.blackbaudConstituentId && input.nameFormatUpdate) {
         try {
-          currentNameFormats = await fetchCurrentNameFormats({
-            userId: user.id,
-            authUserId,
-            origin,
-            constituentId: matchResult.match.blackbaudConstituentId,
-          });
+          currentNameFormats = await getOrLoadCached(
+            previewCache.currentNameFormats,
+            String(matchResult.match.blackbaudConstituentId),
+            () =>
+              fetchCurrentNameFormats({
+                userId: user.id,
+                authUserId,
+                origin,
+                constituentId: matchResult.match.blackbaudConstituentId,
+              }),
+          );
         } catch (error) {
           nameFormatFetchError =
             error instanceof Error ? error.message : "Could not load the current primary name formats.";
@@ -2125,12 +2208,17 @@ export async function POST(request) {
 
       if (matchResult.match?.blackbaudConstituentId && input.educationRelationship) {
         try {
-          currentEducations = await fetchCurrentEducations({
-            userId: user.id,
-            authUserId,
-            origin,
-            constituentId: matchResult.match.blackbaudConstituentId,
-          });
+          currentEducations = await getOrLoadCached(
+            previewCache.currentEducations,
+            String(matchResult.match.blackbaudConstituentId),
+            () =>
+              fetchCurrentEducations({
+                userId: user.id,
+                authUserId,
+                origin,
+                constituentId: matchResult.match.blackbaudConstituentId,
+              }),
+          );
         } catch (error) {
           educationFetchError =
             error instanceof Error
@@ -2228,7 +2316,7 @@ export async function POST(request) {
         initialStatus === STATUS.skipped && intentDisposition.key === "other" ? STATUS.skipped :
         STATUS.needsReview;
 
-      previewRows.push({
+      return {
         rowNumber: index + 1,
         status,
         importIntent,
@@ -2258,8 +2346,8 @@ export async function POST(request) {
         proposedCodes: changePreview.proposedCodes,
         writePlan,
         reasons,
-      });
-    }
+      };
+    });
 
     const summary = summarize(previewRows, warnings);
     const savedPreview = saveRun
