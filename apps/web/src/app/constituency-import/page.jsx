@@ -1770,6 +1770,12 @@ function EducationTargetReviewPanel({
     .join(" · ");
   const hasLoadedCandidates = Array.isArray(candidates);
 
+  useEffect(() => {
+    if (!confirmedWrite && !hasLoadedCandidates && !loading && !saving) {
+      onLoadCandidates(row);
+    }
+  }, [confirmedWrite, hasLoadedCandidates, loading, onLoadCandidates, row, saving]);
+
   if (confirmedWrite) {
     const source = confirmedWrite.existingEducation || {};
     const sourceDetails = [
@@ -1847,23 +1853,19 @@ function EducationTargetReviewPanel({
       </div>
 
       {!hasLoadedCandidates ? (
-        <button
-          type="button"
-          onClick={() => onLoadCandidates(row)}
-          disabled={loading || saving}
+        <div
           style={{
             width: "fit-content",
-            border: "1px solid #B45309",
+            border: "1px solid #FDE68A",
             borderRadius: "999px",
-            backgroundColor: loading ? "#FEF3C7" : "#B45309",
-            color: loading ? "#92400E" : "white",
+            backgroundColor: "#FEF3C7",
+            color: "#92400E",
             padding: "9px 14px",
             fontWeight: 900,
-            cursor: loading || saving ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? "Loading current NXT rows..." : "Review current NXT education rows"}
-        </button>
+          Loading current NXT education rows...
+        </div>
       ) : candidates.length ? (
         <div style={{ display: "grid", gap: "9px" }}>
           <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
@@ -1962,6 +1964,12 @@ function ConstituencyReplaceReviewPanel({
     `Start: ${formatCodeDate(write.startDate)}`,
     `End: ${formatCodeDate(write.endDate)}`,
   ];
+
+  useEffect(() => {
+    if (!write.sourceCodeId && !hasLoadedCandidates && !loading && !saving) {
+      onLoadCandidates(row);
+    }
+  }, [hasLoadedCandidates, loading, onLoadCandidates, row, saving, write.sourceCodeId]);
 
   if (write.sourceCodeId && selectedSourceCode) {
     return (
@@ -2065,23 +2073,19 @@ function ConstituencyReplaceReviewPanel({
       </div>
 
       {!hasLoadedCandidates ? (
-        <button
-          type="button"
-          onClick={() => onLoadCandidates(row)}
-          disabled={loading || saving}
+        <div
           style={{
             width: "fit-content",
-            border: "1px solid #B45309",
+            border: "1px solid #FDE68A",
             borderRadius: "999px",
-            backgroundColor: loading ? "#FEF3C7" : "#B45309",
-            color: loading ? "#92400E" : "white",
+            backgroundColor: "#FEF3C7",
+            color: "#92400E",
             padding: "9px 14px",
             fontWeight: 900,
-            cursor: loading || saving ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? "Loading current NXT code rows..." : `Review current ${write.sourceConstituency} code rows`}
-        </button>
+          Loading current NXT code rows...
+        </div>
       ) : candidates.length ? (
         <div style={{ display: "grid", gap: "9px" }}>
           <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
