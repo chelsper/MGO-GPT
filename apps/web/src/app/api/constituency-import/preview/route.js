@@ -15,6 +15,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MAX_PREVIEW_ROWS = 100;
+const DEFER_HEAVY_ROW_DETAILS_THRESHOLD = 40;
 
 const STATUS = {
   ready: "Ready",
@@ -1162,6 +1163,41 @@ function buildEducationRelationshipWrite(input, match, currentEducations) {
   return write;
 }
 
+function buildDeferredEducationRelationshipWrite(input, match) {
+  if (!input.educationRelationship) return null;
+
+  const action = cleanText(input.educationRelationship.action) || "add";
+  const write = {
+    type: "education_relationship",
+    action: action === "review-update" ? "review_existing" : action,
+    duplicatePolicy:
+      action === "review-update" ? "review_and_update_selected" : "review_before_apply",
+    recordType: cleanText(match?.raw?.type),
+    institution: cleanText(input.educationRelationship.institution),
+    degree: cleanText(input.educationRelationship.degree),
+    major: cleanText(input.educationRelationship.major),
+    minor: cleanText(input.educationRelationship.minor),
+    schoolType: cleanText(input.educationRelationship.schoolType),
+    campus: cleanText(input.educationRelationship.campus),
+    fraternitySorority: cleanText(input.educationRelationship.fraternitySorority),
+    gpa: cleanText(input.educationRelationship.gpa),
+    classYear: cleanText(input.educationRelationship.classYear),
+    status: cleanText(input.educationRelationship.status),
+    dateGraduated: cleanText(input.educationRelationship.dateGraduated),
+    dateEntered: cleanText(input.educationRelationship.dateEntered),
+    dateLeft: cleanText(input.educationRelationship.dateLeft),
+    makePrimary: input.educationRelationship.makePrimary || "",
+    requiresReview: true,
+    deferredHydration: true,
+    validationMessage:
+      action === "review-update"
+        ? "Open this row to load the current NXT education relationships before choosing which one to update."
+        : "Open this row to load the current NXT education relationships before confirming this education import.",
+  };
+
+  return write;
+}
+
 function buildOrganizationRelationshipWrite(input, match) {
   if (!input.organizationRelationship) return null;
 
@@ -1203,7 +1239,9 @@ function buildWritePlan(
   fieldDecisions = {},
   currentNameFormats = null,
   currentEducations = null,
+  options = {},
 ) {
+  const deferHeavyReview = options?.deferHeavyReview === true;
   const writes = [];
   const reasons = [];
 
@@ -1238,11 +1276,13 @@ function buildWritePlan(
     writes.push(write);
   }
 
-  const educationRelationshipWrite = buildEducationRelationshipWrite(
-    input,
-    match,
-    currentEducations,
-  );
+  const educationRelationshipWrite = deferHeavyReview && input.educationRelationship
+    ? buildDeferredEducationRelationshipWrite(input, match)
+    : buildEducationRelationshipWrite(
+      input,
+      match,
+      currentEducations,
+    );
   if (educationRelationshipWrite) {
     writes.push(educationRelationshipWrite);
   }
@@ -2333,6 +2373,9 @@ export async function POST(request) {
       educationMs: 0,
     };
 
+    const deferHeavyRowDetails =
+      rowsToPreview.length >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD;
+
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const input = getRowInput(row, mappings, defaults);
       let matchResult;
@@ -2347,6 +2390,12 @@ export async function POST(request) {
       let nameFormatFetchError = "";
       let currentEducations = [];
       let educationFetchError = "";
+      const deferredHydration = {
+        detail: false,
+        contacts: false,
+        nameFormats: false,
+        educations: false,
+      };
 
       try {
         const matchCacheKey = buildMatchCacheKey(input);
@@ -2397,12 +2446,27 @@ export async function POST(request) {
       if (matchResult.match?.blackbaudConstituentId) {
         const constituentId = String(matchResult.match.blackbaudConstituentId);
         const rowTasks = [];
-
-        if (
+        const rowContactDecisions = contactDecisions[String(index + 1)] || {};
+        const needsHeavyDetail =
           input.nameUpdate ||
           input.individualProfileUpdate ||
           input.nameFormatUpdate ||
-          input.educationRelationship
+          input.educationRelationship;
+        const needsContactDetail =
+          input.emailUpdates?.length ||
+          input.phoneUpdates?.length ||
+          input.addressUpdates?.length ||
+          hasContactSectionAction(rowContactDecisions);
+        const deferThisRow = deferHeavyRowDetails && (needsHeavyDetail || needsContactDetail);
+
+        if (
+          !deferThisRow &&
+          (
+            input.nameUpdate ||
+            input.individualProfileUpdate ||
+            input.nameFormatUpdate ||
+            input.educationRelationship
+          )
         ) {
           rowTasks.push(
             (async () => {
@@ -2432,13 +2496,20 @@ export async function POST(request) {
               }
             })(),
           );
+        } else if (deferThisRow) {
+          deferredHydration.detail = Boolean(
+            input.nameUpdate || input.individualProfileUpdate || input.nameFormatUpdate,
+          );
         }
 
         if (
-          input.emailUpdates?.length ||
-          input.phoneUpdates?.length ||
-          input.addressUpdates?.length ||
-          hasContactSectionAction(contactDecisions[String(index + 1)] || {})
+          !deferThisRow &&
+          (
+            input.emailUpdates?.length ||
+            input.phoneUpdates?.length ||
+            input.addressUpdates?.length ||
+            hasContactSectionAction(rowContactDecisions)
+          )
         ) {
           rowTasks.push(
             (async () => {
@@ -2460,9 +2531,11 @@ export async function POST(request) {
               contactFetchErrors = contactPreview.errors;
             })(),
           );
+        } else if (deferThisRow && needsContactDetail) {
+          deferredHydration.contacts = true;
         }
 
-        if (input.nameFormatUpdate) {
+        if (!deferThisRow && input.nameFormatUpdate) {
           rowTasks.push(
             (async () => {
               try {
@@ -2487,9 +2560,11 @@ export async function POST(request) {
               }
             })(),
           );
+        } else if (deferThisRow && input.nameFormatUpdate) {
+          deferredHydration.nameFormats = true;
         }
 
-        if (input.educationRelationship) {
+        if (!deferThisRow && input.educationRelationship) {
           rowTasks.push(
             (async () => {
               try {
@@ -2514,6 +2589,8 @@ export async function POST(request) {
               }
             })(),
           );
+        } else if (deferThisRow && input.educationRelationship) {
+          deferredHydration.educations = true;
         }
 
         if (rowTasks.length) {
@@ -2531,7 +2608,11 @@ export async function POST(request) {
         fieldDecisions[String(index + 1)] || {},
         currentNameFormats,
         currentEducations,
+        {
+          deferHeavyReview: deferredHydration.educations,
+        },
       );
+      const hasDeferredHydration = Object.values(deferredHydration).some(Boolean);
       const reasons = [
         ...matchResult.notes,
         ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
@@ -2585,6 +2666,9 @@ export async function POST(request) {
               "Review the current NXT address and the CSV value before saving. Add keeps existing values; replace preserves the selected NXT address type and primary setting. Address Valid From is included when provided.",
             ]
           : []),
+        ...(hasDeferredHydration
+          ? ["Open this row to finish loading the current NXT details needed for final review."]
+          : []),
         ...writePlanReasons,
         ...writePlan
           .filter((write) => write.validationMessage)
@@ -2600,15 +2684,25 @@ export async function POST(request) {
         changePreview,
         writePlan,
       );
-      const intentDisposition = classifyImportRow(importIntent, matchResult, initialStatus);
+      const effectiveInitialStatus =
+        hasDeferredHydration && initialStatus === STATUS.ready
+          ? STATUS.needsReview
+          : initialStatus;
+      const intentDisposition = classifyImportRow(
+        importIntent,
+        matchResult,
+        effectiveInitialStatus,
+      );
       const status =
         intentDisposition.key === "ready_new"
           ? STATUS.ready
           : intentDisposition.allowApply
-            ? initialStatus :
-        initialStatus === STATUS.conflict ? STATUS.conflict :
-        initialStatus === STATUS.skipped && intentDisposition.key === "other" ? STATUS.skipped :
-        STATUS.needsReview;
+            ? effectiveInitialStatus
+            : effectiveInitialStatus === STATUS.conflict
+              ? STATUS.conflict
+              : effectiveInitialStatus === STATUS.skipped && intentDisposition.key === "other"
+                ? STATUS.skipped
+                : STATUS.needsReview;
 
       return {
         rowNumber: index + 1,
@@ -2637,6 +2731,7 @@ export async function POST(request) {
         currentContacts,
         currentNameFormats,
         currentEducations: currentEducations.map(serializeEducation),
+        deferredHydration: hasDeferredHydration ? deferredHydration : null,
         proposedCodes: changePreview.proposedCodes,
         writePlan,
         reasons,
