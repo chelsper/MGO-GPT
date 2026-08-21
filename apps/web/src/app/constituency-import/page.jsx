@@ -2582,6 +2582,25 @@ function getImportRowConstituentProfileUrl(row) {
   return buildBlackbaudConstituentProfileUrl(getImportRowConstituentId(row));
 }
 
+function hasWritePlanType(row, types) {
+  const typeSet = new Set(types);
+  return Array.isArray(row?.writePlan)
+    ? row.writePlan.some((write) => typeSet.has(write?.type))
+    : false;
+}
+
+function isClearlySafeReadyRow(row) {
+  if (!row || row.status !== "Ready" || row.appliedAt) return false;
+  if (row.intentDisposition?.key !== "ready_update") return false;
+  if ((row.confidence || 0) < 95) return false;
+  if (hasWritePlanType(row, ["email_address", "phone", "address"])) return false;
+  if (hasWritePlanType(row, ["education_relationship", "organization_relationship"])) return false;
+  if (Array.isArray(row?.writePlan) && row.writePlan.some((write) => write?.requiresReview)) {
+    return false;
+  }
+  return true;
+}
+
 export default function ConstituencyImportPage() {
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -2860,6 +2879,7 @@ export default function ConstituencyImportPage() {
       ? preview.rows.filter((row) => row.status === "Ready" && !row.appliedAt)
       : [];
   const readySavedRows = readyApplyRows.length;
+  const clearlySafeReadyRows = readyApplyRows.filter(isClearlySafeReadyRow);
   const selectedApplyRows = readyApplyRows.filter((row) =>
     selectedApplyRowIds.includes(String(row.id)),
   );
@@ -3405,6 +3425,16 @@ export default function ConstituencyImportPage() {
 
   function selectAllReadyRows() {
     setSelectedApplyRowIds(readyApplyRows.map((row) => String(row.id)));
+  }
+
+  function selectClearlySafeRows() {
+    setSelectedApplyRowIds(clearlySafeReadyRows.map((row) => String(row.id)));
+    setSaveMessage(
+      clearlySafeReadyRows.length
+        ? `Selected ${clearlySafeReadyRows.length} clearly safe row${clearlySafeReadyRows.length === 1 ? "" : "s"} for batch import.`
+        : "No clearly safe ready rows were found in this batch yet.",
+    );
+    setError("");
   }
 
   function focusImportRowState(row) {
@@ -6492,6 +6522,22 @@ export default function ConstituencyImportPage() {
                             : "Select individual rows below, or select every ready row."}
                         </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={selectClearlySafeRows}
+                            disabled={applyingRun || !clearlySafeReadyRows.length}
+                            style={{
+                              border: "1px solid #A7F3D0",
+                              borderRadius: "999px",
+                              backgroundColor: clearlySafeReadyRows.length ? "#ECFDF5" : "#F0FDF4",
+                              color: clearlySafeReadyRows.length ? "#047857" : "#6B7280",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: applyingRun || !clearlySafeReadyRows.length ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            Select clearly safe ({clearlySafeReadyRows.length})
+                          </button>
                           <button
                             type="button"
                             onClick={selectAllReadyRows}
