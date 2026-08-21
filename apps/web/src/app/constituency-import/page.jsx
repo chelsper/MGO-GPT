@@ -872,13 +872,36 @@ function statusTone(status) {
 }
 
 function isNxtChecksPausedRow(row) {
-  return Boolean(row?.nxtChecksPaused || row?.matchMethod === "NXT checks paused");
+  const reasons = Array.isArray(row?.reasons) ? row.reasons.join(" ") : "";
+  return Boolean(
+    row?.nxtChecksPaused ||
+      row?.matchMethod === "NXT checks paused" ||
+      (isBlackbaudQuotaPausedText(reasons) &&
+        /saved safely without attempting further nxt calls|retry its review after/i.test(reasons)),
+  );
+}
+
+function isBlackbaudQuotaPausedText(text = "") {
+  return /call[-\s]volume quota|out of call volume quota|quota will be replenished|nxt checks are paused/i.test(
+    String(text || ""),
+  );
 }
 
 function getNxtChecksPausedNotice(text = "") {
   const details = String(text || "");
   const waitMatch = details.match(/about\s+(\d+)\s+minutes?/i);
-  const wait = waitMatch ? ` Blackbaud estimates availability in about ${waitMatch[1]} minutes.` : "";
+  const durationMatch = details.match(
+    /(?:quota (?:will be )?replenished|replenished)\s+in\s+(\d{1,2}):(\d{2}):(\d{2})/i,
+  );
+  const minutes = durationMatch
+    ? Math.ceil(
+        (Number(durationMatch[1]) * 60 * 60 + Number(durationMatch[2]) * 60 + Number(durationMatch[3])) /
+          60,
+      )
+    : Number(waitMatch?.[1] || 0);
+  const wait = minutes
+    ? ` Blackbaud estimates availability in about ${minutes} minute${minutes === 1 ? "" : "s"}.`
+    : "";
   return `Blackbaud's call-volume quota is temporarily unavailable.${wait} This import row was saved safely; no NXT record was checked and no NXT change will be sent until the quota is restored.`;
 }
 
@@ -2550,6 +2573,8 @@ function isUnresolvedImportRow(row) {
 }
 
 function getRowReviewRequirements(row) {
+  if (isNxtChecksPausedRow(row)) return [];
+
   const reasons = [
     ...(Array.isArray(row?.reasons) ? row.reasons : []),
     ...((row?.writePlan || [])
@@ -6110,7 +6135,9 @@ export default function ConstituencyImportPage() {
                 lineHeight: 1.45,
               }}
             >
-              Import review could not be created: {error}
+              {isBlackbaudQuotaPausedText(error)
+                ? getNxtChecksPausedNotice(error)
+                : `Import review could not be created: ${error}`}
             </div>
           ) : null}
           {previewBlockers.length ? (
@@ -6823,11 +6850,13 @@ export default function ConstituencyImportPage() {
                 const reviewTargetKey = getRowReviewTargetKey(reviewRequirements);
                 const reviewTargetId = `constituency-import-row-${row.id}-${reviewTargetKey}`;
                 const combinedReviewMissingItems = getCombinedRowReviewMissingItems(row);
-                const rowHasCombinedReviewItems = Boolean(
-                  getPendingEducationTargetReviewWrite(row) ||
-                    getPendingConstituencyTargetReviewWrite(row) ||
-                    getEducationClassYearReviewWrite(row),
-                );
+                const rowHasCombinedReviewItems =
+                  !isNxtChecksPaused &&
+                  Boolean(
+                    getPendingEducationTargetReviewWrite(row) ||
+                      getPendingConstituencyTargetReviewWrite(row) ||
+                      getEducationClassYearReviewWrite(row),
+                  );
                 const canSaveCombinedReview =
                   preview?.savedRun &&
                   rowHasCombinedReviewItems &&
@@ -7158,16 +7187,18 @@ export default function ConstituencyImportPage() {
                       </section>
                     ) : null}
 
-                    <div id={`constituency-import-row-${row.id}-contact-review`}>
-                      <ContactReviewPanel
-                        row={row}
-                        decisions={contactDecisions}
-                        onDecisionChange={updateContactDecision}
-                        onSectionDecisionChange={updateContactSectionDecision}
-                      />
-                    </div>
+                    {!isNxtChecksPaused ? (
+                      <div id={`constituency-import-row-${row.id}-contact-review`}>
+                        <ContactReviewPanel
+                          row={row}
+                          decisions={contactDecisions}
+                          onDecisionChange={updateContactDecision}
+                          onSectionDecisionChange={updateContactSectionDecision}
+                        />
+                      </div>
+                    ) : null}
 
-                    {preview?.savedRun ? (
+                    {preview?.savedRun && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-education-class-year`}>
                         <EducationClassYearReviewPanel
                           row={row}
@@ -7181,7 +7212,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {preview?.savedRun ? (
+                    {preview?.savedRun && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-education-target`}>
                         <EducationTargetReviewPanel
                           row={row}
@@ -7196,7 +7227,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {preview?.savedRun ? (
+                    {preview?.savedRun && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-constituency-target`}>
                         <ConstituencyReplaceReviewPanel
                           row={row}

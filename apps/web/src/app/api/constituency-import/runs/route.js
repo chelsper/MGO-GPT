@@ -8,8 +8,82 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
+const QUOTA_PAUSED_MATCH_METHOD = "NXT checks paused";
+const QUOTA_PAUSED_PATTERN =
+  /(?:call[-\s]volume quota|out of call volume quota|quota will be replenished|nxt checks are paused)/i;
+
+function isQuotaPausedText(value) {
+  return QUOTA_PAUSED_PATTERN.test(cleanText(value));
+}
+
+function getQuotaPauseNotice(value) {
+  const text = cleanText(value);
+  const durationMatch = text.match(
+    /(?:quota (?:will be )?replenished|replenished)\s+in\s+(\d{1,2}):(\d{2}):(\d{2})/i,
+  );
+  const aboutMatch = text.match(/about\s+(\d+)\s+minutes?/i);
+  const durationMinutes = durationMatch
+    ? Math.ceil(
+        (Number(durationMatch[1]) * 60 * 60 + Number(durationMatch[2]) * 60 + Number(durationMatch[3])) /
+          60,
+      )
+    : Number(aboutMatch?.[1] || 0);
+  const wait = durationMinutes
+    ? ` Blackbaud estimates availability in about ${durationMinutes} minute${durationMinutes === 1 ? "" : "s"}.`
+    : "";
+
+  return `Blackbaud's call-volume quota is temporarily unavailable.${wait} This import row was saved safely; no NXT record was checked and no NXT change is staged or will be sent until the quota is restored.`;
+}
+
+function isLegacyQuotaPausedPreview(row, preview, storedMatchMethod) {
+  if (preview?.nxtChecksPaused || storedMatchMethod === QUOTA_PAUSED_MATCH_METHOD) {
+    return true;
+  }
+
+  // Earlier paused previews saved the quota response beside stale review details.
+  // Treat only those explicitly safe, pre-write rows as paused when reopening them.
+  const reasons = Array.isArray(preview?.reasons) ? preview.reasons.join(" ") : "";
+  return (
+    row.status !== "Applied" &&
+    row.status !== "Failed" &&
+    isQuotaPausedText(reasons) &&
+    /saved safely without attempting further nxt calls|retry its review after/i.test(reasons)
+  );
+}
+
+function normalizeQuotaPausedPreview(preview, notice) {
+  return {
+    ...preview,
+    nxtChecksPaused: true,
+    matchStatus: "needs_review",
+    matchMethod: QUOTA_PAUSED_MATCH_METHOD,
+    confidence: 0,
+    match: null,
+    currentCodes: [],
+    currentCodeDetails: [],
+    currentContacts: { emails: [], phones: [], addresses: [] },
+    currentNameFormats: {
+      addressee: { id: "", value: "" },
+      salutation: { id: "", value: "" },
+    },
+    currentEducations: [],
+    deferredHydration: null,
+    proposedCodes: [],
+    writePlan: [],
+    reasons: [notice],
+    intentDisposition: {
+      key: "nxt_checks_paused",
+      label: "NXT checks paused",
+      allowApply: false,
+      message:
+        "This import row is saved safely. Blackbaud did not allow an NXT lookup, so it cannot be reviewed or sent until the quota is replenished.",
+    },
+  };
+}
+
 function serializeRun(row) {
   if (!row) return null;
+  const warnings = Array.isArray(row.warnings) ? row.warnings : [];
   return {
     id: String(row.id),
     status: row.status,
@@ -22,7 +96,9 @@ function serializeRun(row) {
     appliedCount: Number(row.applied_count || 0),
     failedCount: Number(row.failed_count || 0),
     summary: row.summary || {},
-    warnings: Array.isArray(row.warnings) ? row.warnings : [],
+    warnings: warnings.map((warning) =>
+      isQuotaPausedText(warning) ? getQuotaPauseNotice(warning) : warning,
+    ),
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
     appliedAt: row.applied_at || null,
@@ -34,7 +110,17 @@ function serializeRun(row) {
 }
 
 function serializeImportRow(row) {
-  const preview = row.preview && typeof row.preview === "object" ? row.preview : {};
+  const persistedPreview = row.preview && typeof row.preview === "object" ? row.preview : {};
+  const storedMatchMethod = row.match_method || persistedPreview.matchMethod || "";
+  const quotaPaused = isLegacyQuotaPausedPreview(row, persistedPreview, storedMatchMethod);
+  const preview = quotaPaused
+    ? normalizeQuotaPausedPreview(
+        persistedPreview,
+        getQuotaPauseNotice(
+          [storedMatchMethod, ...(Array.isArray(persistedPreview.reasons) ? persistedPreview.reasons : [])].join(" "),
+        ),
+      )
+    : persistedPreview;
   const requestedWrites = Array.isArray(row.requested_writes) ? row.requested_writes : [];
   return {
     ...preview,
@@ -42,9 +128,9 @@ function serializeImportRow(row) {
     runId: String(row.run_id),
     rowNumber: Number(row.row_number || preview.rowNumber || 0),
     status: row.status || preview.status || "Needs Review",
-    matchStatus: row.match_status || preview.matchStatus || "",
-    matchMethod: row.match_method || preview.matchMethod || "",
-    confidence: Number(row.confidence || preview.confidence || 0),
+    matchStatus: quotaPaused ? preview.matchStatus : row.match_status || preview.matchStatus || "",
+    matchMethod: preview.matchMethod || storedMatchMethod,
+    confidence: quotaPaused ? 0 : Number(row.confidence || preview.confidence || 0),
     blackbaudResult: row.blackbaud_result || null,
     blackbaudError: row.blackbaud_error || "",
     writePlan: Array.isArray(preview.writePlan) ? preview.writePlan : requestedWrites,
