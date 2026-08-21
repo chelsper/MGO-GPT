@@ -1906,6 +1906,165 @@ function serializeRun(row) {
   };
 }
 
+function getStoredWritePlan(row) {
+  return Array.isArray(row?.requested_writes)
+    ? row.requested_writes
+    : Array.isArray(row?.preview?.writePlan)
+      ? row.preview.writePlan
+      : [];
+}
+
+function getStoredBlackbaudResult(row) {
+  return row?.blackbaud_result && typeof row.blackbaud_result === "object"
+    ? row.blackbaud_result
+    : {};
+}
+
+function mergePriorReviewedWrites(nextWritePlan = [], priorWritePlan = []) {
+  const mergedWritePlan = nextWritePlan.map((write) => ({ ...write }));
+  const priorEducationUpdate = priorWritePlan.find(
+    (write) =>
+      write?.type === "education_relationship" &&
+      write?.action === "update" &&
+      cleanText(write?.targetEducationId),
+  );
+  const priorConstituencySelection = priorWritePlan.find(
+    (write) =>
+      write?.type === "constituent_code" &&
+      write?.action === "replace" &&
+      cleanText(write?.sourceCodeId),
+  );
+  const priorClassYearReview = priorWritePlan.find(
+    (write) =>
+      write?.type === "education_relationship" &&
+      !write?.requiresReview &&
+      cleanText(write?.classYearReview?.confirmedClassYear || write?.classYear),
+  );
+
+  for (let index = 0; index < mergedWritePlan.length; index += 1) {
+    const write = mergedWritePlan[index];
+
+    if (
+      write?.type === "education_relationship" &&
+      write?.action === "review_existing" &&
+      write?.requiresReview &&
+      priorEducationUpdate
+    ) {
+      const { requiresReview, validationMessage, ...reviewedWrite } = write;
+      mergedWritePlan[index] = {
+        ...reviewedWrite,
+        action: "update",
+        targetEducationId: priorEducationUpdate.targetEducationId,
+        existingEducation: priorEducationUpdate.existingEducation,
+        reviewSelection: priorEducationUpdate.reviewSelection,
+      };
+      continue;
+    }
+
+    if (
+      write?.type === "constituent_code" &&
+      write?.action === "replace" &&
+      !cleanText(write?.sourceCodeId) &&
+      priorConstituencySelection
+    ) {
+      const { requiresReview, validationMessage, ...reviewedWrite } = write;
+      mergedWritePlan[index] = {
+        ...reviewedWrite,
+        sourceCodeId: priorConstituencySelection.sourceCodeId,
+        selectedSourceCode: priorConstituencySelection.selectedSourceCode,
+        reviewSelection: priorConstituencySelection.reviewSelection,
+      };
+      continue;
+    }
+
+    if (
+      write?.type === "education_relationship" &&
+      write?.requiresReview &&
+      /Education Class Year must .*digit.* before it can be imported\.$/i.test(
+        cleanText(write?.validationMessage),
+      ) &&
+      priorClassYearReview
+    ) {
+      const { requiresReview, validationMessage, ...reviewedWrite } = write;
+      mergedWritePlan[index] = {
+        ...reviewedWrite,
+        classYear:
+          priorClassYearReview.classYearReview?.confirmedClassYear ||
+          priorClassYearReview.classYear,
+        classYearReview: priorClassYearReview.classYearReview,
+      };
+    }
+  }
+
+  return mergedWritePlan;
+}
+
+function mergePriorReviewState(row, priorSavedRow) {
+  if (!priorSavedRow) return row;
+
+  const priorWritePlan = getStoredWritePlan(priorSavedRow);
+  const priorBlackbaudResult = getStoredBlackbaudResult(priorSavedRow);
+  const mergedWritePlan = mergePriorReviewedWrites(row.writePlan || [], priorWritePlan);
+  const hasRemainingReview = mergedWritePlan.some((write) => write?.requiresReview);
+  const nextStatus =
+    row.status === STATUS.conflict
+      ? STATUS.conflict
+      : row.status === STATUS.skipped
+        ? STATUS.skipped
+        : hasRemainingReview
+          ? STATUS.needsReview
+          : mergedWritePlan.length
+            ? STATUS.ready
+            : row.status;
+
+  const reviewMessagesToRemove = [
+    /Education relationship data is staged for review\./i,
+    /possible NXT education rows/i,
+    /Choose the exact current NXT education row/i,
+    /Choose the exact current NXT constituent-code row/i,
+    /Education Class Year must .*digit.* before it can be imported\.$/i,
+    /Other staged changes still require review before this record can be applied\./i,
+  ];
+
+  const priorReviewNotes = [
+    cleanText(priorBlackbaudResult?.educationReview?.targetEducationId)
+      ? `Advancement Services selected current NXT education ID ${priorBlackbaudResult.educationReview.targetEducationId} as the source row for this education update.`
+      : "",
+    cleanText(priorBlackbaudResult?.constituencyReview?.sourceCodeId)
+      ? `Advancement Services selected NXT constituent-code ID ${priorBlackbaudResult.constituencyReview.sourceCodeId} to remove before creating the new code.`
+      : "",
+    cleanText(priorBlackbaudResult?.educationClassYearReview?.confirmedClassYear)
+      ? `Advancement Services confirmed Education Class Year ${priorBlackbaudResult.educationClassYearReview.confirmedClassYear} from CSV value ${priorBlackbaudResult.educationClassYearReview.priorClassYear || "not set"}.`
+      : "",
+  ].filter(Boolean);
+
+  const mergedReasons = [
+    ...(Array.isArray(row.reasons) ? row.reasons : []).filter(
+      (reason) => !reviewMessagesToRemove.some((pattern) => pattern.test(cleanText(reason))),
+    ),
+    ...priorReviewNotes,
+    ...(hasRemainingReview
+      ? ["Other staged changes still require review before this record can be applied."]
+      : []),
+  ];
+
+  return {
+    ...row,
+    status: nextStatus,
+    reasons: mergedReasons,
+    preview: {
+      ...(row.preview && typeof row.preview === "object" ? row.preview : {}),
+      status: nextStatus,
+      reasons: mergedReasons,
+      writePlan: mergedWritePlan,
+    },
+    writePlan: mergedWritePlan,
+    blackbaudResult: {
+      ...priorBlackbaudResult,
+    },
+  };
+}
+
 async function savePreviewRun({
   sessionUser,
   workspaceUser,
@@ -1916,46 +2075,109 @@ async function savePreviewRun({
   summary,
   previewRows,
   rawRows,
+  existingRunId = "",
 }) {
+  const normalizedExistingRunId = cleanText(existingRunId);
   const cleanSourceFilename = cleanText(sourceFilename).slice(0, 255) || null;
-  const createdRows = await sql`
-    INSERT INTO constituency_import_runs (
-      created_by_user_id,
-      workspace_user_id,
-      status,
-      source_filename,
-      mappings,
-      defaults,
-      warnings,
-      summary,
-      row_count,
-      ready_count,
-      needs_review_count,
-      conflict_count,
-      skipped_count,
-      created_at,
-      updated_at
-    )
-    VALUES (
-      ${sessionUser?.id || workspaceUser.id},
-      ${workspaceUser.id},
-      'previewed',
-      ${cleanSourceFilename},
-      ${JSON.stringify(mappings)}::jsonb,
-      ${JSON.stringify(defaults)}::jsonb,
-      ${JSON.stringify(warnings)}::jsonb,
-      ${JSON.stringify(summary)}::jsonb,
-      ${Number(summary.total || previewRows.length || 0)},
-      ${Number(summary.ready || 0)},
-      ${Number(summary.needsReview || 0)},
-      ${Number(summary.conflict || 0)},
-      ${Number(summary.skipped || 0)},
-      NOW(),
-      NOW()
-    )
-    RETURNING *
-  `;
-  const run = createdRows[0];
+  let run = null;
+  let priorRowsByNumber = new Map();
+
+  if (normalizedExistingRunId) {
+    const existingRuns = await sql`
+      SELECT *
+      FROM constituency_import_runs
+      WHERE id = ${normalizedExistingRunId}
+      LIMIT 1
+    `;
+    run = existingRuns[0] || null;
+    if (!run) {
+      throw new Error("The saved import run could not be found.");
+    }
+    if (String(run.workspace_user_id || "") !== String(workspaceUser.id)) {
+      throw new Error("You can only update your own saved import run.");
+    }
+
+    const priorRows = await sql`
+      SELECT *
+      FROM constituency_import_rows
+      WHERE run_id = ${normalizedExistingRunId}
+      ORDER BY row_number ASC
+    `;
+    priorRowsByNumber = new Map(priorRows.map((row) => [String(row.row_number), row]));
+
+    await sql`
+      DELETE FROM constituency_import_rows
+      WHERE run_id = ${normalizedExistingRunId}
+    `;
+
+    const mergedPreviewRows = previewRows.map((row) =>
+      mergePriorReviewState(row, priorRowsByNumber.get(String(row.rowNumber))),
+    );
+    previewRows = mergedPreviewRows;
+    summary = summarize(previewRows, warnings);
+
+    const updatedRuns = await sql`
+      UPDATE constituency_import_runs
+      SET
+        status = 'previewed',
+        source_filename = ${cleanSourceFilename},
+        mappings = ${JSON.stringify(mappings)}::jsonb,
+        defaults = ${JSON.stringify(defaults)}::jsonb,
+        warnings = ${JSON.stringify(warnings)}::jsonb,
+        summary = ${JSON.stringify(summary)}::jsonb,
+        row_count = ${Number(summary.total || previewRows.length || 0)},
+        ready_count = ${Number(summary.ready || 0)},
+        needs_review_count = ${Number(summary.needsReview || 0)},
+        conflict_count = ${Number(summary.conflict || 0)},
+        skipped_count = ${Number(summary.skipped || 0)},
+        applied_count = 0,
+        failed_count = 0,
+        applied_at = NULL,
+        updated_at = NOW()
+      WHERE id = ${normalizedExistingRunId}
+      RETURNING *
+    `;
+    run = updatedRuns[0];
+  } else {
+    const createdRows = await sql`
+      INSERT INTO constituency_import_runs (
+        created_by_user_id,
+        workspace_user_id,
+        status,
+        source_filename,
+        mappings,
+        defaults,
+        warnings,
+        summary,
+        row_count,
+        ready_count,
+        needs_review_count,
+        conflict_count,
+        skipped_count,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${sessionUser?.id || workspaceUser.id},
+        ${workspaceUser.id},
+        'previewed',
+        ${cleanSourceFilename},
+        ${JSON.stringify(mappings)}::jsonb,
+        ${JSON.stringify(defaults)}::jsonb,
+        ${JSON.stringify(warnings)}::jsonb,
+        ${JSON.stringify(summary)}::jsonb,
+        ${Number(summary.total || previewRows.length || 0)},
+        ${Number(summary.ready || 0)},
+        ${Number(summary.needsReview || 0)},
+        ${Number(summary.conflict || 0)},
+        ${Number(summary.skipped || 0)},
+        NOW(),
+        NOW()
+      )
+      RETURNING *
+    `;
+    run = createdRows[0];
+  }
 
   const persistedRowIds = new Map();
   for (const row of previewRows) {
@@ -2056,6 +2278,7 @@ export async function POST(request) {
     const rowsToPreview = inputRows.slice(0, MAX_PREVIEW_ROWS);
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
+    const existingRunId = cleanText(body?.existingRunId);
     const contactDecisions =
       body?.contactDecisions && typeof body.contactDecisions === "object"
         ? body.contactDecisions
@@ -2361,7 +2584,8 @@ export async function POST(request) {
           summary,
           previewRows,
           rawRows: rowsToPreview,
-      })
+          existingRunId,
+        })
       : null;
     const savedRun = savedPreview?.run || null;
     // A saved run needs its database row IDs immediately so the guarded NXT batch

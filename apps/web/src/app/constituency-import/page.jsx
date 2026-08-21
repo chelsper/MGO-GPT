@@ -4551,6 +4551,7 @@ export default function ConstituencyImportPage() {
           fieldDecisions,
           sourceFilename,
           saveRun,
+          existingRunId: saveRun ? preview?.savedRun?.id || "" : "",
         }),
       });
       const payload = await response.json().catch(() => null);
