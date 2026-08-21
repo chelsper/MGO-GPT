@@ -308,7 +308,16 @@ export async function getValidBlackbaudConnection(userId, origin) {
 
 export async function blackbaudApiFetch(
   path,
-  { userId, authUserId, origin, searchParams, method = "GET", body } = {},
+  {
+    userId,
+    authUserId,
+    origin,
+    searchParams,
+    method = "GET",
+    body,
+    timeoutMs = BLACKBAUD_REQUEST_TIMEOUT_MS,
+    maxRetries = BLACKBAUD_MAX_RETRIES,
+  } = {},
 ) {
   const config = getBlackbaudConfig(origin);
   const connection = await getValidBlackbaudConnection(authUserId || userId, origin);
@@ -339,9 +348,12 @@ export async function blackbaudApiFetch(
     headers["Content-Type"] = "application/json";
   }
 
-  for (let attempt = 0; attempt <= BLACKBAUD_MAX_RETRIES; attempt += 1) {
+  const requestTimeoutMs = Math.max(1000, Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS);
+  const requestMaxRetries = Math.max(0, Number(maxRetries) || 0);
+
+  for (let attempt = 0; attempt <= requestMaxRetries; attempt += 1) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), BLACKBAUD_REQUEST_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -351,7 +363,7 @@ export async function blackbaudApiFetch(
         signal: controller.signal,
       });
 
-      if (shouldRetryBlackbaudResponse(response) && attempt < BLACKBAUD_MAX_RETRIES) {
+      if (shouldRetryBlackbaudResponse(response) && attempt < requestMaxRetries) {
         const delayMs = getRetryDelayMs(response, attempt);
         clearTimeout(timeoutId);
         await sleep(delayMs);
@@ -367,7 +379,7 @@ export async function blackbaudApiFetch(
         (error.name === "AbortError" ||
           /aborted|timeout/i.test(error.message || ""));
 
-      if (timedOut && attempt < BLACKBAUD_MAX_RETRIES) {
+      if (timedOut && attempt < requestMaxRetries) {
         await sleep(getRetryDelayMs(new Response(null, { status: 504 }), attempt));
         continue;
       }
@@ -500,7 +512,13 @@ export async function downloadBlackbaudQueryResult(resultUrl) {
   return content;
 }
 
-export async function searchBlackbaudConstituents({ userId, authUserId, origin, query }) {
+export async function searchBlackbaudConstituents({
+  userId,
+  authUserId,
+  origin,
+  query,
+  requestOptions = {},
+}) {
   const queryParts = String(query || "")
     .trim()
     .split(/\s+/)
@@ -526,6 +544,7 @@ export async function searchBlackbaudConstituents({ userId, authUserId, origin, 
             last_name: lastName || undefined,
             limit: 10,
           },
+          ...requestOptions,
         },
       );
 
@@ -611,6 +630,7 @@ export async function searchBlackbaudConstituents({ userId, authUserId, origin, 
           search_text: query,
           limit: 10,
         },
+        ...requestOptions,
       });
 
       const rows = Array.isArray(payload?.value)
@@ -687,6 +707,7 @@ export async function findBlackbaudConstituentByEmail({
   authUserId,
   origin,
   email,
+  requestOptions = {},
 }) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!normalizedEmail) {
@@ -701,6 +722,7 @@ export async function findBlackbaudConstituentByEmail({
       email: normalizedEmail,
       limit: 10,
     },
+    ...requestOptions,
   });
 
   const rows = Array.isArray(payload?.results) ? payload.results : [];
@@ -739,6 +761,7 @@ export async function findBlackbaudConstituentByLookupId({
   authUserId,
   origin,
   lookupId,
+  requestOptions = {},
 }) {
   const normalizedLookupId = String(lookupId || "").trim();
   if (!normalizedLookupId) {
@@ -750,6 +773,7 @@ export async function findBlackbaudConstituentByLookupId({
     authUserId,
     origin,
     query: normalizedLookupId,
+    requestOptions,
   });
 
   const exactMatch =
@@ -778,6 +802,7 @@ export async function getBlackbaudConstituentById({
   authUserId,
   origin,
   constituentId,
+  requestOptions = {},
 }) {
   const normalizedId = String(constituentId || "").trim();
   if (!normalizedId) {
@@ -790,6 +815,7 @@ export async function getBlackbaudConstituentById({
       userId,
       authUserId,
       origin,
+      ...requestOptions,
     },
   );
 

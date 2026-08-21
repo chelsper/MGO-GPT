@@ -16,6 +16,11 @@ export const maxDuration = 300;
 
 const MAX_PREVIEW_ROWS = 100;
 const DEFER_HEAVY_ROW_DETAILS_THRESHOLD = 40;
+const FAST_PREVIEW_REQUEST_OPTIONS = {
+  // Return a safe review queue when NXT is slow instead of holding the browser for minutes.
+  timeoutMs: 4000,
+  maxRetries: 0,
+};
 
 const STATUS = {
   ready: "Ready",
@@ -1543,13 +1548,14 @@ function scoreCandidate(candidate, input) {
   return { score, reasons };
 }
 
-async function resolveMatch({ input, userId, authUserId, origin }) {
+async function resolveMatch({ input, userId, authUserId, origin, requestOptions = {} }) {
   if (input.blackbaudConstituentId) {
     const match = await getBlackbaudConstituentById({
       userId,
       authUserId,
       origin,
       constituentId: input.blackbaudConstituentId,
+      requestOptions,
     });
     return match
       ? {
@@ -1574,6 +1580,7 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
       authUserId,
       origin,
       lookupId: input.lookupId,
+      requestOptions,
     });
     const hasExactLookupId =
       match && String(match.lookupId || match.blackbaudLookupId || "").trim() === input.lookupId;
@@ -1600,6 +1607,7 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
       authUserId,
       origin,
       email: input.email,
+      requestOptions,
     });
     const normalizedInputEmail = normalizeEmailValue(input.email);
     const normalizedMatchedEmail = normalizeEmailValue(match?.email);
@@ -1630,6 +1638,7 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
     authUserId,
     origin,
     query,
+    requestOptions,
   });
   const scored = candidates
     .map((candidate) => ({ candidate, ...scoreCandidate(candidate, input) }))
@@ -2361,7 +2370,7 @@ export async function POST(request) {
     const authUserId = user.id;
     const previewCache = createPreviewRequestCache();
     const rowConcurrency =
-      rowsToPreview.length >= 50 ? 2 : rowsToPreview.length >= 20 ? 3 : 4;
+      rowsToPreview.length >= 50 ? 4 : rowsToPreview.length >= 20 ? 3 : 4;
     const previewMetrics = {
       rows: rowsToPreview.length,
       rowConcurrency,
@@ -2371,10 +2380,12 @@ export async function POST(request) {
       contactMs: 0,
       nameFormatMs: 0,
       educationMs: 0,
+      matchTimeouts: 0,
     };
 
     const deferHeavyRowDetails =
       rowsToPreview.length >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD;
+    const matchRequestOptions = deferHeavyRowDetails ? FAST_PREVIEW_REQUEST_OPTIONS : {};
 
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const input = getRowInput(row, mappings, defaults);
@@ -2390,11 +2401,13 @@ export async function POST(request) {
       let nameFormatFetchError = "";
       let currentEducations = [];
       let educationFetchError = "";
+      let deferConstituencyCodes = false;
       const deferredHydration = {
         detail: false,
         contacts: false,
         nameFormats: false,
         educations: false,
+        codes: false,
       };
 
       try {
@@ -2409,39 +2422,52 @@ export async function POST(request) {
               userId: user.id,
               authUserId,
               origin,
+              requestOptions: matchRequestOptions,
             }),
         );
         previewMetrics.matchMs += Date.now() - matchStartedAt;
       } catch (error) {
+        const failureMessage = error instanceof Error ? error.message : "NXT lookup failed.";
+        if (/timed out|timeout/i.test(failureMessage)) {
+          previewMetrics.matchTimeouts += 1;
+        }
         matchResult = {
-          status: "not_matched",
-          method: "NXT lookup",
+          status: "needs_review",
+          method: "NXT lookup deferred",
           confidence: 0,
           match: null,
-          notes: [error instanceof Error ? error.message : "NXT lookup failed."],
+          notes: [
+            `NXT could not confirm this match during the fast import preview: ${failureMessage}`,
+            "This row is held for review and cannot be treated as a new record automatically.",
+          ],
         };
       }
 
       if (matchResult.match?.blackbaudConstituentId && hasConstituencyChange(input)) {
-        try {
-          const codeStartedAt = Date.now();
-          currentCodes = await getOrLoadCached(
-            previewCache.constituencyCodes,
-            String(matchResult.match.blackbaudConstituentId),
-            () =>
-              fetchConstituencyCodes({
-                userId: user.id,
-                authUserId,
-                origin,
-                constituentId: matchResult.match.blackbaudConstituentId,
-              }),
-          );
-          previewMetrics.codeMs += Date.now() - codeStartedAt;
-        } catch (error) {
-          codeFetchError =
-            error instanceof Error ? error.message : "Could not load current constituencies.";
+        if (deferHeavyRowDetails) {
+          deferConstituencyCodes = true;
+        } else {
+          try {
+            const codeStartedAt = Date.now();
+            currentCodes = await getOrLoadCached(
+              previewCache.constituencyCodes,
+              String(matchResult.match.blackbaudConstituentId),
+              () =>
+                fetchConstituencyCodes({
+                  userId: user.id,
+                  authUserId,
+                  origin,
+                  constituentId: matchResult.match.blackbaudConstituentId,
+                }),
+            );
+            previewMetrics.codeMs += Date.now() - codeStartedAt;
+          } catch (error) {
+            codeFetchError =
+              error instanceof Error ? error.message : "Could not load current constituencies.";
+          }
         }
       }
+      deferredHydration.codes = deferConstituencyCodes;
 
       if (matchResult.match?.blackbaudConstituentId) {
         const constituentId = String(matchResult.match.blackbaudConstituentId);
@@ -2774,6 +2800,7 @@ export async function POST(request) {
       contactMs: previewMetrics.contactMs,
       nameFormatMs: previewMetrics.nameFormatMs,
       educationMs: previewMetrics.educationMs,
+      matchTimeouts: previewMetrics.matchTimeouts,
       savedRunId: savedRun?.id || null,
       summary,
     });
