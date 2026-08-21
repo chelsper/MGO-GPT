@@ -3,6 +3,10 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { blackbaudApiFetch } from "@/app/api/utils/blackbaud";
+import {
+  normalizeQuotaPausedImportRow,
+  sanitizeQuotaPauseWarnings,
+} from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
 function cleanText(value) {
@@ -59,7 +63,7 @@ function serializeRun(row) {
     appliedCount: Number(row.applied_count || 0),
     failedCount: Number(row.failed_count || 0),
     summary: row.summary || {},
-    warnings: Array.isArray(row.warnings) ? row.warnings : [],
+    warnings: sanitizeQuotaPauseWarnings(row.warnings),
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
     appliedAt: row.applied_at || null,
@@ -71,19 +75,19 @@ function serializeRun(row) {
 }
 
 function serializeImportRow(row) {
-  const preview = row.preview && typeof row.preview === "object" ? row.preview : {};
+  const { quotaPaused, preview } = normalizeQuotaPausedImportRow(row);
   const requestedWrites = Array.isArray(row.requested_writes) ? row.requested_writes : [];
   return {
     ...preview,
     id: String(row.id),
     runId: String(row.run_id),
     rowNumber: Number(row.row_number || preview.rowNumber || 0),
-    status: row.status || preview.status || "Needs Review",
-    matchStatus: row.match_status || preview.matchStatus || "",
-    matchMethod: row.match_method || preview.matchMethod || "",
-    confidence: Number(row.confidence || preview.confidence || 0),
-    blackbaudResult: row.blackbaud_result || null,
-    blackbaudError: row.blackbaud_error || "",
+    status: quotaPaused ? preview.status : row.status || preview.status || "Needs Review",
+    matchStatus: quotaPaused ? preview.matchStatus : row.match_status || preview.matchStatus || "",
+    matchMethod: quotaPaused ? preview.matchMethod : row.match_method || preview.matchMethod || "",
+    confidence: quotaPaused ? 0 : Number(row.confidence || preview.confidence || 0),
+    blackbaudResult: quotaPaused ? null : row.blackbaud_result || null,
+    blackbaudError: quotaPaused ? "" : row.blackbaud_error || "",
     writePlan: Array.isArray(preview.writePlan) ? preview.writePlan : requestedWrites,
     appliedAt: row.applied_at || null,
     createApprovedAt: row.create_approved_at || null,

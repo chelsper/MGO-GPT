@@ -74,6 +74,8 @@ describe("constituency import runs route", () => {
           match_method: "NXT checks paused",
           match_status: "needs_review",
           confidence: 84,
+          blackbaud_result: { provider: quotaResponse },
+          blackbaud_error: quotaResponse,
           requested_writes: [
             { type: "constituent_code", action: "replace", sourceConstituency: "Student" },
           ],
@@ -115,5 +117,7 @@ describe("constituency import runs route", () => {
     });
     expect(payload.rows[0].reasons.join(" ")).not.toContain("Student was not found");
     expect(payload.rows[0].reasons.join(" ")).not.toContain('"statusCode"');
+    expect(payload.rows[0].blackbaudResult).toBeNull();
+    expect(payload.rows[0].blackbaudError).toBe("");
   });
 });

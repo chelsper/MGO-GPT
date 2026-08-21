@@ -872,12 +872,23 @@ function statusTone(status) {
 }
 
 function isNxtChecksPausedRow(row) {
-  const reasons = Array.isArray(row?.reasons) ? row.reasons.join(" ") : "";
+  const reasons = Array.isArray(row?.reasons)
+    ? row.reasons.join(" ")
+    : String(row?.reasons || "");
+  const quotaDetails = [
+    reasons,
+    row?.blackbaudError,
+    row?.blackbaudResult && typeof row.blackbaudResult === "object"
+      ? JSON.stringify(row.blackbaudResult)
+      : row?.blackbaudResult,
+  ].join(" ");
   return Boolean(
     row?.nxtChecksPaused ||
       row?.matchMethod === "NXT checks paused" ||
-      (isBlackbaudQuotaPausedText(reasons) &&
-        /saved safely without attempting further nxt calls|retry its review after/i.test(reasons)),
+      (isBlackbaudQuotaPausedText(quotaDetails) &&
+        /saved safely without attempting further nxt calls|retry its review after|nxt checks are paused/i.test(
+          quotaDetails,
+        )),
   );
 }
 
@@ -3344,7 +3355,7 @@ export default function ConstituencyImportPage() {
   async function fetchSavedRuns() {
     setLoadingSavedRuns(true);
     try {
-      const response = await fetch("/api/constituency-import/runs?limit=8");
+      const response = await fetch("/api/constituency-import/runs?limit=8", { cache: "no-store" });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load saved import runs");
@@ -3366,7 +3377,10 @@ export default function ConstituencyImportPage() {
     setError("");
     setSaveMessage("");
     try {
-      const response = await fetch(`/api/constituency-import/runs?id=${encodeURIComponent(runId)}`);
+      const response = await fetch(
+        `/api/constituency-import/runs?id=${encodeURIComponent(runId)}`,
+        { cache: "no-store" },
+      );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load saved import run");

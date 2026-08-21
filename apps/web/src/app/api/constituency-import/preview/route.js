@@ -2,6 +2,11 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
+import {
+  getQuotaPauseNotice,
+  normalizeQuotaPausedPreview,
+  sanitizeQuotaPauseWarnings,
+} from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   blackbaudApiFetch,
@@ -1672,16 +1677,12 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
 }
 
 function createQuotaPausedMatch(error) {
-  const message = error instanceof Error ? error.message : "Blackbaud call-volume quota is unavailable.";
   return {
     status: "needs_review",
     method: "NXT checks paused",
     confidence: 0,
     match: null,
-    notes: [
-      message,
-      "This row was saved safely without attempting further NXT calls. Retry its review after the Blackbaud quota is available.",
-    ],
+    notes: [getQuotaPauseNotice(error)],
   };
 }
 
@@ -1724,6 +1725,12 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId 
   const results = await Promise.allSettled(
     requests.map(([, path]) => blackbaudApiFetch(path, { userId, authUserId, origin })),
   );
+  const quotaFailure = results.find(
+    (result) => result.status === "rejected" && isBlackbaudQuotaExceededError(result.reason),
+  );
+  if (quotaFailure?.status === "rejected") {
+    throw quotaFailure.reason;
+  }
   const contacts = { emails: [], phones: [], addresses: [] };
   const errors = [];
   results.forEach((result, index) => {
@@ -2091,6 +2098,9 @@ function mergePriorReviewedWrites(nextWritePlan = [], priorWritePlan = []) {
 }
 
 function mergePriorReviewState(row, priorSavedRow) {
+  // A quota pause invalidates every partial NXT snapshot. Do not merge earlier
+  // review choices or staged writes back into a no-op paused row.
+  if (row?.nxtChecksPaused) return row;
   if (!priorSavedRow) return row;
 
   const priorWritePlan = getStoredWritePlan(priorSavedRow);
@@ -2643,6 +2653,11 @@ export async function POST(request) {
       fastPreview || rowsToPreview.length >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD;
     const matchRequestOptions = deferHeavyRowDetails ? FAST_PREVIEW_REQUEST_OPTIONS : {};
     let quotaError = null;
+    const recordQuotaError = (error) => {
+      if (!isBlackbaudQuotaExceededError(error)) return false;
+      quotaError ||= error;
+      return true;
+    };
 
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const rowNumber = rowNumberOffset + index + 1;
@@ -2689,8 +2704,7 @@ export async function POST(request) {
           previewMetrics.matchMs += Date.now() - matchStartedAt;
         } catch (error) {
           const failureMessage = error instanceof Error ? error.message : "NXT lookup failed.";
-          if (isBlackbaudQuotaExceededError(error)) {
-            quotaError = error;
+          if (recordQuotaError(error)) {
             matchResult = createQuotaPausedMatch(error);
           } else {
             if (/timed out|timeout/i.test(failureMessage)) {
@@ -2729,8 +2743,10 @@ export async function POST(request) {
             );
             previewMetrics.codeMs += Date.now() - codeStartedAt;
           } catch (error) {
-            codeFetchError =
-              error instanceof Error ? error.message : "Could not load current constituencies.";
+            if (!recordQuotaError(error)) {
+              codeFetchError =
+                error instanceof Error ? error.message : "Could not load current constituencies.";
+            }
           }
         }
       }
@@ -2784,8 +2800,9 @@ export async function POST(request) {
                     raw: detailedMatch.raw || matchResult.match.raw || null,
                   };
                 }
-              } catch {
-                // Retain the matched record when a supplemental detail fetch is unavailable.
+              } catch (error) {
+                // Retain the matched record when supplemental details are unavailable.
+                recordQuotaError(error);
               }
             })(),
           );
@@ -2806,21 +2823,31 @@ export async function POST(request) {
         ) {
           rowTasks.push(
             (async () => {
-              const contactStartedAt = Date.now();
-              const contactPreview = await getOrLoadCached(
-                previewCache.currentContacts,
-                constituentId,
-                () =>
-                  fetchCurrentContacts({
-                    userId: user.id,
-                    authUserId,
-                    origin,
-                    constituentId,
-                  }),
-              );
-              previewMetrics.contactMs += Date.now() - contactStartedAt;
-              currentContacts = contactPreview.contacts;
-              contactFetchErrors = contactPreview.errors;
+              try {
+                const contactStartedAt = Date.now();
+                const contactPreview = await getOrLoadCached(
+                  previewCache.currentContacts,
+                  constituentId,
+                  () =>
+                    fetchCurrentContacts({
+                      userId: user.id,
+                      authUserId,
+                      origin,
+                      constituentId,
+                    }),
+                );
+                previewMetrics.contactMs += Date.now() - contactStartedAt;
+                currentContacts = contactPreview.contacts;
+                contactFetchErrors = contactPreview.errors;
+              } catch (error) {
+                if (!recordQuotaError(error)) {
+                  contactFetchErrors = [
+                    `Could not load current NXT contacts: ${
+                      error instanceof Error ? error.message : "Unknown error"
+                    }`,
+                  ];
+                }
+              }
             })(),
           );
         } else if (deferThisRow && needsContactDetail) {
@@ -2845,10 +2872,12 @@ export async function POST(request) {
                 );
                 previewMetrics.nameFormatMs += Date.now() - nameFormatStartedAt;
               } catch (error) {
-                nameFormatFetchError =
-                  error instanceof Error
-                    ? error.message
-                    : "Could not load the current primary name formats.";
+                if (!recordQuotaError(error)) {
+                  nameFormatFetchError =
+                    error instanceof Error
+                      ? error.message
+                      : "Could not load the current primary name formats.";
+                }
               }
             })(),
           );
@@ -2874,10 +2903,12 @@ export async function POST(request) {
                 );
                 previewMetrics.educationMs += Date.now() - educationStartedAt;
               } catch (error) {
-                educationFetchError =
-                  error instanceof Error
-                    ? error.message
-                    : "Could not load current NXT education relationships.";
+                if (!recordQuotaError(error)) {
+                  educationFetchError =
+                    error instanceof Error
+                      ? error.message
+                      : "Could not load current NXT education relationships.";
+                }
               }
             })(),
           );
@@ -3049,13 +3080,18 @@ export async function POST(request) {
       };
     });
 
+    // A Blackbaud quota is account-wide. Even if another concurrent request
+    // started before the 403 was received, its partial snapshot cannot be used
+    // safely. Normalize every row before persisting or returning the batch.
+    const normalizedPreviewRows = quotaError
+      ? previewRows.map((row) => normalizeQuotaPausedPreview(row, getQuotaPauseNotice(quotaError)))
+      : previewRows;
     if (quotaError) {
-      warnings.push(
-        `NXT checks are paused because ${quotaError.message} The import review was saved safely and can be reopened after Blackbaud's quota is available.`,
-      );
+      warnings.push(`NXT checks are paused. ${getQuotaPauseNotice(quotaError)}`);
     }
+    const sanitizedWarnings = sanitizeQuotaPauseWarnings(warnings);
 
-    const summary = summarize(previewRows, warnings);
+    const summary = summarize(normalizedPreviewRows, sanitizedWarnings);
     const savedPreview = saveRun
       ? appendRun
         ? await savePreviewBatch({
@@ -3064,8 +3100,8 @@ export async function POST(request) {
             sourceFilename: body?.sourceFilename,
             mappings,
             defaults,
-            warnings,
-            previewRows,
+            warnings: sanitizedWarnings,
+            previewRows: normalizedPreviewRows,
             rawRows: rowsToPreview,
             existingRunId,
             rowNumberOffset,
@@ -3078,9 +3114,9 @@ export async function POST(request) {
             sourceFilename: body?.sourceFilename,
             mappings,
             defaults,
-            warnings,
+            warnings: sanitizedWarnings,
             summary,
-            previewRows,
+            previewRows: normalizedPreviewRows,
             rawRows: rowsToPreview,
             existingRunId,
           })
@@ -3090,12 +3126,12 @@ export async function POST(request) {
     // A saved run needs its database row IDs immediately so the guarded NXT batch
     // can be selected without reloading the preview first.
     const responseRows = savedPreview
-      ? previewRows.map((row) => ({
+      ? normalizedPreviewRows.map((row) => ({
           ...row,
           id: savedPreview.persistedRowIds.get(String(row.rowNumber)) || null,
           runId: savedRun?.id || null,
         }))
-      : previewRows;
+      : normalizedPreviewRows;
 
     console.info("constituency import preview completed", {
       rows: previewMetrics.rows,
@@ -3115,7 +3151,7 @@ export async function POST(request) {
     return Response.json({
       previewOnly: true,
       savedRun,
-      warnings,
+      warnings: sanitizedWarnings,
       summary: responseSummary,
       rows: responseRows,
     });

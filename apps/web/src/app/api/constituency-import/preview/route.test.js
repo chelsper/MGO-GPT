@@ -1592,9 +1592,56 @@ describe("constituency import preview route", () => {
     expect(payload.rows.every((row) => row.writePlan.length === 0)).toBe(true);
     expect(payload.rows.every((row) => !row.reasons.join(" ").includes("was not found"))).toBe(true);
     expect(payload.rows[1].reasons.join(" ")).toContain(
-      "saved safely without attempting further NXT calls",
+      "no NXT record was checked",
     );
-    expect(payload.warnings.join(" ")).toContain("NXT checks are paused");
+    expect(payload.warnings.join(" ")).toContain("call-volume quota is temporarily unavailable");
+  });
+
+  it("discards partial contact review data when a later NXT request reports quota exhaustion", async () => {
+    const { POST } = await import("./route.js");
+    const quotaError = new Error(
+      'Blackbaud call-volume quota is temporarily unavailable. Provider response: {"statusCode":403,"message":"Out of call volume quota. Quota will be replenished in 07:01:20."}',
+    );
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "100",
+      lookupId: "100",
+      name: "Taylor Test",
+      email: "old@example.com",
+    });
+    blackbaudApiFetchMock.mockRejectedValue(quotaError);
+    isBlackbaudQuotaExceededErrorMock.mockImplementation((error) => error === quotaError);
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "100", Email: "new@example.com" }],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          email: "Email",
+        },
+        defaults: { updateEmailFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalled();
+    expect(payload.rows[0]).toMatchObject({
+      nxtChecksPaused: true,
+      match: null,
+      currentCodes: [],
+      currentCodeDetails: [],
+      currentContacts: { emails: [], phones: [], addresses: [] },
+      currentEducations: [],
+      writePlan: [],
+      intentDisposition: {
+        key: "nxt_checks_paused",
+        allowApply: false,
+      },
+    });
+    expect(payload.rows[0].reasons).toHaveLength(1);
+    expect(payload.rows[0].reasons.join(" ")).not.toContain('"statusCode"');
+    expect(payload.rows[0].reasons.join(" ")).not.toContain("email address");
+    expect(payload.warnings.join(" ")).not.toContain('"statusCode"');
   });
 
   it("rejects oversized persisted batches before making any NXT requests", async () => {
