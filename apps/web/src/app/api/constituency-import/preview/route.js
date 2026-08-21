@@ -5,6 +5,7 @@ import sql from "@/app/api/utils/sql";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   blackbaudApiFetch,
+  findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
   getBlackbaudConstituentById,
   searchBlackbaudConstituents,
@@ -1547,7 +1548,27 @@ async function resolveMatch({ input, userId, authUserId, origin }) {
           confidence: 0,
           match: null,
           notes: ["No NXT record was found for that lookup ID."],
-        };
+      };
+  }
+
+  if (input.email) {
+    const match = await findBlackbaudConstituentByEmail({
+      userId,
+      authUserId,
+      origin,
+      email: input.email,
+    });
+    const normalizedInputEmail = normalizeEmailValue(input.email);
+    const normalizedMatchedEmail = normalizeEmailValue(match?.email);
+    if (match && normalizedInputEmail && normalizedInputEmail === normalizedMatchedEmail) {
+      return {
+        status: "matched",
+        method: "NXT email address",
+        confidence: 96,
+        match,
+        notes: [],
+      };
+    }
   }
 
   const query = input.constituentName || input.email || input.addressLine1;
@@ -2295,7 +2316,8 @@ export async function POST(request) {
     const origin = new URL(request.url).origin;
     const authUserId = user.id;
     const previewCache = createPreviewRequestCache();
-    const rowConcurrency = Math.min(6, Math.max(2, rowsToPreview.length >= 12 ? 6 : 4));
+    const rowConcurrency =
+      rowsToPreview.length >= 50 ? 2 : rowsToPreview.length >= 20 ? 3 : 4;
 
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const input = getRowInput(row, mappings, defaults);
