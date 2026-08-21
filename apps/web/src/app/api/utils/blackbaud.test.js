@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BlackbaudQuotaExceededError,
   buildBlackbaudActionMetadataPayload,
   buildBlackbaudActionPayload,
   buildBlackbaudOpportunityPayload,
+  isBlackbaudQuotaExceededError,
   normalizeBlackbaudActionType,
 } from "./blackbaud";
 
 describe("blackbaud action payload helpers", () => {
+  it("identifies a call-volume quota error without treating it as a retryable request", () => {
+    const quotaError = new BlackbaudQuotaExceededError({
+      message: "Blackbaud call-volume quota is temporarily unavailable.",
+      retryAfterMs: 60_000,
+    });
+
+    expect(isBlackbaudQuotaExceededError(quotaError)).toBe(true);
+    expect(isBlackbaudQuotaExceededError(new Error("Blackbaud request timed out"))).toBe(false);
+    expect(quotaError.retryAfterMs).toBe(60_000);
+  });
+
   it("uses an ISO timestamp for action creation and a date-only value for completion metadata", () => {
     const actionPayload = buildBlackbaudActionPayload({
       blackbaudConstituentId: "227949",

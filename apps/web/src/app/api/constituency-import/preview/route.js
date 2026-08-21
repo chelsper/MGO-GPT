@@ -8,14 +8,18 @@ import {
   findBlackbaudConstituentByEmail,
   findBlackbaudConstituentByLookupId,
   getBlackbaudConstituentById,
+  isBlackbaudQuotaExceededError,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// The browser persists the import in small batches, so this route should fail
+// fast rather than consume Vercel's five-minute default on an unhealthy NXT call.
+export const maxDuration = 60;
 
 const MAX_PREVIEW_ROWS = 100;
 const DEFER_HEAVY_ROW_DETAILS_THRESHOLD = 40;
+const PREVIEW_BATCH_SIZE = 4;
 const FAST_PREVIEW_REQUEST_OPTIONS = {
   // Return a safe review queue when NXT is slow instead of holding the browser for minutes.
   timeoutMs: 4000,
@@ -1667,6 +1671,20 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
   };
 }
 
+function createQuotaPausedMatch(error) {
+  const message = error instanceof Error ? error.message : "Blackbaud call-volume quota is unavailable.";
+  return {
+    status: "needs_review",
+    method: "NXT checks paused",
+    confidence: 0,
+    match: null,
+    notes: [
+      message,
+      "This row was saved safely without attempting further NXT calls. Retry its review after the Blackbaud quota is available.",
+    ],
+  };
+}
+
 async function fetchConstituencyCodes({ userId, authUserId, origin, constituentId }) {
   const payload = await blackbaudApiFetch(
     `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/constituentcodes`,
@@ -1688,12 +1706,10 @@ function getCollection(payload) {
   return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
 }
 
-async function fetchCurrentContacts({ userId, authUserId, origin, constituentId, input }) {
-  const requestedKinds = new Set([
-    Array.isArray(input.emailUpdates) && input.emailUpdates.length ? "emails" : "",
-    Array.isArray(input.phoneUpdates) && input.phoneUpdates.length ? "phones" : "",
-    Array.isArray(input.addressUpdates) && input.addressUpdates.length ? "addresses" : "",
-  ].filter(Boolean));
+async function fetchCurrentContacts({ userId, authUserId, origin, constituentId }) {
+  // A detailed contact review needs the complete current snapshot so primary
+  // choices remain valid across email, phone, and address sections.
+  const requestedKinds = new Set(["emails", "phones", "addresses"]);
   const basePath = "/constituent/v1/constituents/" + encodeURIComponent(String(constituentId));
   const requests = [
     requestedKinds.has("emails") ? ["emails", `${basePath}/emailaddresses`] : null,
@@ -2315,6 +2331,228 @@ async function savePreviewRun({
   };
 }
 
+// Large files are prepared in short, independently persisted batches. This
+// prevents an upstream NXT delay from discarding the rows that already passed
+// review and keeps each Vercel request comfortably below its runtime limit.
+async function savePreviewBatch({
+  sessionUser,
+  workspaceUser,
+  sourceFilename,
+  mappings,
+  defaults,
+  warnings,
+  previewRows,
+  rawRows,
+  existingRunId = "",
+  rowNumberOffset = 0,
+  totalRowCount = 0,
+  finalizeRun = false,
+}) {
+  const normalizedExistingRunId = cleanText(existingRunId);
+  const cleanSourceFilename = cleanText(sourceFilename).slice(0, 255) || null;
+  const normalizedOffset = Math.max(0, Number(rowNumberOffset) || 0);
+  const normalizedTotal = Math.max(
+    Number(totalRowCount) || 0,
+    normalizedOffset + previewRows.length,
+  );
+  let run = null;
+
+  if (normalizedExistingRunId) {
+    const existingRuns = await sql`
+      SELECT *
+      FROM constituency_import_runs
+      WHERE id = ${normalizedExistingRunId}
+      LIMIT 1
+    `;
+    run = existingRuns[0] || null;
+    if (!run) {
+      throw new Error("The saved import run could not be found.");
+    }
+    if (String(run.workspace_user_id || "") !== String(workspaceUser.id)) {
+      throw new Error("You can only update your own saved import run.");
+    }
+  } else {
+    const initialSummary = {
+      total: normalizedTotal,
+      ready: 0,
+      needsReview: 0,
+      skipped: 0,
+      conflict: 0,
+      potentialNew: 0,
+      needsResolution: 0,
+      warningCount: warnings.length,
+      processed: 0,
+      pending: normalizedTotal,
+    };
+    const createdRuns = await sql`
+      INSERT INTO constituency_import_runs (
+        created_by_user_id,
+        workspace_user_id,
+        status,
+        source_filename,
+        mappings,
+        defaults,
+        warnings,
+        summary,
+        row_count,
+        ready_count,
+        needs_review_count,
+        conflict_count,
+        skipped_count,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${sessionUser?.id || workspaceUser.id},
+        ${workspaceUser.id},
+        'preparing',
+        ${cleanSourceFilename},
+        ${JSON.stringify(mappings)}::jsonb,
+        ${JSON.stringify(defaults)}::jsonb,
+        ${JSON.stringify(warnings)}::jsonb,
+        ${JSON.stringify(initialSummary)}::jsonb,
+        ${normalizedTotal},
+        0,
+        0,
+        0,
+        0,
+        NOW(),
+        NOW()
+      )
+      RETURNING *
+    `;
+    run = createdRuns[0];
+  }
+
+  const priorRows = await sql`
+    SELECT *
+    FROM constituency_import_rows
+    WHERE run_id = ${run.id}
+      AND row_number >= ${normalizedOffset + 1}
+      AND row_number <= ${normalizedOffset + previewRows.length}
+  `;
+  const priorRowsByNumber = new Map(priorRows.map((row) => [String(row.row_number), row]));
+  const persistedRowIds = new Map();
+
+  for (const sourcePreviewRow of previewRows) {
+    const row = mergePriorReviewState(
+      sourcePreviewRow,
+      priorRowsByNumber.get(String(sourcePreviewRow.rowNumber)),
+    );
+    const rawRow = rawRows[row.rowNumber - normalizedOffset - 1] || {};
+    const input = row.input || {};
+    const insertedRows = await sql`
+      INSERT INTO constituency_import_rows (
+        run_id,
+        row_number,
+        status,
+        match_status,
+        match_method,
+        confidence,
+        matched_blackbaud_constituent_id,
+        matched_lookup_id,
+        constituent_name,
+        action,
+        source_constituency,
+        target_constituency,
+        start_date,
+        end_date,
+        raw_row,
+        preview,
+        requested_writes,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${run.id},
+        ${row.rowNumber},
+        ${row.status},
+        ${row.matchStatus || null},
+        ${row.matchMethod || null},
+        ${Number(row.confidence || 0)},
+        ${row.match?.blackbaudConstituentId || null},
+        ${row.match?.lookupId || null},
+        ${input.constituentName || row.match?.name || null},
+        ${input.action || null},
+        ${input.sourceConstituency || null},
+        ${input.targetConstituency || null},
+        ${input.startDate || null},
+        ${input.endDate || null},
+        ${JSON.stringify(rawRow)}::jsonb,
+        ${JSON.stringify(row)}::jsonb,
+        ${JSON.stringify(row.writePlan || [])}::jsonb,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (run_id, row_number) DO UPDATE
+      SET
+        status = EXCLUDED.status,
+        match_status = EXCLUDED.match_status,
+        match_method = EXCLUDED.match_method,
+        confidence = EXCLUDED.confidence,
+        matched_blackbaud_constituent_id = EXCLUDED.matched_blackbaud_constituent_id,
+        matched_lookup_id = EXCLUDED.matched_lookup_id,
+        constituent_name = EXCLUDED.constituent_name,
+        action = EXCLUDED.action,
+        source_constituency = EXCLUDED.source_constituency,
+        target_constituency = EXCLUDED.target_constituency,
+        start_date = EXCLUDED.start_date,
+        end_date = EXCLUDED.end_date,
+        raw_row = EXCLUDED.raw_row,
+        preview = EXCLUDED.preview,
+        requested_writes = EXCLUDED.requested_writes,
+        updated_at = NOW()
+      RETURNING id, row_number
+    `;
+    const persistedRow = insertedRows?.[0];
+    if (persistedRow?.id != null) {
+      persistedRowIds.set(String(row.rowNumber), String(persistedRow.id));
+    }
+  }
+
+  const storedRows = await sql`
+    SELECT row_number, status, preview
+    FROM constituency_import_rows
+    WHERE run_id = ${run.id}
+    ORDER BY row_number ASC
+  `;
+  const storedPreviewRows = storedRows.map((storedRow) => ({
+    ...(storedRow.preview && typeof storedRow.preview === "object" ? storedRow.preview : {}),
+    rowNumber: Number(storedRow.row_number || 0),
+    status: storedRow.status || storedRow.preview?.status || STATUS.needsReview,
+  }));
+  const summary = summarize(storedPreviewRows, warnings);
+  summary.total = Math.max(normalizedTotal, storedPreviewRows.length);
+  summary.processed = storedPreviewRows.length;
+  summary.pending = Math.max(0, summary.total - summary.processed);
+  const status = finalizeRun && summary.pending === 0 ? "previewed" : "preparing";
+
+  const updatedRuns = await sql`
+    UPDATE constituency_import_runs
+    SET
+      status = ${status},
+      source_filename = ${cleanSourceFilename},
+      mappings = ${JSON.stringify(mappings)}::jsonb,
+      defaults = ${JSON.stringify(defaults)}::jsonb,
+      warnings = ${JSON.stringify(warnings)}::jsonb,
+      summary = ${JSON.stringify(summary)}::jsonb,
+      row_count = ${summary.total},
+      ready_count = ${Number(summary.ready || 0)},
+      needs_review_count = ${Number(summary.needsReview || 0)},
+      conflict_count = ${Number(summary.conflict || 0)},
+      skipped_count = ${Number(summary.skipped || 0)},
+      updated_at = NOW()
+    WHERE id = ${run.id}
+    RETURNING *
+  `;
+
+  return {
+    run: serializeRun(updatedRuns[0] || run),
+    persistedRowIds,
+    summary,
+  };
+}
+
 export async function POST(request) {
   try {
     const previewStartedAt = Date.now();
@@ -2340,6 +2578,11 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const inputRows = Array.isArray(body?.rows) ? body.rows : [];
     const warnings = [];
+    const appendRun = Boolean(body?.appendRun);
+    const finalizeRun = Boolean(body?.finalizeRun);
+    const fastPreview = Boolean(body?.fastPreview) || appendRun;
+    const rowNumberOffset = Math.max(0, Number(body?.rowNumberOffset) || 0);
+    const requestedTotalRowCount = Math.max(0, Number(body?.totalRowCount) || 0);
 
     if (inputRows.length === 0) {
       return Response.json(
@@ -2351,7 +2594,20 @@ export async function POST(request) {
       warnings.push(`Preview limited to the first ${MAX_PREVIEW_ROWS} rows.`);
     }
 
-    const rowsToPreview = inputRows.slice(0, MAX_PREVIEW_ROWS);
+    if (appendRun && inputRows.length > PREVIEW_BATCH_SIZE) {
+      return Response.json(
+        { error: `Import review batches are limited to ${PREVIEW_BATCH_SIZE} rows.` },
+        { status: 400 },
+      );
+    }
+    if (requestedTotalRowCount > MAX_PREVIEW_ROWS) {
+      return Response.json(
+        { error: `Import review is limited to ${MAX_PREVIEW_ROWS} rows per file.` },
+        { status: 400 },
+      );
+    }
+
+    const rowsToPreview = inputRows.slice(0, appendRun ? PREVIEW_BATCH_SIZE : MAX_PREVIEW_ROWS);
     const mappings = body?.mappings && typeof body.mappings === "object" ? body.mappings : {};
     const defaults = body?.defaults && typeof body.defaults === "object" ? body.defaults : {};
     const existingRunId = cleanText(body?.existingRunId);
@@ -2370,7 +2626,7 @@ export async function POST(request) {
     const authUserId = user.id;
     const previewCache = createPreviewRequestCache();
     const rowConcurrency =
-      rowsToPreview.length >= 50 ? 4 : rowsToPreview.length >= 20 ? 3 : 4;
+      fastPreview ? 2 : rowsToPreview.length >= 50 ? 4 : rowsToPreview.length >= 20 ? 3 : 4;
     const previewMetrics = {
       rows: rowsToPreview.length,
       rowConcurrency,
@@ -2384,10 +2640,12 @@ export async function POST(request) {
     };
 
     const deferHeavyRowDetails =
-      rowsToPreview.length >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD;
+      fastPreview || rowsToPreview.length >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD;
     const matchRequestOptions = deferHeavyRowDetails ? FAST_PREVIEW_REQUEST_OPTIONS : {};
+    let quotaError = null;
 
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
+      const rowNumber = rowNumberOffset + index + 1;
       const input = getRowInput(row, mappings, defaults);
       let matchResult;
       let currentCodes = [];
@@ -2410,37 +2668,46 @@ export async function POST(request) {
         codes: false,
       };
 
-      try {
-        const matchCacheKey = buildMatchCacheKey(input);
-        const matchStartedAt = Date.now();
-        matchResult = await getOrLoadCached(
-          previewCache.matchResults,
-          matchCacheKey,
-          () =>
-            resolveMatch({
-              input,
-              userId: user.id,
-              authUserId,
-              origin,
-              requestOptions: matchRequestOptions,
-            }),
-        );
-        previewMetrics.matchMs += Date.now() - matchStartedAt;
-      } catch (error) {
-        const failureMessage = error instanceof Error ? error.message : "NXT lookup failed.";
-        if (/timed out|timeout/i.test(failureMessage)) {
-          previewMetrics.matchTimeouts += 1;
+      if (quotaError) {
+        matchResult = createQuotaPausedMatch(quotaError);
+      } else {
+        try {
+          const matchCacheKey = buildMatchCacheKey(input);
+          const matchStartedAt = Date.now();
+          matchResult = await getOrLoadCached(
+            previewCache.matchResults,
+            matchCacheKey,
+            () =>
+              resolveMatch({
+                input,
+                userId: user.id,
+                authUserId,
+                origin,
+                requestOptions: matchRequestOptions,
+              }),
+          );
+          previewMetrics.matchMs += Date.now() - matchStartedAt;
+        } catch (error) {
+          const failureMessage = error instanceof Error ? error.message : "NXT lookup failed.";
+          if (isBlackbaudQuotaExceededError(error)) {
+            quotaError = error;
+            matchResult = createQuotaPausedMatch(error);
+          } else {
+            if (/timed out|timeout/i.test(failureMessage)) {
+              previewMetrics.matchTimeouts += 1;
+            }
+            matchResult = {
+              status: "needs_review",
+              method: "NXT lookup deferred",
+              confidence: 0,
+              match: null,
+              notes: [
+                `NXT could not confirm this match during the fast import preview: ${failureMessage}`,
+                "This row is held for review and cannot be treated as a new record automatically.",
+              ],
+            };
+          }
         }
-        matchResult = {
-          status: "needs_review",
-          method: "NXT lookup deferred",
-          confidence: 0,
-          match: null,
-          notes: [
-            `NXT could not confirm this match during the fast import preview: ${failureMessage}`,
-            "This row is held for review and cannot be treated as a new record automatically.",
-          ],
-        };
       }
 
       if (matchResult.match?.blackbaudConstituentId && hasConstituencyChange(input)) {
@@ -2472,7 +2739,7 @@ export async function POST(request) {
       if (matchResult.match?.blackbaudConstituentId) {
         const constituentId = String(matchResult.match.blackbaudConstituentId);
         const rowTasks = [];
-        const rowContactDecisions = contactDecisions[String(index + 1)] || {};
+        const rowContactDecisions = contactDecisions[String(rowNumber)] || {};
         const needsHeavyDetail =
           input.nameUpdate ||
           input.individualProfileUpdate ||
@@ -2549,7 +2816,6 @@ export async function POST(request) {
                     authUserId,
                     origin,
                     constituentId,
-                    input,
                   }),
               );
               previewMetrics.contactMs += Date.now() - contactStartedAt;
@@ -2630,8 +2896,8 @@ export async function POST(request) {
         changePreview,
         matchResult.match,
         currentContacts,
-        contactDecisions[String(index + 1)] || {},
-        fieldDecisions[String(index + 1)] || {},
+        contactDecisions[String(rowNumber)] || {},
+        fieldDecisions[String(rowNumber)] || {},
         currentNameFormats,
         currentEducations,
         {
@@ -2731,7 +2997,7 @@ export async function POST(request) {
                 : STATUS.needsReview;
 
       return {
-        rowNumber: index + 1,
+        rowNumber,
         status,
         importIntent,
         intentDisposition,
@@ -2764,22 +3030,44 @@ export async function POST(request) {
       };
     });
 
+    if (quotaError) {
+      warnings.push(
+        `NXT checks are paused because ${quotaError.message} The import review was saved safely and can be reopened after Blackbaud's quota is available.`,
+      );
+    }
+
     const summary = summarize(previewRows, warnings);
     const savedPreview = saveRun
-      ? await savePreviewRun({
-          sessionUser: user,
-          workspaceUser: user,
-          sourceFilename: body?.sourceFilename,
-          mappings,
-          defaults,
-          warnings,
-          summary,
-          previewRows,
-          rawRows: rowsToPreview,
-          existingRunId,
-        })
+      ? appendRun
+        ? await savePreviewBatch({
+            sessionUser: user,
+            workspaceUser: user,
+            sourceFilename: body?.sourceFilename,
+            mappings,
+            defaults,
+            warnings,
+            previewRows,
+            rawRows: rowsToPreview,
+            existingRunId,
+            rowNumberOffset,
+            totalRowCount: requestedTotalRowCount,
+            finalizeRun,
+          })
+        : await savePreviewRun({
+            sessionUser: user,
+            workspaceUser: user,
+            sourceFilename: body?.sourceFilename,
+            mappings,
+            defaults,
+            warnings,
+            summary,
+            previewRows,
+            rawRows: rowsToPreview,
+            existingRunId,
+          })
       : null;
     const savedRun = savedPreview?.run || null;
+    const responseSummary = savedPreview?.summary || summary;
     // A saved run needs its database row IDs immediately so the guarded NXT batch
     // can be selected without reloading the preview first.
     const responseRows = savedPreview
@@ -2802,14 +3090,14 @@ export async function POST(request) {
       educationMs: previewMetrics.educationMs,
       matchTimeouts: previewMetrics.matchTimeouts,
       savedRunId: savedRun?.id || null,
-      summary,
+      summary: responseSummary,
     });
 
     return Response.json({
       previewOnly: true,
       savedRun,
       warnings,
-      summary,
+      summary: responseSummary,
       rows: responseRows,
     });
   } catch (error) {

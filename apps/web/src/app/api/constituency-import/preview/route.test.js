@@ -5,8 +5,10 @@ const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
+const findBlackbaudConstituentByEmailMock = vi.fn();
 const findBlackbaudConstituentByLookupIdMock = vi.fn();
 const getBlackbaudConstituentByIdMock = vi.fn();
+const isBlackbaudQuotaExceededErrorMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
@@ -27,8 +29,10 @@ vi.mock("@/app/api/utils/sql", () => ({
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
+  findBlackbaudConstituentByEmail: findBlackbaudConstituentByEmailMock,
   findBlackbaudConstituentByLookupId: findBlackbaudConstituentByLookupIdMock,
   getBlackbaudConstituentById: getBlackbaudConstituentByIdMock,
+  isBlackbaudQuotaExceededError: isBlackbaudQuotaExceededErrorMock,
   searchBlackbaudConstituents: searchBlackbaudConstituentsMock,
 }));
 
@@ -60,12 +64,16 @@ describe("constituency import preview route", () => {
     getWorkspaceUserMock.mockReset();
     sqlMock.mockReset();
     blackbaudApiFetchMock.mockReset();
+    findBlackbaudConstituentByEmailMock.mockReset();
     findBlackbaudConstituentByLookupIdMock.mockReset();
     getBlackbaudConstituentByIdMock.mockReset();
+    isBlackbaudQuotaExceededErrorMock.mockReset();
     searchBlackbaudConstituentsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
+    findBlackbaudConstituentByEmailMock.mockResolvedValue(null);
+    isBlackbaudQuotaExceededErrorMock.mockReturnValue(false);
     getWorkspaceUserMock.mockResolvedValue({
       sessionUser: {
         id: 7,
@@ -1543,6 +1551,59 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].runId).toBe("42");
     expect(payload.summary.ready).toBe(1);
     expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("pauses an import batch after a Blackbaud quota error instead of calling NXT for every row", async () => {
+    const { POST } = await import("./route.js");
+    const quotaError = new Error("Blackbaud call-volume quota is temporarily unavailable.");
+    getBlackbaudConstituentByIdMock.mockRejectedValue(quotaError);
+    isBlackbaudQuotaExceededErrorMock.mockImplementation((error) => error === quotaError);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          { "NXT ID": "100" },
+          { "NXT ID": "101" },
+          { "NXT ID": "102" },
+          { "NXT ID": "103" },
+        ],
+        mappings: { blackbaudConstituentId: "NXT ID" },
+        appendRun: true,
+        fastPreview: true,
+        rowNumberOffset: 8,
+        totalRowCount: 12,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    // Two requests can start together, but remaining rows must be halted once
+    // Blackbaud reports the subscription-level quota has been exhausted.
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledTimes(2);
+    expect(payload.rows.map((row) => row.rowNumber)).toEqual([9, 10, 11, 12]);
+    expect(payload.rows.every((row) => row.status === "Needs Review")).toBe(true);
+    expect(payload.rows[1].reasons.join(" ")).toContain(
+      "saved safely without attempting further NXT calls",
+    );
+    expect(payload.warnings.join(" ")).toContain("NXT checks are paused");
+  });
+
+  it("rejects oversized persisted batches before making any NXT requests", async () => {
+    const { POST } = await import("./route.js");
+    const response = await POST(
+      makeRequest({
+        rows: Array.from({ length: 5 }, (_, index) => ({ "NXT ID": String(index + 1) })),
+        mappings: { blackbaudConstituentId: "NXT ID" },
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 5,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain("limited to 4 rows");
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
   });
 
   it("keeps an unmatched new-record row in controlled review", async () => {

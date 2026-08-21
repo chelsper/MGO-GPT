@@ -2369,6 +2369,8 @@ const NXT_TABLE_SUGGESTION_FIELDS = new Set([
   "educationMajor",
   "educationMinor",
 ]);
+const PREVIEW_BATCH_SIZE = 4;
+const PREVIEW_BATCH_TIMEOUT_MS = 40 * 1000;
 
 function CsvRowEditor({
   rowNumber,
@@ -2643,6 +2645,7 @@ export default function ConstituencyImportPage() {
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState(null);
   const [savingRun, setSavingRun] = useState(false);
   const [savedRuns, setSavedRuns] = useState([]);
   const [loadingSavedRuns, setLoadingSavedRuns] = useState(false);
@@ -4453,14 +4456,43 @@ export default function ConstituencyImportPage() {
     scrollToResults = true,
     preferReviewMode = null,
   } = {}) {
+    const inputRows = Array.isArray(rowsOverride) ? rowsOverride : rows;
+    if (inputRows.length > 100) {
+      setError("Import review supports up to 100 rows per file. Split larger files before reviewing them.");
+      return null;
+    }
+    if (!inputRows.length) {
+      setError("Add at least one CSV row before preparing an import review.");
+      return null;
+    }
+
     const requestVersion = previewRequestVersionRef.current + 1;
     previewRequestVersionRef.current = requestVersion;
     previewAbortControllerRef.current?.abort();
     const controller = new AbortController();
     previewAbortControllerRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 180000);
+    const defaultsPayload = {
+      importIntent,
+      defaultAction: constituencyAction,
+      educationRelationshipAction,
+      useHierarchy,
+      updateNameFields,
+      updateIndividualProfileFields,
+      updateNameFormatFields,
+      buildNameFormats,
+      addresseeFormat,
+      salutationFormat,
+      updateEmailFields,
+      updatePhoneFields,
+      updateAddressFields,
+    };
+    // A saved run is required for multi-row reviews so each batch survives an
+    // upstream NXT timeout or a page reload. No NXT writes occur here.
+    const useBatchedPreview = inputRows.length > 1;
+    let batchRunId = preview?.savedRun?.id || "";
+    let batchCompleted = 0;
 
-    if (saveRun) {
+    if (saveRun || useBatchedPreview) {
       setSavingRun(true);
     } else {
       setPreviewing(true);
@@ -4468,39 +4500,99 @@ export default function ConstituencyImportPage() {
     setError("");
     setSaveMessage("");
     try {
-      const response = await fetch("/api/constituency-import/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        signal: controller.signal,
-        body: JSON.stringify({
-          rows: rowsOverride || rows,
-          mappings,
-          defaults: {
-            importIntent,
-            defaultAction: constituencyAction,
-            educationRelationshipAction,
-            useHierarchy,
-            updateNameFields,
-            updateIndividualProfileFields,
-            updateNameFormatFields,
-            buildNameFormats,
-            addresseeFormat,
-            salutationFormat,
-            updateEmailFields,
-            updatePhoneFields,
-            updateAddressFields,
-          },
-          contactDecisions,
-          fieldDecisions,
-          sourceFilename,
-          saveRun,
-          existingRunId: saveRun ? preview?.savedRun?.id || "" : "",
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to review constituency import");
+      let payload = null;
+
+      if (useBatchedPreview) {
+        const totalRows = Math.min(inputRows.length, 100);
+        const resumableProgress =
+          preview?.savedRun?.status === "preparing"
+            ? Math.max(0, Number(preview?.savedRun?.summary?.processed) || 0)
+            : 0;
+        const startingOffset = Math.min(resumableProgress, totalRows);
+        batchCompleted = startingOffset;
+        setPreviewProgress({ completed: startingOffset, total: totalRows });
+
+        for (let offset = startingOffset; offset < totalRows; offset += PREVIEW_BATCH_SIZE) {
+          if (previewRequestVersionRef.current !== requestVersion) return null;
+
+          const chunk = inputRows.slice(offset, offset + PREVIEW_BATCH_SIZE);
+          const chunkController = new AbortController();
+          const cancelChunk = () => chunkController.abort();
+          controller.signal.addEventListener("abort", cancelChunk, { once: true });
+          const timeoutId = window.setTimeout(
+            () => chunkController.abort(),
+            PREVIEW_BATCH_TIMEOUT_MS,
+          );
+
+          try {
+            const response = await fetch("/api/constituency-import/preview", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              cache: "no-store",
+              signal: chunkController.signal,
+              body: JSON.stringify({
+                rows: chunk,
+                mappings,
+                defaults: defaultsPayload,
+                contactDecisions,
+                fieldDecisions,
+                sourceFilename,
+                saveRun: true,
+                existingRunId: batchRunId,
+                appendRun: true,
+                finalizeRun: offset + chunk.length >= totalRows,
+                rowNumberOffset: offset,
+                totalRowCount: totalRows,
+                fastPreview: true,
+              }),
+            });
+            const chunkPayload = await response.json().catch(() => null);
+            if (!response.ok) {
+              throw new Error(chunkPayload?.error || "Failed to prepare this import batch");
+            }
+            batchRunId = chunkPayload?.savedRun?.id || batchRunId;
+            batchCompleted = offset + chunk.length;
+            payload = chunkPayload;
+            setPreviewProgress({ completed: batchCompleted, total: totalRows });
+          } finally {
+            window.clearTimeout(timeoutId);
+            controller.signal.removeEventListener("abort", cancelChunk);
+          }
+        }
+
+        if (!batchRunId) {
+          throw new Error("The import review could not be saved.");
+        }
+        const savedResponse = await fetch(
+          `/api/constituency-import/runs?id=${encodeURIComponent(batchRunId)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const savedPayload = await savedResponse.json().catch(() => null);
+        if (!savedResponse.ok) {
+          throw new Error(savedPayload?.error || "The import review was saved but could not be loaded.");
+        }
+        payload = savedPayload;
+      } else {
+        const response = await fetch("/api/constituency-import/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          signal: controller.signal,
+          body: JSON.stringify({
+            rows: inputRows,
+            mappings,
+            defaults: defaultsPayload,
+            contactDecisions,
+            fieldDecisions,
+            sourceFilename,
+            saveRun,
+            existingRunId: saveRun ? preview?.savedRun?.id || "" : "",
+          }),
+        });
+        payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to review constituency import");
+        }
       }
       if (previewRequestVersionRef.current !== requestVersion) {
         return null;
@@ -4524,8 +4616,12 @@ export default function ConstituencyImportPage() {
             ?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 0);
       }
-      if (saveRun && payload?.savedRun?.id) {
-        setSaveMessage(`Saved import run #${payload.savedRun.id}. No NXT records were changed.`);
+      if ((saveRun || useBatchedPreview) && payload?.savedRun?.id) {
+        setSaveMessage(
+          useBatchedPreview
+            ? `Prepared and saved import run #${payload.savedRun.id}. No NXT records were changed.`
+            : `Saved import run #${payload.savedRun.id}. No NXT records were changed.`,
+        );
         fetchSavedRuns();
       } else if (successMessage) {
         setSaveMessage(successMessage);
@@ -4535,24 +4631,48 @@ export default function ConstituencyImportPage() {
       if (previewRequestVersionRef.current !== requestVersion) {
         return null;
       }
+      if (batchRunId) {
+        try {
+          const savedResponse = await fetch(
+            `/api/constituency-import/runs?id=${encodeURIComponent(batchRunId)}`,
+            { cache: "no-store" },
+          );
+          const savedPayload = await savedResponse.json().catch(() => null);
+          if (savedResponse.ok && savedPayload) {
+            setPreview(savedPayload);
+            setReviewMode(true);
+            fetchSavedRuns();
+          }
+        } catch {
+          // Keep the original request error; a later reload can still open the saved run.
+        }
+      }
       if (previewError?.name === "AbortError") {
-        setError("Import review timed out before NXT finished responding. Please try again.");
+        setError(
+          batchRunId
+            ? `Import review paused after ${batchCompleted} row${batchCompleted === 1 ? "" : "s"} were saved. Reopen the saved run and retry when NXT is available.`
+            : "This import batch did not finish before NXT responded. Please try again.",
+        );
         return null;
       }
       setError(
-        previewError instanceof Error
-          ? previewError.message
-          : "Failed to review constituency import",
+        batchRunId
+          ? `Import review paused after ${batchCompleted} row${batchCompleted === 1 ? "" : "s"} were saved. ${
+              previewError instanceof Error ? previewError.message : "Please try again."
+            }`
+          : previewError instanceof Error
+            ? previewError.message
+            : "Failed to review constituency import",
       );
       return null;
     } finally {
-      window.clearTimeout(timeoutId);
       if (previewAbortControllerRef.current === controller) {
         previewAbortControllerRef.current = null;
       }
       if (previewRequestVersionRef.current === requestVersion) {
         setPreviewing(false);
         setSavingRun(false);
+        setPreviewProgress(null);
       }
     }
   }
@@ -6000,22 +6120,45 @@ export default function ConstituencyImportPage() {
             <button
               type="button"
               onClick={() => requestPreview()}
-              disabled={previewing}
+              disabled={previewing || savingRun}
               style={{
                 justifySelf: "start",
                 border: "none",
                 borderRadius: "14px",
-                backgroundColor: previewing ? "#CBD5E1" : "#6D5DFB",
+                backgroundColor: previewing || savingRun ? "#CBD5E1" : "#6D5DFB",
                 color: "white",
                 padding: "13px 18px",
                 fontWeight: 900,
                 fontSize: "15px",
-                cursor: previewing ? "not-allowed" : "pointer",
+                cursor: previewing || savingRun ? "not-allowed" : "pointer",
               }}
             >
-              {previewing ? "Checking import..." : "Review uploaded CSV"}
+              {previewing || savingRun
+                ? previewProgress
+                  ? `Checking NXT: ${previewProgress.completed} of ${previewProgress.total}`
+                  : "Checking import..."
+                : "Review uploaded CSV"}
             </button>
           )}
+
+          {previewProgress ? (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                border: "1px solid #C7D2FE",
+                borderRadius: "12px",
+                backgroundColor: "#EEF2FF",
+                color: "#3730A3",
+                padding: "11px 12px",
+                fontSize: "14px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              Preparing and saving review batches: {previewProgress.completed} of {previewProgress.total} rows complete. NXT records are not changed during this step.
+            </div>
+          ) : null}
 
           <div
             id="constituency-import-preview-results"
@@ -6171,18 +6314,18 @@ export default function ConstituencyImportPage() {
                         ? persistReviewChoices()
                         : requestPreview()
                     }
-                    disabled={previewing}
+                    disabled={previewing || savingRun}
                     style={{
                       border: "1px solid #C7D2FE",
                       borderRadius: "14px",
-                      backgroundColor: previewing ? "#E5E7EB" : "#EEF2FF",
-                    color: previewing ? "#64748B" : "#4338CA",
-                    padding: "12px 16px",
-                    fontWeight: 900,
-                    cursor: previewing ? "not-allowed" : "pointer",
+                      backgroundColor: previewing || savingRun ? "#E5E7EB" : "#EEF2FF",
+                      color: previewing || savingRun ? "#64748B" : "#4338CA",
+                      padding: "12px 16px",
+                      fontWeight: 900,
+                      cursor: previewing || savingRun ? "not-allowed" : "pointer",
                     }}
                   >
-                    {previewing
+                    {previewing || savingRun
                       ? preview?.savedRun
                         ? "Saving review changes..."
                         : "Refreshing review plan..."

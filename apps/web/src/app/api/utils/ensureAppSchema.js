@@ -111,6 +111,18 @@ export default async function ensureAppSchema() {
       ON blackbaud_constituent_summary_cache (updated_at)
     `;
 
+    // Blackbaud enforces a subscription-wide call-volume quota. Persist the
+    // provider's cooldown so separate Vercel instances do not keep retrying
+    // a quota error and turn it into a function timeout.
+    await sql`
+      CREATE TABLE IF NOT EXISTS blackbaud_api_limit_state (
+        state_key TEXT PRIMARY KEY,
+        blocked_until TIMESTAMPTZ,
+        message TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
     await sql`
       CREATE TABLE IF NOT EXISTS report_snapshots_cache (
         report_key TEXT PRIMARY KEY,

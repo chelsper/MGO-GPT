@@ -29,6 +29,9 @@ const BLACKBAUD_LIST_V2_EXECUTE_QUERY_URL =
   "https://api.sky.blackbaud.com/list/v2/execute-query";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
+const BLACKBAUD_QUOTA_STATE_KEY = "subscription";
+const BLACKBAUD_QUOTA_CACHE_TTL_MS = 10 * 1000;
+const BLACKBAUD_QUOTA_FALLBACK_DELAY_MS = 10 * 60 * 1000;
 const DEFAULT_BLACKBAUD_SCOPES = "offline_access rnxt.r rnxt.w rnxt.d";
 const DECLINED_OPPORTUNITY_STATUS = "Declined";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
@@ -40,6 +43,124 @@ const NXT_ACTION_TYPE_MAP = new Map([
   ["solicitation", "Solicitation"],
   ["stewardship", "Stewardship"],
 ]);
+
+let blackbaudQuotaStateCache = {
+  checkedAt: 0,
+  blockedUntil: 0,
+  message: "",
+};
+
+export class BlackbaudQuotaExceededError extends Error {
+  constructor({ message, retryAfterMs = 0 } = {}) {
+    super(message || "Blackbaud call-volume quota is temporarily unavailable.");
+    this.name = "BlackbaudQuotaExceededError";
+    this.retryAfterMs = Math.max(0, Number(retryAfterMs) || 0);
+  }
+}
+
+export function isBlackbaudQuotaExceededError(error) {
+  return error instanceof BlackbaudQuotaExceededError;
+}
+
+function parseRetryAfterMs(response, responseText = "") {
+  const headerValue = Number(response?.headers?.get?.("retry-after"));
+  if (Number.isFinite(headerValue) && headerValue >= 0) {
+    return Math.min(headerValue * 1000, 24 * 60 * 60 * 1000);
+  }
+
+  const durationMatch = String(responseText || "").match(
+    /(?:quota (?:will be )?replenished|replenished)\s+in\s+(\d{1,2}):(\d{2}):(\d{2})/i,
+  );
+  if (!durationMatch) return BLACKBAUD_QUOTA_FALLBACK_DELAY_MS;
+
+  const [, hours, minutes, seconds] = durationMatch;
+  const durationMs =
+    (Number(hours) * 60 * 60 + Number(minutes) * 60 + Number(seconds)) * 1000;
+  return Math.min(Math.max(durationMs, 1000), 24 * 60 * 60 * 1000);
+}
+
+function isQuotaExceededResponse(response, responseText = "") {
+  if (response?.status !== 403) return false;
+  return /quota|call volume|rate limit/i.test(String(responseText || ""));
+}
+
+function formatQuotaMessage({ responseText, retryAfterMs }) {
+  const seconds = Math.ceil(Math.max(0, Number(retryAfterMs) || 0) / 1000);
+  const retryMessage = seconds
+    ? ` NXT checks will resume after Blackbaud replenishes the quota (about ${Math.ceil(seconds / 60)} minute${Math.ceil(seconds / 60) === 1 ? "" : "s"}).`
+    : "";
+  const providerMessage = String(responseText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `Blackbaud call-volume quota is temporarily unavailable.${retryMessage}${
+    providerMessage ? ` Provider response: ${providerMessage}` : ""
+  }`;
+}
+
+async function getBlackbaudQuotaState() {
+  const now = Date.now();
+  if (now - blackbaudQuotaStateCache.checkedAt < BLACKBAUD_QUOTA_CACHE_TTL_MS) {
+    return blackbaudQuotaStateCache;
+  }
+
+  const rows = await sql`
+    SELECT blocked_until, message
+    FROM blackbaud_api_limit_state
+    WHERE state_key = ${BLACKBAUD_QUOTA_STATE_KEY}
+    LIMIT 1
+  `;
+  const row = rows[0] || null;
+  const blockedUntil = row?.blocked_until ? new Date(row.blocked_until).getTime() : 0;
+  blackbaudQuotaStateCache = {
+    checkedAt: now,
+    blockedUntil: Number.isFinite(blockedUntil) ? blockedUntil : 0,
+    message: String(row?.message || ""),
+  };
+  return blackbaudQuotaStateCache;
+}
+
+async function assertBlackbaudQuotaAvailable() {
+  const state = await getBlackbaudQuotaState();
+  const remainingMs = state.blockedUntil - Date.now();
+  if (remainingMs > 0) {
+    throw new BlackbaudQuotaExceededError({
+      message:
+        state.message ||
+        formatQuotaMessage({ responseText: "", retryAfterMs: remainingMs }),
+      retryAfterMs: remainingMs,
+    });
+  }
+}
+
+async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs }) {
+  const blockedUntil = new Date(Date.now() + retryAfterMs).toISOString();
+  const message = formatQuotaMessage({ responseText, retryAfterMs });
+  await sql`
+    INSERT INTO blackbaud_api_limit_state (
+      state_key,
+      blocked_until,
+      message,
+      updated_at
+    )
+    VALUES (
+      ${BLACKBAUD_QUOTA_STATE_KEY},
+      ${blockedUntil},
+      ${message},
+      NOW()
+    )
+    ON CONFLICT (state_key) DO UPDATE
+    SET
+      blocked_until = EXCLUDED.blocked_until,
+      message = EXCLUDED.message,
+      updated_at = NOW()
+  `;
+  blackbaudQuotaStateCache = {
+    checkedAt: Date.now(),
+    blockedUntil: new Date(blockedUntil).getTime(),
+    message,
+  };
+  return new BlackbaudQuotaExceededError({ message, retryAfterMs });
+}
 
 export function getBlackbaudConfig(origin) {
   const clientId = process.env.BLACKBAUD_CLIENT_ID || "";
@@ -174,7 +295,6 @@ function getRetryDelayMs(response, attempt) {
 function shouldRetryBlackbaudResponse(response) {
   if (response.status === 429) return true;
   if (response.status >= 500) return true;
-  if (response.status === 403 && response.headers.get("retry-after")) return true;
   return false;
 }
 
@@ -320,6 +440,13 @@ export async function blackbaudApiFetch(
   } = {},
 ) {
   const config = getBlackbaudConfig(origin);
+
+  // Check the shared provider cooldown before doing token refresh work. A
+  // Blackbaud quota is subscription-wide, so refreshing a token cannot make
+  // the next API request succeed while that cooldown is active.
+  await ensureAppSchema();
+  await assertBlackbaudQuotaAvailable();
+
   const connection = await getValidBlackbaudConnection(authUserId || userId, origin);
 
   if (!connection?.access_token) {
@@ -362,6 +489,17 @@ export async function blackbaudApiFetch(
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
+
+      if (!response.ok) {
+        const responseText = await response.clone().text().catch(() => "");
+        if (isQuotaExceededResponse(response, responseText)) {
+          clearTimeout(timeoutId);
+          throw await recordBlackbaudQuotaExceeded({
+            responseText,
+            retryAfterMs: parseRetryAfterMs(response, responseText),
+          });
+        }
+      }
 
       if (shouldRetryBlackbaudResponse(response) && attempt < requestMaxRetries) {
         const delayMs = getRetryDelayMs(response, attempt);
@@ -615,6 +753,7 @@ export async function searchBlackbaudConstituents({
         raw: item,
       }));
     } catch (error) {
+      if (isBlackbaudQuotaExceededError(error)) throw error;
       customSearchFailed = true;
       console.error("Blackbaud custom constituent search error:", error);
     }
@@ -675,6 +814,7 @@ export async function searchBlackbaudConstituents({
         raw: item,
       }));
     } catch (error) {
+      if (isBlackbaudQuotaExceededError(error)) throw error;
       primarySearchFailed = true;
       console.error("Blackbaud constituent search error:", error);
     }
