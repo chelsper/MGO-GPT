@@ -12,11 +12,13 @@ function describeDatabaseUrl(value) {
   let protocol = null;
   let pooledHint = null;
   let hostHint = null;
+  let regionHint = null;
 
   try {
     const parsed = new URL(text);
     protocol = parsed.protocol.replace(/:$/, "");
     hostHint = parsed.hostname || null;
+    regionHint = inferRegionFromHostname(parsed.hostname || "");
     pooledHint =
       parsed.hostname.includes("-pooler.") ||
       parsed.searchParams.has("pgbouncer") ||
@@ -30,7 +32,31 @@ function describeDatabaseUrl(value) {
     protocol,
     pooledHint,
     hostHint,
+    regionHint,
   };
+}
+
+function inferRegionFromHostname(hostname) {
+  const text = String(hostname || "").trim().toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  const explicitRegionMatch = text.match(
+    /\b(us|eu|ap|sa|ca|me|af)-[a-z]+-\d\b/,
+  );
+  if (explicitRegionMatch) {
+    return explicitRegionMatch[0];
+  }
+
+  if (text.includes("aws.neon.tech")) {
+    const awsRegionMatch = text.match(/([a-z]{2}-[a-z]+-\d)\.aws\.neon\.tech$/);
+    if (awsRegionMatch) {
+      return awsRegionMatch[1];
+    }
+  }
+
+  return null;
 }
 
 function describeValue(value) {
@@ -48,6 +74,7 @@ export async function GET() {
         now: new Date().toISOString(),
         vercelEnv: process.env.VERCEL_ENV || null,
         vercelTargetEnv: process.env.VERCEL_TARGET_ENV || null,
+        vercelRegion: process.env.VERCEL_REGION || null,
         authSecret: describeValue(process.env.AUTH_SECRET),
         databaseUrl: describeDatabaseUrl(process.env.DATABASE_URL),
         futureMadePhaseTwoQueryId: describeValue(
