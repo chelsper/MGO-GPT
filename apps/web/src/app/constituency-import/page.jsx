@@ -2636,15 +2636,12 @@ export default function ConstituencyImportPage() {
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
   const lastReadFileRef = useRef(null);
-  const autoPreviewStartedRef = useRef("");
-  const latestAutoPreviewSignatureRef = useRef("");
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [savingRun, setSavingRun] = useState(false);
-  const [backgroundPreviewing, setBackgroundPreviewing] = useState(false);
   const [savedRuns, setSavedRuns] = useState([]);
   const [loadingSavedRuns, setLoadingSavedRuns] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState("");
@@ -2826,50 +2823,6 @@ export default function ConstituencyImportPage() {
     identityRequirementMet &&
     hasImportOperation &&
     mappedImportOperation;
-  const autoPreviewSignature = useMemo(
-    () =>
-      JSON.stringify({
-        sourceFilename,
-        rowCount: rows.length,
-        headerCount: headers.length,
-        importIntent,
-        constituencyAction,
-        educationRelationshipAction,
-        useHierarchy,
-        updateNameFields,
-        updateIndividualProfileFields,
-        updateNameFormatFields,
-        buildNameFormats,
-        addresseeFormat,
-        salutationFormat,
-        updateEmailFields,
-        updatePhoneFields,
-        updateAddressFields,
-        activeFieldKeys: Object.entries(activeFields)
-          .filter(([, active]) => active)
-          .map(([key]) => key)
-          .sort(),
-      }),
-    [
-      sourceFilename,
-      rows.length,
-      headers.length,
-      importIntent,
-      constituencyAction,
-      educationRelationshipAction,
-      useHierarchy,
-      updateNameFields,
-      updateIndividualProfileFields,
-      updateNameFormatFields,
-      buildNameFormats,
-      addresseeFormat,
-      salutationFormat,
-      updateEmailFields,
-      updatePhoneFields,
-      updateAddressFields,
-      activeFields,
-    ],
-  );
   const previewBlockers = [
     rows.length === 0 ? "Add at least one CSV data row." : "",
     identityRequirementMet ? "" : identityRequirementCopy,
@@ -3047,47 +3000,9 @@ export default function ConstituencyImportPage() {
   }
 
   useEffect(() => {
-    latestAutoPreviewSignatureRef.current = autoPreviewSignature;
-  }, [autoPreviewSignature]);
-
-  useEffect(() => {
     if (!isReviewer) return;
     fetchSavedRuns();
   }, [isReviewer]);
-
-  useEffect(() => {
-    if (!isReviewer) return;
-    if (!canPreview || !rows.length || !sourceFilename) return;
-    if (preview || previewing || savingRun || backgroundPreviewing || loadingRunId) return;
-    if (contactDecisionsDirty || fieldDecisionsDirty) return;
-    if (autoPreviewStartedRef.current === autoPreviewSignature) return;
-
-    autoPreviewStartedRef.current = autoPreviewSignature;
-    void requestPreview({
-      saveRun: true,
-      scrollToResults: false,
-      background: true,
-      preferReviewMode: false,
-      expectedAutoPreviewSignature: autoPreviewSignature,
-    }).then((payload) => {
-      if (!payload && latestAutoPreviewSignatureRef.current === autoPreviewSignature) {
-        autoPreviewStartedRef.current = "";
-      }
-    });
-  }, [
-    isReviewer,
-    canPreview,
-    rows.length,
-    sourceFilename,
-    preview,
-    previewing,
-    savingRun,
-    backgroundPreviewing,
-    loadingRunId,
-    contactDecisionsDirty,
-    fieldDecisionsDirty,
-    autoPreviewSignature,
-  ]);
 
   useEffect(() => {
     const input = fileInputRef.current;
@@ -4515,20 +4430,16 @@ export default function ConstituencyImportPage() {
     rowsOverride = null,
     successMessage = "",
     scrollToResults = true,
-    background = false,
     preferReviewMode = null,
-    expectedAutoPreviewSignature = "",
   } = {}) {
-    if (background) {
-      setBackgroundPreviewing(true);
-    } else if (saveRun) {
+    if (saveRun) {
       setSavingRun(true);
     } else {
       setPreviewing(true);
     }
     setError("");
     setSaveMessage("");
-    if (!saveRun && !background) {
+    if (!saveRun) {
       setPreview(null);
     }
     try {
@@ -4564,13 +4475,6 @@ export default function ConstituencyImportPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to review constituency import");
       }
-      if (
-        background &&
-        expectedAutoPreviewSignature &&
-        latestAutoPreviewSignatureRef.current !== expectedAutoPreviewSignature
-      ) {
-        return null;
-      }
       setPreview(payload);
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
@@ -4590,10 +4494,7 @@ export default function ConstituencyImportPage() {
             ?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 0);
       }
-      if (background && payload?.savedRun?.id) {
-        setFileReadStatus("Draft import review is ready.");
-        fetchSavedRuns();
-      } else if (saveRun && payload?.savedRun?.id) {
+      if (saveRun && payload?.savedRun?.id) {
         setSaveMessage(`Saved import run #${payload.savedRun.id}. No NXT records were changed.`);
         fetchSavedRuns();
       } else if (successMessage) {
@@ -4610,7 +4511,6 @@ export default function ConstituencyImportPage() {
     } finally {
       setPreviewing(false);
       setSavingRun(false);
-      setBackgroundPreviewing(false);
     }
   }
 
@@ -6057,24 +5957,20 @@ export default function ConstituencyImportPage() {
             <button
               type="button"
               onClick={() => requestPreview()}
-              disabled={previewing || backgroundPreviewing}
+              disabled={previewing}
               style={{
                 justifySelf: "start",
                 border: "none",
                 borderRadius: "14px",
-                backgroundColor: previewing || backgroundPreviewing ? "#CBD5E1" : "#6D5DFB",
+                backgroundColor: previewing ? "#CBD5E1" : "#6D5DFB",
                 color: "white",
                 padding: "13px 18px",
                 fontWeight: 900,
                 fontSize: "15px",
-                cursor: previewing || backgroundPreviewing ? "not-allowed" : "pointer",
+                cursor: previewing ? "not-allowed" : "pointer",
               }}
             >
-              {previewing
-                ? "Checking import..."
-                : backgroundPreviewing
-                  ? "Preparing import review..."
-                  : "Review uploaded CSV"}
+              {previewing ? "Checking import..." : "Review uploaded CSV"}
             </button>
           )}
 
