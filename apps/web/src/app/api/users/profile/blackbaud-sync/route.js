@@ -6,23 +6,6 @@ import { bootstrapMgoPortfolioFromBlackbaud } from "@/app/api/utils/bootstrapMgo
 import { isBootstrapAdminEmail } from "@/app/api/utils/invitations";
 import { canUseMgoWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
-import sql from "@/app/api/utils/sql";
-
-async function clearBlackbaudPortfolioCacheForUser(userId) {
-  if (!userId) return false;
-
-  await sql`
-    UPDATE users
-    SET
-      blackbaud_portfolio_cache = NULL,
-      blackbaud_portfolio_cache_key = NULL,
-      blackbaud_portfolio_cached_at = NULL,
-      updated_at = NOW()
-    WHERE id = ${userId}
-  `;
-
-  return true;
-}
 
 export async function POST(request) {
   try {
@@ -59,8 +42,6 @@ export async function POST(request) {
       );
     }
 
-    await clearBlackbaudPortfolioCacheForUser(workspaceUser.id);
-
     const result = await bootstrapMgoPortfolioFromBlackbaud({
       userId: workspaceUser.id,
       authUserId,
@@ -68,9 +49,15 @@ export async function POST(request) {
       force: true,
     });
 
-    await clearBlackbaudPortfolioCacheForUser(workspaceUser.id);
-
-    return Response.json({ ok: true, result, blackbaudPortfolioCacheCleared: true });
+    // This sync refreshes locally tracked opportunities. It does not change
+    // NXT fundraiser assignments, so preserve the last successful portfolio
+    // snapshot if Blackbaud is temporarily unavailable.
+    return Response.json({
+      ok: true,
+      result,
+      blackbaudPortfolioCacheCleared: false,
+      blackbaudPortfolioCachePreserved: true,
+    });
   } catch (error) {
     console.error("Manual Blackbaud portfolio sync error:", error);
     return Response.json(

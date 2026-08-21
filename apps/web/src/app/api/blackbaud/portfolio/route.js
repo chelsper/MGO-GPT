@@ -197,6 +197,99 @@ async function getLocalPortfolioDetails(userId, constituentIds) {
   );
 }
 
+function getPortfolioCardCount(payload) {
+  return (
+    (Array.isArray(payload?.leadSolicitor) ? payload.leadSolicitor.length : 0) +
+    (Array.isArray(payload?.supportingSolicitor) ? payload.supportingSolicitor.length : 0)
+  );
+}
+
+function getLatestTimestamp(rows) {
+  return rows.reduce((latest, row) => {
+    const candidate = row?.updated_at ? new Date(row.updated_at).getTime() : Number.NaN;
+    const current = latest ? new Date(latest).getTime() : Number.NaN;
+    if (!Number.isFinite(candidate) || (Number.isFinite(current) && candidate <= current)) {
+      return latest;
+    }
+    return row.updated_at;
+  }, null);
+}
+
+async function getLocalPortfolioFallback(workspaceUserId, reason) {
+  if (!workspaceUserId) return null;
+
+  const rows = await sql`
+    WITH local_portfolio_records AS (
+      SELECT
+        COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) AS blackbaud_constituent_id,
+        COALESCE(NULLIF(c.name, ''), NULLIF(p.prospect_name, '')) AS name,
+        c.email,
+        c.phone,
+        GREATEST(COALESCE(p.updated_at, p.created_at), COALESCE(c.updated_at, c.created_at)) AS updated_at
+      FROM prospects p
+      LEFT JOIN constituents c ON c.id = p.constituent_id
+      WHERE
+        p.user_id = ${workspaceUserId}
+        AND p.status = 'Active'
+        AND COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) IS NOT NULL
+    )
+    SELECT DISTINCT ON (blackbaud_constituent_id)
+      blackbaud_constituent_id,
+      name,
+      email,
+      phone,
+      updated_at
+    FROM local_portfolio_records
+    ORDER BY blackbaud_constituent_id, updated_at DESC NULLS LAST
+  `;
+
+  const leadSolicitor = rows.flatMap((row) => {
+    const constituentId = String(row?.blackbaud_constituent_id || "").trim();
+    if (!constituentId) return [];
+
+    return [
+      {
+        constituentId,
+        lookupId: null,
+        name: row?.name || `NXT constituent ${constituentId}`,
+        email: row?.email || null,
+        phone: row?.phone || null,
+        address: null,
+        contactDataSource: "local-workspace-record",
+        lifetimeGiving: {
+          totalGiving: null,
+          totalReceivedGiving: null,
+        },
+        assignmentTypes: ["Locally synced Top Prospect"],
+        isDeceased: false,
+        identityLookupRetryAt: null,
+      },
+    ];
+  });
+
+  if (!leadSolicitor.length) return null;
+
+  return {
+    leadSolicitor,
+    supportingSolicitor: [],
+    summary: {
+      leadCount: leadSolicitor.length,
+      supportingCount: 0,
+    },
+    portfolioMeta: {
+      source: "local-prospect-snapshot",
+      assignmentDataStatus: "unavailable",
+      cachedAt: getLatestTimestamp(rows),
+      fallbackReason: reason,
+      fallbackMessage:
+        "Live NXT fundraiser assignments are temporarily unavailable. Showing your locally synced Top Prospects instead. This fallback does not confirm current NXT assignment roles.",
+      identityHydrationPending: false,
+      identityHydrationDeferred: false,
+      identityHydrationPollIntervalMs: null,
+    },
+  };
+}
+
 function parseCachedPayload(payload) {
   if (!payload) return null;
   if (typeof payload === "object") return payload;
@@ -449,40 +542,6 @@ function getPortfolioIdentityHydrationMeta(payload) {
   };
 }
 
-async function hydrateCachedPortfolioIdentities({
-  cachedPortfolio,
-  workspaceUserId,
-  authUserId,
-  origin,
-}) {
-  const cachedPayload = cachedPortfolio?.payload || {};
-  const cachedConstituents = [
-    ...(Array.isArray(cachedPayload.leadSolicitor) ? cachedPayload.leadSolicitor : []),
-    ...(Array.isArray(cachedPayload.supportingSolicitor)
-      ? cachedPayload.supportingSolicitor
-      : []),
-  ];
-  const liveIdentities = await getLivePortfolioIdentities({
-    userId: workspaceUserId,
-    authUserId,
-    origin,
-    entries: cachedConstituents,
-  });
-  const payload = mergePortfolioIdentities(cachedPayload, liveIdentities);
-
-  if (liveIdentities.size > 0) {
-    await saveCachedPortfolio(workspaceUserId, cachedPortfolio.cacheKey, payload);
-  }
-
-  return {
-    ...payload,
-    portfolioMeta: {
-      ...(payload?.portfolioMeta || {}),
-      ...getPortfolioIdentityHydrationMeta(payload),
-    },
-  };
-}
-
 function getCacheAgeMs(timestamp) {
   if (!timestamp) return false;
   const parsed = new Date(timestamp).getTime();
@@ -514,12 +573,24 @@ async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = fals
 
   const row = rows[0];
   if (!row?.blackbaud_portfolio_cache) return null;
-  if (
-    !acceptedCacheKeys.some(
-      (expectedKey) =>
-        String(row.blackbaud_portfolio_cache_key || "") === String(expectedKey),
-    )
-  ) {
+  const storedCacheKey = String(row.blackbaud_portfolio_cache_key || "");
+  const matchingCacheKey = acceptedCacheKeys.find((expectedKey) => {
+    const expected = String(expectedKey || "");
+    if (storedCacheKey === expected) return true;
+
+    // Cache versions evolve as the card payload changes. A snapshot from the
+    // same fundraiser remains safer and more useful than an empty portfolio
+    // during a provider outage, so only the version prefix may differ.
+    const storedIdentity = storedCacheKey.slice(storedCacheKey.indexOf(":") + 1);
+    const expectedIdentity = expected.slice(expected.indexOf(":") + 1);
+    return (
+      storedCacheKey.includes(":") &&
+      expected.includes(":") &&
+      Boolean(storedIdentity) &&
+      storedIdentity === expectedIdentity
+    );
+  });
+  if (!matchingCacheKey) {
     return null;
   }
   const isFresh = isFreshCache(row.blackbaud_portfolio_cached_at);
@@ -531,6 +602,7 @@ async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = fals
     payload: row.blackbaud_portfolio_cache,
     cachedAt: row.blackbaud_portfolio_cached_at,
     cacheKey: row.blackbaud_portfolio_cache_key,
+    cacheKeyMatch: storedCacheKey === String(matchingCacheKey) ? "exact" : "version-compatible",
     isFresh,
   };
 }
@@ -636,17 +708,68 @@ async function resolveFundraiserCandidates({ workspaceUser, authUserId, origin }
   return candidates;
 }
 
-function buildStaleCacheResponse(cachedPortfolio, { reason, diagnostics } = {}) {
+function buildCachedPortfolioResponse(cachedPortfolio, {
+  source = "cache",
+  reason,
+  diagnostics,
+} = {}) {
+  const payload = cachedPortfolio?.payload || {};
+  const identityMeta = getPortfolioIdentityHydrationMeta(payload);
+
   return {
-    ...cachedPortfolio.payload,
+    ...payload,
     portfolioMeta: {
-      ...(cachedPortfolio.payload?.portfolioMeta || {}),
-      source: "stale-cache",
+      ...(payload?.portfolioMeta || {}),
+      ...identityMeta,
+      // A cache response must be self-contained. Retrying unresolved card
+      // identities here would make a quota outage erase the value of cache.
+      identityHydrationPending: false,
+      identityHydrationDeferred: identityMeta.identityHydrationPending,
+      identityHydrationPollIntervalMs: null,
+      source,
       cachedAt: cachedPortfolio.cachedAt,
       reason,
+      cacheKeyMatch: cachedPortfolio.cacheKeyMatch || "exact",
     },
     diagnostics,
   };
+}
+
+function buildStaleCacheResponse(cachedPortfolio, { reason, diagnostics } = {}) {
+  return buildCachedPortfolioResponse(cachedPortfolio, {
+    source: "stale-cache",
+    reason,
+    diagnostics,
+  });
+}
+
+async function buildCachedPortfolioOrLocalFallback({
+  cachedPortfolio,
+  workspaceUserId,
+  reason = "cached-portfolio-available",
+} = {}) {
+  const cachedPayload = cachedPortfolio?.payload || {};
+  const cachedPortfolioIsEmpty = getPortfolioCardCount(cachedPayload) === 0;
+  const cacheHasVerifiedAssignmentData =
+    cachedPayload?.portfolioMeta?.assignmentDataStatus === "live";
+
+  // Earlier builds could cache an empty payload after a failed NXT request.
+  // Prefer local Top Prospects only for those unverified legacy zero snapshots;
+  // a current, successfully fetched empty NXT portfolio remains authoritative.
+  if (cachedPortfolioIsEmpty && !cacheHasVerifiedAssignmentData) {
+    const localFallback = await getLocalPortfolioFallback(
+      workspaceUserId,
+      "unverified-empty-cache",
+    ).catch((error) => {
+      console.warn("Could not load local portfolio fallback:", error);
+      return null;
+    });
+    if (localFallback) return localFallback;
+  }
+
+  return cachedPortfolio.isFresh
+    ? buildCachedPortfolioResponse(cachedPortfolio)
+    : buildStaleCacheResponse(cachedPortfolio, { reason });
 }
 
 export async function GET(request) {
@@ -677,9 +800,8 @@ export async function GET(request) {
       new URL(request.url).searchParams.get("debug") === "1";
 
     // Returning a cached assignment list is preferable to holding the whole
-    // portfolio page hostage to a slow NXT detail request. Do not reuse the
-    // older cache versions: they represented missing local contact fields as
-    // "no contact data in NXT."
+    // portfolio page hostage to a slow NXT request. Compatible older payload
+    // versions remain safe when they belong to the same fundraiser.
     const linkedFundraiserId = String(workspaceUser?.blackbaud_constituent_id || "").trim();
     const initialCacheKeys = linkedFundraiserId
       ? [`${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`]
@@ -689,31 +811,10 @@ export async function GET(request) {
       : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true });
 
     if (initialCachedPortfolio) {
-      const hydratedPayload = await hydrateCachedPortfolioIdentities({
-        cachedPortfolio: initialCachedPortfolio,
-        workspaceUserId: workspaceUser.id,
-        authUserId,
-        origin,
-      });
-      const hydratedCachedPortfolio = {
-        ...initialCachedPortfolio,
-        payload: hydratedPayload,
-      };
-
-      if (initialCachedPortfolio.isFresh) {
-        return Response.json({
-          ...hydratedPayload,
-          portfolioMeta: {
-            ...(hydratedPayload.portfolioMeta || {}),
-            source: "cache",
-            cachedAt: initialCachedPortfolio.cachedAt,
-          },
-        });
-      }
-
       return Response.json(
-        buildStaleCacheResponse(hydratedCachedPortfolio, {
-          reason: "cached-portfolio-available",
+        await buildCachedPortfolioOrLocalFallback({
+          cachedPortfolio: initialCachedPortfolio,
+          workspaceUserId: workspaceUser.id,
         }),
       );
     }
@@ -760,31 +861,10 @@ export async function GET(request) {
       : await getCachedPortfolio(workspaceUser.id, initialCacheKey, { allowStale: true });
 
     if (resolvedCachedPortfolio) {
-      const hydratedPayload = await hydrateCachedPortfolioIdentities({
-        cachedPortfolio: resolvedCachedPortfolio,
-        workspaceUserId: workspaceUser.id,
-        authUserId,
-        origin,
-      });
-      const hydratedCachedPortfolio = {
-        ...resolvedCachedPortfolio,
-        payload: hydratedPayload,
-      };
-
-      if (resolvedCachedPortfolio.isFresh) {
-        return Response.json({
-          ...hydratedPayload,
-          portfolioMeta: {
-            ...(hydratedPayload.portfolioMeta || {}),
-            source: "cache",
-            cachedAt: resolvedCachedPortfolio.cachedAt,
-          },
-        });
-      }
-
       return Response.json(
-        buildStaleCacheResponse(hydratedCachedPortfolio, {
-          reason: "cached-portfolio-available",
+        await buildCachedPortfolioOrLocalFallback({
+          cachedPortfolio: resolvedCachedPortfolio,
+          workspaceUserId: workspaceUser.id,
         }),
       );
     }
@@ -870,6 +950,34 @@ export async function GET(request) {
           reason: "fundraiser-assignments-unavailable",
         }),
       );
+    }
+
+    if (!assignments.length && assignmentLookupFailed) {
+      const localFallback = await getLocalPortfolioFallback(
+        workspaceUser.id,
+        "fundraiser-assignments-unavailable",
+      ).catch((error) => {
+        console.warn("Could not load local portfolio fallback:", error);
+        return null;
+      });
+
+      if (localFallback) {
+        return Response.json(localFallback);
+      }
+
+      return Response.json({
+        leadSolicitor: [],
+        supportingSolicitor: [],
+        summary: { leadCount: 0, supportingCount: 0 },
+        warning:
+          "Live NXT fundraiser assignments are temporarily unavailable. No cached or locally synced portfolio is available yet.",
+        portfolioMeta: {
+          source: "unavailable",
+          assignmentDataStatus: "unavailable",
+          identityHydrationPending: false,
+          identityHydrationPollIntervalMs: null,
+        },
+      });
     }
 
     const leadAssignments = new Map();
@@ -999,7 +1107,10 @@ export async function GET(request) {
           }
         : undefined,
     }, liveIdentityByConstituentId);
-    responsePayload.portfolioMeta = getPortfolioIdentityHydrationMeta(responsePayload);
+    responsePayload.portfolioMeta = {
+      ...getPortfolioIdentityHydrationMeta(responsePayload),
+      assignmentDataStatus: assignmentLookupFailed ? "partial" : "live",
+    };
 
     if (
       !includeDiagnostics &&
@@ -1015,7 +1126,7 @@ export async function GET(request) {
 
     // Cache a complete base portfolio even if optional gift data is delayed.
     // This avoids repeatedly rebuilding every constituent card on each visit.
-    if (!includeDiagnostics && allAssignmentCardsBuilt) {
+    if (!includeDiagnostics && !assignmentLookupFailed && allAssignmentCardsBuilt) {
       await saveCachedPortfolio(
         workspaceUser.id,
         initialCacheKey,

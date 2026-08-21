@@ -68,7 +68,8 @@ export async function GET(request) {
       status: "invalidated",
       localTime: `${ny.year}-${ny.month}-${ny.day} ${ny.hour}:${ny.minute}:${ny.second}`,
       invalidated,
-      dashboardCaches: ["my-portfolio", "my-top-prospects"],
+      dashboardCaches: ["my-top-prospects"],
+      portfolioCachePreserved: true,
       forced: force,
     });
   } catch (error) {

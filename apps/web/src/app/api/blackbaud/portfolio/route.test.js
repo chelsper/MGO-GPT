@@ -283,7 +283,7 @@ describe("Blackbaud portfolio route", () => {
     );
   });
 
-  it("lets a failed identity lookup yield to later unnamed portfolio cards", async () => {
+  it("serves a cached portfolio without retrying unresolved NXT identities", async () => {
     const { GET } = await import("./route.js");
     listBlackbaudFundraiserAssignmentsMock.mockResolvedValue(
       Array.from({ length: 5 }, (_, index) => ({
@@ -327,10 +327,6 @@ describe("Blackbaud portfolio route", () => {
       },
     ]);
     getBlackbaudConstituentByIdMock.mockClear();
-    getBlackbaudConstituentByIdMock.mockResolvedValue({
-      name: "Constituent 5",
-      lookupId: "L-5",
-    });
 
     const secondResponse = await GET(
       new Request("https://example.com/api/blackbaud/portfolio"),
@@ -338,16 +334,132 @@ describe("Blackbaud portfolio route", () => {
     const secondPayload = await secondResponse.json();
 
     expect(secondResponse.status).toBe(200);
-    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
-      expect.objectContaining({ constituentId: "5" }),
-    );
-    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ constituentId: "1" }),
-    );
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
     expect(secondPayload.leadSolicitor).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ constituentId: "5", name: "Constituent 5" }),
+        expect.objectContaining({ constituentId: "5", name: "NXT constituent 5" }),
       ]),
     );
+    expect(secondPayload.portfolioMeta).toEqual(
+      expect.objectContaining({
+        source: "cache",
+        identityHydrationPending: false,
+        identityHydrationDeferred: true,
+        identityHydrationPollIntervalMs: null,
+      }),
+    );
+  });
+
+  it("accepts a same-fundraiser cache from an earlier cache version", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        blackbaud_portfolio_cache: {
+          leadSolicitor: [{ constituentId: "1", name: "Cached donor" }],
+          supportingSolicitor: [],
+          summary: { leadCount: 1, supportingCount: 0 },
+        },
+        blackbaud_portfolio_cache_key: "v11:800",
+        blackbaud_portfolio_cached_at: new Date().toISOString(),
+      },
+    ]);
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.leadSolicitor).toEqual([
+      expect.objectContaining({ constituentId: "1", name: "Cached donor" }),
+    ]);
+    expect(payload.portfolioMeta).toEqual(
+      expect.objectContaining({
+        source: "cache",
+        cacheKeyMatch: "version-compatible",
+      }),
+    );
+    expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
+  });
+
+  it("uses locally saved Top Prospects for an unverified empty cache", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock
+      .mockResolvedValueOnce([
+        {
+          blackbaud_portfolio_cache: {
+            leadSolicitor: [],
+            supportingSolicitor: [],
+            summary: { leadCount: 0, supportingCount: 0 },
+          },
+          blackbaud_portfolio_cache_key: "v12:800",
+          blackbaud_portfolio_cached_at: new Date().toISOString(),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          blackbaud_constituent_id: "77",
+          name: "Saved prospect",
+          email: "saved@example.com",
+          phone: "904-555-0199",
+          updated_at: new Date().toISOString(),
+        },
+      ]);
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.leadSolicitor).toEqual([
+      expect.objectContaining({
+        constituentId: "77",
+        name: "Saved prospect",
+        assignmentTypes: ["Locally synced Top Prospect"],
+      }),
+    ]);
+    expect(payload.portfolioMeta).toEqual(
+      expect.objectContaining({
+        source: "local-prospect-snapshot",
+        assignmentDataStatus: "unavailable",
+        fallbackReason: "unverified-empty-cache",
+      }),
+    );
+    expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+  });
+
+  it("uses locally saved Top Prospects instead of caching an empty portfolio after an NXT failure", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          blackbaud_constituent_id: "77",
+          name: "Saved prospect",
+          email: "saved@example.com",
+          phone: "904-555-0199",
+          updated_at: new Date().toISOString(),
+        },
+      ]);
+    listBlackbaudFundraiserAssignmentsMock.mockRejectedValue(
+      new Error("Out of call volume quota"),
+    );
+
+    const response = await GET(
+      new Request("https://example.com/api/blackbaud/portfolio"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.portfolioMeta).toEqual(
+      expect.objectContaining({
+        source: "local-prospect-snapshot",
+        fallbackReason: "fundraiser-assignments-unavailable",
+      }),
+    );
+    expect(payload.summary).toEqual({ leadCount: 1, supportingCount: 0 });
+    expect(sqlMock).toHaveBeenCalledTimes(2);
   });
 });

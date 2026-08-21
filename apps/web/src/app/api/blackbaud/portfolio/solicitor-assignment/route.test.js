@@ -11,6 +11,8 @@ const getBlackbaudFundraiserByIdMock = vi.fn();
 const listBlackbaudFundraiserAssignmentsMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
 const updateBlackbaudFundraiserAssignmentMock = vi.fn();
+const clearUserPortfolioCacheMock = vi.fn();
+const clearUserProspectsSummaryCacheMock = vi.fn();
 
 function sqlTag(strings, ...values) {
   return sqlMockImpl(strings, ...values);
@@ -30,6 +32,11 @@ vi.mock("@/app/api/utils/getWorkspaceUser", () => ({
 
 vi.mock("@/app/api/utils/sql", () => ({
   default: sqlTag,
+}));
+
+vi.mock("@/app/api/utils/userDataCache", () => ({
+  clearUserPortfolioCache: clearUserPortfolioCacheMock,
+  clearUserProspectsSummaryCache: clearUserProspectsSummaryCacheMock,
 }));
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
@@ -58,6 +65,8 @@ describe("portfolio solicitor assignment route", () => {
     listBlackbaudFundraiserAssignmentsMock.mockReset();
     searchBlackbaudConstituentsMock.mockReset();
     updateBlackbaudFundraiserAssignmentMock.mockReset();
+    clearUserPortfolioCacheMock.mockReset();
+    clearUserProspectsSummaryCacheMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -137,7 +146,8 @@ describe("portfolio solicitor assignment route", () => {
         },
       }),
     );
-    expect(sqlMockImpl).toHaveBeenCalled();
+    expect(clearUserPortfolioCacheMock).toHaveBeenCalledWith(44);
+    expect(clearUserProspectsSummaryCacheMock).toHaveBeenCalledWith(44);
   });
 
   it("does not allow an executive viewer to remove another user's solicitor assignment", async () => {

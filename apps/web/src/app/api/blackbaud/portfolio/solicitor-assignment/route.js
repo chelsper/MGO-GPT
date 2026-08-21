@@ -1,7 +1,10 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
-import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
+import {
+  clearUserPortfolioCache,
+  clearUserProspectsSummaryCache,
+} from "@/app/api/utils/userDataCache";
 import sql from "@/app/api/utils/sql";
 import {
   findBlackbaudConstituentByEmail,
@@ -343,7 +346,12 @@ export async function PATCH(request) {
       });
     }
 
-    await clearUserDashboardDataCaches(workspaceUser.id);
+    // This is a real NXT solicitor-assignment change, so deliberately refresh
+    // both dependent caches. Local workspace edits do not clear this cache.
+    await Promise.all([
+      clearUserPortfolioCache(workspaceUser.id),
+      clearUserProspectsSummaryCache(workspaceUser.id),
+    ]);
 
     return Response.json({
       ok: true,
