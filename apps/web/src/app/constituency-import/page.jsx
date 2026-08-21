@@ -4458,7 +4458,7 @@ export default function ConstituencyImportPage() {
     previewAbortControllerRef.current?.abort();
     const controller = new AbortController();
     previewAbortControllerRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 90000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 180000);
 
     if (saveRun) {
       setSavingRun(true);

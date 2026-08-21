@@ -11,6 +11,9 @@ import {
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 const MAX_PREVIEW_ROWS = 100;
 
 const STATUS = {
@@ -2391,109 +2394,130 @@ export async function POST(request) {
         }
       }
 
-      if (
-        matchResult.match?.blackbaudConstituentId &&
-        (
+      if (matchResult.match?.blackbaudConstituentId) {
+        const constituentId = String(matchResult.match.blackbaudConstituentId);
+        const rowTasks = [];
+
+        if (
           input.nameUpdate ||
           input.individualProfileUpdate ||
           input.nameFormatUpdate ||
           input.educationRelationship
-        )
-      ) {
-        try {
-          const detailStartedAt = Date.now();
-          const detailedMatch = await getOrLoadCached(
-            previewCache.constituentDetails,
-            String(matchResult.match.blackbaudConstituentId),
-            () =>
-              getBlackbaudConstituentById({
-                userId: user.id,
-                authUserId,
-                origin,
-                constituentId: matchResult.match.blackbaudConstituentId,
-              }),
+        ) {
+          rowTasks.push(
+            (async () => {
+              try {
+                const detailStartedAt = Date.now();
+                const detailedMatch = await getOrLoadCached(
+                  previewCache.constituentDetails,
+                  constituentId,
+                  () =>
+                    getBlackbaudConstituentById({
+                      userId: user.id,
+                      authUserId,
+                      origin,
+                      constituentId,
+                    }),
+                );
+                previewMetrics.detailMs += Date.now() - detailStartedAt;
+                if (detailedMatch && typeof detailedMatch === "object") {
+                  matchResult.match = {
+                    ...matchResult.match,
+                    ...detailedMatch,
+                    raw: detailedMatch.raw || matchResult.match.raw || null,
+                  };
+                }
+              } catch {
+                // Retain the matched record when a supplemental detail fetch is unavailable.
+              }
+            })(),
           );
-          if (detailedMatch && typeof detailedMatch === "object") {
-            matchResult.match = {
-              ...matchResult.match,
-              ...detailedMatch,
-              raw: detailedMatch.raw || matchResult.match.raw || null,
-            };
-          }
-          previewMetrics.detailMs += Date.now() - detailStartedAt;
-        } catch {
-          // Retain the matched record when a supplemental detail fetch is unavailable.
         }
-      }
 
-      if (
-        matchResult.match?.blackbaudConstituentId &&
-        (
+        if (
           input.emailUpdates?.length ||
           input.phoneUpdates?.length ||
           input.addressUpdates?.length ||
           hasContactSectionAction(contactDecisions[String(index + 1)] || {})
-        )
-      ) {
-        const contactStartedAt = Date.now();
-        const contactPreview = await getOrLoadCached(
-          previewCache.currentContacts,
-          String(matchResult.match.blackbaudConstituentId),
-          () =>
-            fetchCurrentContacts({
-              userId: user.id,
-              authUserId,
-              origin,
-              constituentId: matchResult.match.blackbaudConstituentId,
-              input,
-            }),
-        );
-        previewMetrics.contactMs += Date.now() - contactStartedAt;
-        currentContacts = contactPreview.contacts;
-        contactFetchErrors = contactPreview.errors;
-      }
-
-      if (matchResult.match?.blackbaudConstituentId && input.nameFormatUpdate) {
-        try {
-          const nameFormatStartedAt = Date.now();
-          currentNameFormats = await getOrLoadCached(
-            previewCache.currentNameFormats,
-            String(matchResult.match.blackbaudConstituentId),
-            () =>
-              fetchCurrentNameFormats({
-                userId: user.id,
-                authUserId,
-                origin,
-                constituentId: matchResult.match.blackbaudConstituentId,
-              }),
+        ) {
+          rowTasks.push(
+            (async () => {
+              const contactStartedAt = Date.now();
+              const contactPreview = await getOrLoadCached(
+                previewCache.currentContacts,
+                constituentId,
+                () =>
+                  fetchCurrentContacts({
+                    userId: user.id,
+                    authUserId,
+                    origin,
+                    constituentId,
+                    input,
+                  }),
+              );
+              previewMetrics.contactMs += Date.now() - contactStartedAt;
+              currentContacts = contactPreview.contacts;
+              contactFetchErrors = contactPreview.errors;
+            })(),
           );
-          previewMetrics.nameFormatMs += Date.now() - nameFormatStartedAt;
-        } catch (error) {
-          nameFormatFetchError =
-            error instanceof Error ? error.message : "Could not load the current primary name formats.";
         }
-      }
 
-      if (matchResult.match?.blackbaudConstituentId && input.educationRelationship) {
-        try {
-          const educationStartedAt = Date.now();
-          currentEducations = await getOrLoadCached(
-            previewCache.currentEducations,
-            String(matchResult.match.blackbaudConstituentId),
-            () =>
-              fetchCurrentEducations({
-                userId: user.id,
-                authUserId,
-                origin,
-                constituentId: matchResult.match.blackbaudConstituentId,
-              }),
+        if (input.nameFormatUpdate) {
+          rowTasks.push(
+            (async () => {
+              try {
+                const nameFormatStartedAt = Date.now();
+                currentNameFormats = await getOrLoadCached(
+                  previewCache.currentNameFormats,
+                  constituentId,
+                  () =>
+                    fetchCurrentNameFormats({
+                      userId: user.id,
+                      authUserId,
+                      origin,
+                      constituentId,
+                    }),
+                );
+                previewMetrics.nameFormatMs += Date.now() - nameFormatStartedAt;
+              } catch (error) {
+                nameFormatFetchError =
+                  error instanceof Error
+                    ? error.message
+                    : "Could not load the current primary name formats.";
+              }
+            })(),
           );
-          previewMetrics.educationMs += Date.now() - educationStartedAt;
-        } catch (error) {
-          educationFetchError =
-            error instanceof Error
-              ? error.message
-              : "Could not load current NXT education relationships.";
+        }
+
+        if (input.educationRelationship) {
+          rowTasks.push(
+            (async () => {
+              try {
+                const educationStartedAt = Date.now();
+                currentEducations = await getOrLoadCached(
+                  previewCache.currentEducations,
+                  constituentId,
+                  () =>
+                    fetchCurrentEducations({
+                      userId: user.id,
+                      authUserId,
+                      origin,
+                      constituentId,
+                    }),
+                );
+                previewMetrics.educationMs += Date.now() - educationStartedAt;
+              } catch (error) {
+                educationFetchError =
+                  error instanceof Error
+                    ? error.message
+                    : "Could not load current NXT education relationships.";
+              }
+            })(),
+          );
+        }
+
+        if (rowTasks.length) {
+          await Promise.all(rowTasks);
         }
       }
 
