@@ -3841,6 +3841,10 @@ export default function ConstituencyImportPage() {
     await applyRowsToNxt(selectedApplyRows);
   }
 
+  async function applyClearlySafeRows() {
+    await applyRowsToNxt(clearlySafeReadyRows);
+  }
+
   async function applySingleRow(row) {
     if (row?.status !== "Ready" || row?.appliedAt) return;
     await applyRowsToNxt([row], { singleRecord: true });
@@ -6522,6 +6526,24 @@ export default function ConstituencyImportPage() {
                             : "Select individual rows below, or select every ready row."}
                         </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={applyClearlySafeRows}
+                            disabled={applyingRun || !clearlySafeReadyRows.length}
+                            style={{
+                              border: "1px solid #047857",
+                              borderRadius: "999px",
+                              backgroundColor: !clearlySafeReadyRows.length || applyingRun ? "#D1FAE5" : "#047857",
+                              color: !clearlySafeReadyRows.length || applyingRun ? "#047857" : "white",
+                              padding: "9px 14px",
+                              fontWeight: 900,
+                              cursor: applyingRun || !clearlySafeReadyRows.length ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {applyingRun
+                              ? "Importing clearly safe rows..."
+                              : `Import clearly safe now (${clearlySafeReadyRows.length})`}
+                          </button>
                           <button
                             type="button"
                             onClick={selectClearlySafeRows}
