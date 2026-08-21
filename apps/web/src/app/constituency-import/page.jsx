@@ -3001,7 +3001,26 @@ export default function ConstituencyImportPage() {
 
   useEffect(() => {
     if (!isReviewer) return;
-    fetchSavedRuns();
+    let cancelled = false;
+    const scheduler =
+      typeof window !== "undefined" && typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback
+        : (callback) => window.setTimeout(callback, 250);
+    const cancelScheduler =
+      typeof window !== "undefined" && typeof window.cancelIdleCallback === "function"
+        ? window.cancelIdleCallback
+        : window.clearTimeout;
+
+    const handle = scheduler(() => {
+      if (!cancelled) {
+        fetchSavedRuns();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cancelScheduler(handle);
+    };
   }, [isReviewer]);
 
   useEffect(() => {

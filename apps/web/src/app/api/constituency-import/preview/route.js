@@ -1622,13 +1622,15 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId,
     Array.isArray(input.addressUpdates) && input.addressUpdates.length ? "addresses" : "",
   ].filter(Boolean));
   const basePath = "/constituent/v1/constituents/" + encodeURIComponent(String(constituentId));
-  // Load all contact categories so reviewers can compare the full NXT contact picture.
-  // Only a failed category selected for import should block the row from being applied.
   const requests = [
-    ["emails", `${basePath}/emailaddresses`],
-    ["phones", `${basePath}/phones`],
-    ["addresses", `${basePath}/addresses`],
-  ];
+    requestedKinds.has("emails") ? ["emails", `${basePath}/emailaddresses`] : null,
+    requestedKinds.has("phones") ? ["phones", `${basePath}/phones`] : null,
+    requestedKinds.has("addresses") ? ["addresses", `${basePath}/addresses`] : null,
+  ].filter(Boolean);
+
+  if (!requests.length) {
+    return { contacts: { emails: [], phones: [], addresses: [] }, errors: [] };
+  }
 
   const results = await Promise.allSettled(
     requests.map(([, path]) => blackbaudApiFetch(path, { userId, authUserId, origin })),
