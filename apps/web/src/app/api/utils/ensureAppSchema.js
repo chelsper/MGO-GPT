@@ -111,6 +111,31 @@ export default async function ensureAppSchema() {
       ON blackbaud_constituent_summary_cache (updated_at)
     `;
 
+    // Import previews often revisit the same stable NXT IDs while a reviewer
+    // corrects row-level decisions. Keep identity-only results separate from
+    // full constituent snapshots so those retries do not consume more API quota.
+    await sql`
+      CREATE TABLE IF NOT EXISTS blackbaud_import_match_cache (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        auth_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        match_key TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_blackbaud_import_match_cache_key
+      ON blackbaud_import_match_cache (workspace_user_id, auth_user_id, match_key)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_blackbaud_import_match_cache_updated_at
+      ON blackbaud_import_match_cache (updated_at)
+    `;
+
     // Blackbaud enforces a subscription-wide call-volume quota. Persist the
     // provider's cooldown so separate Vercel instances do not keep retrying
     // a quota error and turn it into a function timeout.

@@ -25,6 +25,7 @@ export const maxDuration = 60;
 const MAX_PREVIEW_ROWS = 100;
 const DEFER_HEAVY_ROW_DETAILS_THRESHOLD = 40;
 const PREVIEW_BATCH_SIZE = 4;
+const IMPORT_MATCH_CACHE_TTL_HOURS = 24;
 const FAST_PREVIEW_REQUEST_OPTIONS = {
   // Return a safe review queue when NXT is slow instead of holding the browser for minutes.
   timeoutMs: 4000,
@@ -1810,6 +1811,124 @@ function buildMatchCacheKey(input) {
   return fallbackParts.length ? fallbackParts.join("|") : "";
 }
 
+function buildPersistentMatchCacheKey(input) {
+  if (input.blackbaudConstituentId) return `id:${input.blackbaudConstituentId}`;
+  if (input.lookupId) return `lookup:${input.lookupId}`;
+  return "";
+}
+
+function deserializePersistedMatch(payload) {
+  const match = payload?.match;
+  const constituentId = cleanText(match?.blackbaudConstituentId);
+  const lookupId = cleanText(match?.lookupId || match?.blackbaudLookupId);
+  if (!constituentId || !lookupId) return null;
+
+  return {
+    status: "matched",
+    method: cleanText(payload?.method) || "Cached NXT identifier",
+    confidence: Math.max(0, Math.min(100, Number(payload?.confidence) || 0)),
+    match: {
+      blackbaudConstituentId: constituentId,
+      lookupId,
+      name: cleanText(match?.name) || null,
+      email: cleanText(match?.email) || null,
+    },
+    notes: ["Confirmed NXT identifier reused from a recent import review."],
+  };
+}
+
+async function loadPersistedImportMatches({ workspaceUserId, authUserId, inputs }) {
+  const cacheKeys = Array.from(
+    new Set(inputs.map(buildPersistentMatchCacheKey).filter(Boolean)),
+  );
+  if (!workspaceUserId || !authUserId || !cacheKeys.length) return new Map();
+  const minimumUpdatedAt = new Date(
+    Date.now() - IMPORT_MATCH_CACHE_TTL_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+
+  try {
+    const rows = await sql`
+      SELECT match_key, payload
+      FROM blackbaud_import_match_cache
+      WHERE workspace_user_id = ${workspaceUserId}
+        AND auth_user_id = ${authUserId}
+        AND match_key = ANY(${cacheKeys})
+        AND updated_at >= ${minimumUpdatedAt}::timestamptz
+    `;
+
+    return new Map(
+      (Array.isArray(rows) ? rows : []).flatMap((row) => {
+        const key = cleanText(row?.match_key);
+        const result = deserializePersistedMatch(row?.payload);
+        return key && result ? [[key, result]] : [];
+      }),
+    );
+  } catch (error) {
+    // A cache problem should never block a reviewer from using the live NXT path.
+    console.warn("Could not load import identity cache:", error);
+    return new Map();
+  }
+}
+
+function serializePersistedMatch(matchResult) {
+  const match = matchResult?.match;
+  if (
+    matchResult?.status !== "matched" ||
+    !cleanText(match?.blackbaudConstituentId) ||
+    !cleanText(match?.lookupId || match?.blackbaudLookupId)
+  ) {
+    return null;
+  }
+
+  return {
+    method: cleanText(matchResult.method),
+    confidence: Math.max(0, Math.min(100, Number(matchResult.confidence) || 0)),
+    match: {
+      blackbaudConstituentId: cleanText(match.blackbaudConstituentId),
+      lookupId: cleanText(match.lookupId || match.blackbaudLookupId),
+      name: cleanText(match.name) || null,
+      email: cleanText(match.email) || null,
+    },
+  };
+}
+
+async function savePersistedImportMatches({ workspaceUserId, authUserId, entries }) {
+  if (!workspaceUserId || !authUserId || !entries.length) return;
+
+  try {
+    await mapWithConcurrency(entries, 4, async ([matchKey, matchResult]) => {
+      const payload = serializePersistedMatch(matchResult);
+      if (!payload) return;
+
+      await sql`
+        INSERT INTO blackbaud_import_match_cache (
+          workspace_user_id,
+          auth_user_id,
+          match_key,
+          payload,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${workspaceUserId},
+          ${authUserId},
+          ${matchKey},
+          ${JSON.stringify(payload)}::jsonb,
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (workspace_user_id, auth_user_id, match_key)
+        DO UPDATE SET
+          payload = EXCLUDED.payload,
+          updated_at = NOW()
+      `;
+    });
+  } catch (error) {
+    // The live preview remains valid even if a later cache write cannot finish.
+    console.warn("Could not save import identity cache:", error);
+  }
+}
+
 async function mapWithConcurrency(items, limit, iteratee) {
   const concurrency = Math.max(1, Math.min(limit || 1, items.length || 1));
   const results = new Array(items.length);
@@ -2635,6 +2754,15 @@ export async function POST(request) {
     const origin = new URL(request.url).origin;
     const authUserId = user.id;
     const previewCache = createPreviewRequestCache();
+    const rowInputs = rowsToPreview.map((row) => getRowInput(row, mappings, defaults));
+    const persistedImportMatches = fastPreview
+      ? await loadPersistedImportMatches({
+          workspaceUserId: user.id,
+          authUserId,
+          inputs: rowInputs,
+        })
+      : new Map();
+    const newlyConfirmedMatches = new Map();
     const rowConcurrency =
       fastPreview ? 2 : rowsToPreview.length >= 50 ? 4 : rowsToPreview.length >= 20 ? 3 : 4;
     const previewMetrics = {
@@ -2647,6 +2775,7 @@ export async function POST(request) {
       nameFormatMs: 0,
       educationMs: 0,
       matchTimeouts: 0,
+      persistedMatchCacheHits: 0,
     };
 
     const deferHeavyRowDetails =
@@ -2661,7 +2790,8 @@ export async function POST(request) {
 
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const rowNumber = rowNumberOffset + index + 1;
-      const input = getRowInput(row, mappings, defaults);
+      const input = rowInputs[index];
+      const persistedMatchCacheKey = buildPersistentMatchCacheKey(input);
       let matchResult;
       let currentCodes = [];
       let codeFetchError = "";
@@ -2683,7 +2813,11 @@ export async function POST(request) {
         codes: false,
       };
 
-      if (quotaError) {
+      const persistedMatch = persistedImportMatches.get(persistedMatchCacheKey);
+      if (persistedMatch) {
+        previewMetrics.persistedMatchCacheHits += 1;
+        matchResult = persistedMatch;
+      } else if (quotaError) {
         matchResult = createQuotaPausedMatch(quotaError);
       } else {
         try {
@@ -2701,6 +2835,9 @@ export async function POST(request) {
                 requestOptions: matchRequestOptions,
               }),
           );
+          if (persistedMatchCacheKey && matchResult.status === "matched") {
+            newlyConfirmedMatches.set(persistedMatchCacheKey, matchResult);
+          }
           previewMetrics.matchMs += Date.now() - matchStartedAt;
         } catch (error) {
           const failureMessage = error instanceof Error ? error.message : "NXT lookup failed.";
@@ -3089,6 +3226,13 @@ export async function POST(request) {
     if (quotaError) {
       warnings.push(`NXT checks are paused. ${getQuotaPauseNotice(quotaError)}`);
     }
+    if (fastPreview) {
+      await savePersistedImportMatches({
+        workspaceUserId: user.id,
+        authUserId,
+        entries: Array.from(newlyConfirmedMatches.entries()),
+      });
+    }
     const sanitizedWarnings = sanitizeQuotaPauseWarnings(warnings);
 
     const summary = summarize(normalizedPreviewRows, sanitizedWarnings);
@@ -3144,6 +3288,8 @@ export async function POST(request) {
       nameFormatMs: previewMetrics.nameFormatMs,
       educationMs: previewMetrics.educationMs,
       matchTimeouts: previewMetrics.matchTimeouts,
+      persistedMatchCacheHits: previewMetrics.persistedMatchCacheHits,
+      persistedMatchCacheWrites: newlyConfirmedMatches.size,
       savedRunId: savedRun?.id || null,
       summary: responseSummary,
     });

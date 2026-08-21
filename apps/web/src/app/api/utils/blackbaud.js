@@ -918,32 +918,49 @@ export async function findBlackbaudConstituentByLookupId({
     return null;
   }
 
-  const matches = await searchBlackbaudConstituents({
+  // A lookup ID is already an exact NXT identifier. Avoid the generic search
+  // path, which first attempts a name search and doubles import-review calls.
+  const payload = await blackbaudApiFetch(BLACKBAUD_CONSTITUENT_SEARCH_URL, {
     userId,
     authUserId,
     origin,
-    query: normalizedLookupId,
-    requestOptions,
+    searchParams: {
+      search_field: "lookup_id",
+      search_text: normalizedLookupId,
+      limit: 1,
+    },
+    ...requestOptions,
   });
 
-  const exactMatch =
-    matches.find(
-      (item) =>
-        String(item?.lookupId || item?.blackbaudLookupId || "").trim() ===
-        normalizedLookupId,
-    ) || matches[0];
+  const rows = Array.isArray(payload?.value)
+    ? payload.value
+    : Array.isArray(payload)
+      ? payload
+      : [];
+  const exactMatch = rows.find(
+    (item) =>
+      String(item?.lookup_id || item?.lookupId || "").trim() === normalizedLookupId,
+  );
 
   if (!exactMatch) {
     return null;
   }
 
   return {
-    blackbaudConstituentId: exactMatch.blackbaudConstituentId || null,
-    lookupId:
-      exactMatch.lookupId || exactMatch.blackbaudLookupId || normalizedLookupId,
-    name: exactMatch.name || null,
-    email: exactMatch.email || null,
-    raw: exactMatch.raw || exactMatch,
+    blackbaudConstituentId:
+      exactMatch?.id || exactMatch?.constituent_id || exactMatch?.constituentId || null,
+    lookupId: exactMatch?.lookup_id || exactMatch?.lookupId || normalizedLookupId,
+    name:
+      exactMatch?.name ||
+      [exactMatch?.first, exactMatch?.middle, exactMatch?.last].filter(Boolean).join(" ").trim() ||
+      null,
+    email:
+      exactMatch?.email ||
+      exactMatch?.email?.address ||
+      exactMatch?.primary_email ||
+      exactMatch?.primary_email?.address ||
+      null,
+    raw: exactMatch,
   };
 }
 

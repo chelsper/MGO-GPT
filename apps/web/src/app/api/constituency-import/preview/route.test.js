@@ -1597,6 +1597,43 @@ describe("constituency import preview route", () => {
     expect(payload.warnings.join(" ")).toContain("call-volume quota is temporarily unavailable");
   });
 
+  it("reuses a recent confirmed lookup-ID match for a fast preview", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        match_key: "lookup:440085",
+        payload: {
+          method: "NXT lookup ID",
+          confidence: 100,
+          match: {
+            blackbaudConstituentId: "440085",
+            lookupId: "440085",
+            name: "Chelsea Jasper",
+            email: null,
+          },
+        },
+      },
+    ]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "Lookup ID": "440085" }],
+        mappings: { lookupId: "Lookup ID" },
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 1,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
+    expect(payload.rows[0]).toMatchObject({
+      matchMethod: "NXT lookup ID",
+      match: { blackbaudConstituentId: "440085", lookupId: "440085" },
+    });
+  });
+
   it("discards partial contact review data when a later NXT request reports quota exhaustion", async () => {
     const { POST } = await import("./route.js");
     const quotaError = new Error(
