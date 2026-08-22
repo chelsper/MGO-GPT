@@ -287,6 +287,17 @@ describe("constituency import preview route", () => {
         preferred_name: "Chelsea",
       },
     });
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea C. Jasper",
+      raw: {
+        type: "Individual",
+        first: "Chelsea",
+        last: "Jasper",
+        preferred_name: "Chelsea",
+      },
+    });
 
     const response = await POST(
       makeRequest({
@@ -1687,6 +1698,56 @@ describe("constituency import preview route", () => {
     );
   });
 
+  it("defers constituency replacement review in a fast preview instead of treating unloaded codes as missing", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        match_key: "id:543503",
+        payload: {
+          method: "NXT system ID",
+          confidence: 100,
+          match: {
+            blackbaudConstituentId: "543503",
+            lookupId: "543503",
+            name: "Victoria E. Richards",
+          },
+        },
+      },
+    ]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "543503",
+            "Current Constituency": "Student",
+            "New Constituency": "Alumni - Bachelor's Degree",
+            Action: "replace",
+          },
+        ],
+        mappings,
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 1,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].deferredHydration).toMatchObject({ codes: true });
+    expect(payload.rows[0].codesSnapshotLoaded).toBe(false);
+    expect(payload.rows[0].currentCodeDetails).toEqual([]);
+    expect(payload.rows[0].reasons.join(" ")).not.toContain("was not found on the NXT record");
+    expect(payload.rows[0].writePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "constituent_code_detail_review",
+          deferredHydration: true,
+        }),
+      ]),
+    );
+  });
+
   it("keeps a hydrated profile snapshot when the saved review is refreshed", async () => {
     const { mergePriorReviewState } = await import("./route.js");
     const row = {
@@ -1709,6 +1770,7 @@ describe("constituency import preview route", () => {
     const priorSavedRow = {
       preview: {
         profileSnapshot: { type: "Individual", title: "Dr." },
+        profileSnapshotLoaded: true,
       },
       requested_writes: [
         {
@@ -1726,6 +1788,7 @@ describe("constituency import preview route", () => {
     expect(merged.status).toBe("Ready");
     expect(merged.deferredHydration).toBeNull();
     expect(merged.profileSnapshot).toEqual({ type: "Individual", title: "Dr." });
+    expect(merged.profileSnapshotLoaded).toBe(true);
     expect(merged.writePlan).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1736,6 +1799,37 @@ describe("constituency import preview route", () => {
       ]),
     );
     expect(merged.writePlan).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "profile_detail_review" })]),
+    );
+  });
+
+  it("does not reuse an unmarked partial profile snapshot from an older saved review", async () => {
+    const { mergePriorReviewState } = await import("./route.js");
+    const row = {
+      status: "Needs Review",
+      input: { individualProfileUpdate: { title: "Ms." } },
+      deferredHydration: { detail: true },
+      writePlan: [
+        {
+          type: "profile_detail_review",
+          action: "load_current",
+          requiresReview: true,
+          deferredHydration: true,
+          fieldDecisions: {},
+        },
+      ],
+      reasons: [],
+    };
+
+    const merged = mergePriorReviewState(row, {
+      preview: { profileSnapshot: { title: "" } },
+      requested_writes: [],
+      blackbaud_result: null,
+    });
+
+    expect(merged.deferredHydration).toMatchObject({ detail: true });
+    expect(merged.profileSnapshotLoaded).toBe(false);
+    expect(merged.writePlan).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "profile_detail_review" })]),
     );
   });
@@ -1857,6 +1951,39 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].reasons.join(" ")).not.toContain('"statusCode"');
     expect(payload.rows[0].reasons.join(" ")).not.toContain("email address");
     expect(payload.warnings.join(" ")).not.toContain('"statusCode"');
+  });
+
+  it("reads existing profile values from a nested NXT constituent response", async () => {
+    const { buildProfileDetailWrites, hasUsableProfileSnapshot } = await import("./route.js");
+    const match = {
+      raw: {
+        id: "response-envelope-id",
+        data: {
+          constituent: {
+            id: "543503",
+            first: "Victoria",
+            last: "Richards",
+            preferred_name: "Victoria",
+            title: "Ms.",
+            gender: "Female",
+          },
+        },
+      },
+    };
+    const input = {
+      nameUpdate: {
+        firstName: "Victoria",
+        lastName: "Richards",
+        preferredName: "Victoria",
+      },
+      individualProfileUpdate: {
+        title: "Ms.",
+        gender: "Female",
+      },
+    };
+
+    expect(hasUsableProfileSnapshot(match)).toBe(true);
+    expect(buildProfileDetailWrites(input, match)).toEqual([]);
   });
 
   it("rejects oversized persisted batches before making any NXT requests", async () => {

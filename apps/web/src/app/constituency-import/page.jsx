@@ -1237,6 +1237,34 @@ function getPreviewFieldDecision(decisions, rowNumber, writeType, field) {
   return decisions?.[String(rowNumber)]?.[writeType]?.[field] || {};
 }
 
+function getSavedReviewDecisionState(payload) {
+  const contact = {};
+  const fields = {};
+
+  (payload?.rows || []).forEach((row) => {
+    const rowNumber = String(row?.rowNumber || "").trim();
+    if (!rowNumber) return;
+    const rowPreview = row?.preview && typeof row.preview === "object" ? row.preview : {};
+    const savedContactDecisions =
+      row?.contactReviewDecisions && typeof row.contactReviewDecisions === "object"
+        ? row.contactReviewDecisions
+        : rowPreview.contactReviewDecisions;
+    const savedFieldDecisions =
+      row?.fieldReviewDecisions && typeof row.fieldReviewDecisions === "object"
+        ? row.fieldReviewDecisions
+        : rowPreview.fieldReviewDecisions;
+
+    if (savedContactDecisions && Object.keys(savedContactDecisions).length) {
+      contact[rowNumber] = savedContactDecisions;
+    }
+    if (savedFieldDecisions && Object.keys(savedFieldDecisions).length) {
+      fields[rowNumber] = savedFieldDecisions;
+    }
+  });
+
+  return { contact, fields };
+}
+
 function formatConstituencyDate(value) {
   return value ? formatBirthDateForDisplay(value) || getDateText(value) || "Not set" : "Not set";
 }
@@ -1344,6 +1372,60 @@ function findMatchingReviewContact(contacts, incoming, kind) {
   return contacts.find((contact) => addressesMatchForReview(contact, incoming)) || null;
 }
 
+function getImportMatchedConstituentId(row) {
+  return String(
+    row?.match?.blackbaudConstituentId ||
+      row?.matchedBlackbaudConstituentId ||
+      row?.input?.blackbaudConstituentId ||
+      "",
+  ).trim();
+}
+
+function hasImportContactUpdates(row) {
+  return Boolean(
+    row?.input?.emailUpdates?.length ||
+      row?.input?.phoneUpdates?.length ||
+      row?.input?.addressUpdates?.length,
+  );
+}
+
+function getImportContactSnapshotStatus(row) {
+  const status = row?.contactSnapshotStatus;
+  const legacyFullyLoaded = row?.contactsSnapshotLoaded === true;
+  return {
+    email: status?.emails === true || (!status && legacyFullyLoaded),
+    phone: status?.phones === true || (!status && legacyFullyLoaded),
+    address: status?.addresses === true || (!status && legacyFullyLoaded),
+  };
+}
+
+function getRequiredImportContactKinds(row, decisions = {}) {
+  const required = [];
+  const emailSection = getContactSectionDecision(decisions, row?.rowNumber, "email");
+  const phoneSection = getContactSectionDecision(decisions, row?.rowNumber, "phone");
+  const addressSection = getContactSectionDecision(decisions, row?.rowNumber, "address");
+
+  if (row?.input?.emailUpdates?.length || emailSection.existingPrimaryTargetId) required.push("email");
+  if (row?.input?.phoneUpdates?.length || phoneSection.existingPrimaryTargetId) required.push("phone");
+  if (row?.input?.addressUpdates?.length || addressSection.previousAddressTargetId) required.push("address");
+  return required;
+}
+
+function needsCurrentContactDetails(row, decisions = {}) {
+  if (!getImportMatchedConstituentId(row)) return false;
+  const snapshotStatus = getImportContactSnapshotStatus(row);
+  return getRequiredImportContactKinds(row, decisions).some((kind) => !snapshotStatus[kind]);
+}
+
+function needsCurrentConstituencyDetails(row) {
+  if (!getImportMatchedConstituentId(row) || row?.codesSnapshotLoaded === true) return false;
+  if (row?.deferredHydration?.codes) return true;
+  if (row?.input?.sourceConstituency || row?.input?.targetConstituency) return true;
+  return (row?.writePlan || []).some(
+    (write) => ["constituent_code_detail_review", "constituent_code"].includes(write?.type),
+  );
+}
+
 function ContactReviewPanel({
   row,
   decisions,
@@ -1358,48 +1440,14 @@ function ContactReviewPanel({
     { kind: "address", label: "Addresses", values: row.input?.addressUpdates || [], contacts: row.currentContacts?.addresses || [] },
   ];
 
-  if (!row.match?.blackbaudConstituentId) return null;
-
-  if (row?.deferredHydration?.contacts) {
-    return (
-      <section
-        style={{
-          border: "1px solid #86EFAC",
-          borderRadius: "14px",
-          backgroundColor: "#F0FDF4",
-          padding: "14px",
-          display: "grid",
-          gap: "10px",
-        }}
-      >
-        <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Contact change review
-        </div>
-        <div style={{ color: "#166534", lineHeight: 1.45 }}>
-          Current NXT email, phone, and address values have not been loaded yet. They are not
-          treated as blank, and no contact change can be sent until this row is checked.
-        </div>
-        <div>
-          <button
-            type="button"
-            onClick={onLoadCurrentContacts}
-            disabled={loadingCurrentContacts || !onLoadCurrentContacts}
-            style={{
-              border: "1px solid #15803D",
-              borderRadius: "999px",
-              backgroundColor: loadingCurrentContacts ? "#DCFCE7" : "#15803D",
-              color: loadingCurrentContacts ? "#166534" : "white",
-              padding: "8px 12px",
-              fontWeight: 900,
-              cursor: loadingCurrentContacts || !onLoadCurrentContacts ? "not-allowed" : "pointer",
-            }}
-          >
-            {loadingCurrentContacts ? "Loading current NXT contacts..." : "Load current NXT contacts"}
-          </button>
-        </div>
-      </section>
-    );
-  }
+  if (!getImportMatchedConstituentId(row)) return null;
+  const contactSnapshotStatus = getImportContactSnapshotStatus(row);
+  const unavailableKinds = getRequiredImportContactKinds(row, decisions).filter(
+    (kind) => !contactSnapshotStatus[kind],
+  );
+  const unavailableLabels = unavailableKinds.map(
+    (kind) => ({ email: "email addresses", phone: "phone numbers", address: "addresses" })[kind],
+  );
 
   return (
     <section
@@ -1422,11 +1470,77 @@ function ContactReviewPanel({
         </p>
       </div>
 
+      {unavailableKinds.length ? (
+        <div
+          style={{
+            border: "1px solid #FBBF24",
+            borderRadius: "12px",
+            backgroundColor: "#FFFBEB",
+            color: "#92400E",
+            padding: "11px",
+            display: "grid",
+            gap: "8px",
+            lineHeight: 1.4,
+          }}
+        >
+          <div>
+            Current NXT {unavailableLabels.join(", ")} {unavailableLabels.length === 1 ? "has" : "have"} not loaded yet.
+            Available contact sections can still be reviewed and saved. The unavailable section will remain safely blocked until it loads.
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={onLoadCurrentContacts}
+              disabled={loadingCurrentContacts || !onLoadCurrentContacts}
+              style={{
+                border: "1px solid #B45309",
+                borderRadius: "999px",
+                backgroundColor: loadingCurrentContacts ? "#FEF3C7" : "#B45309",
+                color: loadingCurrentContacts ? "#92400E" : "white",
+                padding: "8px 12px",
+                fontWeight: 900,
+                cursor: loadingCurrentContacts || !onLoadCurrentContacts ? "not-allowed" : "pointer",
+              }}
+            >
+              {loadingCurrentContacts ? "Loading current NXT contacts..." : "Retry unavailable NXT contacts"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {sections.map((section) => {
+        const sectionDecision = getContactSectionDecision(decisions, row.rowNumber, section.kind);
+        const sectionLoaded = contactSnapshotStatus[section.kind];
+        const sectionNeedsSnapshot = Boolean(
+          section.values.length ||
+            sectionDecision.existingPrimaryTargetId ||
+            sectionDecision.previousAddressTargetId,
+        );
+        if (!sectionLoaded && sectionNeedsSnapshot) {
+          return (
+            <div
+              key={section.kind}
+              style={{
+                border: "1px solid #FCD34D",
+                borderRadius: "12px",
+                backgroundColor: "#FFFBEB",
+                color: "#92400E",
+                padding: "11px",
+                display: "grid",
+                gap: "5px",
+              }}
+            >
+              <div style={{ fontWeight: 900 }}>{section.label}</div>
+              <div>
+                Current NXT {section.label.toLowerCase()} are unavailable. They are not being treated as empty, and this section cannot be changed until its NXT details load.
+              </div>
+            </div>
+          );
+        }
+
         const primary = section.contacts.find((contact) => contact.primary) || null;
         const typeOptions = [...new Set(section.contacts.map((contact) => contact.type).filter(Boolean))];
         const defaultPrimaryIndex = section.values.findIndex((value) => value.makePrimary === true);
-        const sectionDecision = getContactSectionDecision(decisions, row.rowNumber, section.kind);
         const hasIncomingPrimary = ["email", "phone"].includes(section.kind) && section.values.some((value, index) => {
           const decision = getContactDecision(decisions, row.rowNumber, section.kind, index);
           const matchingContact = findMatchingReviewContact(section.contacts, value, section.kind);
@@ -2746,6 +2860,7 @@ export default function ConstituencyImportPage() {
   const previewRequestVersionRef = useRef(0);
   const previewAbortControllerRef = useRef(null);
   const hydratedDetailRowsRef = useRef(new Set());
+  const pendingDetailHydrationRowsRef = useRef(new Set());
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
@@ -3217,6 +3332,8 @@ export default function ConstituencyImportPage() {
     setPreview(null);
     setContactDecisions({});
     setContactDecisionsDirty(false);
+    setFieldDecisions({});
+    setFieldDecisionsDirty(false);
     setSaveMessage("");
   }
 
@@ -3357,6 +3474,7 @@ export default function ConstituencyImportPage() {
     setSaveMessage("");
     setCompletionMessage("");
     hydratedDetailRowsRef.current.clear();
+    pendingDetailHydrationRowsRef.current.clear();
     setHydratingDetailRows({});
     setPreview(null);
     setFocusedRowId("");
@@ -3372,6 +3490,8 @@ export default function ConstituencyImportPage() {
     setLoadingSuggestionFieldKey("");
     setContactDecisions({});
     setContactDecisionsDirty(false);
+    setFieldDecisions({});
+    setFieldDecisionsDirty(false);
     setSourceFilename(file.name || "");
     setFileReadStatus(`Reading ${file.name || "selected CSV"}...`);
     try {
@@ -3396,6 +3516,7 @@ export default function ConstituencyImportPage() {
     fileReadVersionRef.current += 1;
     lastReadFileRef.current = null;
     hydratedDetailRowsRef.current.clear();
+    pendingDetailHydrationRowsRef.current.clear();
     setHydratingDetailRows({});
     if (resetFieldConfiguration) {
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
@@ -3435,6 +3556,8 @@ export default function ConstituencyImportPage() {
     setReviewMode(true);
     setContactDecisions({});
     setContactDecisionsDirty(false);
+    setFieldDecisions({});
+    setFieldDecisionsDirty(false);
     setError("");
     setSaveMessage("");
     setCompletionMessage(completion);
@@ -3467,7 +3590,7 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function loadSavedRun(runId, { focusRowId = "", message } = {}) {
+  async function loadSavedRun(runId, { focusRowId = "", message, preload = true } = {}) {
     setLoadingRunId(String(runId));
     setError("");
     setSaveMessage("");
@@ -3486,7 +3609,12 @@ export default function ConstituencyImportPage() {
           payload?.rows?.[0]?.id ||
           "",
       );
+      const restoredDecisions = getSavedReviewDecisionState(payload);
       setPreview(payload);
+      setContactDecisions(restoredDecisions.contact);
+      setFieldDecisions(restoredDecisions.fields);
+      setContactDecisionsDirty(false);
+      setFieldDecisionsDirty(false);
       setSelectedApplyRowIds([]);
       setFocusedRowId(nextFocusedRowId);
       setReviewMode(true);
@@ -3506,7 +3634,7 @@ export default function ConstituencyImportPage() {
       const focusedRow = (payload?.rows || []).find(
         (row) => String(row?.id) === nextFocusedRowId,
       );
-      if (focusedRow) {
+      if (focusedRow && preload) {
         preloadRequiredReviewChoices(focusedRow, payload?.savedRun?.id || runId);
       }
       return payload;
@@ -3562,20 +3690,37 @@ export default function ConstituencyImportPage() {
   }
 
   function needsProfileDetailHydration(row) {
-    if (!row?.match?.blackbaudConstituentId || row?.profileSnapshot) return false;
+    if (!getImportMatchedConstituentId(row) || row?.profileSnapshotLoaded === true) return false;
     if (row?.deferredHydration?.detail) return true;
     return Array.isArray(row?.writePlan) && row.writePlan.some(
       (write) => write?.type === "constituent_name" || write?.type === "constituent_profile",
     );
   }
 
+  function needsNameFormatDetailHydration(row) {
+    if (!getImportMatchedConstituentId(row) || row?.nameFormatsSnapshotLoaded === true) return false;
+    if (row?.deferredHydration?.nameFormats) return true;
+    return Array.isArray(row?.writePlan) && row.writePlan.some(
+      (write) => write?.type === "name_format_detail_review" || write?.type === "constituent_name_format",
+    );
+  }
+
   function isHydratingRowScope(row, scope) {
     const runId = preview?.savedRun?.id;
     if (!runId || !row?.id) return false;
-    return Boolean(hydratingDetailRows[`${runId}:${row.id}:${scope}`]);
+    const prefix = `${runId}:${row.id}:`;
+    return Object.entries(hydratingDetailRows).some(
+      ([key, loading]) =>
+        loading && key.startsWith(prefix) && key.slice(prefix.length).split(",").includes(scope),
+    );
   }
 
-  async function hydrateImportRowDetails(row, scopes = ["profile"], runIdOverride = null) {
+  async function hydrateImportRowDetails(
+    row,
+    scopes = ["profile"],
+    runIdOverride = null,
+    { force = false } = {},
+  ) {
     const runId = runIdOverride || preview?.savedRun?.id;
     if (!runId || !row?.id) return;
     const normalizedScopes = [...new Set(scopes)].filter(Boolean).sort();
@@ -3583,8 +3728,17 @@ export default function ConstituencyImportPage() {
 
     const scopeKey = normalizedScopes.join(",");
     const requestKey = `${runId}:${row.id}:${scopeKey}`;
+    const rowRequestKey = `${runId}:${row.id}`;
+    // A page load and a manual click can request different scope sets for the
+    // same row. Only one detail request may run at a time or slower responses
+    // can overwrite the newer snapshot with an incomplete one.
+    if (pendingDetailHydrationRowsRef.current.has(rowRequestKey)) {
+      return;
+    }
+    if (force) hydratedDetailRowsRef.current.delete(requestKey);
     if (hydratedDetailRowsRef.current.has(requestKey)) return;
     hydratedDetailRowsRef.current.add(requestKey);
+    pendingDetailHydrationRowsRef.current.add(rowRequestKey);
     setHydratingDetailRows((current) => ({ ...current, [requestKey]: true }));
     setError("");
     try {
@@ -3603,6 +3757,7 @@ export default function ConstituencyImportPage() {
       await loadSavedRun(runId, {
         focusRowId: row.id,
         message: payload?.message || "Loaded current NXT record details for this row.",
+        preload: false,
       });
       fetchSavedRuns();
     } catch (detailError) {
@@ -3613,6 +3768,7 @@ export default function ConstituencyImportPage() {
           : "Could not load current NXT record details.",
       );
     } finally {
+      pendingDetailHydrationRowsRef.current.delete(rowRequestKey);
       setHydratingDetailRows((current) => {
         const next = { ...current };
         delete next[requestKey];
@@ -3623,8 +3779,14 @@ export default function ConstituencyImportPage() {
 
   function preloadRequiredReviewChoices(row, runIdOverride = null) {
     if (!row?.id) return;
-    if (needsProfileDetailHydration(row)) {
-      void hydrateImportRowDetails(row, ["profile"], runIdOverride);
+    const detailScopes = [];
+    if (needsProfileDetailHydration(row)) detailScopes.push("profile");
+    if (needsCurrentContactDetails(row)) detailScopes.push("contacts");
+    if (needsNameFormatDetailHydration(row)) detailScopes.push("nameFormats");
+    if (needsCurrentConstituencyDetails(row)) detailScopes.push("codes");
+    if (detailScopes.length) {
+      void hydrateImportRowDetails(row, detailScopes, runIdOverride);
+      return;
     }
     const writePlan = Array.isArray(row.writePlan) ? row.writePlan : [];
     if (
@@ -3686,6 +3848,67 @@ export default function ConstituencyImportPage() {
     openNextRecord = false,
     continueRequiredReview = false,
   } = {}) {
+    if (preview?.savedRun?.id) {
+      const runId = preview.savedRun.id;
+      const changedRowNumbers = new Set(
+        focusRow
+          ? [String(focusRow.rowNumber)]
+          : [...Object.keys(contactDecisions), ...Object.keys(fieldDecisions)],
+      );
+      const rowsToPersist = (preview.rows || []).filter((candidate) =>
+        changedRowNumbers.has(String(candidate?.rowNumber)),
+      );
+
+      if (rowsToPersist.length) {
+        for (const row of rowsToPersist) {
+          const rowKey = String(row.rowNumber);
+          const hasContactChoices = Object.prototype.hasOwnProperty.call(contactDecisions, rowKey);
+          const hasFieldChoices = Object.prototype.hasOwnProperty.call(fieldDecisions, rowKey);
+          if (!hasContactChoices && !hasFieldChoices) continue;
+
+          const response = await fetch(
+            `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/choices`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contactDecisions: contactDecisions[rowKey] || {},
+                fieldDecisions: fieldDecisions[rowKey] || {},
+                saveContactDecisions: hasContactChoices,
+                saveFieldDecisions: hasFieldChoices,
+              }),
+            },
+          );
+          const choicePayload = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(choicePayload?.error || "Could not save the row review choices.");
+          }
+        }
+      }
+
+      const payload = await loadSavedRun(runId, {
+        focusRowId: focusRow?.id || "",
+        message: "Saved review choices. No NXT records were changed.",
+        preload: false,
+      });
+      if (!payload) {
+        throw new Error("The review choices were saved, but the import run could not be reloaded.");
+      }
+      const targetRow = focusRow ? findSavedRow(payload, focusRow) : null;
+      if (targetRow?.id) {
+        if (continueRequiredReview) {
+          setFocusedRowId(String(targetRow.id));
+          setReviewMode(true);
+          openRemainingRequiredReview(targetRow, runId);
+        } else if (openNextRecord) {
+          focusNextUnresolvedRow(payload?.rows, targetRow.id);
+        } else {
+          focusImportRow(targetRow.id);
+        }
+      }
+      return payload;
+    }
+
     const payload = await requestPreview({
       saveRun: Boolean(preview?.savedRun),
       scrollToResults: false,
@@ -3984,7 +4207,10 @@ export default function ConstituencyImportPage() {
       const singleRecordApplied =
         singleRecord && applied > 0 && manualRequired === 0 && failed === 0;
 
+      const restoredDecisions = getSavedReviewDecisionState(payload);
       setPreview(payload);
+      setContactDecisions(restoredDecisions.contact);
+      setFieldDecisions(restoredDecisions.fields);
       setSelectedApplyRowIds([]);
       if (singleRecordApplied) {
         focusNextUnresolvedRow(payload?.rows, rowsToApply[0]?.id);
@@ -4286,22 +4512,38 @@ export default function ConstituencyImportPage() {
     const runId = preview?.savedRun?.id;
     if (!runId || !row?.id || savingCombinedReviewRowId) return;
 
-    const missing = getCombinedRowReviewMissingItems(row);
-    if (missing.length) {
-      setError(
-        `Finish this row review before continuing: ${missing.join(", ")}.`,
-      );
-      return;
-    }
-
     const rowId = String(row.id);
-    const draft = getCombinedRowReviewDraft(row);
     setSavingCombinedReviewRowId(rowId);
     setError("");
     setSaveMessage("");
     try {
+      // Contact/profile choices are a valid full-row review on their own. Save
+      // them without sending the education/constituency endpoint, which only
+      // understands those two special review targets.
+      let rowToReview = row;
+      if (contactDecisionsDirty || fieldDecisionsDirty) {
+        const savedPayload = await persistReviewChoices({ focusRow: row });
+        rowToReview = findSavedRow(savedPayload, row) || row;
+      }
+
+      const missing = getCombinedRowReviewMissingItems(rowToReview);
+      if (missing.length) {
+        throw new Error(`Finish this row review before continuing: ${missing.join(", ")}.`);
+      }
+
+      const hasStructuredReview =
+        Boolean(getPendingEducationTargetReviewWrite(rowToReview)) ||
+        Boolean(getPendingConstituencyTargetReviewWrite(rowToReview)) ||
+        Boolean(getEducationClassYearReviewWrite(rowToReview));
+      if (!hasStructuredReview) {
+        setSaveMessage("Saved this full-row review. No NXT records were changed.");
+        fetchSavedRuns();
+        return;
+      }
+
+      const draft = getCombinedRowReviewDraft(rowToReview);
       const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/review`,
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(rowToReview.id)}/review`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4821,7 +5063,10 @@ export default function ConstituencyImportPage() {
       if (previewRequestVersionRef.current !== requestVersion) {
         return null;
       }
+      const restoredDecisions = getSavedReviewDecisionState(payload);
       setPreview(payload);
+      setContactDecisions(restoredDecisions.contact);
+      setFieldDecisions(restoredDecisions.fields);
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
       setReviewMode(
@@ -7079,10 +7324,12 @@ export default function ConstituencyImportPage() {
                   (write) => write.type === "constituent_name_format",
                 );
                 const profileDetailsPending = needsProfileDetailHydration(row);
-                const nameFormatDetailsPending = Boolean(row.deferredHydration?.nameFormats);
+                const nameFormatDetailsPending = needsNameFormatDetailHydration(row);
+                const constituencyDetailsPending = needsCurrentConstituencyDetails(row);
                 const profileReviewPending = profileDetailsPending || nameFormatDetailsPending;
                 const loadingProfileDetails = isHydratingRowScope(row, "profile");
                 const loadingNameFormatDetails = isHydratingRowScope(row, "nameFormats");
+                const loadingConstituencyDetails = isHydratingRowScope(row, "codes");
                 const failedWriteResults = Array.isArray(row.blackbaudResult?.results)
                   ? row.blackbaudResult.results.filter(
                       (result) =>
@@ -7341,7 +7588,37 @@ export default function ConstituencyImportPage() {
                           Current NXT constituencies
                         </div>
                         <div style={{ marginTop: "6px", color: "#111827" }}>
-                          {row.currentCodeDetails?.length ? (
+                          {constituencyDetailsPending ? (
+                            <div style={{ display: "grid", gap: "7px", color: "#1E3A8A" }}>
+                              <strong>
+                                {loadingConstituencyDetails
+                                  ? "Loading current NXT constituencies..."
+                                  : "Current NXT constituencies have not been loaded yet."}
+                              </strong>
+                              <span style={{ fontSize: "13px", lineHeight: 1.4 }}>
+                                This is pending, not an empty NXT record. Load the current values before choosing a replacement.
+                              </span>
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => hydrateImportRowDetails(row, ["codes"])}
+                                  disabled={loadingConstituencyDetails || !preview?.savedRun}
+                                  style={{
+                                    border: "1px solid #1D4ED8",
+                                    borderRadius: "999px",
+                                    backgroundColor: loadingConstituencyDetails ? "#DBEAFE" : "#1D4ED8",
+                                    color: loadingConstituencyDetails ? "#1E3A8A" : "white",
+                                    padding: "7px 10px",
+                                    fontSize: "12px",
+                                    fontWeight: 900,
+                                    cursor: loadingConstituencyDetails || !preview?.savedRun ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  {loadingConstituencyDetails ? "Loading current NXT constituencies..." : "Load current NXT constituencies"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : row.currentCodeDetails?.length ? (
                             <div style={{ display: "grid", gap: "6px" }}>
                               {row.currentCodeDetails.map((code, index) => (
                                 <div key={`${code.label}-${index}`} style={{ lineHeight: 1.35 }}>
@@ -7352,8 +7629,10 @@ export default function ConstituencyImportPage() {
                                 </div>
                               ))}
                             </div>
-                          ) : (
+                          ) : row.codesSnapshotLoaded === true ? (
                             renderList(row.currentCodes)
+                          ) : (
+                            <span style={{ color: "#64748B" }}>Current NXT constituencies are unavailable for this row.</span>
                           )}
                         </div>
                       </div>
@@ -7551,7 +7830,9 @@ export default function ConstituencyImportPage() {
                           decisions={contactDecisions}
                           onDecisionChange={updateContactDecision}
                           onSectionDecisionChange={updateContactSectionDecision}
-                          onLoadCurrentContacts={() => hydrateImportRowDetails(row, ["contacts"])}
+                          onLoadCurrentContacts={() =>
+                            hydrateImportRowDetails(row, ["contacts"], null, { force: true })
+                          }
                           loadingCurrentContacts={isHydratingRowScope(row, "contacts")}
                         />
                       </div>

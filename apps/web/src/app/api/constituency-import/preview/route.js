@@ -448,24 +448,110 @@ function getRowInput(row, mappings, defaults = {}) {
   return input;
 }
 
+function getNxtText(value) {
+  if (typeof value === "string" || typeof value === "number") return cleanText(value);
+  if (!value || typeof value !== "object") return "";
+  return cleanText(
+    value.description ||
+      value.name ||
+      value.value ||
+      value.label ||
+      value.text ||
+      value.display ||
+      value.display_value ||
+      value.displayValue ||
+      value.formatted_value ||
+      value.formatted,
+  );
+}
+
+function getMatchedProfileSources(match) {
+  const raw = match?.raw && typeof match.raw === "object" ? match.raw : null;
+  const queue = [raw, match].filter((value) => value && typeof value === "object");
+  const sources = [];
+  const seen = new Set();
+  const nestedKeys = [
+    "constituent",
+    "record",
+    "data",
+    "result",
+    "value",
+    "item",
+    "response",
+    "individual",
+    "name",
+    "profile",
+  ];
+
+  while (queue.length) {
+    const candidate = queue.shift();
+    if (!candidate || typeof candidate !== "object" || seen.has(candidate)) continue;
+    seen.add(candidate);
+
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    sources.push(candidate);
+    nestedKeys.forEach((key) => {
+      if (candidate[key]) queue.push(candidate[key]);
+    });
+  }
+
+  return sources;
+}
+
+function getMatchedProfileValue(match, keys) {
+  for (const source of getMatchedProfileSources(match)) {
+    for (const key of keys) {
+      const value = getNxtText(source?.[key]);
+      if (value) return value;
+    }
+  }
+  return "";
+}
+
+function getMatchedProfileDate(match, keys) {
+  for (const source of getMatchedProfileSources(match)) {
+    for (const key of keys) {
+      const value = formatPreviewDate(source?.[key]);
+      if (value) return value;
+    }
+  }
+  return "";
+}
+
+function getMatchedRecordType(match) {
+  return getMatchedProfileValue(match, ["type", "constituent_type", "constituentType", "record_type"]);
+}
+
 function getMatchedNameValues(match) {
-  const raw = match?.raw && typeof match.raw === "object" ? match.raw : {};
   return {
-    firstName: cleanText(raw.first || raw.first_name),
-    lastName: cleanText(raw.last || raw.last_name),
-    preferredName: cleanText(raw.preferred_name || raw.preferredName),
+    firstName: getMatchedProfileValue(match, ["first", "first_name", "firstName", "given_name", "givenName"]),
+    lastName: getMatchedProfileValue(match, ["last", "last_name", "lastName", "family_name", "familyName"]),
+    preferredName: getMatchedProfileValue(match, ["preferred_name", "preferredName", "preferred", "nickname"]),
   };
 }
 
 function getMatchedIndividualValues(match) {
-  const raw = match?.raw && typeof match.raw === "object" ? match.raw : {};
   return {
-    title: cleanText(raw.title),
-    gender: cleanText(raw.gender),
-    ethnicity: cleanText(raw.ethnicity?.description || raw.ethnicity?.name || raw.ethnicity?.value || raw.ethnicity),
-    birthDate: formatBirthDate(raw.birthdate || raw.birth_date),
-    suffix: cleanText(raw.suffix),
+    title: getMatchedProfileValue(match, ["title"]),
+    gender: getMatchedProfileValue(match, ["gender"]),
+    ethnicity: getMatchedProfileValue(match, ["ethnicity"]),
+    birthDate: getMatchedProfileDate(match, ["birthdate", "birth_date", "birthDate", "date_of_birth", "dateOfBirth"]),
+    suffix: getMatchedProfileValue(match, ["suffix"]),
   };
+}
+
+// An object containing only an ID or a response envelope is not a usable
+// current profile. Treating it as one makes every field appear "Not set" and
+// can stage an unsafe replacement.
+export function hasUsableProfileSnapshot(match) {
+  return Boolean(
+    Object.values(getMatchedNameValues(match)).some(Boolean) ||
+      Object.values(getMatchedIndividualValues(match)).some(Boolean),
+  );
 }
 
 function getFieldDecision(decisions, writeType, field) {
@@ -531,7 +617,7 @@ function buildIndividualProfileWrite(input, match, fieldDecisions = {}) {
   const write = {
     type: "constituent_profile",
     action: "update",
-    recordType: cleanText(match?.raw?.type),
+    recordType: getMatchedRecordType(match),
     ...changes,
     current,
     blankValuePolicy: "leave_unchanged",
@@ -610,7 +696,7 @@ function buildNameUpdateWrite(input, match, fieldDecisions = {}) {
   return {
     type: "constituent_name",
     action: "update",
-    recordType: cleanText(match?.raw?.type),
+    recordType: getMatchedRecordType(match),
     firstName: changes.firstName,
     lastName: changes.lastName,
     preferredName: changes.preferredName,
@@ -715,6 +801,29 @@ function hasContactSectionAction(decisions) {
       cleanText(getSectionDecision(decisions, "phone").existingPrimaryTargetId) ||
       cleanText(getSectionDecision(decisions, "address").previousAddressTargetId),
   );
+}
+
+export function getContactSnapshotStatus(status, fallbackLoaded = false) {
+  const source = status && typeof status === "object" && !Array.isArray(status) ? status : null;
+  return {
+    emails: source?.emails === true || (!source && fallbackLoaded === true),
+    phones: source?.phones === true || (!source && fallbackLoaded === true),
+    addresses: source?.addresses === true || (!source && fallbackLoaded === true),
+  };
+}
+
+export function getRequiredContactSnapshotKinds(input = {}, contactDecisions = {}) {
+  const kinds = [];
+  if (input?.emailUpdates?.length || cleanText(getSectionDecision(contactDecisions, "email").existingPrimaryTargetId)) {
+    kinds.push("emails");
+  }
+  if (input?.phoneUpdates?.length || cleanText(getSectionDecision(contactDecisions, "phone").existingPrimaryTargetId)) {
+    kinds.push("phones");
+  }
+  if (input?.addressUpdates?.length || cleanText(getSectionDecision(contactDecisions, "address").previousAddressTargetId)) {
+    kinds.push("addresses");
+  }
+  return kinds;
 }
 
 function getExistingPrimary(contacts) {
@@ -923,12 +1032,20 @@ function buildPreviousAddressWrite({ contacts = [], decisions = {}, addressWrite
   };
 }
 
-export function buildContactDetailPreview(input, currentContacts, contactDecisions = {}) {
+export function buildContactDetailPreview(
+  input,
+  currentContacts,
+  contactDecisions = {},
+  { snapshotStatus } = {},
+) {
   const noopReasons = [];
+  const loaded = snapshotStatus
+    ? getContactSnapshotStatus(snapshotStatus)
+    : { emails: true, phones: true, addresses: true };
   const emailWrites = buildContactWrites({
     input,
     kind: "email",
-    values: input.emailUpdates,
+    values: loaded.emails ? input.emailUpdates : [],
     contacts: currentContacts?.emails,
     decisions: contactDecisions,
     noopReasons,
@@ -936,7 +1053,7 @@ export function buildContactDetailPreview(input, currentContacts, contactDecisio
   const phoneWrites = buildContactWrites({
     input,
     kind: "phone",
-    values: input.phoneUpdates,
+    values: loaded.phones ? input.phoneUpdates : [],
     contacts: currentContacts?.phones,
     decisions: contactDecisions,
     noopReasons,
@@ -944,28 +1061,34 @@ export function buildContactDetailPreview(input, currentContacts, contactDecisio
   const addressWrites = buildContactWrites({
     input,
     kind: "address",
-    values: input.addressUpdates,
+    values: loaded.addresses ? input.addressUpdates : [],
     contacts: currentContacts?.addresses,
     decisions: contactDecisions,
     noopReasons,
   });
-  const emailPrimaryWrite = buildExistingPrimaryWrite({
-    kind: "email",
-    contacts: currentContacts?.emails,
-    decisions: contactDecisions,
-    contactWrites: emailWrites,
-  });
-  const phonePrimaryWrite = buildExistingPrimaryWrite({
-    kind: "phone",
-    contacts: currentContacts?.phones,
-    decisions: contactDecisions,
-    contactWrites: phoneWrites,
-  });
-  const previousAddressWrite = buildPreviousAddressWrite({
-    contacts: currentContacts?.addresses,
-    decisions: contactDecisions,
-    addressWrites,
-  });
+  const emailPrimaryWrite = loaded.emails
+    ? buildExistingPrimaryWrite({
+      kind: "email",
+      contacts: currentContacts?.emails,
+      decisions: contactDecisions,
+      contactWrites: emailWrites,
+    })
+    : null;
+  const phonePrimaryWrite = loaded.phones
+    ? buildExistingPrimaryWrite({
+      kind: "phone",
+      contacts: currentContacts?.phones,
+      decisions: contactDecisions,
+      contactWrites: phoneWrites,
+    })
+    : null;
+  const previousAddressWrite = loaded.addresses
+    ? buildPreviousAddressWrite({
+      contacts: currentContacts?.addresses,
+      decisions: contactDecisions,
+      addressWrites,
+    })
+    : null;
 
   return {
     writes: [
@@ -977,6 +1100,9 @@ export function buildContactDetailPreview(input, currentContacts, contactDecisio
       previousAddressWrite,
     ].filter(Boolean),
     noopReasons: [...new Set(noopReasons)],
+    unavailableKinds: getRequiredContactSnapshotKinds(input, contactDecisions).filter(
+      (kind) => !loaded[kind],
+    ),
   };
 }
 
@@ -1287,13 +1413,23 @@ function buildDeferredNameFormatDetailWrite(input, fieldDecisions = {}) {
   };
 }
 
-function buildDeferredContactDetailWrite(input, contactDecisions = {}) {
-  const hasContacts =
-    input.emailUpdates?.length ||
-    input.phoneUpdates?.length ||
-    input.addressUpdates?.length ||
-    hasContactSectionAction(contactDecisions);
-  if (!hasContacts) return null;
+export function buildDeferredContactDetailWrite(
+  input,
+  contactDecisions = {},
+  pendingKinds = null,
+) {
+  const requiredKinds = getRequiredContactSnapshotKinds(input, contactDecisions);
+  const missingKinds = Array.isArray(pendingKinds)
+    ? pendingKinds.filter((kind) => requiredKinds.includes(kind))
+    : requiredKinds;
+  if (!missingKinds.length) return null;
+
+  const labels = {
+    emails: "email",
+    phones: "phone",
+    addresses: "address",
+  };
+  const missingLabel = missingKinds.map((kind) => labels[kind]).join(", ");
 
   return {
     type: "contact_detail_review",
@@ -1301,29 +1437,27 @@ function buildDeferredContactDetailWrite(input, contactDecisions = {}) {
     requiresReview: true,
     deferredHydration: true,
     contactDecisions,
+    pendingKinds: missingKinds,
     validationMessage:
-      "Open this row to load the current NXT email, phone, and address values before reviewing CSV changes.",
+      `Open this row to load the current NXT ${missingLabel} value${missingKinds.length === 1 ? "" : "s"} before reviewing CSV changes.`,
   };
 }
 
-function buildWritePlan(
-  input,
-  changePreview,
-  match = null,
-  currentContacts = null,
-  contactDecisions = {},
-  fieldDecisions = {},
-  currentNameFormats = null,
-  currentEducations = null,
-  options = {},
-) {
-  const deferHeavyReview = options?.deferHeavyReview === true;
-  const deferProfileReview = options?.deferProfileReview === true;
-  const deferContactReview = options?.deferContactReview === true;
-  const deferNameFormatReview = options?.deferNameFormatReview === true;
-  const writes = [];
-  const reasons = [];
+function buildDeferredConstituencyCodeDetailWrite(input) {
+  if (!hasConstituencyChange(input)) return null;
 
+  return {
+    type: "constituent_code_detail_review",
+    action: "load_current",
+    requiresReview: true,
+    deferredHydration: true,
+    validationMessage:
+      "Open this row to load the current NXT constituencies before reviewing this constituency change.",
+  };
+}
+
+export function buildConstituencyCodeWrites(input, changePreview) {
+  const writes = [];
   const hasReplaceSourceCandidates =
     input.action === "replace" && Array.isArray(changePreview.sourceCandidates) &&
     changePreview.sourceCandidates.length > 0 &&
@@ -1353,6 +1487,35 @@ function buildWritePlan(
       }));
     }
     writes.push(write);
+  }
+  return writes;
+}
+
+function buildWritePlan(
+  input,
+  changePreview,
+  match = null,
+  currentContacts = null,
+  contactDecisions = {},
+  fieldDecisions = {},
+  currentNameFormats = null,
+  currentEducations = null,
+  options = {},
+) {
+  const deferHeavyReview = options?.deferHeavyReview === true;
+  const deferProfileReview = options?.deferProfileReview === true;
+  const deferContactReview = options?.deferContactReview === true;
+  const deferNameFormatReview = options?.deferNameFormatReview === true;
+  const deferConstituencyReview = options?.deferConstituencyReview === true;
+  const contactSnapshotStatus = options?.contactSnapshotStatus;
+  const writes = [];
+  const reasons = [];
+
+  if (deferConstituencyReview) {
+    const deferredConstituencyWrite = buildDeferredConstituencyCodeDetailWrite(input);
+    if (deferredConstituencyWrite) writes.push(deferredConstituencyWrite);
+  } else {
+    writes.push(...buildConstituencyCodeWrites(input, changePreview));
   }
 
   const educationRelationshipWrite = deferHeavyReview && input.educationRelationship
@@ -1389,8 +1552,16 @@ function buildWritePlan(
     const deferredContactWrite = buildDeferredContactDetailWrite(input, contactDecisions);
     if (deferredContactWrite) writes.push(deferredContactWrite);
   } else {
-    const contactUpdatePreview = buildContactDetailPreview(input, currentContacts, contactDecisions);
+    const contactUpdatePreview = buildContactDetailPreview(input, currentContacts, contactDecisions, {
+      snapshotStatus: contactSnapshotStatus,
+    });
     writes.push(...contactUpdatePreview.writes);
+    const deferredContactWrite = buildDeferredContactDetailWrite(
+      input,
+      contactDecisions,
+      contactUpdatePreview.unavailableKinds,
+    );
+    if (deferredContactWrite) writes.push(deferredContactWrite);
     reasons.push(...contactUpdatePreview.noopReasons);
   }
 
@@ -1412,13 +1583,13 @@ function getConstituencyLabel(value) {
   );
 }
 
-function mapConstituencyCode(item) {
+export function mapConstituencyCode(item) {
   const label = getConstituencyLabel(item);
   return {
     id: item?.id || item?.constituent_code_id || item?.code_id || null,
     label,
-    startDate: item?.date_from || item?.start_date || item?.start || null,
-    endDate: item?.date_to || item?.end_date || item?.end || null,
+    startDate: item?.date_from || item?.start_date || item?.startDate || item?.start || null,
+    endDate: item?.date_to || item?.end_date || item?.endDate || item?.end || null,
     raw: item || null,
   };
 }
@@ -1767,16 +1938,26 @@ async function fetchConstituencyCodes({ userId, authUserId, origin, constituentI
       origin,
     },
   );
-  const rows = Array.isArray(payload?.value)
-    ? payload.value
-    : Array.isArray(payload)
-      ? payload
-      : [];
-  return rows.map(mapConstituencyCode).filter((code) => code.label);
+  return getCollection(payload).map(mapConstituencyCode).filter((code) => code.label);
 }
 
 function getCollection(payload) {
-  return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+
+  const queue = [payload];
+  const seen = new Set();
+  const collectionKeys = ["value", "items", "data", "results"];
+  while (queue.length) {
+    const candidate = queue.shift();
+    if (!candidate || typeof candidate !== "object" || seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (Array.isArray(candidate)) return candidate;
+    collectionKeys.forEach((key) => {
+      if (candidate[key]) queue.push(candidate[key]);
+    });
+  }
+  return [];
 }
 
 async function fetchCurrentContacts({ userId, authUserId, origin, constituentId }) {
@@ -1791,7 +1972,11 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId 
   ].filter(Boolean);
 
   if (!requests.length) {
-    return { contacts: { emails: [], phones: [], addresses: [] }, errors: [] };
+    return {
+      contacts: { emails: [], phones: [], addresses: [] },
+      errors: [],
+      loaded: { emails: false, phones: false, addresses: false },
+    };
   }
 
   const results = await Promise.allSettled(
@@ -1804,11 +1989,13 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId 
     throw quotaFailure.reason;
   }
   const contacts = { emails: [], phones: [], addresses: [] };
+  const loaded = { emails: false, phones: false, addresses: false };
   const errors = [];
   results.forEach((result, index) => {
     const [kind] = requests[index];
     if (result.status === "fulfilled") {
       contacts[kind] = getCollection(result.value);
+      loaded[kind] = true;
       return;
     }
     if (requestedKinds.has(kind)) {
@@ -1818,7 +2005,7 @@ async function fetchCurrentContacts({ userId, authUserId, origin, constituentId 
     }
   });
 
-  return { contacts: serializeContactSnapshot(contacts), errors };
+  return { contacts: serializeContactSnapshot(contacts), errors, loaded };
 }
 
 async function fetchCurrentNameFormats({ userId, authUserId, origin, constituentId }) {
@@ -2310,6 +2497,21 @@ function getDeferredReviewWrite(writePlan, type) {
   );
 }
 
+function hasReviewDecisions(value) {
+  return Boolean(
+    value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length,
+  );
+}
+
+function getSavedReviewDecisions(row, key) {
+  const preview = row?.preview && typeof row.preview === "object" ? row.preview : {};
+  return hasReviewDecisions(row?.[key])
+    ? row[key]
+    : hasReviewDecisions(preview?.[key])
+      ? preview[key]
+      : {};
+}
+
 function replaceDeferredReviewWrite(writePlan, type, replacementWrites) {
   let replaced = false;
   const nextWritePlan = (Array.isArray(writePlan) ? writePlan : []).flatMap((write) => {
@@ -2336,23 +2538,49 @@ export function mergePriorReviewState(row, priorSavedRow) {
   const priorBlackbaudResult = getStoredBlackbaudResult(priorSavedRow);
   const priorPreview =
     priorSavedRow?.preview && typeof priorSavedRow.preview === "object" ? priorSavedRow.preview : {};
+  const contactReviewDecisions = hasReviewDecisions(row?.contactReviewDecisions)
+    ? row.contactReviewDecisions
+    : getSavedReviewDecisions(priorSavedRow, "contactReviewDecisions");
+  const fieldReviewDecisions = hasReviewDecisions(row?.fieldReviewDecisions)
+    ? row.fieldReviewDecisions
+    : getSavedReviewDecisions(priorSavedRow, "fieldReviewDecisions");
   let mergedWritePlan = mergePriorReviewedWrites(row.writePlan || [], priorWritePlan);
   const nextDeferredHydration =
     row?.deferredHydration && typeof row.deferredHydration === "object"
       ? { ...row.deferredHydration }
       : {};
-  let profileSnapshot = null;
+  let profileSnapshot = row.profileSnapshotLoaded === true ? row.profileSnapshot || null : null;
+  let profileSnapshotLoaded = Boolean(
+    profileSnapshot && hasUsableProfileSnapshot({ raw: profileSnapshot }),
+  );
   let currentContacts = row.currentContacts;
+  let contactSnapshotStatus = getContactSnapshotStatus(
+    row.contactSnapshotStatus,
+    row.contactsSnapshotLoaded === true,
+  );
+  let contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
   let currentNameFormats = row.currentNameFormats;
+  let nameFormatsSnapshotLoaded = Boolean(row.nameFormatsSnapshotLoaded);
+  let currentCodes = row.currentCodes;
+  let currentCodeDetails = row.currentCodeDetails;
+  let proposedCodes = row.proposedCodes;
+  let codesSnapshotLoaded = Boolean(row.codesSnapshotLoaded);
 
   // Reuse an already hydrated row snapshot when the reviewer saves again.
   // This avoids both a fresh NXT call and the false "Not set" placeholder values.
-  if (nextDeferredHydration.detail && priorPreview.profileSnapshot) {
+  if (
+    nextDeferredHydration.detail &&
+    priorPreview.profileSnapshotLoaded === true &&
+    priorPreview.profileSnapshot &&
+    hasUsableProfileSnapshot({ raw: priorPreview.profileSnapshot })
+  ) {
     const deferredWrite = getDeferredReviewWrite(mergedWritePlan, "profile_detail_review");
     const detailWrites = buildProfileDetailWrites(
       row.input || {},
       { raw: priorPreview.profileSnapshot },
-      deferredWrite?.fieldDecisions || {},
+      hasReviewDecisions(deferredWrite?.fieldDecisions)
+        ? deferredWrite.fieldDecisions
+        : fieldReviewDecisions,
     );
     mergedWritePlan = replaceDeferredReviewWrite(
       mergedWritePlan,
@@ -2361,22 +2589,38 @@ export function mergePriorReviewState(row, priorSavedRow) {
     );
     nextDeferredHydration.detail = false;
     profileSnapshot = priorPreview.profileSnapshot;
+    profileSnapshotLoaded = true;
   }
 
-  if (nextDeferredHydration.contacts && priorPreview.contactsSnapshotLoaded) {
+  if (nextDeferredHydration.contacts && priorPreview.currentContacts) {
     const deferredWrite = getDeferredReviewWrite(mergedWritePlan, "contact_detail_review");
+    const decisions = hasReviewDecisions(deferredWrite?.contactDecisions)
+      ? deferredWrite.contactDecisions
+      : contactReviewDecisions;
+    const priorContactSnapshotStatus = getContactSnapshotStatus(
+      priorPreview.contactSnapshotStatus,
+      priorPreview.contactsSnapshotLoaded === true,
+    );
     const detailPreview = buildContactDetailPreview(
       row.input || {},
       priorPreview.currentContacts || { emails: [], phones: [], addresses: [] },
-      deferredWrite?.contactDecisions || {},
+      decisions,
+      { snapshotStatus: priorContactSnapshotStatus },
+    );
+    const deferredContactWrite = buildDeferredContactDetailWrite(
+      row.input || {},
+      decisions,
+      detailPreview.unavailableKinds,
     );
     mergedWritePlan = replaceDeferredReviewWrite(
       mergedWritePlan,
       "contact_detail_review",
-      detailPreview.writes,
+      [...detailPreview.writes, deferredContactWrite].filter(Boolean),
     );
-    nextDeferredHydration.contacts = false;
+    nextDeferredHydration.contacts = Boolean(deferredContactWrite);
     currentContacts = priorPreview.currentContacts;
+    contactSnapshotStatus = priorContactSnapshotStatus;
+    contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
   }
 
   if (nextDeferredHydration.nameFormats && priorPreview.nameFormatsSnapshotLoaded) {
@@ -2384,7 +2628,9 @@ export function mergePriorReviewState(row, priorSavedRow) {
     const detailWrites = buildNameFormatDetailWrites(
       row.input || {},
       priorPreview.currentNameFormats || {},
-      deferredWrite?.fieldDecisions || {},
+      hasReviewDecisions(deferredWrite?.fieldDecisions)
+        ? deferredWrite.fieldDecisions
+        : fieldReviewDecisions,
     );
     mergedWritePlan = replaceDeferredReviewWrite(
       mergedWritePlan,
@@ -2393,6 +2639,33 @@ export function mergePriorReviewState(row, priorSavedRow) {
     );
     nextDeferredHydration.nameFormats = false;
     currentNameFormats = priorPreview.currentNameFormats;
+    nameFormatsSnapshotLoaded = true;
+  }
+
+  if (nextDeferredHydration.codes && priorPreview.codesSnapshotLoaded === true) {
+    const currentCodeRows = (Array.isArray(priorPreview.currentCodeDetails)
+      ? priorPreview.currentCodeDetails
+      : [])
+      .map(mapConstituencyCode)
+      .filter((code) => code.label);
+    const codePreview = previewConstituencyChange(row.input || {}, currentCodeRows, {
+      useHierarchy: row.useHierarchy !== false,
+    });
+    mergedWritePlan = replaceDeferredReviewWrite(
+      mergedWritePlan,
+      "constituent_code_detail_review",
+      buildConstituencyCodeWrites(row.input || {}, codePreview),
+    );
+    nextDeferredHydration.codes = false;
+    currentCodes = currentCodeRows.map((code) => code.label);
+    currentCodeDetails = currentCodeRows.map((code) => ({
+      id: code.id,
+      label: code.label,
+      startDate: formatPreviewDate(code.startDate),
+      endDate: formatPreviewDate(code.endDate),
+    }));
+    proposedCodes = codePreview.proposedCodes;
+    codesSnapshotLoaded = true;
   }
 
   const hasDeferredHydration = Object.values(nextDeferredHydration).some(Boolean);
@@ -2451,15 +2724,31 @@ export function mergePriorReviewState(row, priorSavedRow) {
       currentContacts,
       currentNameFormats,
       profileSnapshot,
-      contactsSnapshotLoaded: Boolean(priorPreview.contactsSnapshotLoaded),
-      nameFormatsSnapshotLoaded: Boolean(priorPreview.nameFormatsSnapshotLoaded),
+      profileSnapshotLoaded,
+      contactSnapshotStatus,
+      contactsSnapshotLoaded,
+      nameFormatsSnapshotLoaded,
+      currentCodes,
+      currentCodeDetails,
+      proposedCodes,
+      codesSnapshotLoaded,
+      contactReviewDecisions,
+      fieldReviewDecisions,
       deferredHydration: hasDeferredHydration ? nextDeferredHydration : null,
     },
     currentContacts,
     currentNameFormats,
     profileSnapshot,
-    contactsSnapshotLoaded: Boolean(priorPreview.contactsSnapshotLoaded),
-    nameFormatsSnapshotLoaded: Boolean(priorPreview.nameFormatsSnapshotLoaded),
+    profileSnapshotLoaded,
+    contactSnapshotStatus,
+    contactsSnapshotLoaded,
+    nameFormatsSnapshotLoaded,
+    currentCodes,
+    currentCodeDetails,
+    proposedCodes,
+    codesSnapshotLoaded,
+    contactReviewDecisions,
+    fieldReviewDecisions,
     deferredHydration: hasDeferredHydration ? nextDeferredHydration : null,
     writePlan: mergedWritePlan,
     blackbaudResult: {
@@ -2978,13 +3267,20 @@ export async function POST(request) {
       let matchResult;
       let currentCodes = [];
       let codeFetchError = "";
+      let codesSnapshotLoaded = false;
       let currentContacts = { emails: [], phones: [], addresses: [] };
       let contactFetchErrors = [];
+      let contactSnapshotStatus = { emails: false, phones: false, addresses: false };
+      let contactsSnapshotLoaded = false;
       let currentNameFormats = {
         addressee: { id: "", value: "" },
         salutation: { id: "", value: "" },
       };
       let nameFormatFetchError = "";
+      let nameFormatsSnapshotLoaded = false;
+      let profileSnapshot = null;
+      let profileSnapshotLoaded = false;
+      let profileFetchError = "";
       let currentEducations = [];
       let educationFetchError = "";
       let deferConstituencyCodes = false;
@@ -2995,6 +3291,8 @@ export async function POST(request) {
         educations: false,
         codes: false,
       };
+      const rowContactDecisions = contactDecisions[String(rowNumber)] || {};
+      const rowFieldDecisions = fieldDecisions[String(rowNumber)] || {};
 
       const persistedMatch = persistedMatchCacheKeys
         .map((cacheKey) => persistedImportMatches.get(cacheKey))
@@ -3065,6 +3363,7 @@ export async function POST(request) {
                   constituentId: matchResult.match.blackbaudConstituentId,
                 }),
             );
+            codesSnapshotLoaded = true;
             previewMetrics.codeMs += Date.now() - codeStartedAt;
           } catch (error) {
             if (!recordQuotaError(error)) {
@@ -3079,7 +3378,6 @@ export async function POST(request) {
       if (matchResult.match?.blackbaudConstituentId) {
         const constituentId = String(matchResult.match.blackbaudConstituentId);
         const rowTasks = [];
-        const rowContactDecisions = contactDecisions[String(rowNumber)] || {};
         const needsHeavyDetail =
           input.nameUpdate ||
           input.individualProfileUpdate ||
@@ -3097,7 +3395,6 @@ export async function POST(request) {
           (
             input.nameUpdate ||
             input.individualProfileUpdate ||
-            input.nameFormatUpdate ||
             input.educationRelationship
           )
         ) {
@@ -3117,12 +3414,23 @@ export async function POST(request) {
                     }),
                 );
                 previewMetrics.detailMs += Date.now() - detailStartedAt;
-                if (detailedMatch && typeof detailedMatch === "object") {
+                if (hasUsableProfileSnapshot(detailedMatch)) {
+                  profileSnapshot =
+                    detailedMatch.raw && typeof detailedMatch.raw === "object"
+                      ? detailedMatch.raw
+                      : {};
+                  profileSnapshotLoaded = true;
                   matchResult.match = {
                     ...matchResult.match,
                     ...detailedMatch,
                     raw: detailedMatch.raw || matchResult.match.raw || null,
                   };
+                } else {
+                  profileFetchError =
+                    "NXT returned an incomplete constituent profile response. Current profile values will remain in review until they can be loaded.";
+                  deferredHydration.detail = Boolean(
+                    input.nameUpdate || input.individualProfileUpdate,
+                  );
                 }
               } catch (error) {
                 // Retain the matched record when supplemental details are unavailable.
@@ -3132,7 +3440,7 @@ export async function POST(request) {
           );
         } else if (deferThisRow) {
           deferredHydration.detail = Boolean(
-            input.nameUpdate || input.individualProfileUpdate || input.nameFormatUpdate,
+            input.nameUpdate || input.individualProfileUpdate,
           );
         }
 
@@ -3163,6 +3471,12 @@ export async function POST(request) {
                 previewMetrics.contactMs += Date.now() - contactStartedAt;
                 currentContacts = contactPreview.contacts;
                 contactFetchErrors = contactPreview.errors;
+                contactSnapshotStatus = getContactSnapshotStatus(contactPreview.loaded);
+                contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
+                deferredHydration.contacts = getRequiredContactSnapshotKinds(
+                  input,
+                  rowContactDecisions,
+                ).some((kind) => !contactSnapshotStatus[kind]);
               } catch (error) {
                 if (!recordQuotaError(error)) {
                   contactFetchErrors = [
@@ -3194,6 +3508,7 @@ export async function POST(request) {
                       constituentId,
                     }),
                 );
+                nameFormatsSnapshotLoaded = true;
                 previewMetrics.nameFormatMs += Date.now() - nameFormatStartedAt;
               } catch (error) {
                 if (!recordQuotaError(error)) {
@@ -3246,11 +3561,14 @@ export async function POST(request) {
       }
 
       const quotaPaused = matchResult.method === "NXT checks paused";
-      const changePreview = quotaPaused
+      // Fast previews deliberately defer constituency reads. Do not evaluate a
+      // replacement against an empty array or present it as "None found".
+      const changePreview = quotaPaused || deferredHydration.codes
         ? {
             status: STATUS.needsReview,
             reasons: [],
             proposedCodes: [],
+            sourceCandidates: [],
           }
         : previewConstituencyChange(input, currentCodes, { useHierarchy });
       const { writes: writePlan, reasons: writePlanReasons } = quotaPaused
@@ -3261,14 +3579,20 @@ export async function POST(request) {
             matchResult.match,
             currentContacts,
             contactDecisions[String(rowNumber)] || {},
-            fieldDecisions[String(rowNumber)] || {},
+            rowFieldDecisions,
             currentNameFormats,
             currentEducations,
             {
               deferHeavyReview: deferredHydration.educations,
               deferProfileReview: deferredHydration.detail,
-              deferContactReview: deferredHydration.contacts,
+              deferContactReview:
+                deferredHydration.contacts &&
+                getRequiredContactSnapshotKinds(input, rowContactDecisions).every(
+                  (kind) => !contactSnapshotStatus[kind],
+                ),
+              contactSnapshotStatus,
               deferNameFormatReview: deferredHydration.nameFormats,
+              deferConstituencyReview: deferredHydration.codes,
             },
           );
       const hasDeferredHydration = Object.values(deferredHydration).some(Boolean);
@@ -3280,6 +3604,7 @@ export async function POST(request) {
         : [
             ...matchResult.notes,
             ...(codeFetchError ? [`Could not load current NXT constituencies: ${codeFetchError}`] : []),
+            ...(profileFetchError ? [profileFetchError] : []),
             ...contactFetchErrors,
             ...(nameFormatFetchError
               ? [`Could not load current NXT addressee and salutation formats: ${nameFormatFetchError}`]
@@ -3399,7 +3724,16 @@ export async function POST(request) {
         })),
         currentContacts,
         currentNameFormats,
+        profileSnapshot,
+        profileSnapshotLoaded,
+        contactSnapshotStatus,
+        contactsSnapshotLoaded,
+        nameFormatsSnapshotLoaded,
+        codesSnapshotLoaded,
         currentEducations: currentEducations.map(serializeEducation),
+        useHierarchy,
+        contactReviewDecisions: rowContactDecisions,
+        fieldReviewDecisions: rowFieldDecisions,
         deferredHydration: hasDeferredHydration ? deferredHydration : null,
         proposedCodes: changePreview.proposedCodes,
         writePlan,

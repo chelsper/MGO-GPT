@@ -9,19 +9,27 @@ import {
 } from "@/app/api/utils/blackbaud";
 import {
   buildContactDetailPreview,
+  buildDeferredContactDetailWrite,
+  buildConstituencyCodeWrites,
   buildNameFormatDetailWrites,
   buildProfileDetailWrites,
+  getContactSnapshotStatus,
+  getRequiredContactSnapshotKinds,
+  hasUsableProfileSnapshot,
+  mapConstituencyCode,
+  previewConstituencyChange,
   serializeContactSnapshot,
   serializeNameFormat,
 } from "@/app/api/constituency-import/preview/route";
 import { getQuotaPauseNotice } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
-const DETAIL_SCOPES = new Set(["profile", "contacts", "nameFormats"]);
+const DETAIL_SCOPES = new Set(["profile", "contacts", "nameFormats", "codes"]);
 const SCOPE_WRITE_TYPES = {
   profile: new Set(["profile_detail_review", "constituent_name", "constituent_profile"]),
   contacts: new Set(["contact_detail_review", "email_address", "phone", "address"]),
   nameFormats: new Set(["name_format_detail_review", "constituent_name_format"]),
+  codes: new Set(["constituent_code_detail_review", "constituent_code"]),
 };
 
 function cleanText(value) {
@@ -29,7 +37,22 @@ function cleanText(value) {
 }
 
 function getCollection(payload) {
-  return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+
+  const queue = [payload];
+  const seen = new Set();
+  const collectionKeys = ["value", "items", "data", "results"];
+  while (queue.length) {
+    const candidate = queue.shift();
+    if (!candidate || typeof candidate !== "object" || seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (Array.isArray(candidate)) return candidate;
+    collectionKeys.forEach((key) => {
+      if (candidate[key]) queue.push(candidate[key]);
+    });
+  }
+  return [];
 }
 
 function getPreview(row) {
@@ -162,6 +185,22 @@ function hasContactInput(input) {
   );
 }
 
+function hasContactSectionAction(decisions) {
+  const section = (kind) =>
+    decisions?.[kind]?.__section && typeof decisions[kind].__section === "object"
+      ? decisions[kind].__section
+      : {};
+  return Boolean(
+    cleanText(section("email").existingPrimaryTargetId) ||
+      cleanText(section("phone").existingPrimaryTargetId) ||
+      cleanText(section("address").previousAddressTargetId),
+  );
+}
+
+function hasConstituencyInput(input) {
+  return Boolean(cleanText(input?.sourceConstituency) || cleanText(input?.targetConstituency));
+}
+
 function getNextStatus(row, writePlan) {
   if (["Applied", "Failed", "Conflict"].includes(row.status)) return row.status;
   if (writePlan.some((write) => write?.requiresReview)) return "Needs Review";
@@ -179,6 +218,7 @@ function removeDetailReason(reasons, scope) {
     profile: /load the current NXT name and profile values/i,
     contacts: /load the current NXT email, phone, and address values/i,
     nameFormats: /load the current NXT addressee and salutation values/i,
+    codes: /(?:load the current NXT constituencies|Current constituency .* was not found on the NXT record\.)/i,
   };
   return (Array.isArray(reasons) ? reasons : []).filter(
     (reason) => !patterns[scope].test(cleanText(reason)),
@@ -187,17 +227,37 @@ function removeDetailReason(reasons, scope) {
 
 async function fetchCurrentContacts({ userId, authUserId, origin, constituentId }) {
   const basePath = `/constituent/v1/constituents/${encodeURIComponent(constituentId)}`;
-  const [emails, phones, addresses] = await Promise.all([
-    blackbaudApiFetch(`${basePath}/emailaddresses`, { userId, authUserId, origin }),
-    blackbaudApiFetch(`${basePath}/phones`, { userId, authUserId, origin }),
-    blackbaudApiFetch(`${basePath}/addresses`, { userId, authUserId, origin }),
-  ]);
+  const requests = [
+    ["emails", `${basePath}/emailaddresses`],
+    ["phones", `${basePath}/phones`],
+    ["addresses", `${basePath}/addresses`],
+  ];
+  const results = await Promise.allSettled(
+    requests.map(([, path]) => blackbaudApiFetch(path, { userId, authUserId, origin })),
+  );
+  const quotaFailure = results.find(
+    (result) => result.status === "rejected" && isBlackbaudQuotaExceededError(result.reason),
+  );
+  if (quotaFailure?.status === "rejected") throw quotaFailure.reason;
 
-  return serializeContactSnapshot({
-    emails: getCollection(emails),
-    phones: getCollection(phones),
-    addresses: getCollection(addresses),
+  const contacts = { emails: [], phones: [], addresses: [] };
+  const loaded = { emails: false, phones: false, addresses: false };
+  const errors = [];
+  results.forEach((result, index) => {
+    const [kind] = requests[index];
+    if (result.status === "fulfilled") {
+      contacts[kind] = getCollection(result.value);
+      loaded[kind] = true;
+      return;
+    }
+    errors.push(
+      `Could not load current NXT ${kind}: ${
+        result.reason instanceof Error ? result.reason.message : "Unknown error"
+      }`,
+    );
   });
+
+  return { contacts: serializeContactSnapshot(contacts), loaded, errors };
 }
 
 async function fetchCurrentNameFormats({ userId, authUserId, origin, constituentId }) {
@@ -209,6 +269,90 @@ async function fetchCurrentNameFormats({ userId, authUserId, origin, constituent
     addressee: serializeNameFormat(payload?.primary_addressee || payload?.primaryAddressee),
     salutation: serializeNameFormat(payload?.primary_salutation || payload?.primarySalutation),
   };
+}
+
+async function fetchCurrentConstituencyCodes({ userId, authUserId, origin, constituentId }) {
+  const payload = await blackbaudApiFetch(
+    `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/constituentcodes`,
+    { userId, authUserId, origin },
+  );
+  return getCollection(payload).map(mapConstituencyCode).filter((code) => code.label);
+}
+
+function serializeConstituencyCode(code) {
+  return {
+    id: cleanText(code?.id),
+    label: cleanText(code?.label),
+    startDate: formatDate(code?.startDate),
+    endDate: formatDate(code?.endDate),
+  };
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  if (typeof value !== "object") return cleanText(value);
+  const nestedValue =
+    value.date ||
+    value.value ||
+    value.date_value ||
+    value.formatted_value ||
+    value.formatted ||
+    value.iso ||
+    value.text;
+  if (nestedValue && nestedValue !== value) return formatDate(nestedValue);
+
+  const year = Number(value.y ?? value.year);
+  const month = Number(value.m ?? value.month);
+  const day = Number(value.d ?? value.day);
+  if (year && month && day) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  if (year && month) return `${year}-${String(month).padStart(2, "0")}`;
+  return year ? String(year) : "";
+}
+
+function getDeferredWrite(writePlan, type) {
+  return (Array.isArray(writePlan) ? writePlan : []).find(
+    (write) => write?.type === type && write?.deferredHydration,
+  );
+}
+
+function hasReviewDecisions(value) {
+  return Boolean(
+    value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length,
+  );
+}
+
+function getContactReviewDecisions(preview, writePlan) {
+  const deferred = getDeferredWrite(writePlan, "contact_detail_review")?.contactDecisions;
+  return hasReviewDecisions(deferred)
+    ? deferred
+    : hasReviewDecisions(preview?.contactReviewDecisions)
+      ? preview.contactReviewDecisions
+      : {};
+}
+
+function getFieldReviewDecisions(preview, writePlan, type) {
+  const deferred = getDeferredWrite(writePlan, type)?.fieldDecisions;
+  return hasReviewDecisions(deferred)
+    ? deferred
+    : hasReviewDecisions(preview?.fieldReviewDecisions)
+      ? preview.fieldReviewDecisions
+      : {};
+}
+
+function getDetailFailureMessage(scope, error) {
+  const name =
+    scope === "profile"
+      ? "profile"
+      : scope === "contacts"
+        ? "contact"
+        : scope === "nameFormats"
+          ? "name-format"
+          : "constituency";
+  if (isBlackbaudQuotaExceededError(error)) {
+    return `NXT ${name} checks are paused. ${getQuotaPauseNotice(error)}`;
+  }
+  const message = error instanceof Error ? error.message : "Unknown NXT error.";
+  return `Could not load the current NXT ${name} values: ${message}`;
 }
 
 export async function POST(request, { params }) {
@@ -254,73 +398,172 @@ export async function POST(request, { params }) {
       addressee: { id: "", value: "" },
       salutation: { id: "", value: "" },
     };
-    let profileSnapshot = preview.profileSnapshot || null;
-    let contactsSnapshotLoaded = Boolean(preview.contactsSnapshotLoaded);
+    let currentCodes = (Array.isArray(preview.currentCodeDetails)
+      ? preview.currentCodeDetails
+      : [])
+      .map(mapConstituencyCode)
+      .filter((code) => code.label);
+    let currentCodeDetails = currentCodes.map(serializeConstituencyCode);
+    let proposedCodes = Array.isArray(preview.proposedCodes) ? preview.proposedCodes : [];
+    let profileSnapshot = preview.profileSnapshotLoaded === true ? preview.profileSnapshot || null : null;
+    let profileSnapshotLoaded = Boolean(
+      profileSnapshot && hasUsableProfileSnapshot({ raw: profileSnapshot }),
+    );
+    let contactSnapshotStatus = getContactSnapshotStatus(
+      preview.contactSnapshotStatus,
+      preview.contactsSnapshotLoaded === true,
+    );
+    let contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
     let nameFormatsSnapshotLoaded = Boolean(preview.nameFormatsSnapshotLoaded);
+    let codesSnapshotLoaded = Boolean(preview.codesSnapshotLoaded);
     const deferredHydration = getDeferredHydration(preview);
     let reasons = Array.isArray(preview.reasons) ? preview.reasons : [];
     const detailMessages = [];
+    const failedScopes = [];
+    const detailFailureMessages = [];
+    const recordScopeFailure = (scope, error) => {
+      failedScopes.push(scope);
+      const message = getDetailFailureMessage(scope, error);
+      detailFailureMessages.push(message);
+      reasons = [...reasons, message];
+    };
 
     if (scopes.includes("profile")) {
-      const detailedMatch = await getBlackbaudConstituentById({
-        userId: authResult.user.id,
-        authUserId: authResult.user.id,
-        origin,
-        constituentId,
-      });
-      const profileWrites = buildProfileDetailWrites(
-        preview.input || {},
-        detailedMatch,
-      );
-      writePlan = appendScopeWrites(removeScopeWrites(writePlan, "profile"), "profile", profileWrites);
-      deferredHydration.detail = false;
-      profileSnapshot = detailedMatch?.raw || null;
-      reasons = removeDetailReason(reasons, "profile");
-      detailMessages.push("Loaded the current NXT name and profile values for this record.");
+      try {
+        const detailedMatch = await getBlackbaudConstituentById({
+          userId: authResult.user.id,
+          authUserId: authResult.user.id,
+          origin,
+          constituentId,
+        });
+        if (!hasUsableProfileSnapshot(detailedMatch)) {
+          throw new Error(
+            "NXT returned an incomplete constituent profile response. No blank profile values were staged.",
+          );
+        }
+        const profileWrites = buildProfileDetailWrites(
+          preview.input || {},
+          detailedMatch,
+          getFieldReviewDecisions(preview, writePlan, "profile_detail_review"),
+        );
+        writePlan = appendScopeWrites(removeScopeWrites(writePlan, "profile"), "profile", profileWrites);
+        deferredHydration.detail = false;
+        profileSnapshot =
+          detailedMatch?.raw && typeof detailedMatch.raw === "object" ? detailedMatch.raw : {};
+        profileSnapshotLoaded = true;
+        reasons = removeDetailReason(reasons, "profile");
+        detailMessages.push("Loaded the current NXT name and profile values for this record.");
+      } catch (error) {
+        recordScopeFailure("profile", error);
+      }
     }
 
-    if (scopes.includes("contacts") && hasContactInput(preview.input)) {
-      currentContacts = await fetchCurrentContacts({
-        userId: authResult.user.id,
-        authUserId: authResult.user.id,
-        origin,
-        constituentId,
-      });
-      const contactPreview = buildContactDetailPreview(preview.input || {}, currentContacts, {});
-      writePlan = appendScopeWrites(
-        removeScopeWrites(writePlan, "contacts"),
-        "contacts",
-        contactPreview.writes,
-      );
-      deferredHydration.contacts = false;
-      contactsSnapshotLoaded = true;
-      reasons = [
-        ...removeDetailReason(reasons, "contacts"),
-        ...contactPreview.noopReasons,
-      ];
-      detailMessages.push("Loaded the current NXT contact values for this record.");
+    const contactReviewDecisions = getContactReviewDecisions(preview, writePlan);
+    if (
+      scopes.includes("contacts") &&
+      (hasContactInput(preview.input) || hasContactSectionAction(contactReviewDecisions))
+    ) {
+      try {
+        const contactResult = await fetchCurrentContacts({
+          userId: authResult.user.id,
+          authUserId: authResult.user.id,
+          origin,
+          constituentId,
+        });
+        ["emails", "phones", "addresses"].forEach((kind) => {
+          if (contactResult.loaded[kind]) {
+            currentContacts = {
+              ...currentContacts,
+              [kind]: contactResult.contacts[kind],
+            };
+            contactSnapshotStatus[kind] = true;
+          }
+        });
+        const contactPreview = buildContactDetailPreview(
+          preview.input || {},
+          currentContacts,
+          contactReviewDecisions,
+          { snapshotStatus: contactSnapshotStatus },
+        );
+        const deferredContactWrite = buildDeferredContactDetailWrite(
+          preview.input || {},
+          contactReviewDecisions,
+          contactPreview.unavailableKinds,
+        );
+        writePlan = appendScopeWrites(
+          removeScopeWrites(writePlan, "contacts"),
+          "contacts",
+          [...contactPreview.writes, deferredContactWrite].filter(Boolean),
+        );
+        deferredHydration.contacts = Boolean(deferredContactWrite);
+        contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
+        reasons = [
+          ...removeDetailReason(reasons, "contacts"),
+          ...contactPreview.noopReasons,
+          ...contactResult.errors,
+        ];
+        detailMessages.push(
+          deferredContactWrite
+            ? "Loaded the available current NXT contact values. The remaining contact section stays in review until NXT returns it."
+            : "Loaded the current NXT contact values for this record.",
+        );
+      } catch (error) {
+        recordScopeFailure("contacts", error);
+      }
     }
 
     if (scopes.includes("nameFormats") && preview.input?.nameFormatUpdate) {
-      currentNameFormats = await fetchCurrentNameFormats({
-        userId: authResult.user.id,
-        authUserId: authResult.user.id,
-        origin,
-        constituentId,
-      });
-      const nameFormatWrites = buildNameFormatDetailWrites(
-        preview.input || {},
-        currentNameFormats,
-      );
-      writePlan = appendScopeWrites(
-        removeScopeWrites(writePlan, "nameFormats"),
-        "nameFormats",
-        nameFormatWrites,
-      );
-      deferredHydration.nameFormats = false;
-      nameFormatsSnapshotLoaded = true;
-      reasons = removeDetailReason(reasons, "nameFormats");
-      detailMessages.push("Loaded the current NXT addressee and salutation values for this record.");
+      try {
+        currentNameFormats = await fetchCurrentNameFormats({
+          userId: authResult.user.id,
+          authUserId: authResult.user.id,
+          origin,
+          constituentId,
+        });
+        const nameFormatWrites = buildNameFormatDetailWrites(
+          preview.input || {},
+          currentNameFormats,
+          getFieldReviewDecisions(preview, writePlan, "name_format_detail_review"),
+        );
+        writePlan = appendScopeWrites(
+          removeScopeWrites(writePlan, "nameFormats"),
+          "nameFormats",
+          nameFormatWrites,
+        );
+        deferredHydration.nameFormats = false;
+        nameFormatsSnapshotLoaded = true;
+        reasons = removeDetailReason(reasons, "nameFormats");
+        detailMessages.push("Loaded the current NXT addressee and salutation values for this record.");
+      } catch (error) {
+        recordScopeFailure("nameFormats", error);
+      }
+    }
+
+    if (scopes.includes("codes") && hasConstituencyInput(preview.input)) {
+      try {
+        currentCodes = await fetchCurrentConstituencyCodes({
+          userId: authResult.user.id,
+          authUserId: authResult.user.id,
+          origin,
+          constituentId,
+        });
+        const codePreview = previewConstituencyChange(preview.input || {}, currentCodes, {
+          useHierarchy: preview.useHierarchy !== false,
+        });
+        const codeWrites = buildConstituencyCodeWrites(preview.input || {}, codePreview);
+        writePlan = appendScopeWrites(removeScopeWrites(writePlan, "codes"), "codes", codeWrites);
+        deferredHydration.codes = false;
+        currentCodeDetails = currentCodes.map(serializeConstituencyCode);
+        proposedCodes = codePreview.proposedCodes;
+        codesSnapshotLoaded = true;
+        reasons = [
+          ...removeDetailReason(reasons, "codes"),
+          ...codePreview.reasons,
+        ];
+        detailMessages.push("Loaded the current NXT constituencies for this record.");
+      } catch (error) {
+        recordScopeFailure("codes", error);
+      }
     }
 
     const hasDeferredHydration = Object.values(deferredHydration).some(Boolean);
@@ -330,9 +573,15 @@ export async function POST(request, { params }) {
       status: nextStatus,
       currentContacts,
       currentNameFormats,
+      currentCodes: currentCodes.map((code) => code.label),
+      currentCodeDetails,
+      proposedCodes,
       profileSnapshot,
+      profileSnapshotLoaded,
+      contactSnapshotStatus,
       contactsSnapshotLoaded,
       nameFormatsSnapshotLoaded,
+      codesSnapshotLoaded,
       deferredHydration: hasDeferredHydration ? deferredHydration : null,
       writePlan,
       reasons: [...new Set(reasons)],
@@ -343,6 +592,7 @@ export async function POST(request, { params }) {
         ...(row.blackbaud_result?.detailHydration || {}),
         loadedAt: new Date().toISOString(),
         scopes,
+        failedScopes,
       },
     };
 
@@ -360,9 +610,10 @@ export async function POST(request, { params }) {
     await refreshRunSummary(routeParams.runId);
 
     return Response.json({
-      message: detailMessages.join(" ") || "Loaded current NXT record details.",
+      message: [...detailMessages, ...detailFailureMessages].join(" ") || "Loaded current NXT record details.",
       status: nextStatus,
       scopes,
+      failedScopes,
     });
   } catch (error) {
     console.error("Error loading current NXT import review details:", error);

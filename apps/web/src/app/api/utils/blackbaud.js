@@ -1016,17 +1016,97 @@ export async function getBlackbaudConstituentById({
     return null;
   }
 
+  // Blackbaud endpoints normally return the constituent directly, but some
+  // connector responses wrap it in `data`, `value`, or `constituent`. Keep the
+  // full payload for diagnostics while exposing the actual constituent record
+  // to callers that need its current profile values.
+  const record = getBlackbaudConstituentRecord(payload);
+
   return {
     blackbaudConstituentId:
-      payload?.id?.toString() || payload?.constituent_id?.toString() || normalizedId,
-    lookupId: payload?.lookup_id || payload?.lookupId || null,
+      record?.id?.toString() || record?.constituent_id?.toString() || normalizedId,
+    lookupId: record?.lookup_id || record?.lookupId || null,
     name:
-      payload?.name ||
-      [payload?.first, payload?.middle, payload?.last].filter(Boolean).join(" ").trim() ||
+      record?.name ||
+      [record?.first, record?.middle, record?.last].filter(Boolean).join(" ").trim() ||
       null,
-    email: payload?.address?.email?.address || payload?.email?.address || null,
-    raw: payload,
+    email: record?.address?.email?.address || record?.email?.address || record?.email || null,
+    raw: record,
+    response: payload,
   };
+}
+
+function getBlackbaudConstituentRecord(payload) {
+  const queue = [payload];
+  const seen = new Set();
+  const candidates = [];
+  const wrapperKeys = [
+    "constituent",
+    "record",
+    "data",
+    "result",
+    "value",
+    "item",
+    "response",
+    "individual",
+    "profile",
+  ];
+
+  while (queue.length) {
+    const candidate = queue.shift();
+    if (!candidate || typeof candidate !== "object" || seen.has(candidate)) continue;
+    seen.add(candidate);
+
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    wrapperKeys.forEach((key) => {
+      if (candidate[key]) queue.push(candidate[key]);
+    });
+    candidates.push(candidate);
+  }
+
+  // Some connector responses include an envelope ID as well as the actual
+  // constituent record. Prefer the object carrying profile fields so the
+  // review screen never interprets the envelope as an empty constituent.
+  return candidates.reduce(
+    (best, candidate) =>
+      getBlackbaudConstituentRecordScore(candidate) > getBlackbaudConstituentRecordScore(best)
+        ? candidate
+        : best,
+    payload,
+  );
+}
+
+function getBlackbaudConstituentRecordScore(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return 0;
+
+  const profileKeys = [
+    "first",
+    "last",
+    "preferred_name",
+    "preferredName",
+    "birthdate",
+    "birth_date",
+    "title",
+    "gender",
+    "ethnicity",
+    "suffix",
+  ];
+  const profileScore = profileKeys.reduce(
+    (score, key) => score + (candidate[key] === undefined || candidate[key] === null || candidate[key] === "" ? 0 : 10),
+    0,
+  );
+  const identityScore =
+    candidate.constituent_id || candidate.lookup_id || candidate.constituent_type
+      ? 3
+      : candidate.id && candidate.type
+        ? 2
+        : 0;
+
+  return profileScore + identityScore;
 }
 
 export async function listBlackbaudConstituentCustomFields({

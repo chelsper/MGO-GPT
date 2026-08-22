@@ -4,6 +4,7 @@ const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
+const blackbaudApiFetchMock = vi.fn();
 const getBlackbaudConstituentByIdMock = vi.fn();
 const isBlackbaudQuotaExceededErrorMock = vi.fn();
 
@@ -12,7 +13,7 @@ vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: getWorkspaceUserMock }));
 vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 vi.mock("@/app/api/utils/blackbaud", () => ({
-  blackbaudApiFetch: vi.fn(),
+  blackbaudApiFetch: blackbaudApiFetchMock,
   getBlackbaudConstituentById: getBlackbaudConstituentByIdMock,
   isBlackbaudQuotaExceededError: isBlackbaudQuotaExceededErrorMock,
 }));
@@ -58,6 +59,7 @@ describe("constituency import row detail route", () => {
     ensureAppSchemaMock.mockReset();
     getWorkspaceUserMock.mockReset();
     sqlMock.mockReset();
+    blackbaudApiFetchMock.mockReset();
     getBlackbaudConstituentByIdMock.mockReset();
     isBlackbaudQuotaExceededErrorMock.mockReset();
 
@@ -78,12 +80,16 @@ describe("constituency import row detail route", () => {
       .mockResolvedValueOnce([]);
     getBlackbaudConstituentByIdMock.mockResolvedValue({
       raw: {
-        type: "Individual",
-        first: "Victoria",
-        last: "Richards",
-        preferred_name: "Victoria",
-        title: "Dr.",
-        gender: "Female",
+        response: {
+          constituent: {
+            type: "Individual",
+            first: "Victoria",
+            last: "Richards",
+            preferred_name: "Victoria",
+            title: "Dr.",
+            gender: "Female",
+          },
+        },
       },
     });
 
@@ -104,7 +110,12 @@ describe("constituency import row detail route", () => {
     expect(updateCall).toBeTruthy();
     const savedPreview = JSON.parse(updateCall[2]);
     const savedWrites = JSON.parse(updateCall[3]);
-    expect(savedPreview.profileSnapshot).toMatchObject({ title: "Dr.", gender: "Female" });
+    expect(savedPreview.profileSnapshot).toMatchObject({
+      response: {
+        constituent: { title: "Dr.", gender: "Female" },
+      },
+    });
+    expect(savedPreview.profileSnapshotLoaded).toBe(true);
     expect(savedPreview.deferredHydration).toBeNull();
     expect(savedWrites).toEqual(
       expect.arrayContaining([
@@ -119,5 +130,131 @@ describe("constituency import row detail route", () => {
     expect(savedWrites).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "profile_detail_review" })]),
     );
+  });
+
+  it("hydrates deferred constituency rows before asking the reviewer to select a replacement", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview = {
+      input: {
+        sourceConstituency: "Student",
+        targetConstituency: "Alumni - Bachelor's Degree",
+        action: "replace",
+      },
+      match: { blackbaudConstituentId: "543503", lookupId: "543503" },
+      deferredHydration: { codes: true },
+      writePlan: [
+        {
+          type: "constituent_code_detail_review",
+          action: "load_current",
+          requiresReview: true,
+          deferredHydration: true,
+        },
+      ],
+      reasons: [
+        "Open this row to load the current NXT constituencies before reviewing this constituency change.",
+      ],
+    };
+    row.requested_writes = row.preview.writePlan;
+    sqlMock
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Needs Review" }])
+      .mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [
+        {
+          id: "student-code-1",
+          description: "Student",
+          date_from: "2020-08-15",
+        },
+      ],
+    });
+
+    const response = await POST(makeRequest({ scopes: ["codes"] }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.status).toBe("Needs Review");
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/543503/constituentcodes",
+      expect.objectContaining({ userId: 7 }),
+    );
+
+    const updateCall = sqlMock.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE constituency_import_rows"),
+    );
+    const savedPreview = JSON.parse(updateCall[2]);
+    const savedWrites = JSON.parse(updateCall[3]);
+    expect(savedPreview).toMatchObject({
+      codesSnapshotLoaded: true,
+      deferredHydration: null,
+      currentCodeDetails: [
+        expect.objectContaining({ id: "student-code-1", label: "Student" }),
+      ],
+    });
+    expect(savedWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "constituent_code",
+          action: "replace",
+          sourceCandidates: [
+            expect.objectContaining({ id: "student-code-1", label: "Student" }),
+          ],
+        }),
+      ]),
+    );
+    expect(savedWrites).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "constituent_code_detail_review" })]),
+    );
+  });
+
+  it("reads constituent-code collections nested under a connector data wrapper", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview = {
+      input: {
+        sourceConstituency: "Student",
+        targetConstituency: "Alumni - Bachelor's Degree",
+        action: "replace",
+      },
+      match: { blackbaudConstituentId: "543503", lookupId: "543503" },
+      deferredHydration: { codes: true },
+      writePlan: [
+        {
+          type: "constituent_code_detail_review",
+          action: "load_current",
+          requiresReview: true,
+          deferredHydration: true,
+        },
+      ],
+    };
+    row.requested_writes = row.preview.writePlan;
+    sqlMock
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Needs Review" }])
+      .mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValue({
+      data: {
+        items: [{ id: "student-code-1", description: "Student", date_from: "2020-08-15" }],
+      },
+    });
+
+    const response = await POST(makeRequest({ scopes: ["codes"] }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    const updateCall = sqlMock.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE constituency_import_rows"),
+    );
+    const savedPreview = JSON.parse(updateCall[2]);
+    expect(savedPreview.currentCodeDetails).toEqual([
+      expect.objectContaining({ id: "student-code-1", label: "Student" }),
+    ]);
   });
 });
