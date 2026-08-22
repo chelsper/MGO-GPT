@@ -16,6 +16,7 @@ import {
   isBlackbaudQuotaExceededError,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
+import { addressesEquivalent } from "@/utils/contactMatching";
 
 export const runtime = "nodejs";
 // The browser persists the import in small batches, so this route should fail
@@ -87,10 +88,6 @@ function normalizeText(value) {
     .trim();
 }
 
-function normalizePostalCode(value) {
-  return cleanText(value).replace(/[^0-9a-z]/gi, "").toLowerCase();
-}
-
 function normalizeEmailValue(value) {
   return cleanText(value).toLowerCase();
 }
@@ -100,25 +97,7 @@ function normalizePhoneValue(value) {
 }
 
 function addressesNearlyMatch(currentAddress, proposedAddress) {
-  if (!currentAddress || !proposedAddress) return false;
-
-  const currentLine1 = normalizeText(currentAddress.addressLine1);
-  const proposedLine1 = normalizeText(proposedAddress.addressLine1);
-  if (!currentLine1 || !proposedLine1 || currentLine1 !== proposedLine1) return false;
-
-  const currentCity = normalizeText(currentAddress.city);
-  const proposedCity = normalizeText(proposedAddress.city);
-  if (currentCity && proposedCity && currentCity !== proposedCity) return false;
-
-  const currentState = normalizeText(currentAddress.state);
-  const proposedState = normalizeText(proposedAddress.state);
-  if (currentState && proposedState && currentState !== proposedState) return false;
-
-  const currentPostal = normalizePostalCode(currentAddress.postalCode).slice(0, 5);
-  const proposedPostal = normalizePostalCode(proposedAddress.postalCode).slice(0, 5);
-  if (currentPostal && proposedPostal && currentPostal !== proposedPostal) return false;
-
-  return true;
+  return addressesEquivalent(currentAddress, proposedAddress);
 }
 
 function parseBoolean(value) {

@@ -855,6 +855,61 @@ describe("constituency import preview route", () => {
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
+  it("treats the same address as a no-op when NXT and CSV split an apartment across lines", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock.mockResolvedValueOnce({
+      value: [
+        {
+          id: "address-home",
+          address_lines: ["1675 Lakemont Ave Apt 101"],
+          city: "Orlando",
+          state: "FL",
+          postal_code: "32814-6349",
+          primary: true,
+        },
+      ],
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Address Line 1": "1675 Lakemont Avenue",
+            "Address Line 2": "Apartment 101",
+            City: "Orlando",
+            State: "FL",
+            "Postal Code": "32814",
+            "Address Type": "Home",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          addressLine1: "Address Line 1",
+          addressLine2: "Address Line 2",
+          city: "City",
+          state: "State",
+          postalCode: "Postal Code",
+          addressType: "Address Type",
+        },
+        defaults: { updateAddressFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Skipped");
+    expect(payload.rows[0].writePlan).toEqual([]);
+    expect(payload.rows[0].reasons).toContain(
+      "Current NXT address already closely matches the CSV address, so no address write will be sent.",
+    );
+  });
+
   it("stages an explicit existing email primary change without changing the email value", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

@@ -6,6 +6,7 @@ import { ArrowLeft, Check, Copy, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import { addressesEquivalent } from "@/utils/contactMatching";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const IMPORT_FIELDS = [
@@ -1319,13 +1320,6 @@ function normalizeReviewText(value) {
     .trim();
 }
 
-function normalizeReviewPostalCode(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^0-9a-z]/g, "");
-}
-
 function normalizeReviewEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -1335,25 +1329,7 @@ function normalizeReviewPhone(value) {
 }
 
 function addressesMatchForReview(currentAddress, proposedAddress) {
-  if (!currentAddress || !proposedAddress) return false;
-
-  const currentLine1 = normalizeReviewText(currentAddress.addressLine1);
-  const proposedLine1 = normalizeReviewText(proposedAddress.addressLine1);
-  if (!currentLine1 || !proposedLine1 || currentLine1 !== proposedLine1) return false;
-
-  const currentCity = normalizeReviewText(currentAddress.city);
-  const proposedCity = normalizeReviewText(proposedAddress.city);
-  if (currentCity && proposedCity && currentCity !== proposedCity) return false;
-
-  const currentState = normalizeReviewText(currentAddress.state);
-  const proposedState = normalizeReviewText(proposedAddress.state);
-  if (currentState && proposedState && currentState !== proposedState) return false;
-
-  const currentPostal = normalizeReviewPostalCode(currentAddress.postalCode).slice(0, 5);
-  const proposedPostal = normalizeReviewPostalCode(proposedAddress.postalCode).slice(0, 5);
-  if (currentPostal && proposedPostal && currentPostal !== proposedPostal) return false;
-
-  return true;
+  return addressesEquivalent(currentAddress, proposedAddress);
 }
 
 function findMatchingReviewContact(contacts, incoming, kind) {
@@ -1391,9 +1367,26 @@ function getImportContactUpdates(row, kind) {
   return Array.isArray(row?.input?.[key]) ? row.input[key] : [];
 }
 
+function getImportCurrentContacts(row, kind) {
+  if (kind === "email") return row?.currentContacts?.emails || [];
+  if (kind === "phone") return row?.currentContacts?.phones || [];
+  return row?.currentContacts?.addresses || [];
+}
+
+function isImplicitNoopImportContactUpdate(row, decisions, kind, index) {
+  const decision = getContactDecision(decisions, row?.rowNumber, kind, index);
+  if (decision.mode) return decision.mode === "skip";
+
+  const snapshotStatus = getImportContactSnapshotStatus(row);
+  if (!snapshotStatus[kind]) return false;
+
+  const value = getImportContactUpdates(row, kind)[index];
+  return Boolean(findMatchingReviewContact(getImportCurrentContacts(row, kind), value, kind));
+}
+
 function hasActiveImportContactUpdates(row, decisions, kind) {
   return getImportContactUpdates(row, kind).some(
-    (_value, index) => getContactDecision(decisions, row?.rowNumber, kind, index).mode !== "skip",
+    (_value, index) => !isImplicitNoopImportContactUpdate(row, decisions, kind, index),
   );
 }
 
