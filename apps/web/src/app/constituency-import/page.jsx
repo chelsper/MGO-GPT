@@ -1381,11 +1381,19 @@ function getImportMatchedConstituentId(row) {
   ).trim();
 }
 
-function hasImportContactUpdates(row) {
-  return Boolean(
-    row?.input?.emailUpdates?.length ||
-      row?.input?.phoneUpdates?.length ||
-      row?.input?.addressUpdates?.length,
+function getImportContactUpdates(row, kind) {
+  const key =
+    kind === "email"
+      ? "emailUpdates"
+      : kind === "phone"
+        ? "phoneUpdates"
+        : "addressUpdates";
+  return Array.isArray(row?.input?.[key]) ? row.input[key] : [];
+}
+
+function hasActiveImportContactUpdates(row, decisions, kind) {
+  return getImportContactUpdates(row, kind).some(
+    (_value, index) => getContactDecision(decisions, row?.rowNumber, kind, index).mode !== "skip",
   );
 }
 
@@ -1403,11 +1411,14 @@ function getRequiredImportContactKinds(row, decisions = {}) {
   const required = [];
   const emailSection = getContactSectionDecision(decisions, row?.rowNumber, "email");
   const phoneSection = getContactSectionDecision(decisions, row?.rowNumber, "phone");
-  const addressSection = getContactSectionDecision(decisions, row?.rowNumber, "address");
 
-  if (row?.input?.emailUpdates?.length || emailSection.existingPrimaryTargetId) required.push("email");
-  if (row?.input?.phoneUpdates?.length || phoneSection.existingPrimaryTargetId) required.push("phone");
-  if (row?.input?.addressUpdates?.length || addressSection.previousAddressTargetId) required.push("address");
+  if (hasActiveImportContactUpdates(row, decisions, "email") || emailSection.existingPrimaryTargetId) {
+    required.push("email");
+  }
+  if (hasActiveImportContactUpdates(row, decisions, "phone") || phoneSection.existingPrimaryTargetId) {
+    required.push("phone");
+  }
+  if (hasActiveImportContactUpdates(row, decisions, "address")) required.push("address");
   return required;
 }
 
@@ -1512,11 +1523,9 @@ function ContactReviewPanel({
       {sections.map((section) => {
         const sectionDecision = getContactSectionDecision(decisions, row.rowNumber, section.kind);
         const sectionLoaded = contactSnapshotStatus[section.kind];
-        const sectionNeedsSnapshot = Boolean(
-          section.values.length ||
-            sectionDecision.existingPrimaryTargetId ||
-            sectionDecision.previousAddressTargetId,
-        );
+        const sectionNeedsSnapshot =
+          hasActiveImportContactUpdates(row, decisions, section.kind) ||
+          (section.kind !== "address" && Boolean(sectionDecision.existingPrimaryTargetId));
         if (!sectionLoaded && sectionNeedsSnapshot) {
           return (
             <div

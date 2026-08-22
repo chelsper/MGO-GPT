@@ -778,6 +778,53 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan).toEqual([]);
   });
 
+  it("does not load NXT addresses when the reviewer skips the uploaded address", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "440085",
+            "Address Line 1": "1675 Lakemont Avenue",
+            City: "Orlando",
+            State: "FL",
+            "Postal Code": "32814",
+            "Address Type": "Home",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          addressLine1: "Address Line 1",
+          city: "City",
+          state: "State",
+          postalCode: "Postal Code",
+          addressType: "Address Type",
+        },
+        defaults: { updateAddressFields: true },
+        contactDecisions: {
+          1: {
+            address: {
+              0: { mode: "skip" },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Skipped");
+    expect(payload.rows[0].writePlan).toEqual([]);
+    expect(payload.rows[0].deferredHydration?.contacts).not.toBe(true);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("stages an explicit existing email primary change without changing the email value", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

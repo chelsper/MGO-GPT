@@ -50,6 +50,28 @@ function makeRow() {
   };
 }
 
+function makeAddressSkipRow() {
+  const row = makeRow();
+  row.preview = {
+    ...row.preview,
+    input: {
+      addressUpdates: [
+        {
+          addressLine1: "1675 Lakemont Avenue",
+          city: "Orlando",
+          state: "FL",
+          postalCode: "32814",
+          addressType: "Home",
+        },
+      ],
+    },
+    currentContacts: { emails: [], phones: [], addresses: [] },
+    contactSnapshotStatus: { emails: false, phones: false, addresses: false },
+    contactsSnapshotLoaded: false,
+  };
+  return row;
+}
+
 function makeRequest(body) {
   return new Request(
     "https://example.com/api/constituency-import/runs/42/rows/9/choices",
@@ -117,5 +139,41 @@ describe("constituency import review choices route", () => {
       email: { __section: { existingPrimaryTargetId: "email-new" } },
     });
     expect(savedPreview.deferredHydration).toBeNull();
+  });
+
+  it("clears a deferred address review when the reviewer selects take no action", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock
+      .mockResolvedValueOnce([makeAddressSkipRow()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Skipped" }])
+      .mockResolvedValueOnce([]);
+
+    const response = await POST(
+      makeRequest({
+        saveContactDecisions: true,
+        contactDecisions: {
+          address: {
+            0: { mode: "skip" },
+          },
+        },
+      }),
+      { params: { id: "42", rowId: "9" } },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.status).toBe("Skipped");
+    expect(payload.writePlan).toEqual([]);
+    expect(payload.preview.deferredHydration).toBeNull();
+
+    const updateCall = sqlMock.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE constituency_import_rows"),
+    );
+    const savedPreview = JSON.parse(updateCall[2]);
+    expect(savedPreview.contactReviewDecisions).toMatchObject({
+      address: { 0: { mode: "skip" } },
+    });
+    expect(savedPreview.writePlan).toEqual([]);
   });
 });

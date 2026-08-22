@@ -799,11 +799,19 @@ function getSectionDecision(decisions, kind) {
   return value && typeof value === "object" ? value : {};
 }
 
-function hasContactSectionAction(decisions) {
-  return Boolean(
-    cleanText(getSectionDecision(decisions, "email").existingPrimaryTargetId) ||
-      cleanText(getSectionDecision(decisions, "phone").existingPrimaryTargetId) ||
-      cleanText(getSectionDecision(decisions, "address").previousAddressTargetId),
+function getContactUpdates(input, kind) {
+  const key =
+    kind === "email"
+      ? "emailUpdates"
+      : kind === "phone"
+        ? "phoneUpdates"
+        : "addressUpdates";
+  return Array.isArray(input?.[key]) ? input[key] : [];
+}
+
+function hasActiveContactUpdates(input, contactDecisions, kind) {
+  return getContactUpdates(input, kind).some(
+    (_value, index) => getDecision(contactDecisions, kind, index).mode !== "skip",
   );
 }
 
@@ -818,13 +826,19 @@ export function getContactSnapshotStatus(status, fallbackLoaded = false) {
 
 export function getRequiredContactSnapshotKinds(input = {}, contactDecisions = {}) {
   const kinds = [];
-  if (input?.emailUpdates?.length || cleanText(getSectionDecision(contactDecisions, "email").existingPrimaryTargetId)) {
+  if (
+    hasActiveContactUpdates(input, contactDecisions, "email") ||
+    cleanText(getSectionDecision(contactDecisions, "email").existingPrimaryTargetId)
+  ) {
     kinds.push("emails");
   }
-  if (input?.phoneUpdates?.length || cleanText(getSectionDecision(contactDecisions, "phone").existingPrimaryTargetId)) {
+  if (
+    hasActiveContactUpdates(input, contactDecisions, "phone") ||
+    cleanText(getSectionDecision(contactDecisions, "phone").existingPrimaryTargetId)
+  ) {
     kinds.push("phones");
   }
-  if (input?.addressUpdates?.length || cleanText(getSectionDecision(contactDecisions, "address").previousAddressTargetId)) {
+  if (hasActiveContactUpdates(input, contactDecisions, "address")) {
     kinds.push("addresses");
   }
   return kinds;
@@ -3406,11 +3420,8 @@ export async function POST(request) {
           input.individualProfileUpdate ||
           input.nameFormatUpdate ||
           input.educationRelationship;
-        const needsContactDetail =
-          input.emailUpdates?.length ||
-          input.phoneUpdates?.length ||
-          input.addressUpdates?.length ||
-          hasContactSectionAction(rowContactDecisions);
+        const requiredContactKinds = getRequiredContactSnapshotKinds(input, rowContactDecisions);
+        const needsContactDetail = requiredContactKinds.length > 0;
         const deferThisRow = deferHeavyRowDetails && (needsHeavyDetail || needsContactDetail);
 
         if (
@@ -3467,23 +3478,11 @@ export async function POST(request) {
           );
         }
 
-        if (
-          !deferThisRow &&
-          (
-            input.emailUpdates?.length ||
-            input.phoneUpdates?.length ||
-            input.addressUpdates?.length ||
-            hasContactSectionAction(rowContactDecisions)
-          )
-        ) {
+        if (!deferThisRow && needsContactDetail) {
           rowTasks.push(
             (async () => {
               try {
                 const contactStartedAt = Date.now();
-                const requiredContactKinds = getRequiredContactSnapshotKinds(
-                  input,
-                  rowContactDecisions,
-                );
                 const contactPreview = await getOrLoadCached(
                   previewCache.currentContacts,
                   `${constituentId}:${[...requiredContactKinds].sort().join(",")}`,
@@ -3501,10 +3500,9 @@ export async function POST(request) {
                 contactFetchErrors = contactPreview.errors;
                 contactSnapshotStatus = getContactSnapshotStatus(contactPreview.loaded);
                 contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
-                deferredHydration.contacts = getRequiredContactSnapshotKinds(
-                  input,
-                  rowContactDecisions,
-                ).some((kind) => !contactSnapshotStatus[kind]);
+                deferredHydration.contacts = requiredContactKinds.some(
+                  (kind) => !contactSnapshotStatus[kind],
+                );
               } catch (error) {
                 if (!recordQuotaError(error)) {
                   contactFetchErrors = [
