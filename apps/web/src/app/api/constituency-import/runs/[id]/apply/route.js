@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-import { blackbaudApiFetch } from "@/app/api/utils/blackbaud";
+import { blackbaudApiFetch, getBlackbaudQuotaStatus } from "@/app/api/utils/blackbaud";
 import {
   normalizeQuotaPausedImportRow,
   sanitizeQuotaPauseWarnings,
@@ -49,7 +49,7 @@ function parseBoolean(value) {
   return false;
 }
 
-function serializeRun(row) {
+function serializeRun(row, { quotaPaused = false } = {}) {
   if (!row) return null;
   return {
     id: String(row.id),
@@ -63,7 +63,7 @@ function serializeRun(row) {
     appliedCount: Number(row.applied_count || 0),
     failedCount: Number(row.failed_count || 0),
     summary: row.summary || {},
-    warnings: sanitizeQuotaPauseWarnings(row.warnings),
+    warnings: sanitizeQuotaPauseWarnings(row.warnings, { quotaPaused }),
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
     appliedAt: row.applied_at || null,
@@ -74,20 +74,32 @@ function serializeRun(row) {
   };
 }
 
-function serializeImportRow(row) {
-  const { quotaPaused, preview } = normalizeQuotaPausedImportRow(row);
+function serializeImportRow(row, { quotaPaused: blackbaudQuotaPaused = false } = {}) {
+  const { quotaPaused, quotaRecoveryRequired, preview } = normalizeQuotaPausedImportRow(row, {
+    quotaPaused: blackbaudQuotaPaused,
+  });
   const requestedWrites = Array.isArray(row.requested_writes) ? row.requested_writes : [];
   return {
     ...preview,
     id: String(row.id),
     runId: String(row.run_id),
     rowNumber: Number(row.row_number || preview.rowNumber || 0),
-    status: quotaPaused ? preview.status : row.status || preview.status || "Needs Review",
-    matchStatus: quotaPaused ? preview.matchStatus : row.match_status || preview.matchStatus || "",
-    matchMethod: quotaPaused ? preview.matchMethod : row.match_method || preview.matchMethod || "",
-    confidence: quotaPaused ? 0 : Number(row.confidence || preview.confidence || 0),
-    blackbaudResult: quotaPaused ? null : row.blackbaud_result || null,
-    blackbaudError: quotaPaused ? "" : row.blackbaud_error || "",
+    status:
+      quotaPaused || quotaRecoveryRequired
+        ? preview.status
+        : row.status || preview.status || "Needs Review",
+    matchStatus:
+      quotaPaused || quotaRecoveryRequired
+        ? preview.matchStatus
+        : preview.matchStatus || row.match_status || "",
+    matchMethod:
+      quotaPaused || quotaRecoveryRequired
+        ? preview.matchMethod
+        : preview.matchMethod || row.match_method || "",
+    confidence:
+      quotaPaused ? 0 : Number(preview.confidence || row.confidence || 0),
+    blackbaudResult: quotaPaused || quotaRecoveryRequired ? null : row.blackbaud_result || null,
+    blackbaudError: quotaPaused || quotaRecoveryRequired ? "" : row.blackbaud_error || "",
     writePlan: Array.isArray(preview.writePlan) ? preview.writePlan : requestedWrites,
     appliedAt: row.applied_at || null,
     createApprovedAt: row.create_approved_at || null,
@@ -2001,6 +2013,7 @@ function summarizeRows(rows) {
 }
 
 async function fetchRunWithRows(runId) {
+  const blackbaudQuota = await getBlackbaudQuotaStatus();
   const runs = await sql`
     SELECT
       r.*,
@@ -2014,7 +2027,7 @@ async function fetchRunWithRows(runId) {
     WHERE r.id = ${runId}
     LIMIT 1
   `;
-  const run = serializeRun(runs[0]);
+  const run = serializeRun(runs[0], { quotaPaused: blackbaudQuota.paused });
 
   if (!run) {
     return null;
@@ -2032,7 +2045,9 @@ async function fetchRunWithRows(runId) {
     savedRun: run,
     warnings: run.warnings,
     summary: run.summary,
-    rows: rows.map(serializeImportRow),
+    rows: rows.map((row) =>
+      serializeImportRow(row, { quotaPaused: blackbaudQuota.paused }),
+    ),
   };
 }
 

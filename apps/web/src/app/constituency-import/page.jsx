@@ -3691,9 +3691,17 @@ export default function ConstituencyImportPage() {
 
   function needsProfileDetailHydration(row) {
     if (!getImportMatchedConstituentId(row) || row?.profileSnapshotLoaded === true) return false;
-    if (row?.deferredHydration?.detail) return true;
+    if (row?.deferredHydration?.detail || row?.deferredHydration?.educations) return true;
     return Array.isArray(row?.writePlan) && row.writePlan.some(
       (write) => write?.type === "constituent_name" || write?.type === "constituent_profile",
+    );
+  }
+
+  function needsEducationDetailHydration(row) {
+    if (!getImportMatchedConstituentId(row)) return false;
+    if (row?.deferredHydration?.educations) return true;
+    return Array.isArray(row?.writePlan) && row.writePlan.some(
+      (write) => write?.type === "education_relationship" && write?.deferredHydration,
     );
   }
 
@@ -3794,6 +3802,7 @@ export default function ConstituencyImportPage() {
     if (needsProfileDetailHydration(row)) detailScopes.push("profile");
     if (needsCurrentContactDetails(row)) detailScopes.push("contacts");
     if (needsNameFormatDetailHydration(row)) detailScopes.push("nameFormats");
+    if (needsEducationDetailHydration(row)) detailScopes.push("educations");
     if (needsCurrentConstituencyDetails(row)) detailScopes.push("codes");
     if (detailScopes.length) {
       return hydrateImportRowDetails(row, detailScopes, runIdOverride);

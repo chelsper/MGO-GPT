@@ -4,6 +4,7 @@ const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
+const getBlackbaudQuotaStatusMock = vi.fn();
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -21,6 +22,10 @@ vi.mock("@/app/api/utils/sql", () => ({
   default: sqlMock,
 }));
 
+vi.mock("@/app/api/utils/blackbaud", () => ({
+  getBlackbaudQuotaStatus: getBlackbaudQuotaStatusMock,
+}));
+
 function makeRequest() {
   return new Request("https://example.com/api/constituency-import/runs?id=42");
 }
@@ -31,6 +36,7 @@ describe("constituency import runs route", () => {
     ensureAppSchemaMock.mockReset();
     getWorkspaceUserMock.mockReset();
     sqlMock.mockReset();
+    getBlackbaudQuotaStatusMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -40,6 +46,11 @@ describe("constituency import runs route", () => {
         email: "reviewer@example.com",
         role: "admin",
       },
+    });
+    getBlackbaudQuotaStatusMock.mockResolvedValue({
+      status: "paused",
+      paused: true,
+      remainingMs: 422 * 60 * 1000,
     });
   });
 
@@ -117,6 +128,104 @@ describe("constituency import runs route", () => {
     });
     expect(payload.rows[0].reasons.join(" ")).not.toContain("Student was not found");
     expect(payload.rows[0].reasons.join(" ")).not.toContain('"statusCode"');
+    expect(payload.rows[0].blackbaudResult).toBeNull();
+    expect(payload.rows[0].blackbaudError).toBe("");
+  });
+
+  it("recovers an expired quota-paused row with its saved match and scoped refresh plan", async () => {
+    const { GET } = await import("./route.js");
+    const quotaResponse =
+      'Blackbaud call-volume quota is temporarily unavailable. Provider response: {"statusCode":403,"message":"Out of call volume quota."} This row was saved safely without attempting further NXT calls.';
+    getBlackbaudQuotaStatusMock.mockResolvedValue({
+      status: "available",
+      paused: false,
+      remainingMs: 0,
+    });
+
+    sqlMock
+      .mockResolvedValueOnce([
+        {
+          id: "42",
+          status: "previewed",
+          source_filename: "students.csv",
+          row_count: 1,
+          ready_count: 0,
+          needs_review_count: 1,
+          conflict_count: 0,
+          skipped_count: 0,
+          applied_count: 0,
+          failed_count: 0,
+          warnings: [quotaResponse],
+          summary: {},
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "9",
+          run_id: "42",
+          row_number: 1,
+          status: "Needs Review",
+          match_method: "NXT checks paused",
+          match_status: "needs_review",
+          matched_blackbaud_constituent_id: "543503",
+          matched_lookup_id: "543503",
+          confidence: 98,
+          blackbaud_result: { provider: quotaResponse },
+          blackbaud_error: quotaResponse,
+          requested_writes: [],
+          preview: {
+            rowNumber: 1,
+            matchMethod: "NXT checks paused",
+            contactReviewDecisions: {},
+            input: {
+              constituentName: "Victoria Richards",
+              nameUpdate: { firstName: "Victoria", lastName: "Richards" },
+              emailUpdates: [{ address: "victoria@example.com", type: "Personal" }],
+              sourceConstituency: "Student",
+              targetConstituency: "Alumni - Bachelor's Degree",
+              educationRelationship: {
+                action: "review-update",
+                institution: "Jacksonville University",
+              },
+            },
+          },
+        },
+      ]);
+
+    const response = await GET(makeRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.warnings).toEqual([]);
+    expect(payload.rows[0]).toMatchObject({
+      nxtChecksPaused: false,
+      quotaRecoveryRequired: true,
+      status: "Needs Review",
+      matchStatus: "matched",
+      matchMethod: "Saved match needs refresh",
+      match: {
+        blackbaudConstituentId: "543503",
+        lookupId: "543503",
+        name: "Victoria Richards",
+      },
+      currentContacts: { emails: [], phones: [], addresses: [] },
+      currentCodes: [],
+      currentEducations: [],
+      deferredHydration: {
+        detail: true,
+        contacts: true,
+        educations: true,
+        codes: true,
+      },
+    });
+    expect(payload.rows[0].writePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "profile_detail_review", deferredHydration: true }),
+        expect.objectContaining({ type: "contact_detail_review", deferredHydration: true }),
+        expect.objectContaining({ type: "constituent_code_detail_review", deferredHydration: true }),
+        expect.objectContaining({ type: "education_relationship", deferredHydration: true }),
+      ]),
+    );
     expect(payload.rows[0].blackbaudResult).toBeNull();
     expect(payload.rows[0].blackbaudError).toBe("");
   });

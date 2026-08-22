@@ -1142,7 +1142,7 @@ function getEducationClassYear(value) {
   return cleanText(value?.class_of || value?.class_year || value?.classYear || value?.class);
 }
 
-function serializeEducation(value) {
+export function serializeEducation(value) {
   return {
     id: getEducationId(value),
     school: getEducationSchool(value),
@@ -1231,7 +1231,7 @@ function educationMatchesAllSuppliedWriteFields(write, education) {
   );
 }
 
-function buildEducationRelationshipWrite(input, match, currentEducations) {
+export function buildEducationRelationshipWrite(input, match, currentEducations) {
   if (!input.educationRelationship) return null;
 
   const write = {

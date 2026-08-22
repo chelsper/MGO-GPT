@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
+import { getBlackbaudQuotaStatus } from "@/app/api/utils/blackbaud";
 import {
   normalizeQuotaPausedImportRow,
   sanitizeQuotaPauseWarnings,
@@ -12,9 +13,9 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
-function serializeRun(row) {
+function serializeRun(row, { quotaPaused = false } = {}) {
   if (!row) return null;
-  const warnings = sanitizeQuotaPauseWarnings(row.warnings);
+  const warnings = sanitizeQuotaPauseWarnings(row.warnings, { quotaPaused });
   return {
     id: String(row.id),
     status: row.status,
@@ -38,8 +39,10 @@ function serializeRun(row) {
   };
 }
 
-function serializeImportRow(row) {
-  const { quotaPaused, preview } = normalizeQuotaPausedImportRow(row);
+function serializeImportRow(row, { quotaPaused: blackbaudQuotaPaused = false } = {}) {
+  const { quotaPaused, quotaRecoveryRequired, preview } = normalizeQuotaPausedImportRow(row, {
+    quotaPaused: blackbaudQuotaPaused,
+  });
   const storedMatchMethod = row.match_method || preview.matchMethod || "";
   const requestedWrites = Array.isArray(row.requested_writes) ? row.requested_writes : [];
   return {
@@ -47,14 +50,24 @@ function serializeImportRow(row) {
     id: String(row.id),
     runId: String(row.run_id),
     rowNumber: Number(row.row_number || preview.rowNumber || 0),
-    status: quotaPaused ? preview.status : row.status || preview.status || "Needs Review",
-    matchStatus: quotaPaused ? preview.matchStatus : row.match_status || preview.matchStatus || "",
-    matchMethod: quotaPaused ? preview.matchMethod : preview.matchMethod || storedMatchMethod,
-    confidence: quotaPaused ? 0 : Number(row.confidence || preview.confidence || 0),
+    status:
+      quotaPaused || quotaRecoveryRequired
+        ? preview.status
+        : row.status || preview.status || "Needs Review",
+    matchStatus:
+      quotaPaused || quotaRecoveryRequired
+        ? preview.matchStatus
+        : preview.matchStatus || row.match_status || "",
+    matchMethod:
+      quotaPaused || quotaRecoveryRequired
+        ? preview.matchMethod
+        : preview.matchMethod || storedMatchMethod,
+    confidence:
+      quotaPaused ? 0 : Number(preview.confidence || row.confidence || 0),
     // Older paused rows can contain the raw provider response alongside a
     // partial review. Do not return either field once the row is normalized.
-    blackbaudResult: quotaPaused ? null : row.blackbaud_result || null,
-    blackbaudError: quotaPaused ? "" : row.blackbaud_error || "",
+    blackbaudResult: quotaPaused || quotaRecoveryRequired ? null : row.blackbaud_result || null,
+    blackbaudError: quotaPaused || quotaRecoveryRequired ? "" : row.blackbaud_error || "",
     writePlan: Array.isArray(preview.writePlan) ? preview.writePlan : requestedWrites,
     appliedAt: row.applied_at || null,
     createApprovedAt: row.create_approved_at || null,
@@ -98,6 +111,9 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const requestedId = cleanText(searchParams.get("id"));
     const status = cleanText(searchParams.get("status"));
+    // This is a database-backed circuit-breaker read, not a Blackbaud API request.
+    // Saved rows must use the current state rather than a quota error persisted hours ago.
+    const blackbaudQuota = await getBlackbaudQuotaStatus();
 
     if (requestedId) {
       if (!/^\d+$/.test(requestedId)) {
@@ -117,7 +133,7 @@ export async function GET(request) {
         WHERE r.id = ${requestedId}
         LIMIT 1
       `;
-      const run = serializeRun(runs[0]);
+      const run = serializeRun(runs[0], { quotaPaused: blackbaudQuota.paused });
 
       if (!run) {
         return Response.json({ error: "Import run not found" }, { status: 404 });
@@ -136,7 +152,9 @@ export async function GET(request) {
           savedRun: run,
           warnings: run.warnings,
           summary: run.summary,
-          rows: rows.map(serializeImportRow),
+          rows: rows.map((row) =>
+            serializeImportRow(row, { quotaPaused: blackbaudQuota.paused }),
+          ),
         },
         { headers: { "Cache-Control": "private, no-store, max-age=0" } },
       );
@@ -163,7 +181,11 @@ export async function GET(request) {
     `;
 
     return Response.json(
-      { runs: runs.map(serializeRun) },
+      {
+        runs: runs.map((run) =>
+          serializeRun(run, { quotaPaused: blackbaudQuota.paused }),
+        ),
+      },
       { headers: { "Cache-Control": "private, no-store, max-age=0" } },
     );
   } catch (error) {

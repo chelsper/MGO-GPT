@@ -5,6 +5,7 @@ const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
+const getBlackbaudQuotaStatusMock = vi.fn();
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -24,6 +25,7 @@ vi.mock("@/app/api/utils/sql", () => ({
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
+  getBlackbaudQuotaStatus: getBlackbaudQuotaStatusMock,
 }));
 
 function makeRequest(search = "", body) {
@@ -72,6 +74,7 @@ describe("constituency import run apply route", () => {
     getWorkspaceUserMock.mockReset();
     sqlMock.mockReset();
     blackbaudApiFetchMock.mockReset();
+    getBlackbaudQuotaStatusMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -88,6 +91,11 @@ describe("constituency import run apply route", () => {
         email: "reviewer@example.com",
         role: "reviewer",
       },
+    });
+    getBlackbaudQuotaStatusMock.mockResolvedValue({
+      status: "available",
+      paused: false,
+      remainingMs: 0,
     });
   });
 
