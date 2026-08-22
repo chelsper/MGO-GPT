@@ -48,6 +48,7 @@ let blackbaudQuotaStateCache = {
   checkedAt: 0,
   blockedUntil: 0,
   message: "",
+  updatedAt: null,
 };
 
 export class BlackbaudQuotaExceededError extends Error {
@@ -114,19 +115,43 @@ async function getBlackbaudQuotaState() {
   }
 
   const rows = await sql`
-    SELECT blocked_until, message
+    SELECT blocked_until, message, updated_at
     FROM blackbaud_api_limit_state
     WHERE state_key = ${BLACKBAUD_QUOTA_STATE_KEY}
     LIMIT 1
   `;
   const row = rows[0] || null;
   const blockedUntil = row?.blocked_until ? new Date(row.blocked_until).getTime() : 0;
+  const updatedAt = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
   blackbaudQuotaStateCache = {
     checkedAt: now,
     blockedUntil: Number.isFinite(blockedUntil) ? blockedUntil : 0,
     message: String(row?.message || ""),
+    updatedAt:
+      Number.isFinite(updatedAt) && updatedAt > 0
+        ? new Date(updatedAt).toISOString()
+        : null,
   };
   return blackbaudQuotaStateCache;
+}
+
+// This reads the persisted subscription-wide circuit breaker only. It never
+// refreshes an OAuth token or sends a request to Blackbaud.
+export async function getBlackbaudQuotaStatus() {
+  await ensureAppSchema();
+  const state = await getBlackbaudQuotaState();
+  const remainingMs = Math.max(0, state.blockedUntil - Date.now());
+  const checkedAt = state.checkedAt ? new Date(state.checkedAt).toISOString() : null;
+
+  return {
+    status: remainingMs > 0 ? "paused" : "available",
+    paused: remainingMs > 0,
+    blockedUntil:
+      state.blockedUntil > 0 ? new Date(state.blockedUntil).toISOString() : null,
+    remainingMs,
+    checkedAt,
+    updatedAt: state.updatedAt || null,
+  };
 }
 
 async function assertBlackbaudQuotaAvailable() {
@@ -168,6 +193,7 @@ async function recordBlackbaudQuotaExceeded({ responseText, retryAfterMs }) {
     checkedAt: Date.now(),
     blockedUntil: new Date(blockedUntil).getTime(),
     message,
+    updatedAt: new Date().toISOString(),
   };
   return new BlackbaudQuotaExceededError({ message, retryAfterMs });
 }

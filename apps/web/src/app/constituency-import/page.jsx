@@ -916,6 +916,16 @@ function getNxtChecksPausedNotice(text = "") {
   return `Blackbaud's call-volume quota is temporarily unavailable.${wait} This import row was saved safely; no NXT record was checked and no NXT change will be sent until the quota is restored.`;
 }
 
+function getNxtAvailabilityNotice(quota) {
+  const resumeAt = formatDateTime(quota?.blockedUntil);
+  const minutes = Math.ceil(Math.max(0, Number(quota?.remainingMs) || 0) / 60_000);
+  const wait = minutes
+    ? ` Blackbaud estimates availability in about ${minutes} minute${minutes === 1 ? "" : "s"}.`
+    : "";
+  const resume = resumeAt ? ` NXT calls are expected to resume around ${resumeAt}.` : "";
+  return `NXT calls are temporarily paused by Blackbaud.${wait}${resume} You can still map the CSV and reopen saved reviews; JUMGOGPT will reuse saved NXT snapshots whenever possible and will not keep retrying Blackbaud while the shared quota is paused.`;
+}
+
 function Pill({ children, tone = "neutral" }) {
   const tones = {
     blue: { bg: "#EFF6FF", fg: "#1D4ED8", border: "#BFDBFE" },
@@ -2690,6 +2700,9 @@ export default function ConstituencyImportPage() {
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
+  const [nxtAvailability, setNxtAvailability] = useState(null);
+  const [checkingNxtAvailability, setCheckingNxtAvailability] = useState(false);
+  const [nxtAvailabilityError, setNxtAvailabilityError] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewProgress, setPreviewProgress] = useState(null);
@@ -2978,6 +2991,34 @@ export default function ConstituencyImportPage() {
       active = false;
     };
   }, [loading]);
+
+  async function refreshNxtAvailability() {
+    setCheckingNxtAvailability(true);
+    setNxtAvailabilityError("");
+    try {
+      const response = await fetch("/api/blackbaud/status?availability=1", {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not load NXT availability.");
+      }
+      setNxtAvailability(payload?.quota || null);
+    } catch (availabilityError) {
+      setNxtAvailabilityError(
+        availabilityError instanceof Error
+          ? availabilityError.message
+          : "Could not load NXT availability.",
+      );
+    } finally {
+      setCheckingNxtAvailability(false);
+    }
+  }
+
+  useEffect(() => {
+    if (loading || !user?.email) return;
+    void refreshNxtAvailability();
+  }, [loading, user?.email]);
 
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
@@ -4705,15 +4746,17 @@ export default function ConstituencyImportPage() {
         );
         return null;
       }
-      setError(
-        batchRunId
-          ? `Import review paused after ${batchCompleted} row${batchCompleted === 1 ? "" : "s"} were saved. ${
-              previewError instanceof Error ? previewError.message : "Please try again."
-            }`
-          : previewError instanceof Error
-            ? previewError.message
-            : "Failed to review constituency import",
-      );
+      const message = batchRunId
+        ? `Import review paused after ${batchCompleted} row${batchCompleted === 1 ? "" : "s"} were saved. ${
+            previewError instanceof Error ? previewError.message : "Please try again."
+          }`
+        : previewError instanceof Error
+          ? previewError.message
+          : "Failed to review constituency import";
+      if (isBlackbaudQuotaPausedText(message)) {
+        void refreshNxtAvailability();
+      }
+      setError(message);
       return null;
     } finally {
       if (previewAbortControllerRef.current === controller) {
@@ -6107,6 +6150,86 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
+          {nxtAvailability?.paused ? (
+            <div
+              role="status"
+              style={{
+                border: "1px solid #FDE68A",
+                borderRadius: "14px",
+                backgroundColor: "#FFFBEB",
+                color: "#92400E",
+                padding: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              <span>{getNxtAvailabilityNotice(nxtAvailability)}</span>
+              <button
+                type="button"
+                onClick={() => refreshNxtAvailability()}
+                disabled={checkingNxtAvailability}
+                style={{
+                  border: "1px solid #D97706",
+                  borderRadius: "999px",
+                  backgroundColor: "white",
+                  color: "#92400E",
+                  padding: "8px 11px",
+                  fontWeight: 900,
+                  cursor: checkingNxtAvailability ? "wait" : "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                {checkingNxtAvailability ? "Checking NXT status..." : "Check NXT status"}
+              </button>
+            </div>
+          ) : rows.length && nxtAvailability?.status === "available" ? (
+            <div
+              role="status"
+              style={{
+                border: "1px solid #BBF7D0",
+                borderRadius: "12px",
+                backgroundColor: "#F0FDF4",
+                color: "#166534",
+                padding: "10px 12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                fontSize: "14px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              <span>NXT calls are available. Saved NXT snapshots are reused before JUMGOGPT requests new data.</span>
+              <button
+                type="button"
+                onClick={() => refreshNxtAvailability()}
+                disabled={checkingNxtAvailability}
+                style={{
+                  border: "1px solid #86EFAC",
+                  borderRadius: "999px",
+                  backgroundColor: "white",
+                  color: "#166534",
+                  padding: "7px 10px",
+                  fontWeight: 900,
+                  cursor: checkingNxtAvailability ? "wait" : "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                {checkingNxtAvailability ? "Checking..." : "Refresh status"}
+              </button>
+            </div>
+          ) : nxtAvailabilityError ? (
+            <div style={{ color: "#6B7280", fontSize: "13px", fontWeight: 700 }}>
+              NXT availability is not available right now. You can still prepare this import. {nxtAvailabilityError}
+            </div>
+          ) : null}
           {missingHeaders.length ? (
             <div
               style={{

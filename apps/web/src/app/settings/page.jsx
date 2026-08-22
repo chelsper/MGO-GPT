@@ -26,6 +26,7 @@ function Notice({ tone = "info", children }) {
   const tones = {
     info: { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" },
     success: { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0", color: "#065F46" },
+    warning: { backgroundColor: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" },
     error: { backgroundColor: "#FEF2F2", borderColor: "#FECACA", color: "#991B1B" },
   };
   const colors = tones[tone] || tones.info;
@@ -253,6 +254,7 @@ export default function SettingsPage() {
   const canSyncPortfolio = portfolioSyncEligible;
   const connectionConfigured = blackbaudStatus?.configured !== false;
   const connectedScopes = blackbaudStatus?.connectedScopes || [];
+  const blackbaudQuota = blackbaudStatus?.quota || null;
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
@@ -319,6 +321,15 @@ export default function SettingsPage() {
           </div>
 
           {connectionError ? <div style={{ marginTop: "16px" }}><Notice tone="error">{connectionError}</Notice></div> : null}
+          {blackbaudQuota?.paused ? (
+            <div style={{ marginTop: "16px" }}>
+              <Notice tone="warning">
+                Blackbaud NXT calls are temporarily paused until {formatDateTime(blackbaudQuota.blockedUntil)}.
+                Cached reports and saved import reviews remain available. JUMGOGPT will not retry NXT while
+                Blackbaud&apos;s shared call-volume quota is paused.
+              </Notice>
+            </div>
+          ) : null}
           {connectionLoading ? (
             <p style={{ margin: "18px 0 0", color: "#6B7280" }}>Checking Blackbaud connection...</p>
           ) : !connectionConfigured ? (
