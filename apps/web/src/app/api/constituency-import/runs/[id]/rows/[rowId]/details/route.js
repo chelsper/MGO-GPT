@@ -225,13 +225,34 @@ function removeDetailReason(reasons, scope) {
   );
 }
 
-async function fetchCurrentContacts({ userId, authUserId, origin, constituentId }) {
+async function fetchCurrentContacts({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+  kinds = ["emails", "phones", "addresses"],
+}) {
   const basePath = `/constituent/v1/constituents/${encodeURIComponent(constituentId)}`;
-  const requests = [
+  const availableRequests = [
     ["emails", `${basePath}/emailaddresses`],
     ["phones", `${basePath}/phones`],
     ["addresses", `${basePath}/addresses`],
   ];
+  const requestedKinds = new Set(
+    (Array.isArray(kinds) ? kinds : []).filter((kind) =>
+      ["emails", "phones", "addresses"].includes(kind),
+    ),
+  );
+  const requests = availableRequests.filter(([kind]) => requestedKinds.has(kind));
+
+  if (!requests.length) {
+    return {
+      contacts: { emails: [], phones: [], addresses: [] },
+      loaded: { emails: false, phones: false, addresses: false },
+      errors: [],
+    };
+  }
+
   const results = await Promise.allSettled(
     requests.map(([, path]) => blackbaudApiFetch(path, { userId, authUserId, origin })),
   );
@@ -422,7 +443,7 @@ export async function POST(request, { params }) {
     const failedScopes = [];
     const detailFailureMessages = [];
     const recordScopeFailure = (scope, error) => {
-      failedScopes.push(scope);
+      if (!failedScopes.includes(scope)) failedScopes.push(scope);
       const message = getDetailFailureMessage(scope, error);
       detailFailureMessages.push(message);
       reasons = [...reasons, message];
@@ -464,11 +485,16 @@ export async function POST(request, { params }) {
       (hasContactInput(preview.input) || hasContactSectionAction(contactReviewDecisions))
     ) {
       try {
+        const requiredContactKinds = getRequiredContactSnapshotKinds(
+          preview.input || {},
+          contactReviewDecisions,
+        );
         const contactResult = await fetchCurrentContacts({
           userId: authResult.user.id,
           authUserId: authResult.user.id,
           origin,
           constituentId,
+          kinds: requiredContactKinds,
         });
         ["emails", "phones", "addresses"].forEach((kind) => {
           if (contactResult.loaded[kind]) {
@@ -502,6 +528,12 @@ export async function POST(request, { params }) {
           ...contactPreview.noopReasons,
           ...contactResult.errors,
         ];
+        if (deferredContactWrite) {
+          if (!failedScopes.includes("contacts")) failedScopes.push("contacts");
+          detailFailureMessages.push(
+            "Some current NXT contact values could not be loaded. The available values were saved; retry the contact review to load the remaining section.",
+          );
+        }
         detailMessages.push(
           deferredContactWrite
             ? "Loaded the available current NXT contact values. The remaining contact section stays in review until NXT returns it."
@@ -614,6 +646,7 @@ export async function POST(request, { params }) {
       status: nextStatus,
       scopes,
       failedScopes,
+      complete: failedScopes.length === 0,
     });
   } catch (error) {
     console.error("Error loading current NXT import review details:", error);

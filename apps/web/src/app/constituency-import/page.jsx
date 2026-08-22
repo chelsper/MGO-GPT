@@ -3635,7 +3635,7 @@ export default function ConstituencyImportPage() {
         (row) => String(row?.id) === nextFocusedRowId,
       );
       if (focusedRow && preload) {
-        preloadRequiredReviewChoices(focusedRow, payload?.savedRun?.id || runId);
+        void preloadRequiredReviewChoices(focusedRow, payload?.savedRun?.id || runId);
       }
       return payload;
     } catch (loadError) {
@@ -3673,7 +3673,7 @@ export default function ConstituencyImportPage() {
 
   function focusImportRowState(row) {
     if (!row?.id) return;
-    preloadRequiredReviewChoices(row);
+    void preloadRequiredReviewChoices(row);
     setFocusedRowId(String(row.id));
     setReviewMode(true);
     window.setTimeout(() => {
@@ -3722,9 +3722,9 @@ export default function ConstituencyImportPage() {
     { force = false } = {},
   ) {
     const runId = runIdOverride || preview?.savedRun?.id;
-    if (!runId || !row?.id) return;
+    if (!runId || !row?.id) return null;
     const normalizedScopes = [...new Set(scopes)].filter(Boolean).sort();
-    if (!normalizedScopes.length) return;
+    if (!normalizedScopes.length) return null;
 
     const scopeKey = normalizedScopes.join(",");
     const requestKey = `${runId}:${row.id}:${scopeKey}`;
@@ -3733,10 +3733,10 @@ export default function ConstituencyImportPage() {
     // same row. Only one detail request may run at a time or slower responses
     // can overwrite the newer snapshot with an incomplete one.
     if (pendingDetailHydrationRowsRef.current.has(rowRequestKey)) {
-      return;
+      return null;
     }
     if (force) hydratedDetailRowsRef.current.delete(requestKey);
-    if (hydratedDetailRowsRef.current.has(requestKey)) return;
+    if (hydratedDetailRowsRef.current.has(requestKey)) return null;
     hydratedDetailRowsRef.current.add(requestKey);
     pendingDetailHydrationRowsRef.current.add(rowRequestKey);
     setHydratingDetailRows((current) => ({ ...current, [requestKey]: true }));
@@ -3754,12 +3754,22 @@ export default function ConstituencyImportPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Could not load current NXT record details.");
       }
-      await loadSavedRun(runId, {
+      const savedPayload = await loadSavedRun(runId, {
         focusRowId: row.id,
         message: payload?.message || "Loaded current NXT record details for this row.",
         preload: false,
       });
       fetchSavedRuns();
+      if (Array.isArray(payload?.failedScopes) && payload.failedScopes.length) {
+        // A partial NXT response is useful, but it must never be remembered as a
+        // completed hydration. Keeping it retryable prevents a stale placeholder
+        // from permanently blocking the guarded send action.
+        hydratedDetailRowsRef.current.delete(requestKey);
+        setError(
+          `${payload.message || "Some current NXT details could not be loaded."} Retry the required review to load the remaining values.`,
+        );
+      }
+      return savedPayload;
     } catch (detailError) {
       hydratedDetailRowsRef.current.delete(requestKey);
       setError(
@@ -3767,6 +3777,7 @@ export default function ConstituencyImportPage() {
           ? detailError.message
           : "Could not load current NXT record details.",
       );
+      return null;
     } finally {
       pendingDetailHydrationRowsRef.current.delete(rowRequestKey);
       setHydratingDetailRows((current) => {
@@ -3777,16 +3788,15 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  function preloadRequiredReviewChoices(row, runIdOverride = null) {
-    if (!row?.id) return;
+  async function preloadRequiredReviewChoices(row, runIdOverride = null) {
+    if (!row?.id) return null;
     const detailScopes = [];
     if (needsProfileDetailHydration(row)) detailScopes.push("profile");
     if (needsCurrentContactDetails(row)) detailScopes.push("contacts");
     if (needsNameFormatDetailHydration(row)) detailScopes.push("nameFormats");
     if (needsCurrentConstituencyDetails(row)) detailScopes.push("codes");
     if (detailScopes.length) {
-      void hydrateImportRowDetails(row, detailScopes, runIdOverride);
-      return;
+      return hydrateImportRowDetails(row, detailScopes, runIdOverride);
     }
     const writePlan = Array.isArray(row.writePlan) ? row.writePlan : [];
     if (
@@ -3806,6 +3816,7 @@ export default function ConstituencyImportPage() {
     ) {
       void loadConstituencyCandidates(row, runIdOverride);
     }
+    return null;
   }
 
   function focusRowReviewTarget(row, targetKey, runIdOverride = null) {
@@ -3834,13 +3845,15 @@ export default function ConstituencyImportPage() {
     );
   }
 
-  function openRemainingRequiredReview(row, runIdOverride = null) {
-    if (!row?.id) return;
-    preloadRequiredReviewChoices(row, runIdOverride);
-    const targetKey = getRowReviewTargetKey(getRowReviewRequirements(row));
+  async function openRemainingRequiredReview(row, runIdOverride = null) {
+    if (!row?.id) return null;
+    const savedPayload = await preloadRequiredReviewChoices(row, runIdOverride);
+    const hydratedRow = findSavedRow(savedPayload, row) || row;
+    const targetKey = getRowReviewTargetKey(getRowReviewRequirements(hydratedRow));
     if (targetKey) {
-      focusRowReviewTarget(row, targetKey, runIdOverride);
+      focusRowReviewTarget(hydratedRow, targetKey, runIdOverride);
     }
+    return hydratedRow;
   }
 
   async function persistReviewChoices({
@@ -3899,7 +3912,7 @@ export default function ConstituencyImportPage() {
         if (continueRequiredReview) {
           setFocusedRowId(String(targetRow.id));
           setReviewMode(true);
-          openRemainingRequiredReview(targetRow, runId);
+          void openRemainingRequiredReview(targetRow, runId);
         } else if (openNextRecord) {
           focusNextUnresolvedRow(payload?.rows, targetRow.id);
         } else {
@@ -3920,11 +3933,7 @@ export default function ConstituencyImportPage() {
       if (continueRequiredReview) {
         setFocusedRowId(String(targetRow.id));
         setReviewMode(Boolean(payload?.savedRun));
-        preloadRequiredReviewChoices(targetRow, runIdOverride);
-        const targetKey = getRowReviewTargetKey(getRowReviewRequirements(targetRow));
-        if (targetKey) {
-          focusRowReviewTarget(targetRow, targetKey, runIdOverride);
-        }
+        void openRemainingRequiredReview(targetRow, runIdOverride);
       } else if (openNextRecord) {
         focusNextUnresolvedRow(payload?.rows, targetRow.id);
       } else {
@@ -3940,7 +3949,7 @@ export default function ConstituencyImportPage() {
 
     if (preview?.savedRun?.id && !(contactDecisionsDirty || fieldDecisionsDirty)) {
       focusImportRow(row.id);
-      openRemainingRequiredReview(row);
+      await openRemainingRequiredReview(row);
       return;
     }
 
@@ -3978,9 +3987,10 @@ export default function ConstituencyImportPage() {
 
     setFocusedRowId(String(savedRow.id));
     setReviewMode(true);
-    const targetKey = getRowReviewTargetKey(getRowReviewRequirements(savedRow)) || requestedTargetKey;
-    preloadRequiredReviewChoices(savedRow, savedRunId);
-    focusRowReviewTarget(savedRow, targetKey, savedRunId);
+    const hydratedRow = await openRemainingRequiredReview(savedRow, savedRunId);
+    if (!hydratedRow && requestedTargetKey) {
+      focusRowReviewTarget(savedRow, requestedTargetKey, savedRunId);
+    }
     setSaveMessage(
       `Saved import run #${savedRunId}. No NXT records were changed. Complete the required NXT row selections below before sending this record.`,
     );
@@ -4356,7 +4366,7 @@ export default function ConstituencyImportPage() {
       setEducationCandidatesByRowId({});
       const savedPayload = await loadSavedRun(runId);
       const savedRow = findSavedRow(savedPayload, row);
-      if (savedRow) openRemainingRequiredReview(savedRow, runId);
+      if (savedRow) void openRemainingRequiredReview(savedRow, runId);
       setSaveMessage(
         payload?.message ||
           "Saved the NXT education-row selection. Continue with any remaining required review below.",
@@ -4449,7 +4459,7 @@ export default function ConstituencyImportPage() {
       setConstituencyCandidatesByRowId({});
       const savedPayload = await loadSavedRun(runId);
       const savedRow = findSavedRow(savedPayload, row);
-      if (savedRow) openRemainingRequiredReview(savedRow, runId);
+      if (savedRow) void openRemainingRequiredReview(savedRow, runId);
       setSaveMessage(
         payload?.message ||
           "Saved the current NXT constituent-code selection. Continue with any remaining required review below.",
@@ -5099,7 +5109,7 @@ export default function ConstituencyImportPage() {
         // review is saved, load the row the reviewer is looking at so its
         // required contact review is ready without a separate click.
         if (initialFocusedRow && !payload?.nxtChecksPaused) {
-          preloadRequiredReviewChoices(initialFocusedRow, payload.savedRun.id);
+          void preloadRequiredReviewChoices(initialFocusedRow, payload.savedRun.id);
         }
       } else if (successMessage) {
         setSaveMessage(successMessage);

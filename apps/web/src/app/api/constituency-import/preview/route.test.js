@@ -524,9 +524,7 @@ describe("constituency import preview route", () => {
           { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
           { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
         ],
-      })
-      .mockResolvedValueOnce({ value: [{ id: "phone-1", number: "904-555-0100", type: "Mobile", primary: true }] })
-      .mockResolvedValueOnce({ value: [{ id: "address-1", address_lines: ["10 Elm St."], type: "Home", primary: true }] });
+      });
 
     const response = await POST(
       makeRequest({
@@ -543,6 +541,8 @@ describe("constituency import preview route", () => {
           emailType: "Email Type",
         },
         defaults: { updateEmailFields: true },
+        fastPreview: true,
+        totalRowCount: 4,
         contactDecisions: {
           1: {
             email: {
@@ -560,18 +560,8 @@ describe("constituency import preview route", () => {
         { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
         { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
       ],
-      phones: [{ id: "phone-1", number: "904-555-0100", type: "Mobile", primary: true }],
-      addresses: [{
-        id: "address-1",
-        type: "Home",
-        addressLine1: "10 Elm St.",
-        addressLine2: "",
-        city: "",
-        state: "",
-        postalCode: "",
-        country: "",
-        primary: true,
-      }],
+      phones: [],
+      addresses: [],
     });
     expect(payload.rows[0].writePlan).toEqual([
       expect.objectContaining({
@@ -599,16 +589,12 @@ describe("constituency import preview route", () => {
           { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
         ],
       })
-      .mockResolvedValueOnce({ value: [] })
-      .mockResolvedValueOnce({ value: [] })
       .mockResolvedValueOnce({
         value: [
           { id: "email-primary", address: "csantor@ju.edu", type: "Preferred Email 1", primary: true },
           { id: "email-other", address: "jbender@ju.edu", type: "Preferred Email 2", primary: false },
         ],
-      })
-      .mockResolvedValueOnce({ value: [] })
-      .mockResolvedValueOnce({ value: [] });
+      });
 
     const duplicateResponse = await POST(
       makeRequest({
@@ -677,22 +663,18 @@ describe("constituency import preview route", () => {
       name: "Chelsea Jasper",
     });
     blackbaudApiFetchMock
-      .mockResolvedValueOnce({ value: [] })
       .mockResolvedValueOnce({
         value: [
           { id: "phone-primary", number: "904-555-0100", type: "Home", primary: true },
           { id: "phone-mobile", number: "(904) 555-0199", type: "Mobile", primary: false },
         ],
       })
-      .mockResolvedValueOnce({ value: [] })
-      .mockResolvedValueOnce({ value: [] })
       .mockResolvedValueOnce({
         value: [
           { id: "phone-primary", number: "904-555-0100", type: "Home", primary: true },
           { id: "phone-mobile", number: "(904) 555-0199", type: "Mobile", primary: false },
         ],
-      })
-      .mockResolvedValueOnce({ value: [] });
+      });
 
     const duplicateResponse = await POST(
       makeRequest({
@@ -853,8 +835,6 @@ describe("constituency import preview route", () => {
       name: "Chelsea Jasper",
     });
     blackbaudApiFetchMock
-      .mockResolvedValueOnce({ value: [] })
-      .mockResolvedValueOnce({ value: [] })
       .mockResolvedValueOnce({
         value: [
           {
@@ -920,8 +900,6 @@ describe("constituency import preview route", () => {
       name: "Chelsea Jasper",
     });
     blackbaudApiFetchMock
-      .mockResolvedValueOnce({ value: [] })
-      .mockResolvedValueOnce({ value: [] })
       .mockResolvedValueOnce({
         value: [
           {
@@ -1679,7 +1657,7 @@ describe("constituency import preview route", () => {
         defaults: { updateNameFields: true },
         appendRun: true,
         fastPreview: true,
-        totalRowCount: 1,
+        totalRowCount: 12,
       }),
     );
     const payload = await response.json();
@@ -1696,6 +1674,69 @@ describe("constituency import preview route", () => {
         expect.objectContaining({ type: "constituent_name" }),
       ]),
     );
+  });
+
+  it("loads current profile values for a small fast preview", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        match_key: "id:543503",
+        payload: {
+          method: "NXT system ID",
+          confidence: 100,
+          match: {
+            blackbaudConstituentId: "543503",
+            lookupId: "543503",
+            name: "Victoria E. Richards",
+          },
+        },
+      },
+    ]);
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "543503",
+      lookupId: "543503",
+      name: "Victoria E. Richards",
+      raw: {
+        type: "Individual",
+        first: "Victoria",
+        last: "Richards",
+        preferred_name: "Tori",
+      },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "543503",
+            "First Name": "Victoria",
+            "Last Name": "Richards",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+        },
+        defaults: { updateNameFields: true },
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 4,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "543503" }),
+    );
+    expect(payload.rows[0].profileSnapshotLoaded).toBe(true);
+    expect(payload.rows[0].profileSnapshot).toMatchObject({
+      first: "Victoria",
+      last: "Richards",
+      preferred_name: "Tori",
+    });
+    expect(payload.rows[0].deferredHydration?.detail).not.toBe(true);
   });
 
   it("defers constituency replacement review in a fast preview instead of treating unloaded codes as missing", async () => {
@@ -1728,7 +1769,7 @@ describe("constituency import preview route", () => {
         mappings,
         appendRun: true,
         fastPreview: true,
-        totalRowCount: 1,
+        totalRowCount: 12,
       }),
     );
     const payload = await response.json();

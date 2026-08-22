@@ -24,6 +24,10 @@ export const maxDuration = 60;
 
 const MAX_PREVIEW_ROWS = 100;
 const DEFER_HEAVY_ROW_DETAILS_THRESHOLD = 40;
+// A small file is still inexpensive enough to obtain the same complete NXT
+// snapshot reviewers had before preview batching was introduced. Deferral is
+// reserved for larger files, where it prevents a burst of quota-consuming calls.
+const SMALL_IMPORT_FULL_HYDRATION_THRESHOLD = 8;
 const PREVIEW_BATCH_SIZE = 4;
 // System and lookup IDs are stable identifiers. Keeping confirmed mappings for longer
 // avoids repeating the same NXT lookup every time an import is reopened or retried.
@@ -1960,10 +1964,20 @@ function getCollection(payload) {
   return [];
 }
 
-async function fetchCurrentContacts({ userId, authUserId, origin, constituentId }) {
-  // A detailed contact review needs the complete current snapshot so primary
-  // choices remain valid across email, phone, and address sections.
-  const requestedKinds = new Set(["emails", "phones", "addresses"]);
+async function fetchCurrentContacts({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+  kinds = ["emails", "phones", "addresses"],
+}) {
+  // Load only the contact sections the CSV can change. This preserves the
+  // current-value review while avoiding two unnecessary NXT calls per row.
+  const requestedKinds = new Set(
+    (Array.isArray(kinds) ? kinds : []).filter((kind) =>
+      ["emails", "phones", "addresses"].includes(kind),
+    ),
+  );
   const basePath = "/constituent/v1/constituents/" + encodeURIComponent(String(constituentId));
   const requests = [
     requestedKinds.has("emails") ? ["emails", `${basePath}/emailaddresses`] : null,
@@ -3250,8 +3264,10 @@ export async function POST(request) {
       persistedMatchCacheHits: 0,
     };
 
+    const totalRowsForHydration = requestedTotalRowCount || rowsToPreview.length;
     const deferHeavyRowDetails =
-      fastPreview || rowsToPreview.length >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD;
+      totalRowsForHydration > SMALL_IMPORT_FULL_HYDRATION_THRESHOLD &&
+      (fastPreview || totalRowsForHydration >= DEFER_HEAVY_ROW_DETAILS_THRESHOLD);
     const matchRequestOptions = deferHeavyRowDetails ? FAST_PREVIEW_REQUEST_OPTIONS : {};
     let quotaError = null;
     const recordQuotaError = (error) => {
@@ -3457,15 +3473,20 @@ export async function POST(request) {
             (async () => {
               try {
                 const contactStartedAt = Date.now();
+                const requiredContactKinds = getRequiredContactSnapshotKinds(
+                  input,
+                  rowContactDecisions,
+                );
                 const contactPreview = await getOrLoadCached(
                   previewCache.currentContacts,
-                  constituentId,
+                  `${constituentId}:${[...requiredContactKinds].sort().join(",")}`,
                   () =>
                     fetchCurrentContacts({
                       userId: user.id,
                       authUserId,
                       origin,
                       constituentId,
+                      kinds: requiredContactKinds,
                     }),
                 );
                 previewMetrics.contactMs += Date.now() - contactStartedAt;

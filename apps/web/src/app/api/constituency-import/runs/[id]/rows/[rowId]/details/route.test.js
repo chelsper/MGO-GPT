@@ -46,6 +46,42 @@ function makeRow() {
   };
 }
 
+function makeContactRow({ includePhone = false } = {}) {
+  const deferredWrite = {
+    type: "contact_detail_review",
+    action: "load_current",
+    requiresReview: true,
+    deferredHydration: true,
+    contactDecisions: {},
+  };
+  return {
+    id: "9",
+    run_id: "42",
+    status: "Needs Review",
+    matched_blackbaud_constituent_id: "543503",
+    preview: {
+      input: {
+        emailUpdates: [{ address: "new@example.com", type: "Personal", makePrimary: false }],
+        ...(includePhone
+          ? {
+              phoneUpdates: [
+                { number: "904-555-0100", type: "Mobile", makePrimary: false },
+              ],
+            }
+          : {}),
+      },
+      match: { blackbaudConstituentId: "543503", lookupId: "543503" },
+      currentContacts: { emails: [], phones: [], addresses: [] },
+      contactSnapshotStatus: { emails: false, phones: false, addresses: false },
+      deferredHydration: { contacts: true },
+      writePlan: [deferredWrite],
+      reasons: ["Open this row to load the current NXT email, phone, and address values before reviewing CSV changes."],
+    },
+    requested_writes: [deferredWrite],
+    blackbaud_result: null,
+  };
+}
+
 function makeRequest(body) {
   return new Request(
     "https://example.com/api/constituency-import/runs/42/rows/9/details",
@@ -256,5 +292,98 @@ describe("constituency import row detail route", () => {
     expect(savedPreview.currentCodeDetails).toEqual([
       expect.objectContaining({ id: "student-code-1", label: "Student" }),
     ]);
+  });
+
+  it("loads only the contact section that the CSV changes", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock
+      .mockResolvedValueOnce([makeContactRow()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValue({
+      value: [{ id: "email-primary", address: "old@example.com", type: "Personal", primary: true }],
+    });
+
+    const response = await POST(makeRequest({ scopes: ["contacts"] }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ status: "Ready", complete: true, failedScopes: [] });
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith(
+      "/constituent/v1/constituents/543503/emailaddresses",
+      expect.objectContaining({ userId: 7 }),
+    );
+
+    const updateCall = sqlMock.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE constituency_import_rows"),
+    );
+    const savedPreview = JSON.parse(updateCall[2]);
+    const savedWrites = JSON.parse(updateCall[3]);
+    expect(savedPreview.contactSnapshotStatus).toEqual({
+      emails: true,
+      phones: false,
+      addresses: false,
+    });
+    expect(savedPreview.deferredHydration).toBeNull();
+    expect(savedWrites).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "email_address", action: "add" })]),
+    );
+    expect(savedWrites).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "contact_detail_review" })]),
+    );
+  });
+
+  it("keeps a partially loaded contact snapshot retryable instead of treating it as complete", async () => {
+    const { POST } = await import("./route.js");
+    const phoneFailure = new Error("NXT phone endpoint was unavailable.");
+    sqlMock
+      .mockResolvedValueOnce([makeContactRow({ includePhone: true })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Needs Review" }])
+      .mockResolvedValueOnce([]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [{ id: "email-primary", address: "old@example.com", type: "Personal", primary: true }],
+      })
+      .mockRejectedValueOnce(phoneFailure);
+
+    const response = await POST(makeRequest({ scopes: ["contacts"] }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.complete).toBe(false);
+    expect(payload.failedScopes).toEqual(["contacts"]);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
+    expect(blackbaudApiFetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/constituent/v1/constituents/543503/emailaddresses",
+      "/constituent/v1/constituents/543503/phones",
+    ]);
+
+    const updateCall = sqlMock.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE constituency_import_rows"),
+    );
+    const savedPreview = JSON.parse(updateCall[2]);
+    const savedWrites = JSON.parse(updateCall[3]);
+    expect(savedPreview.contactSnapshotStatus).toEqual({
+      emails: true,
+      phones: false,
+      addresses: false,
+    });
+    expect(savedPreview.deferredHydration).toMatchObject({ contacts: true });
+    expect(savedWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "contact_detail_review",
+          pendingKinds: ["phones"],
+          requiresReview: true,
+        }),
+      ]),
+    );
   });
 });
