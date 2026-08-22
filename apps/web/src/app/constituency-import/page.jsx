@@ -1427,6 +1427,17 @@ function needsCurrentContactDetails(row, decisions = {}) {
   return getRequiredImportContactKinds(row, decisions).some((kind) => !snapshotStatus[kind]);
 }
 
+function hasUnresolvedEducationRecordType(row) {
+  return (row?.writePlan || []).some(
+    (write) =>
+      write?.type === "education_relationship" &&
+      write?.requiresReview &&
+      /Education imports require a confirmed matched individual NXT constituent\./i.test(
+        String(write?.validationMessage || ""),
+      ),
+  );
+}
+
 function needsCurrentConstituencyDetails(row) {
   if (!getImportMatchedConstituentId(row) || row?.codesSnapshotLoaded === true) return false;
   if (row?.deferredHydration?.codes) return true;
@@ -2853,11 +2864,41 @@ function isUnresolvedImportRow(row) {
   );
 }
 
+function isNonBlockingImportReviewReason(row, reason) {
+  const text = String(reason || "").trim();
+  if (
+    /^Confirmed NXT identifier reused from a recent import review\./i.test(text) ||
+    /^Open this row to (?:finish loading|load) the current NXT\b/i.test(text)
+  ) {
+    return true;
+  }
+
+  const selectedSourceIds = new Set(
+    (row?.writePlan || [])
+      .filter(
+        (write) =>
+          write?.type === "constituent_code" &&
+          write?.action === "replace" &&
+          String(write?.sourceCodeId || "").trim(),
+      )
+      .map((write) => String(write.sourceCodeId).trim()),
+  );
+  const selectedSourceStillPresent = (row?.currentCodeDetails || []).some((code) =>
+    selectedSourceIds.has(String(code?.id || "").trim()),
+  );
+  return (
+    selectedSourceStillPresent &&
+    /^Current constituency .+ was not found on the NXT record\.$/i.test(text)
+  );
+}
+
 function getRowReviewRequirements(row) {
   if (isNxtChecksPausedRow(row)) return [];
 
   const reasons = [
-    ...(Array.isArray(row?.reasons) ? row.reasons : []),
+    ...(Array.isArray(row?.reasons)
+      ? row.reasons.filter((reason) => !isNonBlockingImportReviewReason(row, reason))
+      : []),
     ...((row?.writePlan || [])
       .filter((write) => write?.requiresReview)
       .map((write) => write.validationMessage || formatWritePlanItem(write))),
@@ -3835,6 +3876,12 @@ export default function ConstituencyImportPage() {
 
   function needsEducationDetailHydration(row) {
     if (!getImportMatchedConstituentId(row)) return false;
+    // Older saved reviews could hydrate education before the matching NXT
+    // profile was persisted. Rebuild those rows now that the profile snapshot
+    // is available instead of treating a known individual as unresolved.
+    if (row?.profileSnapshotLoaded === true && hasUnresolvedEducationRecordType(row)) {
+      return true;
+    }
     if (row?.educationsSnapshotLoaded === true) return false;
     if (row?.deferredHydration?.educations) return true;
     return Array.isArray(row?.writePlan) && row.writePlan.some(
@@ -3850,6 +3897,13 @@ export default function ConstituencyImportPage() {
     return Array.isArray(row?.writePlan) && row.writePlan.some(
       (write) => write?.type === "name_format_detail_review" || write?.type === "constituent_name_format",
     );
+  }
+
+  function needsSavedReviewFinalization(row) {
+    if (row?.status !== "Needs Review") return false;
+    if (Object.values(row?.deferredHydration || {}).some(Boolean)) return false;
+    if ((row?.writePlan || []).some((write) => write?.requiresReview)) return false;
+    return (row?.reasons || []).some((reason) => isNonBlockingImportReviewReason(row, reason));
   }
 
   function isHydratingRowScope(row, scope) {
@@ -3871,8 +3925,6 @@ export default function ConstituencyImportPage() {
     const runId = runIdOverride || preview?.savedRun?.id;
     if (!runId || !row?.id) return null;
     const normalizedScopes = [...new Set(scopes)].filter(Boolean).sort();
-    if (!normalizedScopes.length) return null;
-
     const scopeKey = normalizedScopes.join(",");
     const requestKey = `${runId}:${row.id}:${scopeKey}`;
     const rowRequestKey = `${runId}:${row.id}`;
@@ -3974,6 +4026,17 @@ export default function ConstituencyImportPage() {
       // The scope either failed or returned only a partial snapshot. Do not
       // fan out further NXT requests; the row remains safely retryable.
       if (needsHydration(hydratedRow)) break;
+    }
+
+    // Older saved rows can have every NXT snapshot and reviewer selection in
+    // place while retaining a stale "open this row" status. Reconcile that
+    // state without making another NXT request.
+    if (!savedPayload && needsSavedReviewFinalization(hydratedRow)) {
+      const reconciledPayload = await hydrateImportRowDetails(hydratedRow, [], runId);
+      if (reconciledPayload) {
+        savedPayload = reconciledPayload;
+        hydratedRow = findSavedRow(reconciledPayload, hydratedRow) || hydratedRow;
+      }
     }
 
     seedReviewCandidatesFromSnapshots(hydratedRow);

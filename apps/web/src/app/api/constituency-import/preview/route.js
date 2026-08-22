@@ -1221,7 +1221,10 @@ export function buildEducationRelationshipWrite(input, match, currentEducations)
       cleanText(input.educationRelationship.action) === "review-update"
         ? "review_and_update_selected"
         : "skip_if_matching",
-    recordType: cleanText(match?.raw?.type),
+    // NXT may return the constituent type at the root or under
+    // response.constituent. Use the shared resolver so both payload shapes
+    // remain eligible for education imports.
+    recordType: getMatchedRecordType(match),
     institution: cleanText(input.educationRelationship.institution),
     degree: cleanText(input.educationRelationship.degree),
     major: cleanText(input.educationRelationship.major),
@@ -1318,7 +1321,7 @@ function buildDeferredEducationRelationshipWrite(input, match) {
     action: action === "review-update" ? "review_existing" : action,
     duplicatePolicy:
       action === "review-update" ? "review_and_update_selected" : "review_before_apply",
-    recordType: cleanText(match?.raw?.type),
+    recordType: getMatchedRecordType(match),
     institution: cleanText(input.educationRelationship.institution),
     degree: cleanText(input.educationRelationship.degree),
     major: cleanText(input.educationRelationship.major),
@@ -1352,7 +1355,7 @@ function buildOrganizationRelationshipWrite(input, match) {
     action: "add",
     // Never replace, end-date, or otherwise alter an existing organization link.
     duplicatePolicy: "skip_if_existing_organization",
-    recordType: cleanText(match?.raw?.type),
+    recordType: getMatchedRecordType(match),
     name: cleanText(input.organizationRelationship.name),
     relationshipType: cleanText(input.organizationRelationship.relationshipType),
     title: cleanText(input.organizationRelationship.title),
@@ -1563,7 +1566,8 @@ function getConstituencyLabel(value) {
   if (!value) return "";
   if (typeof value === "string") return cleanText(value);
   return cleanText(
-    value.description ||
+    value.label ||
+      value.description ||
       value.constituent_code ||
       value.constituentCode ||
       value.constituency ||

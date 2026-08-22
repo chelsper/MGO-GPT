@@ -31,6 +31,8 @@ import {
 import { isReviewerRole } from "@/utils/workspaceRoles";
 
 const DETAIL_SCOPES = new Set(["profile", "contacts", "nameFormats", "educations", "codes"]);
+const DEFERRED_DETAIL_REASON_PATTERN =
+  /^Open this row to (?:finish loading|load) the current NXT\b/i;
 const SCOPE_WRITE_TYPES = {
   profile: new Set(["profile_detail_review", "constituent_name", "constituent_profile"]),
   contacts: new Set(["contact_detail_review", "email_address", "phone", "address"]),
@@ -156,9 +158,11 @@ function parseRouteParams(params) {
 }
 
 function getRequestedScopes(body) {
+  // An explicitly empty list is a cached-review reconciliation. It updates
+  // stale saved status/reasons without spending another Blackbaud API call.
   const requested = Array.isArray(body?.scopes) ? body.scopes : ["profile"];
   const scopes = [...new Set(requested.map(cleanText).filter((scope) => DETAIL_SCOPES.has(scope)))];
-  return scopes.length ? scopes : ["profile"];
+  return Array.isArray(body?.scopes) ? scopes : scopes.length ? scopes : ["profile"];
 }
 
 function removeScopeWrites(writePlan, scope) {
@@ -210,9 +214,11 @@ function hasConstituencyInput(input) {
   return Boolean(cleanText(input?.sourceConstituency) || cleanText(input?.targetConstituency));
 }
 
-function getNextStatus(row, writePlan) {
+function getNextStatus(row, writePlan, hasDeferredHydration = false) {
   if (["Applied", "Failed", "Conflict"].includes(row.status)) return row.status;
-  if (writePlan.some((write) => write?.requiresReview)) return "Needs Review";
+  if (hasDeferredHydration || writePlan.some((write) => write?.requiresReview)) {
+    return "Needs Review";
+  }
   return writePlan.length ? "Ready" : "Skipped";
 }
 
@@ -233,6 +239,119 @@ function removeDetailReason(reasons, scope) {
   return (Array.isArray(reasons) ? reasons : []).filter(
     (reason) => !patterns[scope].test(cleanText(reason)),
   );
+}
+
+function removeDeferredDetailReasons(reasons) {
+  return (Array.isArray(reasons) ? reasons : []).filter((reason) => {
+    const text = cleanText(reason);
+    return !(
+      DEFERRED_DETAIL_REASON_PATTERN.test(text) ||
+      /^Confirmed NXT identifier reused from a recent import review\.$/i.test(text)
+    );
+  });
+}
+
+function hasResolvedConstituencySelection(writePlan, currentCodes) {
+  const selectedSourceIds = new Set(
+    (Array.isArray(writePlan) ? writePlan : [])
+      .filter(
+        (write) =>
+          write?.type === "constituent_code" &&
+          write?.action === "replace" &&
+          cleanText(write?.sourceCodeId),
+      )
+      .map((write) => cleanText(write.sourceCodeId)),
+  );
+  if (!selectedSourceIds.size) return false;
+
+  return (Array.isArray(currentCodes) ? currentCodes : []).some((code) =>
+    selectedSourceIds.has(cleanText(code?.id)),
+  );
+}
+
+function mergeCurrentMatch({ match, detailedMatch, profileSnapshot, constituentId }) {
+  const savedMatch = match && typeof match === "object" ? match : {};
+  const loadedMatch = detailedMatch && typeof detailedMatch === "object" ? detailedMatch : {};
+  const raw =
+    profileSnapshot && typeof profileSnapshot === "object"
+      ? profileSnapshot
+      : loadedMatch.raw && typeof loadedMatch.raw === "object"
+        ? loadedMatch.raw
+        : savedMatch.raw && typeof savedMatch.raw === "object"
+          ? savedMatch.raw
+          : null;
+
+  return {
+    ...savedMatch,
+    ...loadedMatch,
+    blackbaudConstituentId:
+      cleanText(loadedMatch.blackbaudConstituentId) ||
+      cleanText(savedMatch.blackbaudConstituentId) ||
+      constituentId,
+    ...(raw ? { raw } : {}),
+  };
+}
+
+function preserveReviewedEducationTarget(write, priorWrite, educations) {
+  if (
+    !write ||
+    write.type !== "education_relationship" ||
+    write.action !== "review_existing" ||
+    !write.requiresReview
+  ) {
+    return write;
+  }
+
+  const targetEducationId = cleanText(priorWrite?.targetEducationId);
+  if (!targetEducationId) return write;
+
+  const target = (Array.isArray(educations) ? educations : []).find(
+    (education) => cleanText(education?.id || education?.education_id) === targetEducationId,
+  );
+  if (!target) return write;
+
+  const { requiresReview, validationMessage, deferredHydration, ...reviewedWrite } = write;
+  return {
+    ...reviewedWrite,
+    action: "update",
+    targetEducationId,
+    existingEducation: serializeEducation(target),
+    ...(priorWrite?.reviewSelection ? { reviewSelection: priorWrite.reviewSelection } : {}),
+  };
+}
+
+function preserveReviewedConstituencyTarget(writes, priorWrites, codes) {
+  const priorWrite = (Array.isArray(priorWrites) ? priorWrites : []).find(
+    (write) =>
+      write?.type === "constituent_code" &&
+      write?.action === "replace" &&
+      cleanText(write?.sourceCodeId),
+  );
+  const sourceCodeId = cleanText(priorWrite?.sourceCodeId);
+  if (!sourceCodeId) return writes;
+
+  const selectedSourceCode = (Array.isArray(codes) ? codes : []).find(
+    (code) => cleanText(code?.id) === sourceCodeId,
+  );
+  if (!selectedSourceCode) return writes;
+
+  return (Array.isArray(writes) ? writes : []).map((write) => {
+    if (
+      write?.type !== "constituent_code" ||
+      write?.action !== "replace" ||
+      !write?.requiresReview
+    ) {
+      return write;
+    }
+
+    const { requiresReview, validationMessage, ...reviewedWrite } = write;
+    return {
+      ...reviewedWrite,
+      sourceCodeId,
+      selectedSourceCode: serializeConstituencyCode(selectedSourceCode),
+      ...(priorWrite?.reviewSelection ? { reviewSelection: priorWrite.reviewSelection } : {}),
+    };
+  });
 }
 
 async function fetchCurrentContacts({
@@ -448,6 +567,13 @@ export async function POST(request, { params }) {
     let profileSnapshotLoaded = Boolean(
       profileSnapshot && hasUsableProfileSnapshot({ raw: profileSnapshot }),
     );
+    if (profileSnapshotLoaded) {
+      currentMatch = mergeCurrentMatch({
+        match: currentMatch,
+        profileSnapshot,
+        constituentId,
+      });
+    }
     let contactSnapshotStatus = getContactSnapshotStatus(
       preview.contactSnapshotStatus,
       preview.contactsSnapshotLoaded === true,
@@ -467,13 +593,29 @@ export async function POST(request, { params }) {
     let loadedAnyScope = false;
     const recordScopeFailure = (scope, error) => {
       if (!failedScopes.includes(scope)) failedScopes.push(scope);
+      const deferredKey = {
+        profile: "detail",
+        contacts: "contacts",
+        nameFormats: "nameFormats",
+        educations: "educations",
+        codes: "codes",
+      }[scope];
+      if (deferredKey) deferredHydration[deferredKey] = true;
       if (isBlackbaudQuotaExceededError(error)) quotaPauseEncountered = true;
       const message = getDetailFailureMessage(scope, error);
       detailFailureMessages.push(message);
       reasons = [...reasons, message];
     };
 
-    if (scopes.includes("profile")) {
+    // Education writes must know whether the matched record is an Individual.
+    // A fast import may defer the profile scope even when no profile fields are
+    // changing, so hydrate it here before rebuilding an education relationship.
+    const needsProfileForEducation = Boolean(
+      scopes.includes("educations") &&
+        preview.input?.educationRelationship &&
+        !profileSnapshotLoaded,
+    );
+    if (scopes.includes("profile") || needsProfileForEducation) {
       try {
         const detailedMatch = await getBlackbaudConstituentById({
           userId: authResult.user.id,
@@ -493,10 +635,15 @@ export async function POST(request, { params }) {
         );
         writePlan = appendScopeWrites(removeScopeWrites(writePlan, "profile"), "profile", profileWrites);
         deferredHydration.detail = false;
-        currentMatch = detailedMatch;
         profileSnapshot =
           detailedMatch?.raw && typeof detailedMatch.raw === "object" ? detailedMatch.raw : {};
         profileSnapshotLoaded = true;
+        currentMatch = mergeCurrentMatch({
+          match: preview.match,
+          detailedMatch,
+          profileSnapshot,
+          constituentId,
+        });
         reasons = removeDetailReason(reasons, "profile");
         detailMessages.push("Loaded the current NXT name and profile values for this record.");
         loadedAnyScope = true;
@@ -607,9 +754,16 @@ export async function POST(request, { params }) {
           origin,
           constituentId,
         });
-        const educationWrite = buildEducationRelationshipWrite(
-          preview.input || {},
-          currentMatch,
+        const previousEducationWrite = writePlan.find(
+          (write) => write?.type === "education_relationship",
+        );
+        const educationWrite = preserveReviewedEducationTarget(
+          buildEducationRelationshipWrite(
+            preview.input || {},
+            currentMatch,
+            liveEducations,
+          ),
+          previousEducationWrite,
           liveEducations,
         );
         writePlan = appendScopeWrites(
@@ -639,7 +793,11 @@ export async function POST(request, { params }) {
         const codePreview = previewConstituencyChange(preview.input || {}, currentCodes, {
           useHierarchy: preview.useHierarchy !== false,
         });
-        const codeWrites = buildConstituencyCodeWrites(preview.input || {}, codePreview);
+        const codeWrites = preserveReviewedConstituencyTarget(
+          buildConstituencyCodeWrites(preview.input || {}, codePreview),
+          writePlan,
+          currentCodes,
+        );
         writePlan = appendScopeWrites(removeScopeWrites(writePlan, "codes"), "codes", codeWrites);
         deferredHydration.codes = false;
         currentCodeDetails = currentCodes.map(serializeConstituencyCode);
@@ -657,7 +815,13 @@ export async function POST(request, { params }) {
     }
 
     const hasDeferredHydration = Object.values(deferredHydration).some(Boolean);
-    const nextStatus = getNextStatus(row, writePlan);
+    if (!hasDeferredHydration) {
+      reasons = removeDeferredDetailReasons(reasons);
+    }
+    if (hasResolvedConstituencySelection(writePlan, currentCodes)) {
+      reasons = removeDetailReason(reasons, "codes");
+    }
+    const nextStatus = getNextStatus(row, writePlan, hasDeferredHydration);
     const refreshedQuotaPause =
       loadedAnyScope &&
       (preview.nxtChecksPaused || preview.matchMethod === QUOTA_PAUSED_MATCH_METHOD);
@@ -669,6 +833,7 @@ export async function POST(request, { params }) {
       matchStatus:
         refreshedQuotaPause && constituentId ? "matched" : preview.matchStatus || row.match_status || "",
       matchMethod: refreshedQuotaPause ? "Saved match refreshed" : preview.matchMethod || row.match_method || "",
+      match: currentMatch || preview.match || null,
       currentContacts,
       currentNameFormats,
       currentCodes: currentCodes.map((code) => code.label),
@@ -716,7 +881,9 @@ export async function POST(request, { params }) {
     await refreshRunSummary(routeParams.runId);
 
     return Response.json({
-      message: [...detailMessages, ...detailFailureMessages].join(" ") || "Loaded current NXT record details.",
+      message:
+        [...detailMessages, ...detailFailureMessages].join(" ") ||
+        "Reconciled the saved import review state.",
       status: nextStatus,
       scopes,
       failedScopes,
