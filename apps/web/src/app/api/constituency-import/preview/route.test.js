@@ -1634,6 +1634,112 @@ describe("constituency import preview route", () => {
     });
   });
 
+  it("defers profile comparisons in a fast preview instead of treating unloaded NXT values as blank", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([
+      {
+        match_key: "id:543503",
+        payload: {
+          method: "NXT system ID",
+          confidence: 100,
+          match: {
+            blackbaudConstituentId: "543503",
+            lookupId: "543503",
+            name: "Victoria E. Richards",
+          },
+        },
+      },
+    ]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "543503",
+            "First Name": "Victoria",
+            "Last Name": "Richards",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+        },
+        defaults: { updateNameFields: true },
+        appendRun: true,
+        fastPreview: true,
+        totalRowCount: 1,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].deferredHydration).toMatchObject({ detail: true });
+    expect(payload.rows[0].writePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "profile_detail_review", deferredHydration: true }),
+      ]),
+    );
+    expect(payload.rows[0].writePlan).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "constituent_name" }),
+      ]),
+    );
+  });
+
+  it("keeps a hydrated profile snapshot when the saved review is refreshed", async () => {
+    const { mergePriorReviewState } = await import("./route.js");
+    const row = {
+      status: "Needs Review",
+      input: {
+        individualProfileUpdate: { title: "Ms." },
+      },
+      deferredHydration: { detail: true },
+      writePlan: [
+        {
+          type: "profile_detail_review",
+          action: "load_current",
+          requiresReview: true,
+          deferredHydration: true,
+          fieldDecisions: {},
+        },
+      ],
+      reasons: ["Open this row to load the current NXT name and profile values before reviewing CSV changes."],
+    };
+    const priorSavedRow = {
+      preview: {
+        profileSnapshot: { type: "Individual", title: "Dr." },
+      },
+      requested_writes: [
+        {
+          type: "constituent_profile",
+          action: "update",
+          title: "Ms.",
+          current: { title: "Dr." },
+        },
+      ],
+      blackbaud_result: null,
+    };
+
+    const merged = mergePriorReviewState(row, priorSavedRow);
+
+    expect(merged.status).toBe("Ready");
+    expect(merged.deferredHydration).toBeNull();
+    expect(merged.profileSnapshot).toEqual({ type: "Individual", title: "Dr." });
+    expect(merged.writePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "constituent_profile",
+          title: "Ms.",
+          current: expect.objectContaining({ title: "Dr." }),
+        }),
+      ]),
+    );
+    expect(merged.writePlan).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "profile_detail_review" })]),
+    );
+  });
+
   it("reuses a cached lookup alias for a fast preview", async () => {
     const { POST } = await import("./route.js");
     sqlMock.mockResolvedValueOnce([

@@ -1344,7 +1344,14 @@ function findMatchingReviewContact(contacts, incoming, kind) {
   return contacts.find((contact) => addressesMatchForReview(contact, incoming)) || null;
 }
 
-function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisionChange }) {
+function ContactReviewPanel({
+  row,
+  decisions,
+  onDecisionChange,
+  onSectionDecisionChange,
+  onLoadCurrentContacts,
+  loadingCurrentContacts = false,
+}) {
   const sections = [
     { kind: "email", label: "Email addresses", values: row.input?.emailUpdates || [], contacts: row.currentContacts?.emails || [] },
     { kind: "phone", label: "Phone numbers", values: row.input?.phoneUpdates || [], contacts: row.currentContacts?.phones || [] },
@@ -1352,6 +1359,47 @@ function ContactReviewPanel({ row, decisions, onDecisionChange, onSectionDecisio
   ];
 
   if (!row.match?.blackbaudConstituentId) return null;
+
+  if (row?.deferredHydration?.contacts) {
+    return (
+      <section
+        style={{
+          border: "1px solid #86EFAC",
+          borderRadius: "14px",
+          backgroundColor: "#F0FDF4",
+          padding: "14px",
+          display: "grid",
+          gap: "10px",
+        }}
+      >
+        <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Contact change review
+        </div>
+        <div style={{ color: "#166534", lineHeight: 1.45 }}>
+          Current NXT email, phone, and address values have not been loaded yet. They are not
+          treated as blank, and no contact change can be sent until this row is checked.
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={onLoadCurrentContacts}
+            disabled={loadingCurrentContacts || !onLoadCurrentContacts}
+            style={{
+              border: "1px solid #15803D",
+              borderRadius: "999px",
+              backgroundColor: loadingCurrentContacts ? "#DCFCE7" : "#15803D",
+              color: loadingCurrentContacts ? "#166534" : "white",
+              padding: "8px 12px",
+              fontWeight: 900,
+              cursor: loadingCurrentContacts || !onLoadCurrentContacts ? "not-allowed" : "pointer",
+            }}
+          >
+            {loadingCurrentContacts ? "Loading current NXT contacts..." : "Load current NXT contacts"}
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -2697,6 +2745,7 @@ export default function ConstituencyImportPage() {
   const lastReadFileRef = useRef(null);
   const previewRequestVersionRef = useRef(0);
   const previewAbortControllerRef = useRef(null);
+  const hydratedDetailRowsRef = useRef(new Set());
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
@@ -2739,6 +2788,7 @@ export default function ConstituencyImportPage() {
   const [savingEducationClassYearRowId, setSavingEducationClassYearRowId] = useState("");
   const [savingCombinedReviewRowId, setSavingCombinedReviewRowId] = useState("");
   const [savingReviewOnlyRowId, setSavingReviewOnlyRowId] = useState("");
+  const [hydratingDetailRows, setHydratingDetailRows] = useState({});
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -3306,6 +3356,8 @@ export default function ConstituencyImportPage() {
     setError("");
     setSaveMessage("");
     setCompletionMessage("");
+    hydratedDetailRowsRef.current.clear();
+    setHydratingDetailRows({});
     setPreview(null);
     setFocusedRowId("");
     setReviewMode(false);
@@ -3343,6 +3395,8 @@ export default function ConstituencyImportPage() {
   function resetImportWorkspace({ completion = "", resetFieldConfiguration = false } = {}) {
     fileReadVersionRef.current += 1;
     lastReadFileRef.current = null;
+    hydratedDetailRowsRef.current.clear();
+    setHydratingDetailRows({});
     if (resetFieldConfiguration) {
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
       setOpenFieldGroups(DEFAULT_OPEN_FIELD_GROUPS);
@@ -3413,7 +3467,7 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function loadSavedRun(runId) {
+  async function loadSavedRun(runId, { focusRowId = "", message } = {}) {
     setLoadingRunId(String(runId));
     setError("");
     setSaveMessage("");
@@ -3426,9 +3480,15 @@ export default function ConstituencyImportPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load saved import run");
       }
+      const nextFocusedRowId = String(
+        focusRowId ||
+          getReviewQueueRows(payload?.rows)[0]?.id ||
+          payload?.rows?.[0]?.id ||
+          "",
+      );
       setPreview(payload);
       setSelectedApplyRowIds([]);
-      setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
+      setFocusedRowId(nextFocusedRowId);
       setReviewMode(true);
       setEditingPreviewRowNumber(null);
       setEditingRowDraft({});
@@ -3438,7 +3498,17 @@ export default function ConstituencyImportPage() {
       setConstituencyCandidatesByRowId({});
       setSelectedConstituencyCandidateByRowId({});
       setEducationClassYearDrafts({});
-      setSaveMessage(`Loaded saved import run #${payload?.savedRun?.id || runId}.`);
+      setSaveMessage(
+        message === undefined
+          ? `Loaded saved import run #${payload?.savedRun?.id || runId}.`
+          : message,
+      );
+      const focusedRow = (payload?.rows || []).find(
+        (row) => String(row?.id) === nextFocusedRowId,
+      );
+      if (focusedRow) {
+        preloadRequiredReviewChoices(focusedRow, payload?.savedRun?.id || runId);
+      }
       return payload;
     } catch (loadError) {
       setError(
@@ -3491,8 +3561,71 @@ export default function ConstituencyImportPage() {
     focusImportRowState(row);
   }
 
+  function needsProfileDetailHydration(row) {
+    if (!row?.match?.blackbaudConstituentId || row?.profileSnapshot) return false;
+    if (row?.deferredHydration?.detail) return true;
+    return Array.isArray(row?.writePlan) && row.writePlan.some(
+      (write) => write?.type === "constituent_name" || write?.type === "constituent_profile",
+    );
+  }
+
+  function isHydratingRowScope(row, scope) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id) return false;
+    return Boolean(hydratingDetailRows[`${runId}:${row.id}:${scope}`]);
+  }
+
+  async function hydrateImportRowDetails(row, scopes = ["profile"], runIdOverride = null) {
+    const runId = runIdOverride || preview?.savedRun?.id;
+    if (!runId || !row?.id) return;
+    const normalizedScopes = [...new Set(scopes)].filter(Boolean).sort();
+    if (!normalizedScopes.length) return;
+
+    const scopeKey = normalizedScopes.join(",");
+    const requestKey = `${runId}:${row.id}:${scopeKey}`;
+    if (hydratedDetailRowsRef.current.has(requestKey)) return;
+    hydratedDetailRowsRef.current.add(requestKey);
+    setHydratingDetailRows((current) => ({ ...current, [requestKey]: true }));
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/details`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scopes: normalizedScopes }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not load current NXT record details.");
+      }
+      await loadSavedRun(runId, {
+        focusRowId: row.id,
+        message: payload?.message || "Loaded current NXT record details for this row.",
+      });
+      fetchSavedRuns();
+    } catch (detailError) {
+      hydratedDetailRowsRef.current.delete(requestKey);
+      setError(
+        detailError instanceof Error
+          ? detailError.message
+          : "Could not load current NXT record details.",
+      );
+    } finally {
+      setHydratingDetailRows((current) => {
+        const next = { ...current };
+        delete next[requestKey];
+        return next;
+      });
+    }
+  }
+
   function preloadRequiredReviewChoices(row, runIdOverride = null) {
     if (!row?.id) return;
+    if (needsProfileDetailHydration(row)) {
+      void hydrateImportRowDetails(row, ["profile"], runIdOverride);
+    }
     const writePlan = Array.isArray(row.writePlan) ? row.writePlan : [];
     if (
       !Array.isArray(educationCandidatesByRowId[String(row.id)]) &&
@@ -6945,6 +7078,11 @@ export default function ConstituencyImportPage() {
                 const nameFormatWrites = (row.writePlan || []).filter(
                   (write) => write.type === "constituent_name_format",
                 );
+                const profileDetailsPending = needsProfileDetailHydration(row);
+                const nameFormatDetailsPending = Boolean(row.deferredHydration?.nameFormats);
+                const profileReviewPending = profileDetailsPending || nameFormatDetailsPending;
+                const loadingProfileDetails = isHydratingRowScope(row, "profile");
+                const loadingNameFormatDetails = isHydratingRowScope(row, "nameFormats");
                 const failedWriteResults = Array.isArray(row.blackbaudResult?.results)
                   ? row.blackbaudResult.results.filter(
                       (result) =>
@@ -7229,7 +7367,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
-                    {nameWrites.length || profileWrites.length || nameFormatWrites.length ? (
+                    {profileReviewPending || nameWrites.length || profileWrites.length || nameFormatWrites.length ? (
                       <section
                         id={`constituency-import-row-${row.id}-profile-review`}
                         style={{
@@ -7244,7 +7382,48 @@ export default function ConstituencyImportPage() {
                         <div style={{ color: "#1D4ED8", fontWeight: 900 }}>
                           Name, profile, and format review
                         </div>
-                        {nameWrites.map((write, index) => (
+                        {profileDetailsPending ? (
+                          <div
+                            style={{
+                              border: "1px solid #BFDBFE",
+                              borderRadius: "10px",
+                              backgroundColor: "white",
+                              padding: "11px",
+                              display: "grid",
+                              gap: "8px",
+                              color: "#1E3A8A",
+                            }}
+                          >
+                            <strong>
+                              {loadingProfileDetails
+                                ? "Loading the current NXT profile..."
+                                : "Current NXT profile values have not been loaded yet."}
+                            </strong>
+                            <span style={{ lineHeight: 1.4 }}>
+                              These fields are pending, not blank. The CSV values will not be staged as
+                              replacements until the current NXT record is checked.
+                            </span>
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => hydrateImportRowDetails(row, ["profile"])}
+                                disabled={loadingProfileDetails || !preview?.savedRun}
+                                style={{
+                                  border: "1px solid #1D4ED8",
+                                  borderRadius: "999px",
+                                  backgroundColor: loadingProfileDetails ? "#DBEAFE" : "#1D4ED8",
+                                  color: loadingProfileDetails ? "#1E3A8A" : "white",
+                                  padding: "8px 12px",
+                                  fontWeight: 900,
+                                  cursor: loadingProfileDetails || !preview?.savedRun ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                {loadingProfileDetails ? "Loading current NXT profile..." : "Load current NXT profile"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {!profileDetailsPending && nameWrites.map((write, index) => (
                           <div
                             key={`name-${index}`}
                             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "8px" }}
@@ -7270,7 +7449,7 @@ export default function ConstituencyImportPage() {
                               ))}
                           </div>
                         ))}
-                        {profileWrites.map((write, index) => (
+                        {!profileDetailsPending && profileWrites.map((write, index) => (
                           <div
                             key={`profile-${index}`}
                             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}
@@ -7308,7 +7487,48 @@ export default function ConstituencyImportPage() {
                               })}
                           </div>
                         ))}
-                        {nameFormatWrites.map((write, index) => (
+                        {nameFormatDetailsPending ? (
+                          <div
+                            style={{
+                              border: "1px solid #BFDBFE",
+                              borderRadius: "10px",
+                              backgroundColor: "white",
+                              padding: "11px",
+                              display: "grid",
+                              gap: "8px",
+                              color: "#1E3A8A",
+                            }}
+                          >
+                            <strong>
+                              {loadingNameFormatDetails
+                                ? "Loading current NXT name formats..."
+                                : "Current NXT addressee and salutation values have not been loaded yet."}
+                            </strong>
+                            <span style={{ lineHeight: 1.4 }}>
+                              These values are pending, not blank. Load them before deciding whether to
+                              update the primary addressee or salutation.
+                            </span>
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => hydrateImportRowDetails(row, ["nameFormats"])}
+                                disabled={loadingNameFormatDetails || !preview?.savedRun}
+                                style={{
+                                  border: "1px solid #1D4ED8",
+                                  borderRadius: "999px",
+                                  backgroundColor: loadingNameFormatDetails ? "#DBEAFE" : "#1D4ED8",
+                                  color: loadingNameFormatDetails ? "#1E3A8A" : "white",
+                                  padding: "8px 12px",
+                                  fontWeight: 900,
+                                  cursor: loadingNameFormatDetails || !preview?.savedRun ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                {loadingNameFormatDetails ? "Loading current NXT name formats..." : "Load current NXT name formats"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {!nameFormatDetailsPending && nameFormatWrites.map((write, index) => (
                           <FieldReviewCard
                             key={`name-format-${index}`}
                             rowNumber={row.rowNumber}
@@ -7331,6 +7551,8 @@ export default function ConstituencyImportPage() {
                           decisions={contactDecisions}
                           onDecisionChange={updateContactDecision}
                           onSectionDecisionChange={updateContactSectionDecision}
+                          onLoadCurrentContacts={() => hydrateImportRowDetails(row, ["contacts"])}
+                          loadingCurrentContacts={isHydratingRowScope(row, "contacts")}
                         />
                       </div>
                     ) : null}

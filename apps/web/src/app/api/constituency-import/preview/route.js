@@ -543,7 +543,7 @@ function buildIndividualProfileWrite(input, match, fieldDecisions = {}) {
   return write;
 }
 
-function serializeNameFormat(value) {
+export function serializeNameFormat(value) {
   if (!value || typeof value !== "object") return { id: "", value: "" };
   return {
     id: cleanText(value.id || value.name_format_id),
@@ -551,7 +551,7 @@ function serializeNameFormat(value) {
   };
 }
 
-function buildNameFormatWrites(input, currentNameFormats, fieldDecisions = {}) {
+export function buildNameFormatDetailWrites(input, currentNameFormats, fieldDecisions = {}) {
   if (!input.nameFormatUpdate) return [];
 
   return ["addressee", "salutation"]
@@ -619,6 +619,17 @@ function buildNameUpdateWrite(input, match, fieldDecisions = {}) {
   };
 }
 
+export function buildProfileDetailWrites(input, match, fieldDecisions = {}) {
+  const writes = [];
+  const nameUpdateWrite = buildNameUpdateWrite(input, match, fieldDecisions);
+  if (nameUpdateWrite) writes.push(nameUpdateWrite);
+
+  const individualProfileWrite = buildIndividualProfileWrite(input, match, fieldDecisions);
+  if (individualProfileWrite) writes.push(individualProfileWrite);
+
+  return writes;
+}
+
 function getContactId(value, kind) {
   if (!value || typeof value !== "object") return "";
   const idKeys =
@@ -653,7 +664,7 @@ function getAddressLines(value) {
   return [cleanText(value?.address_line1 || value?.line1), cleanText(value?.address_line2 || value?.line2)].filter(Boolean);
 }
 
-function serializeContactSnapshot(payload = {}) {
+export function serializeContactSnapshot(payload = {}) {
   const mapEmails = (payload.emails || []).map((email) => ({
     id: getContactId(email, "email"),
     address: getEmailAddress(email),
@@ -912,7 +923,7 @@ function buildPreviousAddressWrite({ contacts = [], decisions = {}, addressWrite
   };
 }
 
-function buildContactUpdateWrites(input, currentContacts, contactDecisions) {
+export function buildContactDetailPreview(input, currentContacts, contactDecisions = {}) {
   const noopReasons = [];
   const emailWrites = buildContactWrites({
     input,
@@ -1248,6 +1259,53 @@ function buildOrganizationRelationshipWrite(input, match) {
   return write;
 }
 
+function buildDeferredProfileDetailWrite(input, fieldDecisions = {}) {
+  if (!input.nameUpdate && !input.individualProfileUpdate) return null;
+
+  return {
+    type: "profile_detail_review",
+    action: "load_current",
+    requiresReview: true,
+    deferredHydration: true,
+    fieldDecisions,
+    validationMessage:
+      "Open this row to load the current NXT name and profile values before reviewing CSV changes.",
+  };
+}
+
+function buildDeferredNameFormatDetailWrite(input, fieldDecisions = {}) {
+  if (!input.nameFormatUpdate) return null;
+
+  return {
+    type: "name_format_detail_review",
+    action: "load_current",
+    requiresReview: true,
+    deferredHydration: true,
+    fieldDecisions,
+    validationMessage:
+      "Open this row to load the current NXT addressee and salutation values before reviewing CSV changes.",
+  };
+}
+
+function buildDeferredContactDetailWrite(input, contactDecisions = {}) {
+  const hasContacts =
+    input.emailUpdates?.length ||
+    input.phoneUpdates?.length ||
+    input.addressUpdates?.length ||
+    hasContactSectionAction(contactDecisions);
+  if (!hasContacts) return null;
+
+  return {
+    type: "contact_detail_review",
+    action: "load_current",
+    requiresReview: true,
+    deferredHydration: true,
+    contactDecisions,
+    validationMessage:
+      "Open this row to load the current NXT email, phone, and address values before reviewing CSV changes.",
+  };
+}
+
 function buildWritePlan(
   input,
   changePreview,
@@ -1260,6 +1318,9 @@ function buildWritePlan(
   options = {},
 ) {
   const deferHeavyReview = options?.deferHeavyReview === true;
+  const deferProfileReview = options?.deferProfileReview === true;
+  const deferContactReview = options?.deferContactReview === true;
+  const deferNameFormatReview = options?.deferNameFormatReview === true;
   const writes = [];
   const reasons = [];
 
@@ -1310,21 +1371,28 @@ function buildWritePlan(
     writes.push(organizationRelationshipWrite);
   }
 
-  const nameUpdateWrite = buildNameUpdateWrite(input, match, fieldDecisions);
-  if (nameUpdateWrite) {
-    writes.push(nameUpdateWrite);
+  if (deferProfileReview) {
+    const deferredProfileWrite = buildDeferredProfileDetailWrite(input, fieldDecisions);
+    if (deferredProfileWrite) writes.push(deferredProfileWrite);
+  } else {
+    writes.push(...buildProfileDetailWrites(input, match, fieldDecisions));
   }
 
-  const individualProfileWrite = buildIndividualProfileWrite(input, match, fieldDecisions);
-  if (individualProfileWrite) {
-    writes.push(individualProfileWrite);
+  if (deferNameFormatReview) {
+    const deferredNameFormatWrite = buildDeferredNameFormatDetailWrite(input, fieldDecisions);
+    if (deferredNameFormatWrite) writes.push(deferredNameFormatWrite);
+  } else {
+    writes.push(...buildNameFormatDetailWrites(input, currentNameFormats, fieldDecisions));
   }
 
-  writes.push(...buildNameFormatWrites(input, currentNameFormats, fieldDecisions));
-
-  const contactUpdatePreview = buildContactUpdateWrites(input, currentContacts, contactDecisions);
-  writes.push(...contactUpdatePreview.writes);
-  reasons.push(...contactUpdatePreview.noopReasons);
+  if (deferContactReview) {
+    const deferredContactWrite = buildDeferredContactDetailWrite(input, contactDecisions);
+    if (deferredContactWrite) writes.push(deferredContactWrite);
+  } else {
+    const contactUpdatePreview = buildContactDetailPreview(input, currentContacts, contactDecisions);
+    writes.push(...contactUpdatePreview.writes);
+    reasons.push(...contactUpdatePreview.noopReasons);
+  }
 
   return { writes, reasons: [...new Set(reasons)] };
 }
@@ -2236,7 +2304,29 @@ function mergePriorReviewedWrites(nextWritePlan = [], priorWritePlan = []) {
   return mergedWritePlan;
 }
 
-function mergePriorReviewState(row, priorSavedRow) {
+function getDeferredReviewWrite(writePlan, type) {
+  return (Array.isArray(writePlan) ? writePlan : []).find(
+    (write) => write?.type === type && write?.deferredHydration,
+  );
+}
+
+function replaceDeferredReviewWrite(writePlan, type, replacementWrites) {
+  let replaced = false;
+  const nextWritePlan = (Array.isArray(writePlan) ? writePlan : []).flatMap((write) => {
+    if (write?.type !== type) return [write];
+    replaced = true;
+    return replacementWrites;
+  });
+  return replaced ? nextWritePlan : writePlan;
+}
+
+function removeDeferredDetailReasons(reasons) {
+  return (Array.isArray(reasons) ? reasons : []).filter(
+    (reason) => !/Open this row to (finish loading|load) the current NXT/i.test(cleanText(reason)),
+  );
+}
+
+export function mergePriorReviewState(row, priorSavedRow) {
   // A quota pause invalidates every partial NXT snapshot. Do not merge earlier
   // review choices or staged writes back into a no-op paused row.
   if (row?.nxtChecksPaused) return row;
@@ -2244,7 +2334,68 @@ function mergePriorReviewState(row, priorSavedRow) {
 
   const priorWritePlan = getStoredWritePlan(priorSavedRow);
   const priorBlackbaudResult = getStoredBlackbaudResult(priorSavedRow);
-  const mergedWritePlan = mergePriorReviewedWrites(row.writePlan || [], priorWritePlan);
+  const priorPreview =
+    priorSavedRow?.preview && typeof priorSavedRow.preview === "object" ? priorSavedRow.preview : {};
+  let mergedWritePlan = mergePriorReviewedWrites(row.writePlan || [], priorWritePlan);
+  const nextDeferredHydration =
+    row?.deferredHydration && typeof row.deferredHydration === "object"
+      ? { ...row.deferredHydration }
+      : {};
+  let profileSnapshot = null;
+  let currentContacts = row.currentContacts;
+  let currentNameFormats = row.currentNameFormats;
+
+  // Reuse an already hydrated row snapshot when the reviewer saves again.
+  // This avoids both a fresh NXT call and the false "Not set" placeholder values.
+  if (nextDeferredHydration.detail && priorPreview.profileSnapshot) {
+    const deferredWrite = getDeferredReviewWrite(mergedWritePlan, "profile_detail_review");
+    const detailWrites = buildProfileDetailWrites(
+      row.input || {},
+      { raw: priorPreview.profileSnapshot },
+      deferredWrite?.fieldDecisions || {},
+    );
+    mergedWritePlan = replaceDeferredReviewWrite(
+      mergedWritePlan,
+      "profile_detail_review",
+      detailWrites,
+    );
+    nextDeferredHydration.detail = false;
+    profileSnapshot = priorPreview.profileSnapshot;
+  }
+
+  if (nextDeferredHydration.contacts && priorPreview.contactsSnapshotLoaded) {
+    const deferredWrite = getDeferredReviewWrite(mergedWritePlan, "contact_detail_review");
+    const detailPreview = buildContactDetailPreview(
+      row.input || {},
+      priorPreview.currentContacts || { emails: [], phones: [], addresses: [] },
+      deferredWrite?.contactDecisions || {},
+    );
+    mergedWritePlan = replaceDeferredReviewWrite(
+      mergedWritePlan,
+      "contact_detail_review",
+      detailPreview.writes,
+    );
+    nextDeferredHydration.contacts = false;
+    currentContacts = priorPreview.currentContacts;
+  }
+
+  if (nextDeferredHydration.nameFormats && priorPreview.nameFormatsSnapshotLoaded) {
+    const deferredWrite = getDeferredReviewWrite(mergedWritePlan, "name_format_detail_review");
+    const detailWrites = buildNameFormatDetailWrites(
+      row.input || {},
+      priorPreview.currentNameFormats || {},
+      deferredWrite?.fieldDecisions || {},
+    );
+    mergedWritePlan = replaceDeferredReviewWrite(
+      mergedWritePlan,
+      "name_format_detail_review",
+      detailWrites,
+    );
+    nextDeferredHydration.nameFormats = false;
+    currentNameFormats = priorPreview.currentNameFormats;
+  }
+
+  const hasDeferredHydration = Object.values(nextDeferredHydration).some(Boolean);
   const hasRemainingReview = mergedWritePlan.some((write) => write?.requiresReview);
   const nextStatus =
     row.status === STATUS.conflict
@@ -2279,7 +2430,7 @@ function mergePriorReviewState(row, priorSavedRow) {
   ].filter(Boolean);
 
   const mergedReasons = [
-    ...(Array.isArray(row.reasons) ? row.reasons : []).filter(
+    ...removeDeferredDetailReasons(row.reasons).filter(
       (reason) => !reviewMessagesToRemove.some((pattern) => pattern.test(cleanText(reason))),
     ),
     ...priorReviewNotes,
@@ -2297,7 +2448,19 @@ function mergePriorReviewState(row, priorSavedRow) {
       status: nextStatus,
       reasons: mergedReasons,
       writePlan: mergedWritePlan,
+      currentContacts,
+      currentNameFormats,
+      profileSnapshot,
+      contactsSnapshotLoaded: Boolean(priorPreview.contactsSnapshotLoaded),
+      nameFormatsSnapshotLoaded: Boolean(priorPreview.nameFormatsSnapshotLoaded),
+      deferredHydration: hasDeferredHydration ? nextDeferredHydration : null,
     },
+    currentContacts,
+    currentNameFormats,
+    profileSnapshot,
+    contactsSnapshotLoaded: Boolean(priorPreview.contactsSnapshotLoaded),
+    nameFormatsSnapshotLoaded: Boolean(priorPreview.nameFormatsSnapshotLoaded),
+    deferredHydration: hasDeferredHydration ? nextDeferredHydration : null,
     writePlan: mergedWritePlan,
     blackbaudResult: {
       ...priorBlackbaudResult,
@@ -3103,6 +3266,9 @@ export async function POST(request) {
             currentEducations,
             {
               deferHeavyReview: deferredHydration.educations,
+              deferProfileReview: deferredHydration.detail,
+              deferContactReview: deferredHydration.contacts,
+              deferNameFormatReview: deferredHydration.nameFormats,
             },
           );
       const hasDeferredHydration = Object.values(deferredHydration).some(Boolean);
