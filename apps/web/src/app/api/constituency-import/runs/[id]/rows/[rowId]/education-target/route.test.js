@@ -162,4 +162,113 @@ describe("constituency import education-target review route", () => {
     expect(payload.targetEducationId).toBe("e-2");
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
+
+  it("treats an already saved education selection as a successful no-op", async () => {
+    const { GET, POST } = await import("./route.js");
+    const row = makeRow({
+      status: "Ready",
+      preview: {
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [
+          {
+            type: "education_relationship",
+            action: "update",
+            targetEducationId: "e-2",
+          },
+        ],
+      },
+      requested_writes: [
+        {
+          type: "education_relationship",
+          action: "update",
+          targetEducationId: "e-2",
+        },
+      ],
+    });
+    sqlMock.mockResolvedValueOnce([row]);
+
+    const getResponse = await GET(makeRequest("GET"), { params: { id: "42", rowId: "9" } });
+    const getPayload = await getResponse.json();
+
+    expect(getResponse.status).toBe(200);
+    expect(getPayload).toMatchObject({ alreadyResolved: true, targetEducationId: "e-2" });
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([row]);
+
+    const postResponse = await POST(makeRequest("POST", { educationId: "e-2" }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const postPayload = await postResponse.json();
+
+    expect(postResponse.status).toBe(200);
+    expect(postPayload).toMatchObject({ alreadyResolved: true, status: "Ready", targetEducationId: "e-2" });
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not require a source-row selection when a deferred education update became an add", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow({
+      status: "Ready",
+      preview: {
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [
+          {
+            type: "education_relationship",
+            action: "add",
+            duplicatePolicy: "skip_if_matching",
+          },
+        ],
+      },
+      requested_writes: [
+        {
+          type: "education_relationship",
+          action: "add",
+          duplicatePolicy: "skip_if_matching",
+        },
+      ],
+    });
+    sqlMock.mockResolvedValueOnce([row]);
+
+    const response = await POST(makeRequest("POST", {}), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ alreadyResolved: true, status: "Ready", targetEducationId: null });
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("converts a legacy source-row review into an add when NXT has no education rows", async () => {
+    const { GET, POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([makeRow()]);
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const getResponse = await GET(makeRequest("GET"), { params: { id: "42", rowId: "9" } });
+    const getPayload = await getResponse.json();
+
+    expect(getResponse.status).toBe(200);
+    expect(getPayload).toMatchObject({ candidateCount: 0, noCurrentEducation: true });
+
+    sqlMock.mockReset();
+    sqlMock
+      .mockResolvedValueOnce([makeRow()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+
+    const postResponse = await POST(makeRequest("POST", {}), {
+      params: { id: "42", rowId: "9" },
+    });
+    const postPayload = await postResponse.json();
+
+    expect(postResponse.status).toBe(200);
+    expect(postPayload).toMatchObject({
+      status: "Ready",
+      alreadyResolved: true,
+      noCurrentEducation: true,
+    });
+  });
 });

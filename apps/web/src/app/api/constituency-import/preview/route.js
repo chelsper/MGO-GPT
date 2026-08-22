@@ -815,6 +815,11 @@ function hasActiveContactUpdates(input, contactDecisions, kind) {
   );
 }
 
+function hasExplicitExistingPrimarySelection(contactDecisions, kind) {
+  const decision = getSectionDecision(contactDecisions, kind);
+  return decision.primaryOverride === true && Boolean(cleanText(decision.existingPrimaryTargetId));
+}
+
 export function getContactSnapshotStatus(status, fallbackLoaded = false) {
   const source = status && typeof status === "object" && !Array.isArray(status) ? status : null;
   return {
@@ -828,13 +833,13 @@ export function getRequiredContactSnapshotKinds(input = {}, contactDecisions = {
   const kinds = [];
   if (
     hasActiveContactUpdates(input, contactDecisions, "email") ||
-    cleanText(getSectionDecision(contactDecisions, "email").existingPrimaryTargetId)
+    hasExplicitExistingPrimarySelection(contactDecisions, "email")
   ) {
     kinds.push("emails");
   }
   if (
     hasActiveContactUpdates(input, contactDecisions, "phone") ||
-    cleanText(getSectionDecision(contactDecisions, "phone").existingPrimaryTargetId)
+    hasExplicitExistingPrimarySelection(contactDecisions, "phone")
   ) {
     kinds.push("phones");
   }
@@ -881,16 +886,6 @@ function buildContactWrites({
         (contact) => normalizeEmailValue(contact.address) === normalizeEmailValue(value.address),
       );
       if (matchingEmail) {
-        if (requestedMakePrimary && matchingEmail.id && !matchingEmail.primary) {
-          return {
-            type: "email_address",
-            action: "set_primary",
-            targetId: matchingEmail.id,
-            existingPrimaryId: existingPrimary?.id || "",
-            demoteExistingPrimary: Boolean(existingPrimary?.id && existingPrimary.id !== matchingEmail.id),
-            blankValuePolicy: "leave_unchanged",
-          };
-        }
         noopReasons.push("Matching NXT email already exists, so no email write will be sent.");
         return null;
       }
@@ -900,16 +895,6 @@ function buildContactWrites({
         (contact) => normalizePhoneValue(contact.number) === normalizePhoneValue(value.number),
       );
       if (matchingPhone) {
-        if (requestedMakePrimary && matchingPhone.id && !matchingPhone.primary) {
-          return {
-            type: "phone",
-            action: "set_primary",
-            targetId: matchingPhone.id,
-            existingPrimaryId: existingPrimary?.id || "",
-            demoteExistingPrimary: Boolean(existingPrimary?.id && existingPrimary.id !== matchingPhone.id),
-            blankValuePolicy: "leave_unchanged",
-          };
-        }
         noopReasons.push("Matching NXT phone number already exists, so no phone write will be sent.");
         return null;
       }
@@ -979,7 +964,9 @@ function buildExistingPrimaryWrite({ kind, contacts = [], decisions = {}, contac
   }
 
   const decision = getSectionDecision(decisions, kind);
-  const targetId = cleanText(decision.existingPrimaryTargetId);
+  const targetId = hasExplicitExistingPrimarySelection(decisions, kind)
+    ? cleanText(decision.existingPrimaryTargetId)
+    : "";
   if (!targetId) return null;
 
   const currentPrimary = getExistingPrimary(contacts);

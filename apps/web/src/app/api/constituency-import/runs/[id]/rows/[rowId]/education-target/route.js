@@ -24,6 +24,15 @@ function getWritePlan(row) {
   return Array.isArray(getPreview(row).writePlan) ? getPreview(row).writePlan : [];
 }
 
+function getConfirmedEducationWrite(writePlan) {
+  return (Array.isArray(writePlan) ? writePlan : []).find(
+    (write) =>
+      write?.type === "education_relationship" &&
+      write?.action === "update" &&
+      cleanText(write?.targetEducationId),
+  ) || null;
+}
+
 function getMatchedConstituentId(row) {
   const preview = getPreview(row);
   return cleanText(
@@ -200,8 +209,13 @@ async function loadReviewContext({ request, user, runId, rowId }) {
   );
   if (writeIndex < 0) {
     return {
-      error: "This import row does not have an education relationship awaiting source-row review.",
-      status: 409,
+      row,
+      writePlan,
+      writeIndex,
+      constituentId: getMatchedConstituentId(row),
+      candidates: [],
+      alreadyResolved: true,
+      targetEducationId: cleanText(getConfirmedEducationWrite(writePlan)?.targetEducationId),
     };
   }
 
@@ -236,9 +250,13 @@ async function loadReviewContext({ request, user, runId, rowId }) {
   const candidates = getSelectableEducations(getCollection(payload));
   if (!candidates.length) {
     return {
-      error:
-        "This constituent has no current NXT education relationship to update. Refresh the import review or choose Add Additional Relationship.",
-      status: 409,
+      row,
+      writePlan,
+      writeIndex,
+      candidates: [],
+      constituentId,
+      candidatesFromSavedPreview: false,
+      noCurrentEducation: true,
     };
   }
 
@@ -287,6 +305,9 @@ export async function GET(request, { params }) {
       constituentId: context.constituentId,
       candidates: context.candidates.map(serializeEducation),
       candidateCount: context.candidates.length,
+      alreadyResolved: context.alreadyResolved === true,
+      targetEducationId: context.targetEducationId || null,
+      noCurrentEducation: context.noCurrentEducation === true,
     });
   } catch (error) {
     console.error("Error loading import education-review candidates:", error);
@@ -306,18 +327,106 @@ export async function POST(request, { params }) {
     const routeParams = parseRouteParams(params);
     if (routeParams.error) return Response.json({ error: routeParams.error }, { status: 400 });
 
-    const body = await request.json().catch(() => ({}));
-    const targetEducationId = cleanText(body?.educationId);
-    if (!targetEducationId) {
-      return Response.json({ error: "Choose one NXT education row before continuing." }, { status: 400 });
-    }
-
     const context = await loadReviewContext({
       request,
       user: authResult.user,
       ...routeParams,
     });
     if (context.error) return Response.json({ error: context.error }, { status: context.status });
+
+    if (context.alreadyResolved) {
+      return Response.json({
+        message: context.targetEducationId
+          ? "The selected NXT education source row is already saved."
+          : "No NXT education source-row review is required for this record.",
+        status: context.row.status,
+        targetEducationId: context.targetEducationId || null,
+        alreadyResolved: true,
+      });
+    }
+
+    if (context.noCurrentEducation) {
+      const selectedAt = new Date().toISOString();
+      const nextWritePlan = context.writePlan.map((write, index) => {
+        if (index !== context.writeIndex) return write;
+        const { requiresReview, validationMessage, deferredHydration, ...reviewedWrite } = write;
+        return {
+          ...reviewedWrite,
+          action: "add",
+          duplicatePolicy: "skip_if_matching",
+          reviewSelection: {
+            selectedAt,
+            selectedByUserId: authResult.user.id,
+            selectedByEmail: authResult.user.email || "",
+            noCurrentEducation: true,
+          },
+        };
+      });
+      const hasRemainingReview = nextWritePlan.some((write) => write?.requiresReview);
+      const nextStatus = hasRemainingReview ? "Needs Review" : "Ready";
+      const preview = getPreview(context.row);
+      const nextPreview = {
+        ...preview,
+        status: nextStatus,
+        currentEducations: [],
+        educationsSnapshotLoaded: true,
+        writePlan: nextWritePlan,
+        reasons: [
+          ...(Array.isArray(preview.reasons) ? preview.reasons : []).filter(
+            (reason) =>
+              !/Education relationship data is staged for review\./i.test(reason) &&
+              !/possible NXT education rows/i.test(reason) &&
+              !/Choose the exact current NXT education row/i.test(reason),
+          ),
+          "No current NXT education relationship was found, so this CSV relationship will be added safely when the row is sent to NXT.",
+          ...(hasRemainingReview
+            ? ["Other staged changes still require review before this record can be applied."]
+            : []),
+        ],
+      };
+      const previousResult =
+        context.row.blackbaud_result && typeof context.row.blackbaud_result === "object"
+          ? context.row.blackbaud_result
+          : {};
+      const nextResult = {
+        ...previousResult,
+        educationReview: {
+          action: "add",
+          noCurrentEducation: true,
+          selectedAt,
+          selectedByUserId: authResult.user.id,
+          selectedByEmail: authResult.user.email || "",
+        },
+      };
+
+      await sql`
+        UPDATE constituency_import_rows
+        SET
+          status = ${nextStatus},
+          preview = ${JSON.stringify(nextPreview)}::jsonb,
+          requested_writes = ${JSON.stringify(nextWritePlan)}::jsonb,
+          blackbaud_result = ${JSON.stringify(nextResult)}::jsonb,
+          blackbaud_error = NULL,
+          updated_at = NOW()
+        WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+      `;
+      await refreshRunSummary(routeParams.runId);
+
+      return Response.json({
+        message: hasRemainingReview
+          ? "Saved this education add. This record still has other items to review."
+          : "No current NXT education was found, so this record is ready to add the CSV relationship.",
+        status: nextStatus,
+        alreadyResolved: true,
+        noCurrentEducation: true,
+      });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const targetEducationId = cleanText(body?.educationId);
+    if (!targetEducationId) {
+      return Response.json({ error: "Choose one NXT education row before continuing." }, { status: 400 });
+    }
 
     const target = context.candidates.find(
       (candidate) => getEducationId(candidate) === targetEducationId,

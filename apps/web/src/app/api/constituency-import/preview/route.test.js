@@ -494,6 +494,16 @@ describe("constituency import preview route", () => {
           emailMakePrimary: "Email Make Primary?",
         },
         defaults: { updateEmailFields: true },
+        contactDecisions: {
+          1: {
+            email: {
+              __section: {
+                existingPrimaryTargetId: "email-other",
+                primaryOverride: true,
+              },
+            },
+          },
+        },
       }),
     );
     const payload = await response.json();
@@ -639,6 +649,16 @@ describe("constituency import preview route", () => {
           emailMakePrimary: "Email Make Primary?",
         },
         defaults: { updateEmailFields: true },
+        contactDecisions: {
+          1: {
+            email: {
+              __section: {
+                existingPrimaryTargetId: "email-other",
+                primaryOverride: true,
+              },
+            },
+          },
+        },
       }),
     );
     const promotePayload = await promoteResponse.json();
@@ -719,6 +739,16 @@ describe("constituency import preview route", () => {
           phoneMakePrimary: "Phone Make Primary?",
         },
         defaults: { updatePhoneFields: true },
+        contactDecisions: {
+          1: {
+            phone: {
+              __section: {
+                existingPrimaryTargetId: "phone-mobile",
+                primaryOverride: true,
+              },
+            },
+          },
+        },
       }),
     );
     const promotePayload = await promoteResponse.json();
@@ -853,6 +883,7 @@ describe("constituency import preview route", () => {
               __section: {
                 existingPrimaryTargetId: "email-other",
                 demotedPrimaryType: "Former email",
+                primaryOverride: true,
               },
             },
           },
@@ -872,6 +903,74 @@ describe("constituency import preview route", () => {
         demotedPrimaryType: "Former email",
       }),
     ]);
+  });
+
+  it("does not change the primary email when an existing matching CSV email is left at its default no-action choice", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          { id: "email-primary", address: "primary@ju.edu", type: "Email - JU", primary: true },
+          { id: "email-existing", address: "existing@example.com", type: "Preferred Email 1", primary: false },
+        ],
+      })
+      .mockResolvedValueOnce({ value: [] })
+      .mockResolvedValueOnce({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT Lookup ID": "440085", "Email Address": "existing@example.com", "Email Primary": "Yes" }],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          email: "Email Address",
+          emailPrimary: "Email Primary",
+        },
+        defaults: { updateEmailFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].writePlan).toEqual([]);
+    expect(payload.rows[0].reasons).toContain(
+      "Matching NXT email already exists, so no email write will be sent.",
+    );
+  });
+
+  it("ignores a stale saved primary-contact target until a reviewer explicitly confirms it", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({
+      blackbaudConstituentId: "440085",
+      lookupId: "440085",
+      name: "Chelsea Jasper",
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT Lookup ID": "440085" }],
+        mappings: { lookupId: "NXT Lookup ID" },
+        defaults: { updateEmailFields: true },
+        contactDecisions: {
+          1: {
+            email: {
+              __section: {
+                existingPrimaryTargetId: "email-other",
+              },
+            },
+          },
+        },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].writePlan).toEqual([]);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
   it("stages a prior-address transition only after an address add is selected", async () => {

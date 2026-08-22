@@ -165,6 +165,11 @@ function getSavedEducationCandidates(row) {
   return candidates.filter((candidate) => getEducationId(candidate));
 }
 
+function hasSavedEducationSnapshot(row) {
+  const preview = getPreview(row);
+  return preview.educationsSnapshotLoaded === true && Array.isArray(preview.currentEducations);
+}
+
 function getSavedConstituencyCandidates(row, sourceConstituency) {
   const candidates = Array.isArray(getPreview(row).currentCodeDetails)
     ? getPreview(row).currentCodeDetails
@@ -339,6 +344,7 @@ export async function POST(request, { params }) {
     }
 
     let educations = null;
+    let refreshedEducationSnapshot = null;
     let codes = null;
     const reviewNotes = [];
     const nextWritePlan = writePlan.map((write) => ({ ...write }));
@@ -350,14 +356,8 @@ export async function POST(request, { params }) {
     const selectedAt = new Date().toISOString();
 
     if (pendingEducationTargetIndex >= 0) {
-      if (!educationId) {
-        return Response.json(
-          { error: "Choose the current NXT education row before saving this row review." },
-          { status: 400 },
-        );
-      }
       educations = getSavedEducationCandidates(row);
-      if (!educations.length) {
+      if (!educations.length && !hasSavedEducationSnapshot(row)) {
         const payload = await blackbaudApiFetch(
           `/constituent/v1/constituents/${encodeURIComponent(constituentId)}/educations`,
           {
@@ -367,39 +367,74 @@ export async function POST(request, { params }) {
           },
         );
         educations = getCollection(payload);
-      }
-      const target = educations.find((candidate) => getEducationId(candidate) === educationId);
-      if (!target) {
-        return Response.json(
-          { error: "The selected NXT education row is no longer a valid candidate. Reload the row and try again." },
-          { status: 409 },
-        );
+        refreshedEducationSnapshot = educations.map(serializeEducation);
       }
 
       const existingWrite = nextWritePlan[pendingEducationTargetIndex];
-      const { requiresReview, validationMessage, ...reviewedWrite } = existingWrite;
-      nextWritePlan[pendingEducationTargetIndex] = {
-        ...reviewedWrite,
-        action: "update",
-        targetEducationId: educationId,
-        existingEducation: serializeEducation(target),
-        reviewSelection: {
+      const { requiresReview, validationMessage, deferredHydration, ...reviewedWrite } = existingWrite;
+
+      if (!educations.length) {
+        // A review-update has nothing to replace when this constituent has no
+        // education records. Keep the operation duplicate-safe and add it instead.
+        nextWritePlan[pendingEducationTargetIndex] = {
+          ...reviewedWrite,
+          action: "add",
+          duplicatePolicy: "skip_if_matching",
+          reviewSelection: {
+            selectedAt,
+            selectedByUserId: authResult.user.id,
+            selectedByEmail: authResult.user.email || "",
+            noCurrentEducation: true,
+          },
+        };
+        nextResult.educationReview = {
+          action: "add",
+          noCurrentEducation: true,
           selectedAt,
           selectedByUserId: authResult.user.id,
           selectedByEmail: authResult.user.email || "",
+        };
+        reviewNotes.push(
+          "No current NXT education relationship was found, so this CSV relationship will be added safely when the row is sent to NXT.",
+        );
+      } else {
+        if (!educationId) {
+          return Response.json(
+            { error: "Choose the current NXT education row before saving this row review." },
+            { status: 400 },
+          );
+        }
+        const target = educations.find((candidate) => getEducationId(candidate) === educationId);
+        if (!target) {
+          return Response.json(
+            { error: "The selected NXT education row is no longer a valid candidate. Reload the row and try again." },
+            { status: 409 },
+          );
+        }
+
+        nextWritePlan[pendingEducationTargetIndex] = {
+          ...reviewedWrite,
+          action: "update",
+          targetEducationId: educationId,
+          existingEducation: serializeEducation(target),
+          reviewSelection: {
+            selectedAt,
+            selectedByUserId: authResult.user.id,
+            selectedByEmail: authResult.user.email || "",
+            candidateCount: educations.length,
+          },
+        };
+        nextResult.educationReview = {
+          targetEducationId: educationId,
           candidateCount: educations.length,
-        },
-      };
-      nextResult.educationReview = {
-        targetEducationId: educationId,
-        candidateCount: educations.length,
-        selectedAt,
-        selectedByUserId: authResult.user.id,
-        selectedByEmail: authResult.user.email || "",
-      };
-      reviewNotes.push(
-        `Advancement Services selected current NXT education ID ${educationId} as the source row for this education update.`,
-      );
+          selectedAt,
+          selectedByUserId: authResult.user.id,
+          selectedByEmail: authResult.user.email || "",
+        };
+        reviewNotes.push(
+          `Advancement Services selected current NXT education ID ${educationId} as the source row for this education update.`,
+        );
+      }
     }
 
     if (pendingConstituencyIndex >= 0) {
@@ -506,6 +541,12 @@ export async function POST(request, { params }) {
       ...preview,
       status: nextStatus,
       writePlan: nextWritePlan,
+      ...(refreshedEducationSnapshot !== null
+        ? {
+            currentEducations: refreshedEducationSnapshot,
+            educationsSnapshotLoaded: true,
+          }
+        : {}),
       reasons: [
         ...(Array.isArray(preview.reasons) ? preview.reasons : []).filter(
           (reason) =>

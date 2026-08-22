@@ -1412,10 +1412,16 @@ function getRequiredImportContactKinds(row, decisions = {}) {
   const emailSection = getContactSectionDecision(decisions, row?.rowNumber, "email");
   const phoneSection = getContactSectionDecision(decisions, row?.rowNumber, "phone");
 
-  if (hasActiveImportContactUpdates(row, decisions, "email") || emailSection.existingPrimaryTargetId) {
+  if (
+    hasActiveImportContactUpdates(row, decisions, "email") ||
+    (emailSection.primaryOverride === true && emailSection.existingPrimaryTargetId)
+  ) {
     required.push("email");
   }
-  if (hasActiveImportContactUpdates(row, decisions, "phone") || phoneSection.existingPrimaryTargetId) {
+  if (
+    hasActiveImportContactUpdates(row, decisions, "phone") ||
+    (phoneSection.primaryOverride === true && phoneSection.existingPrimaryTargetId)
+  ) {
     required.push("phone");
   }
   if (hasActiveImportContactUpdates(row, decisions, "address")) required.push("address");
@@ -1522,10 +1528,14 @@ function ContactReviewPanel({
 
       {sections.map((section) => {
         const sectionDecision = getContactSectionDecision(decisions, row.rowNumber, section.kind);
+        const existingPrimaryTargetId =
+          sectionDecision.primaryOverride === true
+            ? sectionDecision.existingPrimaryTargetId || ""
+            : "";
         const sectionLoaded = contactSnapshotStatus[section.kind];
         const sectionNeedsSnapshot =
           hasActiveImportContactUpdates(row, decisions, section.kind) ||
-          (section.kind !== "address" && Boolean(sectionDecision.existingPrimaryTargetId));
+          (section.kind !== "address" && Boolean(existingPrimaryTargetId));
         if (!sectionLoaded && sectionNeedsSnapshot) {
           return (
             <div
@@ -1581,7 +1591,7 @@ function ContactReviewPanel({
           return mode !== "replace" && mode !== "skip";
         });
         const selectedExistingPrimary = section.contacts.find(
-          (contact) => contact.id === sectionDecision.existingPrimaryTargetId,
+          (contact) => contact.id === existingPrimaryTargetId,
         );
 
         return (
@@ -1624,10 +1634,11 @@ function ContactReviewPanel({
                     Primary {section.kind === "email" ? "email address" : "phone number"}
                     <select
                       name={`existing-primary-${row.rowNumber}-${section.kind}`}
-                      value={sectionDecision.existingPrimaryTargetId || ""}
+                      value={existingPrimaryTargetId}
                       onChange={(event) =>
                         onSectionDecisionChange(row.rowNumber, section.kind, {
                           existingPrimaryTargetId: event.target.value,
+                          primaryOverride: Boolean(event.target.value),
                         })
                       }
                       style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
@@ -1766,10 +1777,17 @@ function ContactReviewPanel({
                       name={`contact-mode-${row.rowNumber}-${section.kind}-${index}`}
                       value={mode}
                       onChange={(event) =>
-                        onDecisionChange(row.rowNumber, section.kind, index, {
-                          mode: event.target.value,
-                          targetId: event.target.value === "replace" ? decision.targetId || "" : "",
-                        })
+                        onDecisionChange(
+                          row.rowNumber,
+                          section.kind,
+                          index,
+                          {
+                            mode: event.target.value,
+                            targetId: event.target.value === "replace" ? decision.targetId || "" : "",
+                          },
+                          section.values.length,
+                          matchingContact?.id || "",
+                        )
                       }
                       style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
                     >
@@ -3455,18 +3473,47 @@ export default function ConstituencyImportPage() {
     setPreview(null);
   }
 
-  function updateContactDecision(rowNumber, kind, index, change, contactCount = 0) {
+  function updateContactDecision(
+    rowNumber,
+    kind,
+    index,
+    change,
+    contactCount = 0,
+    matchingContactId = "",
+  ) {
     setContactDecisions((current) => {
       const rowKey = String(rowNumber);
       const rowDecisions = current[rowKey] || {};
       const kindDecisions = rowDecisions[kind] || {};
+      const nextDecision = {
+        ...(kindDecisions[String(index)] || {}),
+        ...change,
+      };
+      if (change.mode === "skip") {
+        nextDecision.targetId = "";
+        nextDecision.makePrimary = false;
+        nextDecision.demotedPrimaryType = "";
+      }
       const nextKindDecisions = {
         ...kindDecisions,
-        [String(index)]: {
-          ...(kindDecisions[String(index)] || {}),
-          ...change,
-        },
+        [String(index)]: nextDecision,
       };
+
+      const existingPrimaryTargetId = String(
+        kindDecisions.__section?.existingPrimaryTargetId || "",
+      ).trim();
+      if (
+        change.mode === "skip" &&
+        matchingContactId &&
+        existingPrimaryTargetId === String(matchingContactId)
+      ) {
+        nextKindDecisions.__section = {
+          ...(kindDecisions.__section || {}),
+          existingPrimaryTargetId: "",
+          demotedPrimaryType: "",
+          primaryOverride: false,
+        };
+      }
 
       if (change.makePrimary === true) {
         for (let contactIndex = 0; contactIndex < contactCount; contactIndex += 1) {
@@ -3506,6 +3553,9 @@ export default function ConstituencyImportPage() {
             __section: {
               ...(kindDecisions.__section || {}),
               ...change,
+              ...(Object.prototype.hasOwnProperty.call(change, "existingPrimaryTargetId")
+                ? { primaryOverride: Boolean(change.existingPrimaryTargetId) }
+                : {}),
             },
           },
         },
@@ -4564,8 +4614,17 @@ export default function ConstituencyImportPage() {
   function getCombinedRowReviewMissingItems(row) {
     const draft = getCombinedRowReviewDraft(row);
     const missing = [];
+    const educationCandidates = educationCandidatesByRowId[String(row?.id || "")];
+    const noCurrentEducationRows =
+      getPendingEducationTargetReviewWrite(row) &&
+      Array.isArray(educationCandidates) &&
+      educationCandidates.length === 0;
 
-    if (getPendingEducationTargetReviewWrite(row) && !draft.educationId) {
+    if (
+      getPendingEducationTargetReviewWrite(row) &&
+      !draft.educationId &&
+      !noCurrentEducationRows
+    ) {
       missing.push("select the current NXT education row");
     }
     if (getPendingConstituencyTargetReviewWrite(row) && !draft.constituentCodeId) {

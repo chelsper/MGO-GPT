@@ -109,6 +109,7 @@ describe("constituency import review choices route", () => {
             __section: {
               existingPrimaryTargetId: "email-new",
               demotedPrimaryType: "Former email",
+              primaryOverride: true,
             },
           },
         },
@@ -136,7 +137,7 @@ describe("constituency import review choices route", () => {
     expect(updateCall).toBeTruthy();
     const savedPreview = JSON.parse(updateCall[2]);
     expect(savedPreview.contactReviewDecisions).toMatchObject({
-      email: { __section: { existingPrimaryTargetId: "email-new" } },
+      email: { __section: { existingPrimaryTargetId: "email-new", primaryOverride: true } },
     });
     expect(savedPreview.deferredHydration).toBeNull();
   });

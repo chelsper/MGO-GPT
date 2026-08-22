@@ -107,4 +107,58 @@ describe("combined constituency import row review route", () => {
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
     expect(sqlMock).toHaveBeenCalledTimes(4);
   });
+
+  it("converts a review-update into a duplicate-safe add when the saved NXT education snapshot is empty", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow({
+      preview: {
+        match: { blackbaudConstituentId: "123" },
+        currentEducations: [],
+        educationsSnapshotLoaded: true,
+        currentCodeDetails: [],
+        reasons: ["Education relationship data is staged for review."],
+        writePlan: [
+          {
+            type: "education_relationship",
+            action: "review_existing",
+            requiresReview: true,
+            validationMessage: "Choose the exact current NXT education row before this update can be applied.",
+            institution: "Jacksonville University",
+          },
+        ],
+      },
+      requested_writes: [
+        {
+          type: "education_relationship",
+          action: "review_existing",
+          requiresReview: true,
+          validationMessage: "Choose the exact current NXT education row before this update can be applied.",
+          institution: "Jacksonville University",
+        },
+      ],
+    });
+    sqlMock
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+
+    const response = await POST(makeRequest({}), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.status).toBe("Ready");
+    expect(payload.writePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "add", duplicatePolicy: "skip_if_matching" }),
+      ]),
+    );
+    expect(payload.preview).toMatchObject({
+      currentEducations: [],
+      educationsSnapshotLoaded: true,
+    });
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
 });

@@ -48,10 +48,18 @@ function getDeferredContactKinds(input, contactDecisions) {
       ? contactDecisions[kind].__section
       : {};
   const kinds = [];
-  if (input?.emailUpdates?.length || cleanText(section("email").existingPrimaryTargetId)) {
+  if (
+    input?.emailUpdates?.length ||
+    (section("email").primaryOverride === true &&
+      cleanText(section("email").existingPrimaryTargetId))
+  ) {
     kinds.push("emails");
   }
-  if (input?.phoneUpdates?.length || cleanText(section("phone").existingPrimaryTargetId)) {
+  if (
+    input?.phoneUpdates?.length ||
+    (section("phone").primaryOverride === true &&
+      cleanText(section("phone").existingPrimaryTargetId))
+  ) {
     kinds.push("phones");
   }
   if (input?.addressUpdates?.length || cleanText(section("address").previousAddressTargetId)) {

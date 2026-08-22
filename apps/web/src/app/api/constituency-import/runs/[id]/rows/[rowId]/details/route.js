@@ -198,8 +198,10 @@ function hasContactSectionAction(decisions) {
       ? decisions[kind].__section
       : {};
   return Boolean(
-    cleanText(section("email").existingPrimaryTargetId) ||
-      cleanText(section("phone").existingPrimaryTargetId) ||
+    (section("email").primaryOverride === true &&
+      cleanText(section("email").existingPrimaryTargetId)) ||
+      (section("phone").primaryOverride === true &&
+        cleanText(section("phone").existingPrimaryTargetId)) ||
       cleanText(section("address").previousAddressTargetId),
   );
 }
