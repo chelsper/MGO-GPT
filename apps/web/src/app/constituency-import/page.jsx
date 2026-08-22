@@ -5064,11 +5064,13 @@ export default function ConstituencyImportPage() {
         return null;
       }
       const restoredDecisions = getSavedReviewDecisionState(payload);
+      const initialFocusedRow =
+        getReviewQueueRows(payload?.rows)[0] || payload?.rows?.[0] || null;
       setPreview(payload);
       setContactDecisions(restoredDecisions.contact);
       setFieldDecisions(restoredDecisions.fields);
       setSelectedApplyRowIds([]);
-      setFocusedRowId(String(getReviewQueueRows(payload?.rows)[0]?.id || payload?.rows?.[0]?.id || ""));
+      setFocusedRowId(String(initialFocusedRow?.id || ""));
       setReviewMode(
         typeof preferReviewMode === "boolean" ? preferReviewMode : Boolean(payload?.savedRun),
       );
@@ -5092,6 +5094,13 @@ export default function ConstituencyImportPage() {
             : `Saved import run #${payload.savedRun.id}. No NXT records were changed.`,
         );
         fetchSavedRuns();
+
+        // Fast previews avoid a batch-wide NXT contact fan-out. Once the
+        // review is saved, load the row the reviewer is looking at so its
+        // required contact review is ready without a separate click.
+        if (initialFocusedRow && !payload?.nxtChecksPaused) {
+          preloadRequiredReviewChoices(initialFocusedRow, payload.savedRun.id);
+        }
       } else if (successMessage) {
         setSaveMessage(successMessage);
       }
