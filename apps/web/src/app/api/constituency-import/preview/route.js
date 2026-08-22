@@ -1299,16 +1299,23 @@ export function buildEducationRelationshipWrite(input, match, currentEducations)
       return write;
     }
 
-    // An education record can have similar degrees, majors, or class years. Never infer the
-    // source row from those values: the reviewer must select the exact NXT education row.
     const availableSourceRows = (Array.isArray(currentEducations) ? currentEducations : []).filter(
       (education) => getEducationId(education),
     );
+    // There is nothing to replace when the constituent has no education rows. Stage a
+    // duplicate-safe add instead; the apply route checks live NXT data again before writing.
+    if (!availableSourceRows.length) {
+      write.action = "add";
+      write.duplicatePolicy = "skip_if_matching";
+      return write;
+    }
+
+    // An education record can have similar degrees, majors, or class years. Never infer the
+    // source row from those values: the reviewer must select the exact NXT education row.
     write.requiresReview = true;
     write.action = "review_existing";
-    write.validationMessage = availableSourceRows.length
-      ? "Choose the exact current NXT education relationship to update. No education row is changed until a reviewer selects it and sends this record to NXT."
-      : "This constituent has no current NXT education relationship to update. Choose Add Additional Relationship to create this education row instead.";
+    write.validationMessage =
+      "Choose the exact current NXT education relationship to update. No education row is changed until a reviewer selects it and sends this record to NXT.";
   } else {
     const existing = (Array.isArray(currentEducations) ? currentEducations : []).find(
       (education) => educationMatchesWrite(write, education),

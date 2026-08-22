@@ -1484,8 +1484,9 @@ function ContactReviewPanel({
           }}
         >
           <div>
-            Current NXT {unavailableLabels.join(", ")} {unavailableLabels.length === 1 ? "has" : "have"} not loaded yet.
-            Available contact sections can still be reviewed and saved. The unavailable section will remain safely blocked until it loads.
+            Current NXT {unavailableLabels.join(", ")} {unavailableLabels.length === 1 ? "is" : "are"} pending.
+            This row loads its needed NXT details automatically. Available contact sections can still
+            be reviewed and saved; retry only if the pending section does not finish loading.
           </div>
           <div>
             <button
@@ -1502,7 +1503,7 @@ function ContactReviewPanel({
                 cursor: loadingCurrentContacts || !onLoadCurrentContacts ? "not-allowed" : "pointer",
               }}
             >
-              {loadingCurrentContacts ? "Loading current NXT contacts..." : "Retry unavailable NXT contacts"}
+              {loadingCurrentContacts ? "Loading current NXT contacts..." : "Retry current NXT contacts"}
             </button>
           </div>
         </div>
@@ -1960,8 +1961,7 @@ function EducationTargetReviewPanel({
   selectedCandidateId,
   loading,
   saving,
-  autoLoad = false,
-  onLoadCandidates,
+  onRetry,
   onCandidateChange,
 }) {
   const pendingWrite = (row.writePlan || []).find(
@@ -1989,10 +1989,26 @@ function EducationTargetReviewPanel({
   const hasLoadedCandidates = Array.isArray(candidates);
 
   useEffect(() => {
-    if (autoLoad && !confirmedWrite && !hasLoadedCandidates && !loading && !saving) {
-      onLoadCandidates(row);
+    if (
+      !confirmedWrite &&
+      hasLoadedCandidates &&
+      candidates.length === 1 &&
+      !selectedCandidateId &&
+      !loading &&
+      !saving
+    ) {
+      onCandidateChange(row, candidates[0].id);
     }
-  }, [autoLoad, confirmedWrite, hasLoadedCandidates, loading, onLoadCandidates, row, saving]);
+  }, [
+    candidates,
+    confirmedWrite,
+    hasLoadedCandidates,
+    loading,
+    onCandidateChange,
+    row,
+    saving,
+    selectedCandidateId,
+  ]);
 
   if (confirmedWrite) {
     const source = confirmedWrite.existingEducation || {};
@@ -2017,10 +2033,10 @@ function EducationTargetReviewPanel({
         }}
       >
         <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Education update confirmed
+          Education source selected
         </div>
         <div style={{ color: "#166534", lineHeight: 1.45 }}>
-          This CSV will update the selected current NXT education relationship when this record is sent to NXT. Other education rows will not change.
+          This row will update the selected NXT education relationship only when you send it to NXT. Other education rows will not change.
         </div>
         <div style={{ color: "#14532D", fontSize: "14px", fontWeight: 800 }}>
           Source row: {sourceDetails || `NXT education ID ${confirmedWrite.targetEducationId}`}
@@ -2045,11 +2061,11 @@ function EducationTargetReviewPanel({
     >
       <div>
         <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Education update review
+          Choose education source for this row
         </div>
         <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
-          Choose the exact current NXT education row to update. Choosing a row records the
-          decision in this import run; it does not write to NXT until you send this record.
+          Choose the current NXT relationship that this CSV should update. This only selects a
+          source row; it is saved with the one row-review save below and does not write to NXT.
           Every other education relationship remains unchanged.
         </p>
       </div>
@@ -2071,23 +2087,45 @@ function EducationTargetReviewPanel({
       </div>
 
       {!hasLoadedCandidates ? (
-        <div
-          style={{
-            width: "fit-content",
-            border: "1px solid #FDE68A",
-            borderRadius: "999px",
-            backgroundColor: "#FEF3C7",
-            color: "#92400E",
-            padding: "9px 14px",
-            fontWeight: 900,
-          }}
-        >
-          Loading current NXT education rows...
+        <div style={{ display: "grid", gap: "8px", justifyItems: "start" }}>
+          <div
+            style={{
+              width: "fit-content",
+              border: "1px solid #FDE68A",
+              borderRadius: "999px",
+              backgroundColor: "#FEF3C7",
+              color: "#92400E",
+              padding: "9px 14px",
+              fontWeight: 900,
+            }}
+          >
+            {loading
+              ? "Loading current NXT education rows..."
+              : "Current NXT education rows are pending. This row loads them automatically."}
+          </div>
+          {!loading && onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={saving}
+              style={{
+                border: "1px solid #B45309",
+                borderRadius: "999px",
+                backgroundColor: "white",
+                color: "#92400E",
+                padding: "8px 12px",
+                fontWeight: 900,
+                cursor: saving ? "not-allowed" : "pointer",
+              }}
+            >
+              Retry current NXT education rows
+            </button>
+          ) : null}
         </div>
       ) : candidates.length ? (
         <div style={{ display: "grid", gap: "9px" }}>
           <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
-            Select the current NXT education row to update
+            Current NXT education relationships
           </div>
           {candidates.map((candidate) => {
             const isSelected = String(selectedCandidateId || "") === String(candidate.id);
@@ -2140,20 +2178,21 @@ function EducationTargetReviewPanel({
                     cursor: saving || loading ? "not-allowed" : "pointer",
                   }}
                 >
-                  {isSelected ? "Selected NXT row" : "Select this NXT row"}
+                  {isSelected ? "Will use this NXT row" : "Use this NXT row"}
                 </button>
               </div>
             );
           })}
           <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 700 }}>
-            Your selected NXT education row will be saved when you confirm the full row review
-            below.
+            {candidates.length === 1
+              ? "The only current NXT education row was selected automatically. Review it, then save this row once below."
+              : "This choice will be saved with the one row-review save below."}
           </div>
         </div>
       ) : (
         <div style={{ color: "#92400E", fontWeight: 800 }}>
-          This constituent has no current NXT education relationships. Refresh the import review or
-          change this import to Add Additional Relationship.
+          No current NXT education relationships were found. This CSV relationship will be added
+          safely when the row is sent to NXT.
         </div>
       )}
     </section>
@@ -2166,8 +2205,7 @@ function ConstituencyReplaceReviewPanel({
   selectedCandidateId,
   loading,
   saving,
-  autoLoad = false,
-  onLoadCandidates,
+  onRetry,
   onCandidateChange,
 }) {
   const write = (row.writePlan || []).find(
@@ -2185,10 +2223,26 @@ function ConstituencyReplaceReviewPanel({
   ];
 
   useEffect(() => {
-    if (autoLoad && !write.sourceCodeId && !hasLoadedCandidates && !loading && !saving) {
-      onLoadCandidates(row);
+    if (
+      !write.sourceCodeId &&
+      hasLoadedCandidates &&
+      candidates.length === 1 &&
+      !selectedCandidateId &&
+      !loading &&
+      !saving
+    ) {
+      onCandidateChange(row, candidates[0].id);
     }
-  }, [autoLoad, hasLoadedCandidates, loading, onLoadCandidates, row, saving, write.sourceCodeId]);
+  }, [
+    candidates,
+    hasLoadedCandidates,
+    loading,
+    onCandidateChange,
+    row,
+    saving,
+    selectedCandidateId,
+    write.sourceCodeId,
+  ]);
 
   if (write.sourceCodeId && selectedSourceCode) {
     return (
@@ -2204,7 +2258,7 @@ function ConstituencyReplaceReviewPanel({
       >
         <div>
           <div style={{ color: "#166534", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            Constituency replacement confirmed
+            Constituency source selected
           </div>
           <p style={{ margin: "5px 0 0", color: "#166534", lineHeight: 1.45 }}>
             Sending this record to NXT will remove only the selected current code below, including
@@ -2267,11 +2321,11 @@ function ConstituencyReplaceReviewPanel({
     >
       <div>
         <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Constituency replacement review
+          Choose constituent-code source for this row
         </div>
         <p style={{ margin: "5px 0 0", color: "#92400E", lineHeight: 1.45 }}>
-          Choose exactly which current NXT code row to remove. The selected row and its dates will
-          be deleted, then the new code below will be created using the CSV dates. Other
+          Choose the current NXT code that this CSV should replace. This only selects a source
+          row; it is saved with the one row-review save below and does not write to NXT. Other
           constituencies will not change.
         </p>
       </div>
@@ -2292,23 +2346,45 @@ function ConstituencyReplaceReviewPanel({
       </div>
 
       {!hasLoadedCandidates ? (
-        <div
-          style={{
-            width: "fit-content",
-            border: "1px solid #FDE68A",
-            borderRadius: "999px",
-            backgroundColor: "#FEF3C7",
-            color: "#92400E",
-            padding: "9px 14px",
-            fontWeight: 900,
-          }}
-        >
-          Loading current NXT code rows...
+        <div style={{ display: "grid", gap: "8px", justifyItems: "start" }}>
+          <div
+            style={{
+              width: "fit-content",
+              border: "1px solid #FDE68A",
+              borderRadius: "999px",
+              backgroundColor: "#FEF3C7",
+              color: "#92400E",
+              padding: "9px 14px",
+              fontWeight: 900,
+            }}
+          >
+            {loading
+              ? "Loading current NXT code rows..."
+              : "Current NXT code rows are pending. This row loads them automatically."}
+          </div>
+          {!loading && onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={saving}
+              style={{
+                border: "1px solid #B45309",
+                borderRadius: "999px",
+                backgroundColor: "white",
+                color: "#92400E",
+                padding: "8px 12px",
+                fontWeight: 900,
+                cursor: saving ? "not-allowed" : "pointer",
+              }}
+            >
+              Retry current NXT code rows
+            </button>
+          ) : null}
         </div>
       ) : candidates.length ? (
         <div style={{ display: "grid", gap: "9px" }}>
           <div style={{ color: "#78350F", fontSize: "14px", fontWeight: 800 }}>
-            Current NXT code candidates
+            Current NXT code relationships
           </div>
           {candidates.map((candidate) => {
             const isSelected = String(selectedCandidateId || "") === String(candidate.id);
@@ -2351,13 +2427,15 @@ function ConstituencyReplaceReviewPanel({
                     cursor: saving || loading ? "not-allowed" : "pointer",
                   }}
                 >
-                  {isSelected ? "Selected NXT code" : "Select this NXT code"}
+                  {isSelected ? "Will use this NXT code" : "Use this NXT code"}
                 </button>
               </div>
             );
           })}
           <div style={{ color: "#92400E", fontSize: "12px", fontWeight: 700 }}>
-            Your selected current NXT code will be saved when you confirm the full row review below.
+            {candidates.length === 1
+              ? "The only matching NXT code was selected automatically. Review it, then save this row once below."
+              : "This choice will be saved with the one row-review save below."}
           </div>
         </div>
       ) : (
@@ -2861,6 +2939,7 @@ export default function ConstituencyImportPage() {
   const previewAbortControllerRef = useRef(null);
   const hydratedDetailRowsRef = useRef(new Set());
   const pendingDetailHydrationRowsRef = useRef(new Set());
+  const automaticDetailHydrationRowsRef = useRef(new Set());
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
@@ -2893,14 +2972,9 @@ export default function ConstituencyImportPage() {
   const [loadingSuggestionFieldKey, setLoadingSuggestionFieldKey] = useState("");
   const [educationCandidatesByRowId, setEducationCandidatesByRowId] = useState({});
   const [selectedEducationCandidateByRowId, setSelectedEducationCandidateByRowId] = useState({});
-  const [loadingEducationCandidateRowId, setLoadingEducationCandidateRowId] = useState("");
-  const [savingEducationTargetRowId, setSavingEducationTargetRowId] = useState("");
   const [constituencyCandidatesByRowId, setConstituencyCandidatesByRowId] = useState({});
   const [selectedConstituencyCandidateByRowId, setSelectedConstituencyCandidateByRowId] = useState({});
-  const [loadingConstituencyCandidateRowId, setLoadingConstituencyCandidateRowId] = useState("");
-  const [savingConstituencyTargetRowId, setSavingConstituencyTargetRowId] = useState("");
   const [educationClassYearDrafts, setEducationClassYearDrafts] = useState({});
-  const [savingEducationClassYearRowId, setSavingEducationClassYearRowId] = useState("");
   const [savingCombinedReviewRowId, setSavingCombinedReviewRowId] = useState("");
   const [savingReviewOnlyRowId, setSavingReviewOnlyRowId] = useState("");
   const [hydratingDetailRows, setHydratingDetailRows] = useState({});
@@ -3475,6 +3549,7 @@ export default function ConstituencyImportPage() {
     setCompletionMessage("");
     hydratedDetailRowsRef.current.clear();
     pendingDetailHydrationRowsRef.current.clear();
+    automaticDetailHydrationRowsRef.current.clear();
     setHydratingDetailRows({});
     setPreview(null);
     setFocusedRowId("");
@@ -3517,6 +3592,7 @@ export default function ConstituencyImportPage() {
     lastReadFileRef.current = null;
     hydratedDetailRowsRef.current.clear();
     pendingDetailHydrationRowsRef.current.clear();
+    automaticDetailHydrationRowsRef.current.clear();
     setHydratingDetailRows({});
     if (resetFieldConfiguration) {
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
@@ -3590,7 +3666,10 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function loadSavedRun(runId, { focusRowId = "", message, preload = true } = {}) {
+  async function loadSavedRun(
+    runId,
+    { focusRowId = "", message, preload = true, resetReviewDrafts = true } = {},
+  ) {
     setLoadingRunId(String(runId));
     setError("");
     setSaveMessage("");
@@ -3621,11 +3700,13 @@ export default function ConstituencyImportPage() {
       setEditingPreviewRowNumber(null);
       setEditingRowDraft({});
       setTableSuggestions({});
-      setEducationCandidatesByRowId({});
-      setSelectedEducationCandidateByRowId({});
-      setConstituencyCandidatesByRowId({});
-      setSelectedConstituencyCandidateByRowId({});
-      setEducationClassYearDrafts({});
+      if (resetReviewDrafts) {
+        setEducationCandidatesByRowId({});
+        setSelectedEducationCandidateByRowId({});
+        setConstituencyCandidatesByRowId({});
+        setSelectedConstituencyCandidateByRowId({});
+        setEducationClassYearDrafts({});
+      }
       setSaveMessage(
         message === undefined
           ? `Loaded saved import run #${payload?.savedRun?.id || runId}.`
@@ -3634,8 +3715,11 @@ export default function ConstituencyImportPage() {
       const focusedRow = (payload?.rows || []).find(
         (row) => String(row?.id) === nextFocusedRowId,
       );
-      if (focusedRow && preload) {
-        void preloadRequiredReviewChoices(focusedRow, payload?.savedRun?.id || runId);
+      if (focusedRow) {
+        seedReviewCandidatesFromSnapshots(focusedRow);
+        if (preload) {
+          preloadFocusedImportRow(focusedRow, payload?.savedRun?.id || runId);
+        }
       }
       return payload;
     } catch (loadError) {
@@ -3673,9 +3757,9 @@ export default function ConstituencyImportPage() {
 
   function focusImportRowState(row) {
     if (!row?.id) return;
-    void preloadRequiredReviewChoices(row);
     setFocusedRowId(String(row.id));
     setReviewMode(true);
+    preloadFocusedImportRow(row);
     window.setTimeout(() => {
       document
         .getElementById("constituency-import-current-row")
@@ -3691,7 +3775,7 @@ export default function ConstituencyImportPage() {
 
   function needsProfileDetailHydration(row) {
     if (!getImportMatchedConstituentId(row) || row?.profileSnapshotLoaded === true) return false;
-    if (row?.deferredHydration?.detail || row?.deferredHydration?.educations) return true;
+    if (row?.deferredHydration?.detail) return true;
     return Array.isArray(row?.writePlan) && row.writePlan.some(
       (write) => write?.type === "constituent_name" || write?.type === "constituent_profile",
     );
@@ -3699,9 +3783,12 @@ export default function ConstituencyImportPage() {
 
   function needsEducationDetailHydration(row) {
     if (!getImportMatchedConstituentId(row)) return false;
+    if (row?.educationsSnapshotLoaded === true) return false;
     if (row?.deferredHydration?.educations) return true;
     return Array.isArray(row?.writePlan) && row.writePlan.some(
-      (write) => write?.type === "education_relationship" && write?.deferredHydration,
+      (write) =>
+        write?.type === "education_relationship" &&
+        (write?.deferredHydration || write?.action === "review_existing"),
     );
   }
 
@@ -3766,7 +3853,10 @@ export default function ConstituencyImportPage() {
         focusRowId: row.id,
         message: payload?.message || "Loaded current NXT record details for this row.",
         preload: false,
+        resetReviewDrafts: false,
       });
+      const savedRow = findSavedRow(savedPayload, row);
+      if (savedRow) seedReviewCandidatesFromSnapshots(savedRow);
       fetchSavedRuns();
       if (Array.isArray(payload?.failedScopes) && payload.failedScopes.length) {
         // A partial NXT response is useful, but it must never be remembered as a
@@ -3798,35 +3888,129 @@ export default function ConstituencyImportPage() {
 
   async function preloadRequiredReviewChoices(row, runIdOverride = null) {
     if (!row?.id) return null;
-    const detailScopes = [];
-    if (needsProfileDetailHydration(row)) detailScopes.push("profile");
-    if (needsCurrentContactDetails(row)) detailScopes.push("contacts");
-    if (needsNameFormatDetailHydration(row)) detailScopes.push("nameFormats");
-    if (needsEducationDetailHydration(row)) detailScopes.push("educations");
-    if (needsCurrentConstituencyDetails(row)) detailScopes.push("codes");
-    if (detailScopes.length) {
-      return hydrateImportRowDetails(row, detailScopes, runIdOverride);
+    const runId = runIdOverride || preview?.savedRun?.id;
+    if (!runId) return null;
+
+    // Load and persist one NXT detail scope at a time. A focused review row can need
+    // profile, contacts, education, and constituency data. Keeping each read bounded
+    // means a slow provider response cannot discard the sections that already succeeded.
+    const scopeChecks = [
+      ["profile", needsProfileDetailHydration],
+      ["contacts", needsCurrentContactDetails],
+      ["nameFormats", needsNameFormatDetailHydration],
+      ["educations", needsEducationDetailHydration],
+      ["codes", needsCurrentConstituencyDetails],
+    ];
+    let hydratedRow = row;
+    let savedPayload = null;
+
+    for (const [scope, needsHydration] of scopeChecks) {
+      if (!needsHydration(hydratedRow)) continue;
+
+      const scopePayload = await hydrateImportRowDetails(
+        hydratedRow,
+        [scope],
+        runId,
+      );
+      if (!scopePayload) break;
+
+      savedPayload = scopePayload;
+      const savedRow = findSavedRow(scopePayload, hydratedRow);
+      if (!savedRow) break;
+      hydratedRow = savedRow;
+
+      // The scope either failed or returned only a partial snapshot. Do not
+      // fan out further NXT requests; the row remains safely retryable.
+      if (needsHydration(hydratedRow)) break;
     }
-    const writePlan = Array.isArray(row.writePlan) ? row.writePlan : [];
-    if (
-      !Array.isArray(educationCandidatesByRowId[String(row.id)]) &&
-      writePlan.some(
-        (item) =>
-          item?.type === "education_relationship" && item?.action === "review_existing",
-      )
-    ) {
-      void loadEducationCandidates(row, runIdOverride);
-    }
-    if (
-      !Array.isArray(constituencyCandidatesByRowId[String(row.id)]) &&
-      writePlan.some(
-        (item) => item?.type === "constituent_code" && item?.action === "replace",
-      )
-    ) {
-      void loadConstituencyCandidates(row, runIdOverride);
-    }
-    return null;
+
+    seedReviewCandidatesFromSnapshots(hydratedRow);
+
+    return savedPayload;
   }
+
+  function getSavedEducationCandidates(row) {
+    if (needsEducationDetailHydration(row) || !Array.isArray(row?.currentEducations)) {
+      return null;
+    }
+    return row.currentEducations.filter((candidate) => String(candidate?.id || "").trim());
+  }
+
+  function getSavedConstituencyCandidates(row) {
+    if (needsCurrentConstituencyDetails(row) || !Array.isArray(row?.currentCodeDetails)) {
+      return null;
+    }
+    const replaceWrite = getPendingConstituencyTargetReviewWrite(row);
+    const sourceLabel = normalizeReviewText(replaceWrite?.sourceConstituency);
+    if (!sourceLabel) return [];
+    return row.currentCodeDetails.filter(
+      (candidate) =>
+        String(candidate?.id || "").trim() &&
+        normalizeReviewText(candidate?.label) === sourceLabel,
+    );
+  }
+
+  function chooseSingleSavedCandidate(current, rowId, candidates) {
+    const currentId = String(current[rowId] || "");
+    const validCurrentId = candidates.some(
+      (candidate) => String(candidate.id) === currentId,
+    );
+    const nextId = validCurrentId
+      ? currentId
+      : candidates.length === 1
+        ? String(candidates[0].id)
+        : "";
+    if (nextId === currentId) return current;
+    return { ...current, [rowId]: nextId };
+  }
+
+  function seedReviewCandidatesFromSnapshots(row) {
+    const rowId = String(row?.id || "");
+    if (!rowId) return;
+
+    if (getPendingEducationTargetReviewWrite(row)) {
+      const candidates = getSavedEducationCandidates(row);
+      if (Array.isArray(candidates)) {
+        setEducationCandidatesByRowId((current) => ({ ...current, [rowId]: candidates }));
+        setSelectedEducationCandidateByRowId((current) =>
+          chooseSingleSavedCandidate(current, rowId, candidates),
+        );
+      }
+    }
+
+    if (getPendingConstituencyTargetReviewWrite(row)) {
+      const candidates = getSavedConstituencyCandidates(row);
+      if (Array.isArray(candidates)) {
+        setConstituencyCandidatesByRowId((current) => ({ ...current, [rowId]: candidates }));
+        setSelectedConstituencyCandidateByRowId((current) =>
+          chooseSingleSavedCandidate(current, rowId, candidates),
+        );
+      }
+    }
+  }
+
+  function preloadFocusedImportRow(row, runIdOverride = null) {
+    const runId = runIdOverride || preview?.savedRun?.id;
+    if (!runId || !row?.id) return;
+    const requestKey = `${runId}:${row.id}`;
+    if (automaticDetailHydrationRowsRef.current.has(requestKey)) return;
+    automaticDetailHydrationRowsRef.current.add(requestKey);
+    void preloadRequiredReviewChoices(row, runId);
+  }
+
+  useEffect(() => {
+    const runId = preview?.savedRun?.id;
+    if (
+      !reviewMode ||
+      previewing ||
+      !runId ||
+      !focusedReviewRow?.id ||
+      isNxtChecksPausedRow(focusedReviewRow)
+    ) {
+      return;
+    }
+    preloadFocusedImportRow(focusedReviewRow, runId);
+  }, [focusedReviewRow, preview?.savedRun?.id, previewing, reviewMode]);
 
   function focusRowReviewTarget(row, targetKey, runIdOverride = null) {
     if (!row?.id || !targetKey) return;
@@ -3834,13 +4018,23 @@ export default function ConstituencyImportPage() {
       targetKey === "education-target" &&
       !Array.isArray(educationCandidatesByRowId[String(row?.id)])
     ) {
-      void loadEducationCandidates(row, runIdOverride);
+      const candidates = getSavedEducationCandidates(row);
+      if (Array.isArray(candidates)) {
+        seedReviewCandidatesFromSnapshots(row);
+      } else {
+        void hydrateImportRowDetails(row, ["educations"], runIdOverride, { force: true });
+      }
     }
     if (
       targetKey === "constituency-target" &&
       !Array.isArray(constituencyCandidatesByRowId[String(row?.id)])
     ) {
-      void loadConstituencyCandidates(row, runIdOverride);
+      const candidates = getSavedConstituencyCandidates(row);
+      if (Array.isArray(candidates)) {
+        seedReviewCandidatesFromSnapshots(row);
+      } else {
+        void hydrateImportRowDetails(row, ["codes"], runIdOverride, { force: true });
+      }
     }
     const targetId = `constituency-import-row-${row.id}-${targetKey}`;
     window.setTimeout(() => {
@@ -3869,6 +4063,7 @@ export default function ConstituencyImportPage() {
     focusRow = null,
     openNextRecord = false,
     continueRequiredReview = false,
+    preserveReviewDrafts = false,
   } = {}) {
     if (preview?.savedRun?.id) {
       const runId = preview.savedRun.id;
@@ -3912,6 +4107,7 @@ export default function ConstituencyImportPage() {
         focusRowId: focusRow?.id || "",
         message: "Saved review choices. No NXT records were changed.",
         preload: false,
+        resetReviewDrafts: !preserveReviewDrafts,
       });
       if (!payload) {
         throw new Error("The review choices were saved, but the import run could not be reloaded.");
@@ -4318,80 +4514,6 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function loadEducationCandidates(row, runIdOverride = null) {
-    const runId = runIdOverride || preview?.savedRun?.id;
-    if (!runId || !row?.id || loadingEducationCandidateRowId || savingEducationTargetRowId) return;
-
-    setLoadingEducationCandidateRowId(String(row.id));
-    setError("");
-    try {
-      const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/education-target`,
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Could not load current NXT education rows.");
-      }
-      setEducationCandidatesByRowId((current) => ({
-        ...current,
-        [String(row.id)]: Array.isArray(payload?.candidates) ? payload.candidates : [],
-      }));
-      setSelectedEducationCandidateByRowId((current) => ({
-        ...current,
-        [String(row.id)]: "",
-      }));
-    } catch (candidateError) {
-      setError(
-        candidateError instanceof Error
-          ? candidateError.message
-          : "Could not load current NXT education rows.",
-      );
-    } finally {
-      setLoadingEducationCandidateRowId("");
-    }
-  }
-
-  async function selectEducationTarget(row, educationId) {
-    const runId = preview?.savedRun?.id;
-    if (!runId || !row?.id || !educationId || savingEducationTargetRowId) return;
-
-    setSavingEducationTargetRowId(String(row.id));
-    setError("");
-    setSaveMessage("");
-    try {
-      const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/education-target`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ educationId }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Could not save the NXT education-row selection.");
-      }
-
-      setEducationCandidatesByRowId({});
-      const savedPayload = await loadSavedRun(runId);
-      const savedRow = findSavedRow(savedPayload, row);
-      if (savedRow) void openRemainingRequiredReview(savedRow, runId);
-      setSaveMessage(
-        payload?.message ||
-          "Saved the NXT education-row selection. Continue with any remaining required review below.",
-      );
-      fetchSavedRuns();
-    } catch (selectionError) {
-      setError(
-        selectionError instanceof Error
-          ? selectionError.message
-          : "Could not save the NXT education-row selection.",
-      );
-    } finally {
-      setSavingEducationTargetRowId("");
-    }
-  }
-
   function chooseEducationCandidate(row, educationId) {
     if (!row?.id || !educationId) return;
     setSelectedEducationCandidateByRowId((current) => ({
@@ -4406,83 +4528,6 @@ export default function ConstituencyImportPage() {
       ...current,
       [String(row.id)]: String(constituentCodeId),
     }));
-  }
-
-  async function loadConstituencyCandidates(row, runIdOverride = null) {
-    const runId = runIdOverride || preview?.savedRun?.id;
-    if (
-      !runId ||
-      !row?.id ||
-      loadingConstituencyCandidateRowId ||
-      savingConstituencyTargetRowId
-    ) {
-      return;
-    }
-
-    setLoadingConstituencyCandidateRowId(String(row.id));
-    setError("");
-    try {
-      const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/constituency-target`,
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Could not load current NXT constituent-code rows.");
-      }
-      setConstituencyCandidatesByRowId((current) => ({
-        ...current,
-        [String(row.id)]: Array.isArray(payload?.candidates) ? payload.candidates : [],
-      }));
-    } catch (candidateError) {
-      setError(
-        candidateError instanceof Error
-          ? candidateError.message
-          : "Could not load current NXT constituent-code rows.",
-      );
-    } finally {
-      setLoadingConstituencyCandidateRowId("");
-    }
-  }
-
-  async function selectConstituencyTarget(row, constituentCodeId) {
-    const runId = preview?.savedRun?.id;
-    if (!runId || !row?.id || !constituentCodeId || savingConstituencyTargetRowId) return;
-
-    setSavingConstituencyTargetRowId(String(row.id));
-    setError("");
-    setSaveMessage("");
-    try {
-      const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/constituency-target`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ constituentCodeId }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Could not save the NXT constituent-code selection.");
-      }
-
-      setConstituencyCandidatesByRowId({});
-      const savedPayload = await loadSavedRun(runId);
-      const savedRow = findSavedRow(savedPayload, row);
-      if (savedRow) void openRemainingRequiredReview(savedRow, runId);
-      setSaveMessage(
-        payload?.message ||
-          "Saved the current NXT constituent-code selection. Continue with any remaining required review below.",
-      );
-      fetchSavedRuns();
-    } catch (selectionError) {
-      setError(
-        selectionError instanceof Error
-          ? selectionError.message
-          : "Could not save the NXT constituent-code selection.",
-      );
-    } finally {
-      setSavingConstituencyTargetRowId("");
-    }
   }
 
   function getCombinedRowReviewDraft(row) {
@@ -4541,7 +4586,10 @@ export default function ConstituencyImportPage() {
       // understands those two special review targets.
       let rowToReview = row;
       if (contactDecisionsDirty || fieldDecisionsDirty) {
-        const savedPayload = await persistReviewChoices({ focusRow: row });
+        const savedPayload = await persistReviewChoices({
+          focusRow: row,
+          preserveReviewDrafts: true,
+        });
         rowToReview = findSavedRow(savedPayload, row) || row;
       }
 
@@ -4643,54 +4691,6 @@ export default function ConstituencyImportPage() {
       ...current,
       [String(row.id)]: String(value || ""),
     }));
-  }
-
-  async function saveEducationClassYear(row, classYear) {
-    const runId = preview?.savedRun?.id;
-    const normalizedClassYear = String(classYear || "").trim();
-    if (
-      !runId ||
-      !row?.id ||
-      !/^\d{2}(\d{2})?$/.test(normalizedClassYear) ||
-      savingEducationClassYearRowId
-    ) {
-      return;
-    }
-
-    setSavingEducationClassYearRowId(String(row.id));
-    setError("");
-    setSaveMessage("");
-    try {
-      const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/education-class-year`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ classYear: normalizedClassYear }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Could not save the Education Class Year review.");
-      }
-
-      setEducationClassYearDrafts((current) => {
-        const next = { ...current };
-        delete next[String(row.id)];
-        return next;
-      });
-      await loadSavedRun(runId);
-      setSaveMessage(payload?.message || "Saved the Education Class Year review.");
-      fetchSavedRuns();
-    } catch (classYearError) {
-      setError(
-        classYearError instanceof Error
-          ? classYearError.message
-          : "Could not save the Education Class Year review.",
-      );
-    } finally {
-      setSavingEducationClassYearRowId("");
-    }
   }
 
   async function reconcileRows(rowsToVerify, { singleRecord = false } = {}) {
@@ -5115,10 +5115,10 @@ export default function ConstituencyImportPage() {
         fetchSavedRuns();
 
         // Fast previews avoid a batch-wide NXT contact fan-out. Once the
-        // review is saved, load the row the reviewer is looking at so its
-        // required contact review is ready without a separate click.
+        // review is saved, automatically hydrate the row the reviewer is
+        // looking at so its required contact review is ready without a click.
         if (initialFocusedRow && !payload?.nxtChecksPaused) {
-          void preloadRequiredReviewChoices(initialFocusedRow, payload.savedRun.id);
+          preloadFocusedImportRow(initialFocusedRow, payload.savedRun.id);
         }
       } else if (successMessage) {
         setSaveMessage(successMessage);
@@ -7621,10 +7621,11 @@ export default function ConstituencyImportPage() {
                               <strong>
                                 {loadingConstituencyDetails
                                   ? "Loading current NXT constituencies..."
-                                  : "Current NXT constituencies have not been loaded yet."}
+                                  : "Current NXT constituencies are pending."}
                               </strong>
                               <span style={{ fontSize: "13px", lineHeight: 1.4 }}>
-                                This is pending, not an empty NXT record. Load the current values before choosing a replacement.
+                                This is pending, not an empty NXT record. This row loads needed NXT
+                                details automatically; retry only if the current values do not arrive.
                               </span>
                               <div>
                                 <button
@@ -7642,7 +7643,7 @@ export default function ConstituencyImportPage() {
                                     cursor: loadingConstituencyDetails || !preview?.savedRun ? "not-allowed" : "pointer",
                                   }}
                                 >
-                                  {loadingConstituencyDetails ? "Loading current NXT constituencies..." : "Load current NXT constituencies"}
+                                  {loadingConstituencyDetails ? "Loading current NXT constituencies..." : "Retry current NXT constituencies"}
                                 </button>
                               </div>
                             </div>
@@ -7704,11 +7705,11 @@ export default function ConstituencyImportPage() {
                             <strong>
                               {loadingProfileDetails
                                 ? "Loading the current NXT profile..."
-                                : "Current NXT profile values have not been loaded yet."}
+                                : "Current NXT profile values are pending."}
                             </strong>
                             <span style={{ lineHeight: 1.4 }}>
-                              These fields are pending, not blank. The CSV values will not be staged as
-                              replacements until the current NXT record is checked.
+                              These fields are pending, not blank. This row loads needed NXT details
+                              automatically; retry only if the current profile does not arrive.
                             </span>
                             <div>
                               <button
@@ -7725,7 +7726,7 @@ export default function ConstituencyImportPage() {
                                   cursor: loadingProfileDetails || !preview?.savedRun ? "not-allowed" : "pointer",
                                 }}
                               >
-                                {loadingProfileDetails ? "Loading current NXT profile..." : "Load current NXT profile"}
+                                {loadingProfileDetails ? "Loading current NXT profile..." : "Retry current NXT profile"}
                               </button>
                             </div>
                           </div>
@@ -7809,11 +7810,11 @@ export default function ConstituencyImportPage() {
                             <strong>
                               {loadingNameFormatDetails
                                 ? "Loading current NXT name formats..."
-                                : "Current NXT addressee and salutation values have not been loaded yet."}
+                                : "Current NXT addressee and salutation values are pending."}
                             </strong>
                             <span style={{ lineHeight: 1.4 }}>
-                              These values are pending, not blank. Load them before deciding whether to
-                              update the primary addressee or salutation.
+                              These values are pending, not blank. This row loads needed NXT details
+                              automatically; retry only if the current values do not arrive.
                             </span>
                             <div>
                               <button
@@ -7830,7 +7831,7 @@ export default function ConstituencyImportPage() {
                                   cursor: loadingNameFormatDetails || !preview?.savedRun ? "not-allowed" : "pointer",
                                 }}
                               >
-                                {loadingNameFormatDetails ? "Loading current NXT name formats..." : "Load current NXT name formats"}
+                                {loadingNameFormatDetails ? "Loading current NXT name formats..." : "Retry current NXT name formats"}
                               </button>
                             </div>
                           </div>
@@ -7886,10 +7887,11 @@ export default function ConstituencyImportPage() {
                           row={row}
                           candidates={educationCandidatesByRowId[String(row.id)]}
                           selectedCandidateId={selectedEducationCandidateByRowId[String(row.id)]}
-                          loading={loadingEducationCandidateRowId === String(row.id)}
+                          loading={isHydratingRowScope(row, "educations")}
                           saving={savingCombinedReviewRowId === String(row.id)}
-                          autoLoad={String(focusedReviewRow?.id || "") === String(row.id)}
-                          onLoadCandidates={loadEducationCandidates}
+                          onRetry={() =>
+                            hydrateImportRowDetails(row, ["educations"], null, { force: true })
+                          }
                           onCandidateChange={chooseEducationCandidate}
                         />
                       </div>
@@ -7901,10 +7903,11 @@ export default function ConstituencyImportPage() {
                           row={row}
                           candidates={constituencyCandidatesByRowId[String(row.id)]}
                           selectedCandidateId={selectedConstituencyCandidateByRowId[String(row.id)]}
-                          loading={loadingConstituencyCandidateRowId === String(row.id)}
+                          loading={isHydratingRowScope(row, "codes")}
                           saving={savingCombinedReviewRowId === String(row.id)}
-                          autoLoad={String(focusedReviewRow?.id || "") === String(row.id)}
-                          onLoadCandidates={loadConstituencyCandidates}
+                          onRetry={() =>
+                            hydrateImportRowDetails(row, ["codes"], null, { force: true })
+                          }
                           onCandidateChange={chooseConstituencyCandidate}
                         />
                       </div>
@@ -7922,11 +7925,12 @@ export default function ConstituencyImportPage() {
                         }}
                       >
                         <div style={{ color: "#9A3412", fontWeight: 900 }}>
-                          Confirm this full row review
+                          Save this row's review
                         </div>
                         <div style={{ color: "#9A3412", fontSize: "14px", lineHeight: 1.45 }}>
-                          Finish all row review selections above, then save them together once.
-                          This keeps you in the same view and updates the row in place.
+                          This is the one save for education, constituency, class year, and contact
+                          choices in this row. It keeps you in the same view and does not write to
+                          NXT.
                         </div>
                         {combinedReviewMissingItems.length ? (
                           <div style={{ color: "#92400E", fontSize: "13px", fontWeight: 800 }}>
@@ -7953,8 +7957,8 @@ export default function ConstituencyImportPage() {
                             }}
                           >
                             {savingCombinedReviewRowId === String(row.id)
-                              ? "Saving full row review..."
-                              : "Save full row review"}
+                              ? "Saving row review..."
+                              : "Save row review"}
                           </button>
                         </div>
                       </section>

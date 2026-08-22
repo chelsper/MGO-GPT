@@ -1436,6 +1436,48 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].writePlan[0].targetEducationId).toBeUndefined();
   });
 
+  it("adds a duplicate-safe education relationship when no current NXT education exists", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "789",
+      lookupId: "A789",
+      name: "Student Dolphin",
+      raw: { type: "Individual" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT ID": "789",
+            "Education Institution": "Jacksonville University",
+            "Education Degree": "Bachelor of Science",
+            "Education Status": "Graduated",
+          },
+        ],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          educationInstitution: "Education Institution",
+          educationDegree: "Education Degree",
+          educationStatus: "Education Status",
+        },
+        defaults: { educationRelationshipAction: "review-update" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Ready");
+    expect(payload.rows[0].writePlan).toEqual([
+      expect.objectContaining({
+        type: "education_relationship",
+        action: "add",
+        duplicatePolicy: "skip_if_matching",
+      }),
+    ]);
+  });
+
   it("keeps ambiguous education updates in review without choosing an NXT row", async () => {
     const { POST } = await import("./route.js");
     getBlackbaudConstituentByIdMock.mockResolvedValue({

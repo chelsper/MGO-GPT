@@ -453,6 +453,7 @@ export async function POST(request, { params }) {
     let contactsSnapshotLoaded = Object.values(contactSnapshotStatus).every(Boolean);
     let nameFormatsSnapshotLoaded = Boolean(preview.nameFormatsSnapshotLoaded);
     let codesSnapshotLoaded = Boolean(preview.codesSnapshotLoaded);
+    let educationsSnapshotLoaded = Boolean(preview.educationsSnapshotLoaded);
     const deferredHydration = getDeferredHydration(preview);
     let reasons = (Array.isArray(preview.reasons) ? preview.reasons : []).filter(
       (reason) => !isQuotaPausedText(reason),
@@ -615,6 +616,7 @@ export async function POST(request, { params }) {
           educationWrite ? [educationWrite] : [],
         );
         currentEducations = liveEducations.map(serializeEducation);
+        educationsSnapshotLoaded = true;
         deferredHydration.educations = false;
         reasons = removeDetailReason(reasons, "educations");
         detailMessages.push("Loaded the current NXT education relationships for this record.");
@@ -676,6 +678,7 @@ export async function POST(request, { params }) {
       contactsSnapshotLoaded,
       nameFormatsSnapshotLoaded,
       codesSnapshotLoaded,
+      educationsSnapshotLoaded,
       currentEducations,
       deferredHydration: hasDeferredHydration ? deferredHydration : null,
       writePlan,

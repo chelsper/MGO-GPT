@@ -303,6 +303,79 @@ describe("constituency import row detail route", () => {
     );
   });
 
+  it("stages a duplicate-safe education add when the hydrated NXT record has none", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview = {
+      input: {
+        educationRelationship: {
+          action: "review-update",
+          institution: "Jacksonville University",
+          degree: "Bachelor of Arts",
+        },
+      },
+      match: { blackbaudConstituentId: "543503", lookupId: "543503" },
+      deferredHydration: { detail: true, educations: true },
+      writePlan: [
+        {
+          type: "profile_detail_review",
+          action: "load_current",
+          requiresReview: true,
+          deferredHydration: true,
+        },
+        {
+          type: "education_relationship",
+          action: "review_existing",
+          requiresReview: true,
+          deferredHydration: true,
+        },
+      ],
+    };
+    row.requested_writes = row.preview.writePlan;
+    sqlMock
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "543503",
+      raw: {
+        id: "543503",
+        type: "Individual",
+        first: "Victoria",
+        last: "Richards",
+      },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const response = await POST(makeRequest({ scopes: ["profile", "educations"] }), {
+      params: { id: "42", rowId: "9" },
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ complete: true, failedScopes: [], status: "Ready" });
+    const updateCall = sqlMock.mock.calls.find(([strings]) =>
+      strings.join("").includes("UPDATE constituency_import_rows"),
+    );
+    const savedPreview = JSON.parse(updateCall[2]);
+    const savedWrites = JSON.parse(updateCall[3]);
+    expect(savedPreview).toMatchObject({
+      currentEducations: [],
+      educationsSnapshotLoaded: true,
+      deferredHydration: null,
+    });
+    expect(savedWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "education_relationship",
+          action: "add",
+          duplicatePolicy: "skip_if_matching",
+        }),
+      ]),
+    );
+  });
+
   it("hydrates deferred constituency rows before asking the reviewer to select a replacement", async () => {
     const { POST } = await import("./route.js");
     const row = makeRow();
