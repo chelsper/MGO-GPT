@@ -441,6 +441,9 @@ function getInitialActiveRowId(rows) {
 
 export default function FamilyImportPage() {
   const { user, loading: loadingUser } = useUser();
+  const [profileRole, setProfileRole] = useState("");
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState("");
   const fileInputRef = useRef(null);
   const [parsedRows, setParsedRows] = useState([]);
   const [sourceFilename, setSourceFilename] = useState("");
@@ -458,13 +461,54 @@ export default function FamilyImportPage() {
   const [pageError, setPageError] = useState("");
   const [pageNotice, setPageNotice] = useState("");
 
-  const canUseFamilyImport = isReviewerRole(user?.role);
+  // Auth sessions deliberately contain identity only. Workspace permissions live
+  // in the profile endpoint, which also respects an allowed acting workspace.
+  const canUseFamilyImport = isReviewerRole(profileRole || user?.role);
   const rows = runPayload?.rows || [];
   const activeRow = rows.find((row) => String(row.id) === String(activeRowId)) || null;
   const activeInput = activeRow?.input || null;
   const draftReadiness = activeInput && draftReview
     ? getFamilyRowReadiness(activeInput, draftReview)
     : activeRow?.readiness || null;
+
+  useEffect(() => {
+    if (loadingUser) return undefined;
+    if (!user?.email) {
+      setLoadingProfile(false);
+      setProfileRole("");
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setLoadingProfile(true);
+    setProfileLoadError("");
+    fetch("/api/users/profile", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || "Could not load workspace access.");
+        }
+        if (!controller.signal.aborted) {
+          setProfileRole(String(payload?.workspaceUser?.role || payload?.user?.role || ""));
+        }
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setProfileRole("");
+          setProfileLoadError(
+            error instanceof Error ? error.message : "Could not load workspace access.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingProfile(false);
+      });
+
+    return () => controller.abort();
+  }, [loadingUser, user?.email]);
 
   async function loadRuns() {
     const payload = await requestJson("/api/family-import/runs?limit=20");
@@ -696,8 +740,35 @@ export default function FamilyImportPage() {
     setActiveRowId(String(rows[nextIndex]?.id || ""));
   }
 
-  if (loadingUser) {
+  if (loadingUser || loadingProfile) {
     return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: COLORS.muted }}>Loading Family Import...</main>;
+  }
+
+  if (!user) {
+    return (
+      <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px" }}>
+        <div style={{ ...CARD_STYLE, maxWidth: "720px", margin: "0 auto" }}>
+          <h1 style={{ margin: 0, color: COLORS.ink }}>Family Import</h1>
+          <p style={{ color: COLORS.muted, lineHeight: 1.5 }}>Sign in to use Family Import.</p>
+          <a href="/account/signin" style={{ color: COLORS.violet, fontWeight: 900 }}>Sign in</a>
+        </div>
+      </main>
+    );
+  }
+
+  if (profileLoadError) {
+    return (
+      <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px" }}>
+        <div style={{ ...CARD_STYLE, maxWidth: "720px", margin: "0 auto" }}>
+          <h1 style={{ margin: 0, color: COLORS.ink }}>Family Import</h1>
+          <p style={{ color: COLORS.muted, lineHeight: 1.5 }}>
+            We could not confirm your workspace access. No NXT data has been changed.
+          </p>
+          <p style={{ color: COLORS.red, lineHeight: 1.5 }}>{profileLoadError}</p>
+          <Button tone="secondary" onClick={() => window.location.reload()}>Try again</Button>
+        </div>
+      </main>
+    );
   }
 
   if (!canUseFamilyImport) {
