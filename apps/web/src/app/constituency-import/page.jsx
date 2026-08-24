@@ -1646,7 +1646,7 @@ function ContactReviewPanel({
                         })
                       }
                       style={{ border: "1px solid #86EFAC", borderRadius: "9px", backgroundColor: "white", padding: "9px 10px", color: "#111827" }}
-                    >
+                  >
                       <option value="">Keep {primary ? `${getContactValue(primary, section.kind)} as primary` : "the current primary setting"}</option>
                       {section.contacts.filter((contact) => !contact.primary).map((contact) => (
                         <option key={contact.id} value={contact.id}>
@@ -2864,6 +2864,12 @@ function isUnresolvedImportRow(row) {
   );
 }
 
+function isManuallySkippedImportRow(row) {
+  return Boolean(
+    row?.status === "Skipped" && row?.blackbaudResult?.type === "import_row_skipped",
+  );
+}
+
 function isNonBlockingImportReviewReason(row, reason) {
   const text = String(reason || "").trim();
   if (
@@ -3021,6 +3027,7 @@ export default function ConstituencyImportPage() {
   const [selectedApplyRowIds, setSelectedApplyRowIds] = useState([]);
   const [showBatchTools, setShowBatchTools] = useState(false);
   const [reviewMode, setReviewMode] = useState(true);
+  const [reviewingSkippedRows, setReviewingSkippedRows] = useState(false);
   const [startingReviewMode, setStartingReviewMode] = useState(false);
   const [focusedRowId, setFocusedRowId] = useState("");
   const [reconcilingRun, setReconcilingRun] = useState(false);
@@ -3228,18 +3235,23 @@ export default function ConstituencyImportPage() {
         ).length
       : 0;
   const importRows = Array.isArray(preview?.rows) ? preview.rows : [];
+  const manuallySkippedRows = preview?.savedRun
+    ? importRows.filter(isManuallySkippedImportRow)
+    : [];
   const reviewQueueRows = preview?.savedRun ? getReviewQueueRows(importRows) : [];
   const reviewActionRows = preview?.savedRun
     ? reviewQueueRows.filter((row) => row.status !== "Ready")
     : [];
   const reviewNavigationRows = preview?.savedRun
-    ? reviewActionRows.length
-      ? reviewActionRows
-      : readyApplyRows.length
-        ? readyApplyRows
-        : reviewQueueRows.length
-          ? reviewQueueRows
-          : importRows
+    ? reviewingSkippedRows && manuallySkippedRows.length
+      ? manuallySkippedRows
+      : reviewActionRows.length
+        ? reviewActionRows
+        : readyApplyRows.length
+          ? readyApplyRows
+          : reviewQueueRows.length
+            ? reviewQueueRows
+            : importRows
     : importRows;
   const rowsNeedingAttention = reviewActionRows.length;
   const progressReviewRows = preview?.savedRun
@@ -3263,11 +3275,12 @@ export default function ConstituencyImportPage() {
   const readyProgressRows = preview?.savedRun
     ? readySavedRows
     : Number(preview?.summary?.ready || 0);
-  const nextProgressRow =
-    progressReviewRows.find((row) => row.status !== "Ready") ||
-    readyApplyRows[0] ||
-    reviewNavigationRows[0] ||
-    null;
+  const nextProgressRow = reviewingSkippedRows
+    ? manuallySkippedRows[0] || null
+    : progressReviewRows.find((row) => row.status !== "Ready") ||
+      readyApplyRows[0] ||
+      reviewNavigationRows[0] ||
+      null;
 
   useEffect(() => {
     if (loading) return;
@@ -3647,6 +3660,7 @@ export default function ConstituencyImportPage() {
     setPreview(null);
     setFocusedRowId("");
     setReviewMode(false);
+    setReviewingSkippedRows(false);
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
     setTableSuggestions({});
@@ -3723,6 +3737,7 @@ export default function ConstituencyImportPage() {
     setLoadingSuggestionFieldKey("");
     setShowBatchTools(false);
     setReviewMode(true);
+    setReviewingSkippedRows(false);
     setContactDecisions({});
     setContactDecisionsDirty(false);
     setFieldDecisions({});
@@ -3808,6 +3823,7 @@ export default function ConstituencyImportPage() {
       const focusedRow = (payload?.rows || []).find(
         (row) => String(row?.id) === nextFocusedRowId,
       );
+      setReviewingSkippedRows(isManuallySkippedImportRow(focusedRow));
       if (focusedRow) {
         seedReviewCandidatesFromSnapshots(focusedRow);
         if (preload) {
@@ -3852,6 +3868,7 @@ export default function ConstituencyImportPage() {
     if (!row?.id) return;
     setFocusedRowId(String(row.id));
     setReviewMode(true);
+    setReviewingSkippedRows(isManuallySkippedImportRow(row));
     preloadFocusedImportRow(row);
     window.setTimeout(() => {
       document
@@ -4105,6 +4122,9 @@ export default function ConstituencyImportPage() {
   }
 
   function preloadFocusedImportRow(row, runIdOverride = null) {
+    // A manually skipped row only needs its preserved audit state to be
+    // restored. Avoid spending an NXT detail call until it is active again.
+    if (isManuallySkippedImportRow(row)) return;
     const runId = runIdOverride || preview?.savedRun?.id;
     if (!runId || !row?.id) return;
     const requestKey = `${runId}:${row.id}`;
@@ -4120,6 +4140,7 @@ export default function ConstituencyImportPage() {
       previewing ||
       !runId ||
       !focusedReviewRow?.id ||
+      isManuallySkippedImportRow(focusedReviewRow) ||
       isNxtChecksPausedRow(focusedReviewRow)
     ) {
       return;
@@ -5013,8 +5034,7 @@ export default function ConstituencyImportPage() {
         );
         setPreview({ ...previewBeforeSkip, rows: rowsAfterSkip });
         setSelectedApplyRowIds((current) => current.filter((id) => id !== savedRowId));
-        setReviewMode(false);
-        setFocusedRowId(savedRowId);
+        focusNextUnresolvedRow(rowsAfterSkip, savedRowId);
       }
 
       const response = await fetch(
@@ -5034,15 +5054,18 @@ export default function ConstituencyImportPage() {
         // Reconcile counts and audit data after the next record is already visible.
         void loadSavedRun(runId);
       } else {
-        const refreshedPayload = await loadSavedRun(runId);
+        const refreshedPayload = await loadSavedRun(runId, {
+          focusRowId: isRestore ? savedRow.id : "",
+          preload: !isRestore,
+        });
         if (!refreshedPayload) {
           throw new Error("The row was updated, but the import run could not be refreshed.");
         }
         if (isRestore) {
-          focusImportRow(savedRow.id);
+          const restoredRow = findSavedRow(refreshedPayload, savedRow) || savedRow;
+          focusImportRowState(restoredRow);
         } else {
-          setReviewMode(false);
-          setFocusedRowId(String(savedRow.id));
+          focusNextUnresolvedRow(refreshedPayload?.rows, savedRow.id);
         }
       }
       setSaveMessage(payload?.message || "Updated this import row.");
@@ -5214,6 +5237,7 @@ export default function ConstituencyImportPage() {
       setFieldDecisions(restoredDecisions.fields);
       setSelectedApplyRowIds([]);
       setFocusedRowId(String(initialFocusedRow?.id || ""));
+      setReviewingSkippedRows(isManuallySkippedImportRow(initialFocusedRow));
       setReviewMode(
         typeof preferReviewMode === "boolean" ? preferReviewMode : Boolean(payload?.savedRun),
       );
@@ -6976,11 +7000,30 @@ export default function ConstituencyImportPage() {
                       cursor: nextProgressRow ? "pointer" : "not-allowed",
                     }}
                   >
-                    {progressRowsNeedingAttention
-                      ? "Review required record"
-                      : readyProgressRows
-                        ? "Open next ready record"
-                        : "Open import records"}
+                    {reviewingSkippedRows
+                      ? "Open skipped record"
+                      : progressRowsNeedingAttention
+                        ? "Review required record"
+                        : readyProgressRows
+                          ? "Open next ready record"
+                          : "Open import records"}
+                  </button>
+                ) : null}
+                {preview?.savedRun && manuallySkippedRows.length ? (
+                  <button
+                    type="button"
+                    onClick={() => focusImportRow(manuallySkippedRows[0]?.id)}
+                    style={{
+                      border: "1px solid #93C5FD",
+                      borderRadius: "999px",
+                      backgroundColor: reviewingSkippedRows ? "#EFF6FF" : "white",
+                      color: "#1D4ED8",
+                      padding: "9px 14px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Review skipped records ({manuallySkippedRows.length})
                   </button>
                 ) : null}
                 {preview?.savedRun ? (
@@ -7002,7 +7045,9 @@ export default function ConstituencyImportPage() {
                 ) : null}
                 <span style={{ color: "#64748B", fontSize: "12px", lineHeight: 1.35 }}>
                   {preview?.savedRun
-                    ? "No NXT changes are made until you use Confirm and send to NXT."
+                    ? manuallySkippedRows.length
+                      ? "Skipped records stay in this batch. Open them later to restore a record to active review."
+                      : "No NXT changes are made until you use Confirm and send to NXT."
                     : "Review the draft below, then use Confirm and send to NXT or save the run for batch work."}
                 </span>
               </div>
@@ -7215,14 +7260,20 @@ export default function ConstituencyImportPage() {
                     }}
                   >
                     <div style={{ color: "#1D4ED8", fontSize: "13px", fontWeight: 900 }}>
-                      {reviewActionRows.length ? "Review one record at a time" : "Work through ready records"}
+                      {reviewingSkippedRows
+                        ? "Review skipped records"
+                        : reviewActionRows.length
+                          ? "Review one record at a time"
+                          : "Work through ready records"}
                     </div>
                     <div style={{ color: "#1E3A8A", fontSize: "14px" }}>
-                      {reviewActionRows.length
-                        ? `Record ${focusedReviewRowIndex + 1} of ${reviewNavigationRows.length} needs your review or action.`
-                        : readyApplyRows.length
-                          ? `${reviewNavigationRows.length} ready row${reviewNavigationRows.length === 1 ? "" : "s"} can be sent without additional review.`
-                          : `All rows are applied or skipped. Browse the ${reviewNavigationRows.length} recorded row${reviewNavigationRows.length === 1 ? "" : "s"} in this batch.`}
+                      {reviewingSkippedRows
+                        ? `${manuallySkippedRows.length} skipped record${manuallySkippedRows.length === 1 ? " is" : "s are"} retained in this batch. Restore a record to return it to active review.`
+                        : reviewActionRows.length
+                          ? `Record ${focusedReviewRowIndex + 1} of ${reviewNavigationRows.length} needs your review or action.`
+                          : readyApplyRows.length
+                            ? `${reviewNavigationRows.length} ready row${reviewNavigationRows.length === 1 ? "" : "s"} can be sent without additional review.`
+                            : `All rows are applied or skipped. Browse the ${reviewNavigationRows.length} recorded row${reviewNavigationRows.length === 1 ? "" : "s"} in this batch.`}
                     </div>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
@@ -7264,7 +7315,11 @@ export default function ConstituencyImportPage() {
                             setReviewMode(false);
                             return;
                           }
-                          focusImportRow(focusedReviewRow?.id);
+                          focusImportRow(
+                            reviewingSkippedRows
+                              ? manuallySkippedRows[0]?.id
+                              : focusedReviewRow?.id,
+                          );
                         }}
                         style={{
                           border: "1px solid #C7D2FE",
@@ -7276,7 +7331,11 @@ export default function ConstituencyImportPage() {
                           cursor: "pointer",
                         }}
                       >
-                        {reviewMode ? "Show all batch rows" : "Resume one-record review"}
+                        {reviewMode
+                          ? "Show all batch rows"
+                          : reviewingSkippedRows
+                            ? "Resume skipped-record review"
+                            : "Resume one-record review"}
                       </button>
                     </div>
                   </section>
@@ -8436,8 +8495,8 @@ export default function ConstituencyImportPage() {
                               : isManuallySkipped
                                 ? "Restore record"
                                 : preview?.savedRun
-                                  ? "Skip record"
-                                  : "Save review and skip record"}
+                                  ? "Skip for later"
+                                  : "Save review and skip for later"}
                           </button>
                         ) : null}
                       </section>
