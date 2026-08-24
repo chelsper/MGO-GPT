@@ -1172,6 +1172,23 @@ function formatApplyDiagnostic(result) {
       parts.push("payload unavailable");
     }
   }
+  const educationUpdate = diagnostic.educationUpdate;
+  if (educationUpdate && typeof educationUpdate === "object") {
+    const omittedFields = Array.isArray(educationUpdate.omittedUnchangedFields)
+      ? educationUpdate.omittedUnchangedFields.filter(Boolean)
+      : [];
+    if (omittedFields.length) {
+      parts.push(`preserved unchanged ${omittedFields.join(", ")}`);
+    }
+    const majorValues = Array.isArray(educationUpdate.currentMajorValues)
+      ? educationUpdate.currentMajorValues.filter(Boolean)
+      : [];
+    if (majorValues.length) parts.push(`current NXT majors: ${majorValues.join(", ")}`);
+    const minorValues = Array.isArray(educationUpdate.currentMinorValues)
+      ? educationUpdate.currentMinorValues.filter(Boolean)
+      : [];
+    if (minorValues.length) parts.push(`current NXT minors: ${minorValues.join(", ")}`);
+  }
   return parts.join(" · ");
 }
 

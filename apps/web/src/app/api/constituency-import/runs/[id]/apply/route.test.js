@@ -1762,9 +1762,152 @@ describe("constituency import run apply route", () => {
       "/constituent/v1/educations/education-1",
       expect.objectContaining({
         method: "PATCH",
-        body: { school: "Jacksonville University", degree: "Bachelor of Science" },
+        body: { degree: "Bachelor of Science" },
       }),
     );
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("preserves unchanged active education major and minor values during an update", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "education_relationship",
+      action: "update",
+      recordType: "Individual",
+      targetEducationId: "education-1",
+      institution: "Jacksonville University",
+      degree: "Bachelor of Fine Arts",
+      major: " Art\u200B ",
+      minor: "Writing",
+      status: "Graduated",
+      existingEducation: {
+        id: "education-1",
+        school: "Jacksonville University",
+        degrees: ["Bachelor of Fine Arts"],
+        majors: ["Art"],
+        minors: ["Writing"],
+        status: "Current Student",
+      },
+      reviewSelection: {
+        selectedAt: "2026-08-10T15:00:00.000Z",
+        selectedByUserId: 7,
+      },
+    };
+    const row = {
+      id: "10",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Taylor Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeRun({ status: "applied", ready_count: 0, applied_count: 1 }),
+      ])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }]);
+    blackbaudApiFetchMock
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "education-1",
+            school: "Jacksonville University",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ id: "education-1" });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/constituent/v1/educations/education-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: { status: "Graduated" },
+      }),
+    );
+    expect(getSavedApplyAudit()?.results?.[0]?.message).toContain(
+      "Preserved unchanged school, degree, majors, minors values",
+    );
+    expect(payload.applySummary.applied).toBe(1);
+  });
+
+  it("does not call NXT when the selected education relationship already matches every CSV value", async () => {
+    const { POST } = await import("./route.js");
+    const write = {
+      type: "education_relationship",
+      action: "update",
+      recordType: "Individual",
+      targetEducationId: "education-1",
+      institution: "Jacksonville University",
+      degree: "Bachelor of Fine Arts",
+      major: "Art",
+      minor: "Writing",
+      status: "Graduated",
+      reviewSelection: {
+        selectedAt: "2026-08-10T15:00:00.000Z",
+        selectedByUserId: 7,
+      },
+    };
+    const row = {
+      id: "10",
+      run_id: "42",
+      row_number: 1,
+      status: "Ready",
+      matched_blackbaud_constituent_id: "123",
+      requested_writes: [write],
+      preview: {
+        rowNumber: 1,
+        input: { constituentName: "Taylor Dolphin" },
+        match: { blackbaudConstituentId: "123" },
+        writePlan: [write],
+      },
+    };
+
+    sqlMock
+      .mockResolvedValueOnce([makeRun()])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeRun({ status: "applied", ready_count: 0, applied_count: 1 }),
+      ])
+      .mockResolvedValueOnce([{ ...row, status: "Applied" }]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({
+      value: [
+        {
+          id: "education-1",
+          school: "Jacksonville University",
+          degree: "Bachelor of Fine Arts",
+          majors: ["Art"],
+          minors: ["Writing"],
+          status: "Graduated",
+        },
+      ],
+    });
+
+    const response = await POST(makeRequest(), { params: { id: "42" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
+    expect(getSavedApplyAudit()?.results?.[0]?.message).toContain("no NXT update was needed");
     expect(payload.applySummary.applied).toBe(1);
   });
 

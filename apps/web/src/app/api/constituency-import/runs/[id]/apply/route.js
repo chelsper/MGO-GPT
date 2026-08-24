@@ -582,6 +582,150 @@ function getEducationValues(value, pluralKey, singularKeys) {
   return [...new Set(values.map(cleanText).filter(Boolean))];
 }
 
+function getEducationUpdateSnapshot(currentEducation, reviewedEducation) {
+  const current = currentEducation || {};
+  const reviewed = reviewedEducation || {};
+  const chooseValues = (pluralKey, singularKeys) => {
+    const liveValues = getEducationValues(current, pluralKey, singularKeys);
+    return liveValues.length
+      ? liveValues
+      : getEducationValues(reviewed, pluralKey, singularKeys);
+  };
+  const chooseText = (liveValue, reviewedValue) => cleanText(liveValue) || cleanText(reviewedValue);
+
+  return {
+    school: chooseText(getEducationSchool(current), getEducationSchool(reviewed)),
+    degrees: chooseValues("degrees", ["degree", "degree_name"]),
+    majors: chooseValues("majors", ["major", "major_name"]),
+    minors: chooseValues("minors", ["minor", "minor_name"]),
+    type: chooseText(
+      getEducationValueText(current?.type ?? current?.school_type ?? current?.schoolType),
+      getEducationValueText(reviewed?.type ?? reviewed?.school_type ?? reviewed?.schoolType),
+    ),
+    campus: chooseText(getEducationValueText(current?.campus), getEducationValueText(reviewed?.campus)),
+    social_organization: chooseText(
+      getEducationValueText(current?.social_organization ?? current?.fraternity_sorority),
+      getEducationValueText(reviewed?.social_organization ?? reviewed?.fraternity_sorority ?? reviewed?.fraternitySorority),
+    ),
+    gpa: chooseText(current?.gpa, reviewed?.gpa),
+    class_of: chooseText(getEducationClassYear(current), getEducationClassYear(reviewed)),
+    status: chooseText(getEducationValueText(current?.status), getEducationValueText(reviewed?.status)),
+    date_graduated:
+      current?.date_graduated ?? current?.graduation_date ?? reviewed?.date_graduated ?? reviewed?.dateGraduated,
+    date_entered: current?.date_entered ?? reviewed?.date_entered ?? reviewed?.dateEntered,
+    date_left: current?.date_left ?? reviewed?.date_left ?? reviewed?.dateLeft,
+    primary:
+      current?.primary ?? current?.is_primary ?? reviewed?.primary ?? reviewed?.is_primary ?? false,
+  };
+}
+
+function normalizeEducationTableValue(value) {
+  return cleanText(value)
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function educationValuesMatch(expectedValues, actualValues) {
+  const expected = (Array.isArray(expectedValues) ? expectedValues : [expectedValues])
+    .map(normalizeEducationTableValue)
+    .filter(Boolean)
+    .sort();
+  const actual = (Array.isArray(actualValues) ? actualValues : [actualValues])
+    .map(normalizeEducationTableValue)
+    .filter(Boolean)
+    .sort();
+
+  return (
+    expected.length === actual.length &&
+    expected.every(
+      (value, index) => value.localeCompare(actual[index], undefined, { sensitivity: "accent" }) === 0,
+    )
+  );
+}
+
+function educationValueMatches(expectedValue, actualValue) {
+  return educationValuesMatch([expectedValue], [actualValue]);
+}
+
+function buildEducationUpdatePayload(payload, currentEducation) {
+  const nextPayload = { ...payload };
+  const omittedFields = [];
+  const omit = (field, matchesCurrent) => {
+    if (Object.hasOwn(nextPayload, field) && matchesCurrent) {
+      delete nextPayload[field];
+      omittedFields.push(field);
+    }
+  };
+
+  omit("school", educationValueMatches(payload.school, getEducationSchool(currentEducation)));
+  omit(
+    "degree",
+    educationValuesMatch(payload.degree, getEducationValues(currentEducation, "degrees", ["degree", "degree_name"])),
+  );
+  omit(
+    "majors",
+    educationValuesMatch(payload.majors, getEducationValues(currentEducation, "majors", ["major", "major_name"])),
+  );
+  omit(
+    "minors",
+    educationValuesMatch(payload.minors, getEducationValues(currentEducation, "minors", ["minor", "minor_name"])),
+  );
+  omit(
+    "type",
+    educationValueMatches(
+      payload.type,
+      getEducationValueText(currentEducation?.type ?? currentEducation?.school_type ?? currentEducation?.schoolType),
+    ),
+  );
+  omit("campus", educationValueMatches(payload.campus, getEducationValueText(currentEducation?.campus)));
+  omit(
+    "social_organization",
+    educationValueMatches(
+      payload.social_organization,
+      getEducationValueText(currentEducation?.social_organization ?? currentEducation?.fraternity_sorority),
+    ),
+  );
+  omit("gpa", Number(payload.gpa) === Number(currentEducation?.gpa));
+  omit(
+    "class_of",
+    cleanText(payload.class_of) === cleanText(getEducationClassYear(currentEducation)),
+  );
+  omit("status", educationValueMatches(payload.status, getEducationValueText(currentEducation?.status)));
+  omit(
+    "date_graduated",
+    formatDateForBlackbaud(payload.date_graduated) ===
+      formatDateForBlackbaud(currentEducation?.date_graduated ?? currentEducation?.graduation_date),
+  );
+  omit(
+    "date_entered",
+    formatDateForBlackbaud(payload.date_entered) === formatDateForBlackbaud(currentEducation?.date_entered),
+  );
+  omit(
+    "date_left",
+    formatDateForBlackbaud(payload.date_left) === formatDateForBlackbaud(currentEducation?.date_left),
+  );
+  omit(
+    "primary",
+    payload.primary === true && parseBoolean(currentEducation?.primary ?? currentEducation?.is_primary),
+  );
+
+  return { payload: nextPayload, omittedFields };
+}
+
+function getEducationWriteDiagnostic({ endpoint, payload, currentEducation, omittedFields }) {
+  return {
+    endpoint,
+    payload,
+    educationUpdate: {
+      omittedUnchangedFields: omittedFields,
+      currentMajorValues: getEducationValues(currentEducation, "majors", ["major", "major_name"]),
+      currentMinorValues: getEducationValues(currentEducation, "minors", ["minor", "minor_name"]),
+    },
+  };
+}
+
 function getEducationClassYear(value) {
   return cleanText(value?.class_of || value?.class_year || value?.classYear || value?.class);
 }
@@ -624,8 +768,8 @@ function buildEducationPayload({ constituentId, write, includeConstituentId = fa
   const payload = {};
   const institution = cleanText(write?.institution);
   const degree = cleanText(write?.degree);
-  const major = cleanText(write?.major);
-  const minor = cleanText(write?.minor);
+  const major = normalizeEducationTableValue(write?.major);
+  const minor = normalizeEducationTableValue(write?.minor);
   const schoolType = cleanText(write?.schoolType);
   const campus = cleanText(write?.campus);
   const fraternitySorority = cleanText(write?.fraternitySorority);
@@ -741,14 +885,22 @@ async function applyEducationRelationshipAdd({ request, user, row, write }) {
   const builtPayload = buildEducationPayload({ constituentId, write, includeConstituentId: true });
   if (builtPayload.error) return manualEducationResult(action, builtPayload.error);
   const { payload } = builtPayload;
-
-  const result = await blackbaudApiFetch("/constituent/v1/educations", {
-    userId: user.id,
-    authUserId: user.id,
-    origin: new URL(request.url).origin,
-    method: "POST",
-    body: payload,
-  });
+  const endpoint = "/constituent/v1/educations";
+  let result;
+  try {
+    result = await blackbaudApiFetch(endpoint, {
+      userId: user.id,
+      authUserId: user.id,
+      origin: new URL(request.url).origin,
+      method: "POST",
+      body: payload,
+    });
+  } catch (error) {
+    throw attachWriteDiagnostic(
+      error,
+      getEducationWriteDiagnostic({ endpoint, payload, currentEducation: null, omittedFields: [] }),
+    );
+  }
 
   return {
     status: "applied",
@@ -794,21 +946,45 @@ async function applyEducationRelationshipUpdate({ request, user, row, write }) {
 
   const builtPayload = buildEducationPayload({ constituentId, write });
   if (builtPayload.error) return manualEducationResult(action, builtPayload.error);
-  const result = await blackbaudApiFetch(
-    `/constituent/v1/educations/${encodeURIComponent(targetEducationId)}`,
-    {
+  const endpoint = `/constituent/v1/educations/${encodeURIComponent(targetEducationId)}`;
+  // The selected-row snapshot is only a fallback when NXT's live list omits a detail.
+  // A live value always wins, so another user's recent edit is never overwritten by stale review data.
+  const currentEducation = getEducationUpdateSnapshot(target, write?.existingEducation);
+  const updatePayload = buildEducationUpdatePayload(builtPayload.payload, currentEducation);
+  if (Object.keys(updatePayload.payload).length === 0) {
+    return {
+      status: "applied",
+      type: "education_relationship",
+      action: "skip_existing",
+      message: `The reviewed ${institution} education relationship already matches the selected CSV values; no NXT update was needed.`,
+    };
+  }
+
+  let result;
+  try {
+    result = await blackbaudApiFetch(endpoint, {
       userId: user.id,
       authUserId: user.id,
       origin: new URL(request.url).origin,
       method: "PATCH",
-      body: builtPayload.payload,
-    },
-  );
+      body: updatePayload.payload,
+    });
+  } catch (error) {
+    throw attachWriteDiagnostic(
+      error,
+      getEducationWriteDiagnostic({
+        endpoint,
+        payload: updatePayload.payload,
+        currentEducation,
+        omittedFields: updatePayload.omittedFields,
+      }),
+    );
+  }
   return {
     status: "applied",
     type: "education_relationship",
     action: "update",
-    message: `Updated the reviewed ${institution} education relationship in NXT.`,
+    message: `Updated the reviewed ${institution} education relationship in NXT.${updatePayload.omittedFields.length ? ` Preserved unchanged ${updatePayload.omittedFields.join(", ")} values.` : ""}`,
     blackbaudResult: result || null,
   };
 }
