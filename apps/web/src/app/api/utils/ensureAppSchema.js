@@ -1910,6 +1910,61 @@ export default async function ensureAppSchema() {
       ON constituency_import_rows (run_id, create_approved_at)
     `;
 
+    // Family Import deliberately uses its own run and row tables. It never
+    // shares the constituency-import queue, so a family workflow cannot alter
+    // or delay an existing constituency import.
+    await sql`
+      CREATE TABLE IF NOT EXISTS family_import_runs (
+        id BIGSERIAL PRIMARY KEY,
+        created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'reviewing',
+        source_filename TEXT,
+        summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        ready_count INTEGER NOT NULL DEFAULT 0,
+        needs_review_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        applied_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        applied_at TIMESTAMPTZ
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_family_import_runs_created
+      ON family_import_runs (created_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_family_import_runs_status
+      ON family_import_runs (status, created_at DESC)
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS family_import_rows (
+        id BIGSERIAL PRIMARY KEY,
+        run_id BIGINT NOT NULL REFERENCES family_import_runs(id) ON DELETE CASCADE,
+        row_number INTEGER NOT NULL,
+        family_key TEXT,
+        status TEXT NOT NULL DEFAULT 'Needs Review',
+        input JSONB NOT NULL DEFAULT '{}'::jsonb,
+        review JSONB NOT NULL DEFAULT '{}'::jsonb,
+        application JSONB NOT NULL DEFAULT '{}'::jsonb,
+        blackbaud_result JSONB,
+        blackbaud_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_family_import_rows_run_row
+      ON family_import_rows (run_id, row_number)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_family_import_rows_status
+      ON family_import_rows (run_id, status)
+    `;
+
     await sql`
       CREATE TABLE IF NOT EXISTS knowledge_base_article_overrides (
         article_id TEXT PRIMARY KEY,

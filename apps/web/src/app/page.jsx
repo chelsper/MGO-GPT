@@ -100,6 +100,12 @@ const REVIEWER_ACTIONS = [
     section: "requestsReview",
   },
   {
+    title: "Family Import",
+    href: "/family-import",
+    description: "Create or link parents and family relationships in a separate, staged NXT workflow.",
+    section: "requestsReview",
+  },
+  {
     title: "Prospect Pool",
     href: "/prospect-pool",
     description: "Assign new prospects to MGOs and track contact info requests.",
@@ -179,6 +185,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
   { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
   { label: "Import Preview", href: "/constituency-import", section: "Requests & Review" },
+  { label: "Family Import", href: "/family-import", section: "Requests & Review" },
 ];
 
 const ADMIN_WORKSPACE_ITEMS = [
