@@ -1347,7 +1347,7 @@ function buildDeferredEducationRelationshipWrite(input, match) {
   return write;
 }
 
-function buildOrganizationRelationshipWrite(input, match) {
+export function buildOrganizationRelationshipWrite(input, match) {
   if (!input.organizationRelationship) return null;
 
   const write = {

@@ -1447,6 +1447,158 @@ function needsCurrentConstituencyDetails(row) {
   );
 }
 
+function ManualNxtMatchSearchPanel({
+  row,
+  query,
+  results = [],
+  error = "",
+  searching = false,
+  selecting = false,
+  onQueryChange,
+  onSearch,
+  onSelect,
+}) {
+  const isBusy = searching || selecting;
+
+  return (
+    <section
+      id={`constituency-import-row-${row.id}-manual-match`}
+      style={{
+        border: "1px solid #93C5FD",
+        borderRadius: "12px",
+        backgroundColor: "#EFF6FF",
+        padding: "12px",
+        display: "grid",
+        gap: "10px",
+      }}
+    >
+      <div style={{ display: "grid", gap: "4px" }}>
+        <div style={{ color: "#1D4ED8", fontWeight: 900 }}>Find the correct NXT constituent</div>
+        <div style={{ color: "#1E3A8A", fontSize: "14px", lineHeight: 1.45 }}>
+          Search by name, NXT Lookup ID, or NXT System Record ID. Choosing a result saves the
+          match for this import row only; it does not update Raiser's Edge NXT.
+        </div>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) auto",
+          gap: "8px",
+          alignItems: "end",
+        }}
+      >
+        <label style={{ display: "grid", gap: "5px", color: "#1E3A8A", fontSize: "13px", fontWeight: 800 }}>
+          Search NXT
+          <input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSearch();
+              }
+            }}
+            placeholder="Name, Lookup ID, or System Record ID"
+            disabled={isBusy}
+            style={{
+              width: "100%",
+              border: "1px solid #93C5FD",
+              borderRadius: "9px",
+              backgroundColor: "white",
+              color: "#111827",
+              padding: "9px 10px",
+              font: "inherit",
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onSearch}
+          disabled={isBusy || query.trim().length < 2}
+          style={{
+            border: "1px solid #1D4ED8",
+            borderRadius: "999px",
+            backgroundColor: isBusy || query.trim().length < 2 ? "#DBEAFE" : "#1D4ED8",
+            color: isBusy || query.trim().length < 2 ? "#1E40AF" : "white",
+            padding: "9px 13px",
+            fontWeight: 900,
+            cursor: isBusy || query.trim().length < 2 ? "not-allowed" : "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {searching ? "Searching NXT..." : "Search NXT"}
+        </button>
+      </div>
+      {error ? (
+        <div
+          style={{
+            border: "1px solid #FCA5A5",
+            borderRadius: "9px",
+            backgroundColor: "#FEF2F2",
+            color: "#991B1B",
+            padding: "9px 10px",
+            fontSize: "14px",
+            lineHeight: 1.4,
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+      {results.length ? (
+        <div style={{ display: "grid", gap: "7px" }}>
+          <div style={{ color: "#1E3A8A", fontSize: "13px", fontWeight: 800 }}>
+            Choose the correct NXT record
+          </div>
+          {results.map((candidate) => (
+            <div
+              key={candidate.blackbaudConstituentId}
+              style={{
+                border: "1px solid #BFDBFE",
+                borderRadius: "10px",
+                backgroundColor: "white",
+                padding: "10px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
+                <strong style={{ color: "#111827" }}>{candidate.name || "Unnamed constituent"}</strong>
+                <span style={{ color: "#475569", fontSize: "13px", lineHeight: 1.35 }}>
+                  {candidate.lookupId ? `Lookup ID ${candidate.lookupId}` : "No Lookup ID"}
+                  {candidate.blackbaudConstituentId
+                    ? ` · System Record ID ${candidate.blackbaudConstituentId}`
+                    : ""}
+                  {candidate.email ? ` · ${candidate.email}` : ""}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onSelect(candidate)}
+                disabled={isBusy}
+                style={{
+                  border: "1px solid #047857",
+                  borderRadius: "999px",
+                  backgroundColor: selecting ? "#D1FAE5" : "#047857",
+                  color: selecting ? "#047857" : "white",
+                  padding: "8px 12px",
+                  fontWeight: 900,
+                  cursor: isBusy ? "not-allowed" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {selecting ? "Saving match..." : "Use this NXT match"}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ContactReviewPanel({
   row,
   decisions,
@@ -3007,6 +3159,7 @@ export default function ConstituencyImportPage() {
   const hydratedDetailRowsRef = useRef(new Set());
   const pendingDetailHydrationRowsRef = useRef(new Set());
   const automaticDetailHydrationRowsRef = useRef(new Set());
+  const manualMatchHydrationSuppressionsRef = useRef(new Set());
   const [fileReadStatus, setFileReadStatus] = useState("");
   const [parseMessage, setParseMessage] = useState("");
   const [error, setError] = useState("");
@@ -3046,6 +3199,11 @@ export default function ConstituencyImportPage() {
   const [savingCombinedReviewRowId, setSavingCombinedReviewRowId] = useState("");
   const [savingReviewOnlyRowId, setSavingReviewOnlyRowId] = useState("");
   const [hydratingDetailRows, setHydratingDetailRows] = useState({});
+  const [manualMatchSearchQueryByRowId, setManualMatchSearchQueryByRowId] = useState({});
+  const [manualMatchResultsByRowId, setManualMatchResultsByRowId] = useState({});
+  const [manualMatchErrorByRowId, setManualMatchErrorByRowId] = useState({});
+  const [searchingManualMatchRowId, setSearchingManualMatchRowId] = useState("");
+  const [selectingManualMatchRowId, setSelectingManualMatchRowId] = useState("");
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -3656,6 +3814,7 @@ export default function ConstituencyImportPage() {
     hydratedDetailRowsRef.current.clear();
     pendingDetailHydrationRowsRef.current.clear();
     automaticDetailHydrationRowsRef.current.clear();
+    manualMatchHydrationSuppressionsRef.current.clear();
     setHydratingDetailRows({});
     setPreview(null);
     setFocusedRowId("");
@@ -3669,6 +3828,11 @@ export default function ConstituencyImportPage() {
     setConstituencyCandidatesByRowId({});
     setSelectedConstituencyCandidateByRowId({});
     setEducationClassYearDrafts({});
+    setManualMatchSearchQueryByRowId({});
+    setManualMatchResultsByRowId({});
+    setManualMatchErrorByRowId({});
+    setSearchingManualMatchRowId("");
+    setSelectingManualMatchRowId("");
     setLoadingSuggestionFieldKey("");
     setContactDecisions({});
     setContactDecisionsDirty(false);
@@ -3700,6 +3864,7 @@ export default function ConstituencyImportPage() {
     hydratedDetailRowsRef.current.clear();
     pendingDetailHydrationRowsRef.current.clear();
     automaticDetailHydrationRowsRef.current.clear();
+    manualMatchHydrationSuppressionsRef.current.clear();
     setHydratingDetailRows({});
     if (resetFieldConfiguration) {
       setActiveFields(DEFAULT_ACTIVE_FIELDS);
@@ -3734,6 +3899,11 @@ export default function ConstituencyImportPage() {
     setConstituencyCandidatesByRowId({});
     setSelectedConstituencyCandidateByRowId({});
     setEducationClassYearDrafts({});
+    setManualMatchSearchQueryByRowId({});
+    setManualMatchResultsByRowId({});
+    setManualMatchErrorByRowId({});
+    setSearchingManualMatchRowId("");
+    setSelectingManualMatchRowId("");
     setLoadingSuggestionFieldKey("");
     setShowBatchTools(false);
     setReviewMode(true);
@@ -3814,6 +3984,11 @@ export default function ConstituencyImportPage() {
         setConstituencyCandidatesByRowId({});
         setSelectedConstituencyCandidateByRowId({});
         setEducationClassYearDrafts({});
+        setManualMatchSearchQueryByRowId({});
+        setManualMatchResultsByRowId({});
+        setManualMatchErrorByRowId({});
+        setSearchingManualMatchRowId("");
+        setSelectingManualMatchRowId("");
       }
       setSaveMessage(
         message === undefined
@@ -4007,6 +4182,150 @@ export default function ConstituencyImportPage() {
     }
   }
 
+  function getManualMatchSearchQuery(row) {
+    const rowId = String(row?.id || "");
+    if (Object.prototype.hasOwnProperty.call(manualMatchSearchQueryByRowId, rowId)) {
+      return manualMatchSearchQueryByRowId[rowId];
+    }
+    return String(
+      row?.input?.lookupId ||
+        row?.input?.blackbaudConstituentId ||
+        row?.input?.constituentName ||
+        "",
+    );
+  }
+
+  function updateManualMatchSearchQuery(row, value) {
+    const rowId = String(row?.id || "");
+    if (!rowId) return;
+    setManualMatchSearchQueryByRowId((current) => ({ ...current, [rowId]: value }));
+    setManualMatchResultsByRowId((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setManualMatchErrorByRowId((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+  }
+
+  async function searchImportRowNxtMatch(row) {
+    const runId = preview?.savedRun?.id;
+    const rowId = String(row?.id || "");
+    const query = getManualMatchSearchQuery(row).trim();
+    if (!runId || !rowId || query.length < 2) return;
+
+    setSearchingManualMatchRowId(rowId);
+    setManualMatchErrorByRowId((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(rowId)}/match`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "search", query }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not search Raiser's Edge NXT.");
+      }
+      const results = Array.isArray(payload?.results) ? payload.results : [];
+      setManualMatchResultsByRowId((current) => ({ ...current, [rowId]: results }));
+      if (!results.length) {
+        setManualMatchErrorByRowId((current) => ({
+          ...current,
+          [rowId]: "No NXT constituents matched that search. Try the exact NXT Lookup ID or a more complete name.",
+        }));
+      }
+    } catch (searchError) {
+      setManualMatchResultsByRowId((current) => ({ ...current, [rowId]: [] }));
+      setManualMatchErrorByRowId((current) => ({
+        ...current,
+        [rowId]:
+          searchError instanceof Error
+            ? searchError.message
+            : "Could not search Raiser's Edge NXT.",
+      }));
+    } finally {
+      setSearchingManualMatchRowId("");
+    }
+  }
+
+  async function selectImportRowNxtMatch(row, candidate) {
+    const runId = preview?.savedRun?.id;
+    const rowId = String(row?.id || "");
+    const constituentId = String(candidate?.blackbaudConstituentId || "").trim();
+    if (!runId || !rowId || !constituentId) return;
+
+    const hydrationKey = `${runId}:${rowId}`;
+    manualMatchHydrationSuppressionsRef.current.add(hydrationKey);
+    setSelectingManualMatchRowId(rowId);
+    setManualMatchErrorByRowId((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(rowId)}/match`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "select", constituentId }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not save this NXT match.");
+      }
+      const savedPayload = await loadSavedRun(runId, {
+        focusRowId: row.id,
+        message: payload?.message || "Saved the selected NXT match. No NXT record was changed.",
+        preload: false,
+        resetReviewDrafts: false,
+      });
+      if (!savedPayload) {
+        throw new Error("The NXT match was saved, but the import row could not be reloaded.");
+      }
+      setManualMatchSearchQueryByRowId((current) => {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+      setManualMatchResultsByRowId((current) => {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+      setManualMatchErrorByRowId((current) => {
+        const next = { ...current };
+        delete next[rowId];
+        return next;
+      });
+      void fetchSavedRuns();
+    } catch (selectionError) {
+      manualMatchHydrationSuppressionsRef.current.delete(hydrationKey);
+      setManualMatchErrorByRowId((current) => ({
+        ...current,
+        [rowId]:
+          selectionError instanceof Error
+            ? selectionError.message
+            : "Could not save this NXT match.",
+      }));
+    } finally {
+      setSelectingManualMatchRowId("");
+    }
+  }
+
   async function preloadRequiredReviewChoices(row, runIdOverride = null) {
     if (!row?.id) return null;
     const runId = runIdOverride || preview?.savedRun?.id;
@@ -4128,6 +4447,7 @@ export default function ConstituencyImportPage() {
     const runId = runIdOverride || preview?.savedRun?.id;
     if (!runId || !row?.id) return;
     const requestKey = `${runId}:${row.id}`;
+    if (manualMatchHydrationSuppressionsRef.current.delete(requestKey)) return;
     if (automaticDetailHydrationRowsRef.current.has(requestKey)) return;
     automaticDetailHydrationRowsRef.current.add(requestKey);
     void preloadRequiredReviewChoices(row, runId);
@@ -7629,6 +7949,14 @@ export default function ConstituencyImportPage() {
                       !row.createdBlackbaudConstituentId
                     ),
                 );
+                const canSearchForManualMatch = Boolean(
+                  preview?.savedRun &&
+                    isReviewer &&
+                    !getImportMatchedConstituentId(row) &&
+                    !row.appliedAt &&
+                    row.status !== "Failed",
+                );
+                const manualMatchRowId = String(row.id || "");
                 return (
                   <article
                     key={row.rowNumber}
@@ -7761,6 +8089,20 @@ export default function ConstituencyImportPage() {
                         ) : null}
                       </div>
                     </div>
+
+                    {canSearchForManualMatch ? (
+                      <ManualNxtMatchSearchPanel
+                        row={row}
+                        query={getManualMatchSearchQuery(row)}
+                        results={manualMatchResultsByRowId[manualMatchRowId] || []}
+                        error={manualMatchErrorByRowId[manualMatchRowId] || ""}
+                        searching={searchingManualMatchRowId === manualMatchRowId}
+                        selecting={selectingManualMatchRowId === manualMatchRowId}
+                        onQueryChange={(value) => updateManualMatchSearchQuery(row, value)}
+                        onSearch={() => searchImportRowNxtMatch(row)}
+                        onSelect={(candidate) => selectImportRowNxtMatch(row, candidate)}
+                      />
+                    ) : null}
 
                     {isEditingThisRow ? (
                       <CsvRowEditor
