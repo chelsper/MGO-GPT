@@ -3025,6 +3025,247 @@ function CsvRowEditor({
   );
 }
 
+const STAGED_ADDRESS_CORRECTION_FIELDS = [
+  { key: "addressLine1", label: "Street line 1", required: true },
+  { key: "addressLine2", label: "Street line 2" },
+  { key: "city", label: "City" },
+  { key: "state", label: "State / province" },
+  { key: "postalCode", label: "Postal code" },
+  { key: "country", label: "Country" },
+];
+
+function hasStagedRowCorrectionFields(row) {
+  const input = row?.input || {};
+  const hasEducationWrite = (row?.writePlan || []).some(
+    (write) => write?.type === "education_relationship",
+  );
+  return Boolean(
+    (hasEducationWrite && input.educationRelationship) ||
+      (Array.isArray(input.addressUpdates) && input.addressUpdates.length),
+  );
+}
+
+function buildSavedRowCorrectionDraft(row) {
+  const input = row?.input || {};
+  const hasEducationWrite = (row?.writePlan || []).some(
+    (write) => write?.type === "education_relationship",
+  );
+  return {
+    education:
+      hasEducationWrite && input.educationRelationship
+        ? {
+            major: input.educationRelationship.major || "",
+            minor: input.educationRelationship.minor || "",
+          }
+        : null,
+    addressUpdates: Array.isArray(input.addressUpdates)
+      ? input.addressUpdates.map((address) =>
+          STAGED_ADDRESS_CORRECTION_FIELDS.reduce((next, field) => {
+            next[field.key] = address?.[field.key] || "";
+            return next;
+          }, {}),
+        )
+      : [],
+  };
+}
+
+function normalizeStagedCorrectionValue(value) {
+  return String(value ?? "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim();
+}
+
+function buildSavedRowCorrectionPayload(row, draft) {
+  const input = row?.input || {};
+  const education = Object.entries(draft?.education || {}).reduce((next, [field, value]) => {
+    if (
+      normalizeStagedCorrectionValue(value) !==
+      normalizeStagedCorrectionValue(input.educationRelationship?.[field])
+    ) {
+      next[field] = value;
+    }
+    return next;
+  }, {});
+  const addressUpdates = Array.isArray(draft?.addressUpdates)
+    ? draft.addressUpdates.map((address, index) =>
+        STAGED_ADDRESS_CORRECTION_FIELDS.reduce((next, field) => {
+          if (
+            normalizeStagedCorrectionValue(address?.[field.key]) !==
+            normalizeStagedCorrectionValue(input.addressUpdates?.[index]?.[field.key])
+          ) {
+            next[field.key] = address?.[field.key] || "";
+          }
+          return next;
+        }, {}),
+      )
+    : [];
+  const hasAddressCorrections = addressUpdates.some((address) => Object.keys(address).length);
+
+  return {
+    ...(Object.keys(education).length ? { education } : {}),
+    ...(hasAddressCorrections ? { addressUpdates } : {}),
+  };
+}
+
+function SavedRowValueEditor({
+  rowNumber,
+  draft,
+  saving,
+  onEducationChange,
+  onAddressChange,
+  onSave,
+  onCancel,
+}) {
+  return (
+    <section
+      style={{
+        border: "1px solid #A5B4FC",
+        borderRadius: "12px",
+        backgroundColor: "#F5F3FF",
+        padding: "14px",
+        display: "grid",
+        gap: "14px",
+      }}
+    >
+      <div>
+        <div style={{ color: "#4338CA", fontWeight: 900 }}>Correct staged CSV values</div>
+        <div style={{ marginTop: "4px", color: "#5B21B6", fontSize: "14px", lineHeight: 1.45 }}>
+          This corrects only this saved review row. It does not edit the uploaded CSV, make a Blackbaud call, or update NXT until you later send the row to NXT.
+        </div>
+      </div>
+
+      {draft?.education ? (
+        <section
+          style={{
+            border: "1px solid #C7D2FE",
+            borderRadius: "10px",
+            backgroundColor: "white",
+            padding: "12px",
+            display: "grid",
+            gap: "10px",
+          }}
+        >
+          <div style={{ color: "#312E81", fontWeight: 900 }}>Education</div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "10px",
+            }}
+          >
+            {[{ key: "major", label: "Major" }, { key: "minor", label: "Minor" }].map((field) => (
+              <label key={field.key} htmlFor={`saved-import-row-${rowNumber}-${field.key}`} style={{ display: "grid", gap: "6px", color: "#312E81", fontSize: "13px", fontWeight: 900 }}>
+                {field.label}
+                <input
+                  id={`saved-import-row-${rowNumber}-${field.key}`}
+                  name={`saved-import-row-${rowNumber}-${field.key}`}
+                  value={draft.education[field.key] || ""}
+                  onChange={(event) => onEducationChange(field.key, event.target.value)}
+                  disabled={saving}
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: "1px solid #C7D2FE",
+                    borderRadius: "9px",
+                    backgroundColor: saving ? "#F8FAFC" : "white",
+                    padding: "9px 10px",
+                    color: "#111827",
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {draft?.addressUpdates?.map((address, addressIndex) => (
+        <section
+          key={`saved-import-row-${rowNumber}-address-${addressIndex}`}
+          style={{
+            border: "1px solid #C7D2FE",
+            borderRadius: "10px",
+            backgroundColor: "white",
+            padding: "12px",
+            display: "grid",
+            gap: "10px",
+          }}
+        >
+          <div style={{ color: "#312E81", fontWeight: 900 }}>
+            Address {addressIndex + 1}
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "10px",
+            }}
+          >
+            {STAGED_ADDRESS_CORRECTION_FIELDS.map((field) => (
+              <label key={field.key} htmlFor={`saved-import-row-${rowNumber}-address-${addressIndex}-${field.key}`} style={{ display: "grid", gap: "6px", color: "#312E81", fontSize: "13px", fontWeight: 900 }}>
+                {field.label}{field.required ? " *" : ""}
+                <input
+                  id={`saved-import-row-${rowNumber}-address-${addressIndex}-${field.key}`}
+                  name={`saved-import-row-${rowNumber}-address-${addressIndex}-${field.key}`}
+                  value={address[field.key] || ""}
+                  onChange={(event) => onAddressChange(addressIndex, field.key, event.target.value)}
+                  disabled={saving}
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: "1px solid #C7D2FE",
+                    borderRadius: "9px",
+                    backgroundColor: saving ? "#F8FAFC" : "white",
+                    padding: "9px 10px",
+                    color: "#111827",
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      <div style={{ color: "#5B21B6", fontSize: "13px", lineHeight: 1.45 }}>
+        Leave a field blank only if you intend to remove that value from the staged NXT update. The original and corrected values are retained in this import run's audit trail.
+      </div>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          style={{
+            border: "1px solid #4338CA",
+            borderRadius: "999px",
+            backgroundColor: saving ? "#C7D2FE" : "#4F46E5",
+            color: "white",
+            padding: "9px 14px",
+            fontWeight: 900,
+            cursor: saving ? "not-allowed" : "pointer",
+          }}
+        >
+          {saving ? "Saving staged correction..." : "Save staged correction"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          style={{
+            border: "1px solid #C7D2FE",
+            borderRadius: "999px",
+            backgroundColor: "white",
+            color: "#4338CA",
+            padding: "9px 14px",
+            fontWeight: 900,
+            cursor: saving ? "not-allowed" : "pointer",
+          }}
+        >
+          Cancel correction
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function isUnresolvedImportRow(row) {
   return (
     row?.status !== "Applied" &&
@@ -3206,6 +3447,9 @@ export default function ConstituencyImportPage() {
   const [skippingRowId, setSkippingRowId] = useState("");
   const [editingPreviewRowNumber, setEditingPreviewRowNumber] = useState(null);
   const [editingRowDraft, setEditingRowDraft] = useState({});
+  const [editingSavedRowId, setEditingSavedRowId] = useState("");
+  const [savedRowCorrectionDraft, setSavedRowCorrectionDraft] = useState(null);
+  const [savingSavedRowCorrectionId, setSavingSavedRowCorrectionId] = useState("");
   const [tableSuggestions, setTableSuggestions] = useState({});
   const [loadingSuggestionFieldKey, setLoadingSuggestionFieldKey] = useState("");
   const [educationCandidatesByRowId, setEducationCandidatesByRowId] = useState({});
@@ -3839,6 +4083,9 @@ export default function ConstituencyImportPage() {
     setReviewingSkippedRows(false);
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
+    setEditingSavedRowId("");
+    setSavedRowCorrectionDraft(null);
+    setSavingSavedRowCorrectionId("");
     setTableSuggestions({});
     setEducationCandidatesByRowId({});
     setSelectedEducationCandidateByRowId({});
@@ -3910,6 +4157,9 @@ export default function ConstituencyImportPage() {
     setFocusedRowId("");
     setEditingPreviewRowNumber(null);
     setEditingRowDraft({});
+    setEditingSavedRowId("");
+    setSavedRowCorrectionDraft(null);
+    setSavingSavedRowCorrectionId("");
     setTableSuggestions({});
     setEducationCandidatesByRowId({});
     setSelectedEducationCandidateByRowId({});
@@ -3994,6 +4244,9 @@ export default function ConstituencyImportPage() {
       setReviewMode(true);
       setEditingPreviewRowNumber(null);
       setEditingRowDraft({});
+      setEditingSavedRowId("");
+      setSavedRowCorrectionDraft(null);
+      setSavingSavedRowCorrectionId("");
       setTableSuggestions({});
       if (resetReviewDrafts) {
         setEducationCandidatesByRowId({});
@@ -4786,6 +5039,99 @@ export default function ConstituencyImportPage() {
     setEditingRowDraft({});
     setTableSuggestions({});
     setLoadingSuggestionFieldKey("");
+  }
+
+  function beginSavedRowCorrection(row) {
+    if (!preview?.savedRun || !row?.id) return;
+    if (contactDecisionsDirty || fieldDecisionsDirty) {
+      setError("Save this row's current review choices before correcting staged CSV values.");
+      return;
+    }
+    if (!hasStagedRowCorrectionFields(row)) {
+      setError("This row does not contain staged education or address values that can be corrected.");
+      return;
+    }
+    setError("");
+    setSaveMessage("");
+    setEditingSavedRowId(String(row.id));
+    setSavedRowCorrectionDraft(buildSavedRowCorrectionDraft(row));
+  }
+
+  function cancelSavedRowCorrection() {
+    if (savingSavedRowCorrectionId) return;
+    setEditingSavedRowId("");
+    setSavedRowCorrectionDraft(null);
+  }
+
+  function updateSavedRowCorrectionEducation(field, value) {
+    setSavedRowCorrectionDraft((current) => {
+      if (!current?.education) return current;
+      return {
+        ...current,
+        education: { ...current.education, [field]: value },
+      };
+    });
+  }
+
+  function updateSavedRowCorrectionAddress(addressIndex, field, value) {
+    setSavedRowCorrectionDraft((current) => {
+      if (!Array.isArray(current?.addressUpdates)) return current;
+      return {
+        ...current,
+        addressUpdates: current.addressUpdates.map((address, index) =>
+          index === addressIndex ? { ...address, [field]: value } : address,
+        ),
+      };
+    });
+  }
+
+  async function saveSavedRowCorrection(row) {
+    const runId = preview?.savedRun?.id;
+    if (!runId || !row?.id || !savedRowCorrectionDraft || savingSavedRowCorrectionId) return;
+    if (contactDecisionsDirty || fieldDecisionsDirty) {
+      setError("Save this row's current review choices before correcting staged CSV values.");
+      return;
+    }
+
+    setSavingSavedRowCorrectionId(String(row.id));
+    setError("");
+    setSaveMessage("");
+    try {
+      const correctionPayload = buildSavedRowCorrectionPayload(row, savedRowCorrectionDraft);
+      if (!Object.keys(correctionPayload).length) {
+        throw new Error("Make a correction before saving staged CSV values.");
+      }
+      const response = await fetch(
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/source-overrides`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(correctionPayload),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to save the staged CSV correction.");
+      }
+
+      const loaded = await loadSavedRun(runId, {
+        focusRowId: row.id,
+        message:
+          payload?.message ||
+          "Saved the staged CSV correction. No NXT records changed.",
+        preload: false,
+        resetReviewDrafts: false,
+      });
+      if (!loaded) return;
+    } catch (correctionError) {
+      setError(
+        correctionError instanceof Error
+          ? correctionError.message
+          : "Failed to save the staged CSV correction.",
+      );
+    } finally {
+      setSavingSavedRowCorrectionId("");
+    }
   }
 
   function updatePreviewRowDraft(header, value) {
@@ -7891,13 +8237,23 @@ export default function ConstituencyImportPage() {
                     !write?.sourceCodeId,
                 );
                 const hasDirtyReviewChoices = contactDecisionsDirty || fieldDecisionsDirty;
+                const isEditingSavedRow =
+                  Boolean(preview?.savedRun) && editingSavedRowId === String(row.id);
+                const canCorrectSavedRow = Boolean(
+                  preview?.savedRun &&
+                    isReviewer &&
+                    hasStagedRowCorrectionFields(row) &&
+                    !row.appliedAt &&
+                    !["Applied", "Failed", "Skipped"].includes(row.status),
+                );
                 const canApplyRow = Boolean(
                   preview?.savedRun &&
                     row.status === "Ready" &&
                     !row.appliedAt &&
                     row.intentDisposition?.key !== "ready_new" &&
                     !hasUnselectedConstituencyReplacement &&
-                    !hasDirtyReviewChoices,
+                    !hasDirtyReviewChoices &&
+                    !isEditingSavedRow,
                 );
                 const canCreateReadyNewRow = Boolean(
                   preview?.savedRun &&
@@ -8058,6 +8414,34 @@ export default function ConstituencyImportPage() {
                             Edit CSV values
                           </button>
                         ) : null}
+                        {canCorrectSavedRow && !isEditingSavedRow ? (
+                          <button
+                            type="button"
+                            onClick={() => beginSavedRowCorrection(row)}
+                            disabled={
+                              Boolean(editingSavedRowId) ||
+                              Boolean(savingSavedRowCorrectionId) ||
+                              hasDirtyReviewChoices
+                            }
+                            style={{
+                              border: "1px solid #818CF8",
+                              borderRadius: "999px",
+                              backgroundColor: "white",
+                              color: "#4338CA",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              cursor:
+                                editingSavedRowId ||
+                                savingSavedRowCorrectionId ||
+                                hasDirtyReviewChoices
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            Correct staged CSV values
+                          </button>
+                        ) : null}
                         {canOpenMatchedConstituent ? (
                           <a
                             href={nxtProfileUrl}
@@ -8134,6 +8518,18 @@ export default function ConstituencyImportPage() {
                         onSave={savePreviewRowEdits}
                         onCancel={cancelPreviewRowEdit}
                         saving={previewing}
+                      />
+                    ) : null}
+
+                    {isEditingSavedRow ? (
+                      <SavedRowValueEditor
+                        rowNumber={row.rowNumber}
+                        draft={savedRowCorrectionDraft}
+                        saving={savingSavedRowCorrectionId === String(row.id)}
+                        onEducationChange={updateSavedRowCorrectionEducation}
+                        onAddressChange={updateSavedRowCorrectionAddress}
+                        onSave={() => saveSavedRowCorrection(row)}
+                        onCancel={cancelSavedRowCorrection}
                       />
                     ) : null}
 
@@ -8542,7 +8938,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {!isEditingThisRow ? (
+                    {!isEditingThisRow && !isEditingSavedRow ? (
                       <section
                         style={{
                           border: `1px solid ${
