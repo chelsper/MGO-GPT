@@ -2048,11 +2048,21 @@ export default async function ensureAppSchema() {
         description TEXT,
         visibility TEXT NOT NULL DEFAULT 'all_users',
         specific_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        source_query_id TEXT,
+        source_query_name TEXT,
         created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+    await sql`
+      ALTER TABLE report_configurations
+      ADD COLUMN IF NOT EXISTS source_query_id TEXT
+    `;
+    await sql`
+      ALTER TABLE report_configurations
+      ADD COLUMN IF NOT EXISTS source_query_name TEXT
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_report_configurations_visibility
@@ -2068,12 +2078,20 @@ export default async function ensureAppSchema() {
       )
       VALUES (
         'portfolio-fy-giving',
-        'Portfolio Giving',
-        'Review current fiscal-year gift activity across an MGO portfolio.',
+        'My Reports',
+        'Review current fiscal-year portfolio giving and shared engagement reports.',
         'all_users',
         '[]'::jsonb
       )
       ON CONFLICT (report_key) DO NOTHING
+    `;
+    await sql`
+      UPDATE report_configurations
+      SET
+        title = 'My Reports',
+        description = 'Review current fiscal-year portfolio giving and shared engagement reports.',
+        updated_at = NOW()
+      WHERE report_key = 'portfolio-fy-giving'
     `;
 
     await sql`
@@ -2089,6 +2107,23 @@ export default async function ensureAppSchema() {
         'Executive Team Standings',
         'Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.',
         'executive',
+        '[]'::jsonb
+      )
+      ON CONFLICT (report_key) DO NOTHING
+    `;
+    await sql`
+      INSERT INTO report_configurations (
+        report_key,
+        title,
+        description,
+        visibility,
+        specific_user_ids
+      )
+      VALUES (
+        'alumni-family-engagement',
+        'Alumni & Family Engagement',
+        'Count current fiscal-year alumni donors from one shared NXT saved query, including soft-credit recipients.',
+        'all_users',
         '[]'::jsonb
       )
       ON CONFLICT (report_key) DO NOTHING

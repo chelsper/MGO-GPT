@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 
 const REPORT_PATHS = Object.freeze({
   "portfolio-fy-giving": "/reports",
+  "alumni-family-engagement": "/reports/alumni-family-engagement",
   "future-made-phase-ii": "/reports/future-made-phase-ii",
   "executive-team-standings": "/reports/executive-team-standings",
 });

@@ -6,6 +6,7 @@ import {
   canManageWorkspaceRole,
 } from "@/utils/workspaceRoles";
 import {
+  ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
   canUserViewReport,
   EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
   FUTURE_MADE_PHASE_TWO_REPORT_KEY,
@@ -17,8 +18,8 @@ import {
 const REPORT_DEFINITIONS = [
   {
     key: PORTFOLIO_GIVING_REPORT_KEY,
-    title: "Portfolio Giving",
-    description: "Review current fiscal-year gift activity across an MGO portfolio.",
+    title: "My Reports",
+    description: "Review current fiscal-year portfolio giving and shared engagement reports.",
   },
   {
     key: FUTURE_MADE_PHASE_TWO_REPORT_KEY,
@@ -31,6 +32,12 @@ const REPORT_DEFINITIONS = [
     title: "Executive Team Standings",
     description:
       "Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.",
+  },
+  {
+    key: ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
+    title: "Alumni & Family Engagement",
+    description:
+      "Count current fiscal-year alumni donors from one shared NXT saved query, including soft-credit recipients.",
   },
 ];
 
@@ -49,6 +56,14 @@ function serializeConfiguration(definition, record, currentUser) {
     description: record?.description || definition.description,
     visibility,
     specificUserIds,
+    sourceQueryId:
+      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
+        ? String(record?.source_query_id || "").trim()
+        : "",
+    sourceQueryName:
+      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
+        ? String(record?.source_query_name || "").trim()
+        : "",
     canView,
   };
 }
@@ -68,9 +83,21 @@ export async function GET() {
     if (error) return error;
 
     const records = await sql`
-      SELECT report_key, title, description, visibility, specific_user_ids
+      SELECT
+        report_key,
+        title,
+        description,
+        visibility,
+        specific_user_ids,
+        source_query_id,
+        source_query_name
       FROM report_configurations
-      WHERE report_key IN ('portfolio-fy-giving', 'future-made-phase-ii', 'executive-team-standings')
+      WHERE report_key IN (
+        'portfolio-fy-giving',
+        'future-made-phase-ii',
+        'executive-team-standings',
+        'alumni-family-engagement'
+      )
     `;
     const recordsByKey = new Map(records.map((record) => [record.report_key, record]));
     const canManage = canManageWorkspaceRole(user.role);
@@ -141,6 +168,19 @@ export async function PATCH(request) {
       );
     }
 
+    const hasSourceQueryUpdate =
+      Object.hasOwn(body || {}, "sourceQueryId") || Object.hasOwn(body || {}, "sourceQueryName");
+    const sourceQueryId = String(body?.sourceQueryId || "").trim();
+    const sourceQueryName = String(body?.sourceQueryName || "").trim();
+    if (sourceQueryId.length > 200 || sourceQueryName.length > 200) {
+      return Response.json(
+        { error: "The saved NXT query ID and name must each be 200 characters or fewer." },
+        { status: 400 },
+      );
+    }
+    const shouldUpdateSourceQuery =
+      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY && hasSourceQueryUpdate;
+
     const saved = await sql`
       INSERT INTO report_configurations (
         report_key,
@@ -148,6 +188,8 @@ export async function PATCH(request) {
         description,
         visibility,
         specific_user_ids,
+        source_query_id,
+        source_query_name,
         created_by,
         updated_by
       )
@@ -157,6 +199,8 @@ export async function PATCH(request) {
         ${definition.description},
         ${visibility},
         ${JSON.stringify(activeUserIds)}::jsonb,
+        ${sourceQueryId || null},
+        ${sourceQueryName || null},
         ${user.id},
         ${user.id}
       )
@@ -164,9 +208,24 @@ export async function PATCH(request) {
       DO UPDATE SET
         visibility = EXCLUDED.visibility,
         specific_user_ids = EXCLUDED.specific_user_ids,
+        source_query_id = CASE
+          WHEN ${shouldUpdateSourceQuery} THEN EXCLUDED.source_query_id
+          ELSE report_configurations.source_query_id
+        END,
+        source_query_name = CASE
+          WHEN ${shouldUpdateSourceQuery} THEN EXCLUDED.source_query_name
+          ELSE report_configurations.source_query_name
+        END,
         updated_by = EXCLUDED.updated_by,
         updated_at = NOW()
-      RETURNING report_key, title, description, visibility, specific_user_ids
+      RETURNING
+        report_key,
+        title,
+        description,
+        visibility,
+        specific_user_ids,
+        source_query_id,
+        source_query_name
     `;
 
     return Response.json({

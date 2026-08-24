@@ -6,6 +6,7 @@ const DASHBOARD_REFRESH_HOURS = new Set([8, 15]);
 const REPORT_KEYS = [
   "report:executive-team-standings",
   "report:future-made-phase-ii",
+  "report:alumni-family-engagement",
 ];
 
 function getNewYorkTimeParts(now = new Date()) {

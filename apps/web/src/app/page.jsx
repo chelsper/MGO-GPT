@@ -19,9 +19,9 @@ const MGO_ACTIONS = [
     section: "myWork",
   },
   {
-    title: "Portfolio Giving",
+    title: "My Reports",
     href: "/reports",
-    description: "Review current fiscal-year gift activity across your portfolio.",
+    description: "Review current fiscal-year portfolio giving and shared engagement reports.",
     section: "myWork",
   },
   {
@@ -157,7 +157,7 @@ const ADMIN_ACTIONS = [
 
 const MGO_NAV_ITEMS = [
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
-  { label: "Portfolio Giving", href: "/reports", section: "My Work" },
+  { label: "My Reports", href: "/reports", section: "My Work" },
   { label: "Team Discussion", href: "/team-discussion", section: "My Work" },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },

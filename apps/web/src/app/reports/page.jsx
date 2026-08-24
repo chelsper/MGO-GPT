@@ -403,7 +403,7 @@ export default function ReportsPage() {
           ? payload.configurations.find((item) => item.key === "executive-team-standings")
           : null;
         if (!configuration) {
-          throw new Error("Portfolio Giving access could not be loaded.");
+          throw new Error("My Reports access could not be loaded.");
         }
         if (active) {
           setReportAccessStatus({
@@ -895,7 +895,7 @@ export default function ReportsPage() {
               padding: "26px",
             }}
           >
-            <h1 style={{ margin: 0, color: "#0F172A" }}>Portfolio Giving is not shared with you</h1>
+            <h1 style={{ margin: 0, color: "#0F172A" }}>My Reports is not shared with you</h1>
             <p style={{ color: "#64748B", lineHeight: 1.55 }}>
               An Advancement Services user can change this report&apos;s audience in Report Access.
             </p>
@@ -915,8 +915,8 @@ export default function ReportsPage() {
       <div style={{ maxWidth: "1240px", margin: "0 auto" }}>
         <SharedReportHeader
           activeReportKey="portfolio-fy-giving"
-          title="Reports"
-          description="Review portfolio giving without adding background work to My Prospects."
+          title="My Reports"
+          description="Review portfolio giving and shared engagement reports."
           backHref="/"
           backLabel="Return to home"
           action={
