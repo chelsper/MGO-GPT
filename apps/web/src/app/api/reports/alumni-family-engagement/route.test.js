@@ -7,11 +7,14 @@ const {
   getReportCacheHeadersMock,
   getOrCreateUserMock,
   getReportAccessForUserMock,
+  getReportRefreshUserMock,
+  isAuthorizedReportRefreshRequestMock,
   saveReportSnapshotMock,
   shouldBypassReportCacheMock,
   getBlackbaudConfigIssuesMock,
   createBlackbaudQueryJobMock,
   getBlackbaudQueryJobMock,
+  getCurrentFiscalYearWindowMock,
   downloadBlackbaudQueryResultMock,
   findBlackbaudQueryByNameMock,
 } = vi.hoisted(() => ({
@@ -21,6 +24,8 @@ const {
   getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   getOrCreateUserMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
+  getReportRefreshUserMock: vi.fn(),
+  isAuthorizedReportRefreshRequestMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
   shouldBypassReportCacheMock: vi.fn(
     (request) => new URL(request.url).searchParams.get("refresh") === "1",
@@ -28,6 +33,7 @@ const {
   getBlackbaudConfigIssuesMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
+  getCurrentFiscalYearWindowMock: vi.fn(),
   downloadBlackbaudQueryResultMock: vi.fn(),
   findBlackbaudQueryByNameMock: vi.fn(),
 }));
@@ -35,6 +41,13 @@ const {
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: getOrCreateUserMock }));
+vi.mock("@/app/api/utils/reportRefresh", () => ({
+  getReportRefreshUser: getReportRefreshUserMock,
+  isAuthorizedReportRefreshRequest: isAuthorizedReportRefreshRequestMock,
+}));
+vi.mock("@/app/api/utils/currentFyGiving", () => ({
+  getCurrentFiscalYearWindow: getCurrentFiscalYearWindowMock,
+}));
 vi.mock("@/app/api/utils/reportAccess", () => ({
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY: "alumni-family-engagement",
   getReportAccessForUser: getReportAccessForUserMock,
@@ -64,8 +77,15 @@ describe("Alumni & Family Engagement report route", () => {
     ensureAppSchemaMock.mockResolvedValue();
     getOrCreateUserMock.mockResolvedValue({ id: 7, role: "mgo" });
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
+    isAuthorizedReportRefreshRequestMock.mockReturnValue(false);
     getCachedReportSnapshotMock.mockResolvedValue(null);
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
+    getCurrentFiscalYearWindowMock.mockReturnValue({
+      startDate: "2026-07-01",
+      endDate: "2027-06-30",
+      fiscalYear: 2027,
+      yearLabel: "FY27",
+    });
     saveReportSnapshotMock.mockResolvedValue();
     createBlackbaudQueryJobMock.mockImplementation(({ queryId }) =>
       Promise.resolve({ id: queryId === "30976" ? "job-fy27" : "job-fy26" }),
@@ -119,11 +139,31 @@ describe("Alumni & Family Engagement report route", () => {
     expect(response.status).toBe(202);
     expect(payload.poll).toMatchObject({ fy27JobId: "job-fy27", fy26JobId: "job-fy26" });
     expect(findBlackbaudQueryByNameMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Alumni Donors FY27", versions: ["v1"] }),
+      expect.objectContaining({ name: "Alumni Donors FY27", versions: ["v1", "v2"] }),
     );
     expect(createBlackbaudQueryJobMock).toHaveBeenCalledWith(
       expect.objectContaining({ queryId: "query-api-fy27" }),
     );
+  });
+
+  it("explains when the Blackbaud Query API is unavailable to the integration", async () => {
+    createBlackbaudQueryJobMock.mockImplementation(async ({ queryId }) => {
+      if (queryId === "30976") {
+        throw new Error("Blackbaud 404 Resource Not Found: Resource not found");
+      }
+      return { id: "job-fy26" };
+    });
+    findBlackbaudQueryByNameMock.mockRejectedValue(
+      new Error("Blackbaud 404 Resource Not Found: Resource not found"),
+    );
+    const { GET } = await import("./route.js");
+
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload.error).toContain("Blackbaud Query API is not available");
+    expect(payload.error).toContain("Query > Export");
   });
 
   it("returns the cached report without making another NXT request", async () => {

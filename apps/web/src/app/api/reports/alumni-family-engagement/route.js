@@ -181,6 +181,14 @@ function isBlackbaudNotFoundError(error) {
   return /(?:404|not found|resource not found)/i.test(message);
 }
 
+function createQueryApiUnavailableError(query) {
+  return new Error(
+    "Blackbaud Query API is not available to the MGO-GPT integration. " +
+      `It cannot run ${query.label}. Enable Query API for this SKY application/subscription, ` +
+      "grant the report refresh user Query > Export permission, then reconnect and refresh.",
+  );
+}
+
 function getQueryJobParameterName(query) {
   return `${query.key}JobId`;
 }
@@ -210,12 +218,23 @@ async function createAlumniQueryJob({ user, origin, query }) {
     // the system ID is not callable, never a partial or unrelated match.
     if (!isBlackbaudNotFoundError(error) || !query.queryName) throw error;
 
-    const resolvedQuery = await findBlackbaudQueryByName({
-      userId: user.id,
-      origin,
-      name: query.queryName,
-      versions: ["v1"],
-    });
+    let resolvedQuery;
+    try {
+      resolvedQuery = await findBlackbaudQueryByName({
+        userId: user.id,
+        origin,
+        name: query.queryName,
+        versions: ["v1", "v2"],
+      });
+    } catch (fallbackError) {
+      // A 404 from both the query job endpoint and the Query API collection
+      // means the integration cannot use Query API at all, not that this
+      // specific saved query is absent.
+      if (isBlackbaudNotFoundError(fallbackError)) {
+        throw createQueryApiUnavailableError(query);
+      }
+      throw fallbackError;
+    }
     const resolvedQueryId = String(resolvedQuery?.id || "").trim();
     if (!resolvedQueryId) {
       throw new Error(
