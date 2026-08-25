@@ -1046,6 +1046,29 @@ export async function getBlackbaudConstituentById({
   };
 }
 
+export async function listBlackbaudConstituentCodes({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+}) {
+  const normalizedId = String(constituentId || "").trim();
+  if (!normalizedId) {
+    throw new Error("A Blackbaud constituent ID is required to list constituency codes");
+  }
+
+  const payload = await blackbaudApiFetch(
+    `${BLACKBAUD_CONSTITUENT_BASE_URL}/${encodeURIComponent(normalizedId)}/constituentcodes`,
+    {
+      userId,
+      authUserId,
+      origin,
+    },
+  );
+
+  return getBlackbaudCollection(payload);
+}
+
 function getBlackbaudConstituentRecord(payload) {
   const queue = [payload];
   const seen = new Set();

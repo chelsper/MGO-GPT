@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Save } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
+import {
+  AVAILABLE_CONSTITUENCY_CODES,
+  GIFT_TYPE_OPTIONS,
+} from "@/app/api/utils/alumniDonorConfiguration";
 
 const panelStyle = {
   backgroundColor: "white",
@@ -36,6 +40,7 @@ function cloneDataConfiguration(value) {
   return {
     ...value,
     constituencies: Array.isArray(value.constituencies) ? [...value.constituencies] : [],
+    giftTypes: Array.isArray(value.giftTypes) ? [...value.giftTypes] : [],
     rows: Array.isArray(value.rows) ? value.rows.map((row) => ({ ...row })) : [],
   };
 }
@@ -113,18 +118,19 @@ function ConfigurationCheckbox({ checked, description, label, onChange }) {
       <input checked={checked} onChange={onChange} type="checkbox" style={{ marginTop: "3px" }} />
       <span>
         <strong style={{ display: "block", color: "#0F172A", fontSize: "14px" }}>{label}</strong>
-        <span style={{ display: "block", color: "#64748B", fontSize: "13px", lineHeight: 1.45 }}>
-          {description}
-        </span>
+        {description ? (
+          <span style={{ display: "block", color: "#64748B", fontSize: "13px", lineHeight: 1.45 }}>
+            {description}
+          </span>
+        ) : null}
       </span>
     </label>
   );
 }
 
 function getAudienceDescriptions(configuration) {
-  const isGlobalQuery = ["future-made-phase-ii", "alumni-family-engagement"].includes(
-    configuration.key,
-  );
+  const isGlobalQuery = configuration.key === "future-made-phase-ii";
+  const isAlumniReport = configuration.key === "alumni-family-engagement";
   const isTeamStandings = configuration.key === "executive-team-standings";
 
   if (isGlobalQuery) {
@@ -146,6 +152,17 @@ function getAudienceDescriptions(configuration) {
         "Executives can view the local team standings. MGO users do not gain access.",
       specificUsers:
         "Choose individual active users who should be able to view the local team standings.",
+    };
+  }
+
+  if (isAlumniReport) {
+    return {
+      allUsers:
+        "Every active user can view this shared donor snapshot. Normal report visits do not make a new NXT request.",
+      executives:
+        "Executives can view this shared donor snapshot. MGO users do not gain access.",
+      specificUsers:
+        "Choose individual active users who should be able to view this shared donor snapshot.",
     };
   }
 
@@ -271,6 +288,20 @@ export default function ReportConfigurationsPage() {
     }));
   }
 
+  function toggleDonorListValue(reportKey, field, value, checked) {
+    updateDonorConfiguration(reportKey, (configuration) => {
+      const currentValues = Array.isArray(configuration[field]) ? configuration[field] : [];
+      const normalizedValue = String(value || "").trim().toLocaleLowerCase("en-US");
+      const existingValues = currentValues.filter(
+        (entry) => String(entry || "").trim().toLocaleLowerCase("en-US") !== normalizedValue,
+      );
+      return {
+        ...configuration,
+        [field]: checked ? [...existingValues, value] : existingValues,
+      };
+    });
+  }
+
   function addDonorRow(reportKey) {
     updateDonorConfiguration(reportKey, (configuration) => {
       const rows = Array.isArray(configuration.rows) ? configuration.rows : [];
@@ -291,8 +322,6 @@ export default function ReportConfigurationsPage() {
           {
             key,
             label: `Donor count ${rowNumber}`,
-            queryId: "",
-            queryName: "",
             fiscalYearStart: "",
             fiscalYearEnd: "",
           },
@@ -607,132 +636,123 @@ export default function ReportConfigurationsPage() {
                         Donors by Constituency
                       </h3>
                       <p style={{ margin: "7px 0 0", color: "#334155", lineHeight: 1.5 }}>
-                        Configure the donor definition that corresponds to the saved NXT queries below. The saved
-                        query is still the source of truth when the report refreshes, so changing these fields here
-                        does not alter a query in NXT.
+                        Count distinct recipients of configured NXT Gift API records whose current constituency code
+                        matches one of the selections below. This report does not use a saved NXT query.
                       </p>
 
-                      <div
-                        style={{
-                          marginTop: "16px",
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                          gap: "14px",
-                        }}
-                      >
-                        <label style={fieldLabelStyle}>
-                          <span>Internal source name</span>
-                          <input
-                            style={fieldStyle}
-                            type="text"
-                            value={donorConfiguration.sourceLabel}
-                            maxLength={120}
-                            onChange={(event) =>
-                              updateDonorConfiguration(configuration.key, {
-                                sourceLabel: event.target.value,
-                              })
-                            }
-                          />
-                        </label>
+                      <div style={{ marginTop: "20px" }}>
+                        <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>
+                          Constituency codes
+                        </h4>
+                        <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
+                          Select the active NXT codes that identify a donor for this report. A recipient only needs
+                          one selected code to count.
+                        </p>
                         <div
                           style={{
-                            border: "1px solid #BFDBFE",
-                            borderRadius: "10px",
-                            padding: "11px 12px",
-                            color: "#334155",
-                            fontSize: "13px",
-                            lineHeight: 1.45,
-                            backgroundColor: "rgba(255, 255, 255, 0.66)",
+                            marginTop: "12px",
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                            gap: "10px 18px",
                           }}
                         >
-                          Internal only. The public report uses the report title above.
+                          {AVAILABLE_CONSTITUENCY_CODES.map((code) => (
+                            <ConfigurationCheckbox
+                              key={code}
+                              checked={(donorConfiguration.constituencies || []).some(
+                                (entry) =>
+                                  String(entry || "").trim().toLocaleLowerCase("en-US") ===
+                                  code.toLocaleLowerCase("en-US"),
+                              )}
+                              label={code}
+                              onChange={(event) =>
+                                toggleDonorListValue(
+                                  configuration.key,
+                                  "constituencies",
+                                  code,
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                          ))}
                         </div>
                       </div>
 
-                      <div
-                        style={{
-                          marginTop: "18px",
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-                          gap: "12px 20px",
-                        }}
-                      >
-                        <ConfigurationCheckbox
-                          checked={donorConfiguration.includeSoftCreditedDonors}
-                          label="Include soft-credited donors"
-                          description="Records the saved NXT query's Both setting and is enabled by default. To change the count, use a saved NXT query with the matching credit setting."
-                          onChange={(event) =>
-                            updateDonorConfiguration(configuration.key, {
-                              includeSoftCreditedDonors: event.target.checked,
-                            })
-                          }
-                        />
-                        <ConfigurationCheckbox
-                          checked={donorConfiguration.includeMatchingGiftCredits}
-                          label="Include matching-gift credits"
-                          description="Records the saved NXT query's Both setting. To change the count, use a saved NXT query with the matching credit setting."
-                          onChange={(event) =>
-                            updateDonorConfiguration(configuration.key, {
-                              includeMatchingGiftCredits: event.target.checked,
-                            })
-                          }
-                        />
-                        <ConfigurationCheckbox
-                          checked={donorConfiguration.includeInactiveConstituents}
-                          label="Include inactive constituents"
-                          description="Mirrors the saved NXT query option."
-                          onChange={(event) =>
-                            updateDonorConfiguration(configuration.key, {
-                              includeInactiveConstituents: event.target.checked,
-                            })
-                          }
-                        />
-                        <ConfigurationCheckbox
-                          checked={donorConfiguration.includeDeceasedConstituents}
-                          label="Include deceased constituents"
-                          description="Mirrors the saved NXT query option."
-                          onChange={(event) =>
-                            updateDonorConfiguration(configuration.key, {
-                              includeDeceasedConstituents: event.target.checked,
-                            })
-                          }
-                        />
-                        <ConfigurationCheckbox
-                          checked={donorConfiguration.includeConstituentsWithoutValidAddress}
-                          label="Include constituents with no valid address"
-                          description="Mirrors the saved NXT query option."
-                          onChange={(event) =>
-                            updateDonorConfiguration(configuration.key, {
-                              includeConstituentsWithoutValidAddress: event.target.checked,
-                            })
-                          }
-                        />
-                      </div>
-
                       <label style={{ ...fieldLabelStyle, marginTop: "20px" }}>
-                        <span>Constituency codes</span>
+                        <span>Other NXT constituency codes</span>
                         <textarea
-                          style={{ ...fieldStyle, minHeight: "150px", resize: "vertical" }}
-                          value={(donorConfiguration.constituencies || []).join("\n")}
-                          onChange={(event) =>
+                          style={{ ...fieldStyle, minHeight: "88px", resize: "vertical" }}
+                          value={(donorConfiguration.constituencies || [])
+                            .filter(
+                              (entry) =>
+                                !AVAILABLE_CONSTITUENCY_CODES.some(
+                                  (code) =>
+                                    code.toLocaleLowerCase("en-US") ===
+                                    String(entry || "").trim().toLocaleLowerCase("en-US"),
+                                ),
+                            )
+                            .join("\n")}
+                          onChange={(event) => {
+                            const selectedKnownCodes = (donorConfiguration.constituencies || []).filter((entry) =>
+                              AVAILABLE_CONSTITUENCY_CODES.some(
+                                (code) =>
+                                  code.toLocaleLowerCase("en-US") ===
+                                  String(entry || "").trim().toLocaleLowerCase("en-US"),
+                              ),
+                            );
                             updateDonorConfiguration(configuration.key, {
-                              constituencies: event.target.value
-                                .split(/\r?\n/)
-                                .map((value) => value.trim())
-                                .filter(Boolean),
-                            })
-                          }
+                              constituencies: [
+                                ...selectedKnownCodes,
+                                ...event.target.value
+                                  .split(/\r?\n/)
+                                  .map((value) => value.trim())
+                                  .filter(Boolean),
+                              ],
+                            });
+                          }}
                         />
                         <span style={{ color: "#64748B", fontSize: "13px", fontWeight: 500, lineHeight: 1.45 }}>
-                          One NXT constituency code per line. Keep this aligned with the corresponding saved query.
+                          Add any active NXT constituency code not shown above, one exact code per line.
                         </span>
                       </label>
+
+                      <div style={{ marginTop: "20px" }}>
+                        <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>Gift types</h4>
+                        <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
+                          Include the NXT Gift API types that should count toward the donor total.
+                        </p>
+                        <div
+                          style={{
+                            marginTop: "12px",
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                            gap: "10px 18px",
+                          }}
+                        >
+                          {GIFT_TYPE_OPTIONS.map((option) => (
+                            <ConfigurationCheckbox
+                              key={option.key}
+                              checked={(donorConfiguration.giftTypes || []).includes(option.key)}
+                              label={option.label}
+                              onChange={(event) =>
+                                toggleDonorListValue(
+                                  configuration.key,
+                                  "giftTypes",
+                                  option.key,
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                          ))}
+                        </div>
+                      </div>
 
                       <div style={{ marginTop: "22px", display: "grid", gap: "12px" }}>
                         <div>
                           <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>FY donor counts</h4>
                           <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
-                            Each row executes one saved NXT constituent query and uses the job&apos;s returned row count.
+                            Each row counts distinct recipients of the selected NXT gift types during its fiscal-year
+                            dates, then filters them by the selected constituency codes.
                           </p>
                         </div>
 
@@ -794,34 +814,6 @@ export default function ReportConfigurationsPage() {
                                   onChange={(event) =>
                                     updateDonorRow(configuration.key, row.key, {
                                       label: event.target.value,
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label style={fieldLabelStyle}>
-                                <span>Saved NXT query system record ID</span>
-                                <input
-                                  style={fieldStyle}
-                                  type="text"
-                                  inputMode="numeric"
-                                  value={row.queryId}
-                                  onChange={(event) =>
-                                    updateDonorRow(configuration.key, row.key, {
-                                      queryId: event.target.value,
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label style={fieldLabelStyle}>
-                                <span>Saved NXT query name</span>
-                                <input
-                                  style={fieldStyle}
-                                  type="text"
-                                  value={row.queryName}
-                                  maxLength={200}
-                                  onChange={(event) =>
-                                    updateDonorRow(configuration.key, row.key, {
-                                      queryName: event.target.value,
                                     })
                                   }
                                 />

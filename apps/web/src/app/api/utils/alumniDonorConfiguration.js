@@ -1,6 +1,9 @@
 export const DONORS_BY_CONSTITUENCY_SOURCE_KEY = "donors-by-constituency";
 
-const DEFAULT_CONSTITUENCY_CODES = [
+// These are the active Alumni-related codes used by the original FY27 query.
+// Report builders can also add another active NXT code when their definition
+// needs one that is not in this common list.
+export const AVAILABLE_CONSTITUENCY_CODES = [
   "Alumni",
   "Alumni - Honorary Doctorate",
   "Alumni - Non-Graduate",
@@ -12,29 +15,34 @@ const DEFAULT_CONSTITUENCY_CODES = [
   "Alumni Orthodontic Program",
 ];
 
+export const GIFT_TYPE_OPTIONS = [
+  { key: "donation", label: "Donation / cash received" },
+  { key: "pledge", label: "Pledge" },
+  { key: "pledge-payment", label: "Pledge payment" },
+  { key: "recurring-gift-payment", label: "Recurring gift payment" },
+  { key: "matching-gift-payment", label: "Matching gift payment" },
+  { key: "gift-in-kind", label: "Gift-in-kind" },
+  { key: "stock-property", label: "Stock or property" },
+  { key: "other", label: "Other / unclassified gift type" },
+];
+
+const GIFT_TYPE_KEYS = new Set(GIFT_TYPE_OPTIONS.map((option) => option.key));
+
 export const DEFAULT_ALUMNI_DONOR_CONFIGURATION = {
   sourceKey: DONORS_BY_CONSTITUENCY_SOURCE_KEY,
   sourceLabel: "Donors by Constituency",
-  includeInactiveConstituents: true,
-  includeDeceasedConstituents: true,
-  includeConstituentsWithoutValidAddress: true,
-  includeSoftCreditedDonors: true,
-  includeMatchingGiftCredits: true,
-  constituencies: DEFAULT_CONSTITUENCY_CODES,
+  constituencies: AVAILABLE_CONSTITUENCY_CODES,
+  giftTypes: GIFT_TYPE_OPTIONS.map((option) => option.key),
   rows: [
     {
       key: "fy27-alumni-giving",
       label: "FY27 Alumni Giving",
-      queryId: "30976",
-      queryName: "Alumni Donors FY27",
       fiscalYearStart: "2026-07-01",
       fiscalYearEnd: "2027-06-30",
     },
     {
       key: "fy26-alumni-giving",
       label: "FY26 Alumni Giving",
-      queryId: "30679",
-      queryName: "Alumni Donors FY26",
       fiscalYearStart: "2025-07-01",
       fiscalYearEnd: "2026-06-30",
     },
@@ -59,10 +67,6 @@ function normalizeText(value, fallback = "") {
   return text || fallback;
 }
 
-function normalizeBoolean(value, fallback) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
 function createRowKey(value, index, usedKeys) {
   const base = normalizeText(value)
     .toLocaleLowerCase("en-US")
@@ -81,7 +85,7 @@ function createRowKey(value, index, usedKeys) {
 }
 
 function normalizeRows(value) {
-  const candidateRows = Array.isArray(value) && value.length
+  const candidateRows = Array.isArray(value)
     ? value.slice(0, 12)
     : DEFAULT_ALUMNI_DONOR_CONFIGURATION.rows;
   const usedKeys = new Set();
@@ -92,8 +96,6 @@ function normalizeRows(value) {
     return {
       key: createRowKey(row?.key || label, index, usedKeys),
       label,
-      queryId: normalizeText(row?.queryId, defaultRow.queryId || ""),
-      queryName: normalizeText(row?.queryName, defaultRow.queryName || ""),
       fiscalYearStart: normalizeText(row?.fiscalYearStart, defaultRow.fiscalYearStart || ""),
       fiscalYearEnd: normalizeText(row?.fiscalYearEnd, defaultRow.fiscalYearEnd || ""),
     };
@@ -101,7 +103,7 @@ function normalizeRows(value) {
 }
 
 function normalizeConstituencies(value) {
-  if (!Array.isArray(value)) return [...DEFAULT_CONSTITUENCY_CODES];
+  if (!Array.isArray(value)) return [...AVAILABLE_CONSTITUENCY_CODES];
   const unique = [];
   const seen = new Set();
   value.forEach((entry) => {
@@ -111,58 +113,49 @@ function normalizeConstituencies(value) {
     seen.add(normalizedCode);
     unique.push(code);
   });
-  return unique.length ? unique : [...DEFAULT_CONSTITUENCY_CODES];
+  return unique;
+}
+
+function normalizeGiftTypes(value) {
+  if (!Array.isArray(value)) return GIFT_TYPE_OPTIONS.map((option) => option.key);
+  const unique = [];
+  const seen = new Set();
+  value.forEach((entry) => {
+    const giftType = normalizeText(entry).toLocaleLowerCase("en-US");
+    if (!GIFT_TYPE_KEYS.has(giftType) || seen.has(giftType)) return;
+    seen.add(giftType);
+    unique.push(giftType);
+  });
+  return unique;
 }
 
 export function normalizeAlumniDonorConfiguration(value) {
   const configuration = parseConfiguration(value);
   return {
     sourceKey: DONORS_BY_CONSTITUENCY_SOURCE_KEY,
-    sourceLabel: normalizeText(
-      configuration.sourceLabel,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.sourceLabel,
-    ).slice(0, 120),
-    includeInactiveConstituents: normalizeBoolean(
-      configuration.includeInactiveConstituents,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeInactiveConstituents,
-    ),
-    includeDeceasedConstituents: normalizeBoolean(
-      configuration.includeDeceasedConstituents,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeDeceasedConstituents,
-    ),
-    includeConstituentsWithoutValidAddress: normalizeBoolean(
-      configuration.includeConstituentsWithoutValidAddress,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeConstituentsWithoutValidAddress,
-    ),
-    includeSoftCreditedDonors: normalizeBoolean(
-      configuration.includeSoftCreditedDonors,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeSoftCreditedDonors,
-    ),
-    includeMatchingGiftCredits: normalizeBoolean(
-      configuration.includeMatchingGiftCredits,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeMatchingGiftCredits,
-    ),
+    sourceLabel: DEFAULT_ALUMNI_DONOR_CONFIGURATION.sourceLabel,
     constituencies: normalizeConstituencies(configuration.constituencies),
+    giftTypes: normalizeGiftTypes(configuration.giftTypes),
     rows: normalizeRows(configuration.rows),
   };
 }
 
-export function getAlumniDonorQueryRows(value) {
+export function getAlumniDonorCountRows(value) {
   return normalizeAlumniDonorConfiguration(value).rows.map((row) => ({ ...row }));
 }
+
+// Preserves a small compatibility surface for callers that were written
+// before Alumni donor totals stopped depending on saved NXT queries.
+export const getAlumniDonorQueryRows = getAlumniDonorCountRows;
 
 export function getAlumniDonorConfigurationFingerprint(value) {
   const configuration = normalizeAlumniDonorConfiguration(value);
   return JSON.stringify({
-    includeInactiveConstituents: configuration.includeInactiveConstituents,
-    includeDeceasedConstituents: configuration.includeDeceasedConstituents,
-    includeConstituentsWithoutValidAddress: configuration.includeConstituentsWithoutValidAddress,
-    includeSoftCreditedDonors: configuration.includeSoftCreditedDonors,
-    includeMatchingGiftCredits: configuration.includeMatchingGiftCredits,
     constituencies: configuration.constituencies,
+    giftTypes: configuration.giftTypes,
     rows: configuration.rows.map((row) => ({
       key: row.key,
-      queryId: row.queryId,
+      label: row.label,
       fiscalYearStart: row.fiscalYearStart,
       fiscalYearEnd: row.fiscalYearEnd,
     })),
@@ -175,32 +168,28 @@ function isIsoDate(value) {
 
 export function validateAlumniDonorConfiguration(value) {
   const configuration = normalizeAlumniDonorConfiguration(value);
-  if (!configuration.sourceLabel) {
-    return "Provide a source name for this donor count configuration.";
-  }
   if (!configuration.constituencies.length) {
     return "Select at least one constituency code for this donor count configuration.";
+  }
+  if (!configuration.giftTypes.length) {
+    return "Select at least one gift type for this donor count configuration.";
   }
   if (!configuration.rows.length) {
     return "Add at least one fiscal-year donor count.";
   }
 
-  const queryIds = new Set();
+  const labels = new Set();
   for (const row of configuration.rows) {
     if (!row.label) return "Each donor count needs a label.";
-    if (!/^\d+$/.test(row.queryId)) {
-      return `Provide a numeric saved NXT query system record ID for ${row.label}.`;
+    const normalizedLabel = row.label.toLocaleLowerCase("en-US");
+    if (labels.has(normalizedLabel)) {
+      return `Use a different label for each donor count; ${row.label} is repeated.`;
     }
-    if (queryIds.has(row.queryId)) {
-      return `Use each saved NXT query system record ID only once; ${row.queryId} is repeated.`;
+    labels.add(normalizedLabel);
+    if (!isIsoDate(row.fiscalYearStart) || !isIsoDate(row.fiscalYearEnd)) {
+      return `Use YYYY-MM-DD start and end dates for ${row.label}.`;
     }
-    queryIds.add(row.queryId);
-    if (!row.queryName) return `Provide the saved NXT query name for ${row.label}.`;
-    if ((row.fiscalYearStart && !isIsoDate(row.fiscalYearStart)) ||
-        (row.fiscalYearEnd && !isIsoDate(row.fiscalYearEnd))) {
-      return `Use YYYY-MM-DD dates for ${row.label}.`;
-    }
-    if (row.fiscalYearStart && row.fiscalYearEnd && row.fiscalYearStart > row.fiscalYearEnd) {
+    if (row.fiscalYearStart > row.fiscalYearEnd) {
       return `${row.label} has an end date before its start date.`;
     }
   }

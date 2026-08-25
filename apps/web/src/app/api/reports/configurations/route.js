@@ -50,7 +50,7 @@ const REPORT_DEFINITIONS = [
     key: ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
     title: "Alumni & Family Engagement",
     description:
-      "Count alumni donors from configured NXT saved queries, including soft-credit recipients.",
+      "Count distinct donors from configured NXT gift types and constituency codes.",
   },
 ];
 
@@ -69,14 +69,8 @@ function serializeConfiguration(definition, record, currentUser) {
     description: record?.description || definition.description,
     visibility,
     specificUserIds,
-    sourceQueryId:
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
-        ? String(record?.source_query_id || "").trim()
-        : "",
-    sourceQueryName:
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
-        ? String(record?.source_query_name || "").trim()
-        : "",
+    sourceQueryId: "",
+    sourceQueryName: "",
     dataConfiguration:
       definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
         ? normalizeAlumniDonorConfiguration(record?.data_configuration)
@@ -358,8 +352,6 @@ export async function PATCH(request) {
       );
     }
 
-    const hasSourceQueryUpdate =
-      Object.hasOwn(body || {}, "sourceQueryId") || Object.hasOwn(body || {}, "sourceQueryName");
     const hasTitleUpdate = Object.hasOwn(body || {}, "title");
     const hasDescriptionUpdate = Object.hasOwn(body || {}, "description");
     const title = String(body?.title ?? definition.title).trim();
@@ -390,17 +382,8 @@ export async function PATCH(request) {
       return Response.json({ error: dataConfigurationError }, { status: 400 });
     }
 
-    const firstDonorQuery = dataConfiguration?.rows?.[0] || null;
-    const sourceQueryId = String(
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
-        ? body?.sourceQueryId || firstDonorQuery?.queryId || ""
-        : body?.sourceQueryId || "",
-    ).trim();
-    const sourceQueryName = String(
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
-        ? body?.sourceQueryName || firstDonorQuery?.queryName || ""
-        : body?.sourceQueryName || "",
-    ).trim();
+    const sourceQueryId = "";
+    const sourceQueryName = "";
     if (sourceQueryId.length > 200 || sourceQueryName.length > 200) {
       return Response.json(
         { error: "The saved NXT query ID and name must each be 200 characters or fewer." },
@@ -408,8 +391,7 @@ export async function PATCH(request) {
       );
     }
     const shouldUpdateSourceQuery =
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY &&
-      (hasSourceQueryUpdate || shouldUpdateDataConfiguration);
+      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY && shouldUpdateDataConfiguration;
 
     const saved = await sql`
       INSERT INTO report_configurations (

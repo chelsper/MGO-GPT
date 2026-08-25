@@ -5,13 +5,6 @@ import { RefreshCw } from "lucide-react";
 import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 
-const POLL_INTERVAL_MS = 1250;
-const MAX_POLL_ATTEMPTS = 48;
-
-function wait(milliseconds) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
 function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
@@ -69,10 +62,10 @@ export default function AlumniFamilyEngagementPage() {
         signal: controller.signal,
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok && response.status !== 202) {
+      if (!response.ok) {
         throw new Error(payload?.error || "Could not load Alumni & Family Engagement.");
       }
-      return { response, payload };
+      return payload;
     }
 
     async function loadReport() {
@@ -80,35 +73,12 @@ export default function AlumniFamilyEngagementPage() {
       setError("");
       setStatusText(
         refreshVersion > 0
-          ? "Preparing the configured Alumni donor total queries..."
+          ? "Refreshing configured NXT gift and constituency data..."
           : "Loading the saved report snapshot...",
       );
       try {
         const refreshSuffix = refreshVersion > 0 ? "?refresh=1" : "";
-        let { response, payload } = await requestReport(
-          `/api/reports/alumni-family-engagement${refreshSuffix}`,
-        );
-
-        for (let attempt = 0; response.status === 202 && attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
-          if (!active) return;
-          setStatusText("Waiting for NXT to finish the configured Alumni donor total queries...");
-          const poll = payload?.poll && typeof payload.poll === "object" ? payload.poll : null;
-          const pollParameters = new URLSearchParams(
-            Object.entries(poll || {}).filter(([, value]) => String(value || "").trim()),
-          );
-          if (!pollParameters.size) {
-            throw new Error("The configured Alumni donor refresh did not return polling information.");
-          }
-          await wait(POLL_INTERVAL_MS);
-          if (!active) return;
-          ({ response, payload } = await requestReport(
-            `/api/reports/alumni-family-engagement?${pollParameters.toString()}`,
-          ));
-        }
-
-        if (response.status === 202) {
-          throw new Error("The configured Alumni donor queries are taking longer than expected. Please try refreshing this report.");
-        }
+        const payload = await requestReport(`/api/reports/alumni-family-engagement${refreshSuffix}`);
         if (!active) return;
         setReport(payload);
         setStatusText("");
@@ -141,7 +111,7 @@ export default function AlumniFamilyEngagementPage() {
   const totals = Array.isArray(report?.totals) ? report.totals : [];
   const reportTitle = String(report?.report?.title || "Alumni & Family Engagement");
   const reportDescription = String(
-    report?.report?.description || "Alumni donor totals from the saved NXT queries.",
+    report?.report?.description || "Alumni donor totals from configured NXT gifts and constituency codes.",
   );
 
   return (
@@ -209,7 +179,7 @@ export default function AlumniFamilyEngagementPage() {
             <strong>{statusText || "Loading the cached report..."}</strong>
             <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
               Normal visits use the last successful snapshot and do not make another NXT request. A refresh runs
-              each configured saved total query once.
+              the configured NXT gift and constituency check, then replaces that saved snapshot.
             </p>
           </section>
         ) : null}
@@ -227,8 +197,8 @@ export default function AlumniFamilyEngagementPage() {
           >
             <strong>No saved {reportTitle} snapshot is available.</strong>
             <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
-              Select Refresh data once. The configured saved totals will then remain available until the next 6 PM
-              Eastern refresh or another manual refresh.
+              Select Refresh data once. The configured donor totals will then remain available until the next
+              scheduled refresh or another manual refresh.
             </p>
           </section>
         ) : null}

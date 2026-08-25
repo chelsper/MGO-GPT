@@ -12,13 +12,10 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import {
-  createBlackbaudQueryJob,
-  downloadBlackbaudQueryResult,
-  findBlackbaudQueryByName,
   getBlackbaudConfigIssues,
-  getBlackbaudQueryJob,
+  listBlackbaudConstituentCodes,
+  listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
-import { getCurrentFiscalYearWindow } from "@/app/api/utils/currentFyGiving";
 import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
   getReportAccessForUser,
@@ -26,57 +23,28 @@ import {
 import {
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
   getAlumniDonorConfigurationFingerprint,
-  getAlumniDonorQueryRows,
+  getAlumniDonorCountRows,
+  GIFT_TYPE_OPTIONS,
   normalizeAlumniDonorConfiguration,
 } from "@/app/api/utils/alumniDonorConfiguration";
 
-const MAX_QUERY_ROWS = 10000;
+export const maxDuration = 300;
+
+const MAX_GIFT_PAGES = 20;
+const GIFT_PAGE_LIMIT = 500;
+const CONSTITUENCY_LOOKUP_CONCURRENCY = 2;
+const CONSTITUENCY_MEMBERSHIP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY = "report:alumni-family-engagement";
-export const ALUMNI_DONOR_TOTAL_QUERIES = getAlumniDonorQueryRows(
+// The old export name is kept so any internal reference remains compatible;
+// these are now direct NXT count rows rather than saved queries.
+export const ALUMNI_DONOR_TOTAL_QUERIES = getAlumniDonorCountRows(
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
 );
 
 const DEFAULT_REPORT_TITLE = "Alumni & Family Engagement";
 const DEFAULT_REPORT_DESCRIPTION =
-  "Alumni donor totals from the configured saved NXT queries.";
-
-const CONSTITUENT_ID_ALIASES = [
-  "constituentsystemrecordid",
-  "systemrecordid",
-  "constituentrecordid",
-  "constituentid",
-  "constituentlookupid",
-  "lookupid",
-  "recordid",
-];
-const LOOKUP_ID_ALIASES = ["constituentlookupid", "lookupid"];
-const NAME_ALIASES = ["constituentname", "fullname", "name", "constituent"];
-const CONSTITUENCY_ALIASES = [
-  "constituencycode",
-  "constituency",
-  "constituencydescription",
-  "constituencycodedescription",
-];
-const GIFT_DATE_ALIASES = ["giftdate", "cashreceiveddate", "receiveddate"];
-const GIFT_TYPE_ALIASES = [
-  "gifttype",
-  "revenuetype",
-  "transactiontype",
-  "paymenttype",
-  "cashreceivedtype",
-];
-const CREDIT_TYPE_ALIASES = [
-  "credittype",
-  "giftcredittype",
-  "recognitioncredittype",
-  "credittypedescription",
-];
-
-function normalizeColumnName(value) {
-  return String(value || "")
-    .toLocaleLowerCase("en-US")
-    .replace(/[^a-z0-9]+/g, "");
-}
+  "Alumni donor totals from configured NXT gifts and constituency codes.";
 
 function normalizeText(value) {
   return String(value || "")
@@ -86,127 +54,79 @@ function normalizeText(value) {
     .trim();
 }
 
-function parseCsv(content) {
-  const records = [];
-  let row = [];
-  let cell = "";
-  let quoted = false;
-  const text = String(content || "").replace(/^\uFEFF/, "");
+function getStringValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value).trim();
+  if (typeof value !== "object") return "";
 
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (character === '"') {
-      if (quoted && text[index + 1] === '"') {
-        cell += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === "," && !quoted) {
-      row.push(cell);
-      cell = "";
-    } else if ((character === "\n" || character === "\r") && !quoted) {
-      if (character === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(cell);
-      records.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += character;
-    }
-  }
-
-  if (cell.length || row.length) {
-    row.push(cell);
-    records.push(row);
-  }
-
-  return records.filter((record) => record.some((value) => String(value || "").trim()));
-}
-
-function getUniqueHeaders(headerRow) {
-  const used = new Map();
-  return headerRow.map((header, index) => {
-    const base = String(header || "").trim() || `Column ${index + 1}`;
-    const count = (used.get(base) || 0) + 1;
-    used.set(base, count);
-    return count === 1 ? base : `${base} (${count})`;
-  });
-}
-
-function hasAnyColumn(columns, aliases) {
-  return columns.some((column) => aliases.includes(normalizeColumnName(column)));
-}
-
-function findValue(values, aliases) {
-  const matchingEntry = Object.entries(values).find(([header]) =>
-    aliases.includes(normalizeColumnName(header)),
-  );
-  return String(matchingEntry?.[1] || "").trim();
-}
-
-function getQueryJobId(job) {
-  return String(job?.id ?? job?.job_id ?? job?.jobId ?? "").trim();
-}
-
-function getQueryJobStatus(job) {
-  return String(job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "").trim();
-}
-
-function getQueryResultUrl(job) {
   const candidates = [
-    job?.sas_uri,
-    job?.sasUri,
-    job?.result_uri,
-    job?.resultUri,
-    job?.result_file_url,
-    job?.resultFileUrl,
-    job?.download_url,
-    job?.downloadUrl,
-    job?.result?.sas_uri,
-    job?.result?.sasUri,
-    job?.result?.download_url,
-    job?.result?.downloadUrl,
-  ];
-  return candidates.find((value) => typeof value === "string" && value.trim()) || null;
-}
-
-function getQueryRowCount(job) {
-  const candidates = [
-    job?.row_count,
-    job?.rowCount,
-    job?.result?.row_count,
-    job?.result?.rowCount,
+    value.description,
+    value.name,
+    value.value,
+    value.label,
+    value.type,
+    value.code,
   ];
   for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined || String(candidate).trim() === "") {
-      continue;
-    }
-    const count = Number(candidate);
-    if (Number.isInteger(count) && count >= 0) return count;
+    const text = getStringValue(candidate);
+    if (text) return text;
   }
-  return null;
+  return "";
 }
 
-function hasQueryResult(job) {
-  return getQueryRowCount(job) !== null || Boolean(getQueryResultUrl(job));
+function getGiftRecipientId(gift) {
+  const candidates = [
+    gift?.constituent_id,
+    gift?.constituentId,
+    gift?.constituent?.id,
+    gift?.constituent?.constituent_id,
+    gift?.donor_id,
+    gift?.donorId,
+    gift?.donor?.id,
+  ];
+  for (const candidate of candidates) {
+    const id = getStringValue(candidate);
+    if (id) return id;
+  }
+  return "";
 }
 
-function isFailedQueryJob(status) {
-  return /(?:fail|cancel|error)/i.test(status);
-}
-
-function isBlackbaudNotFoundError(error) {
-  const message = error instanceof Error ? error.message : String(error || "");
-  return /(?:404|not found|resource not found)/i.test(message);
-}
-
-function createQueryApiUnavailableError(query) {
-  return new Error(
-    "Blackbaud Query API is not available to the MGO-GPT integration. " +
-      `It cannot run ${query.label}. Enable Query API for this SKY application/subscription, ` +
-      "grant the report refresh user Query > Export permission, then reconnect and refresh.",
+function getGiftTypeKey(gift) {
+  const rawGiftType = getStringValue(
+    gift?.gift_type ?? gift?.giftType ?? gift?.type ?? gift?.type_name ?? gift?.category,
   );
+  const giftType = normalizeText(rawGiftType);
+  if (giftType.includes("recurring")) return "recurring-gift-payment";
+  if (giftType.includes("matching")) return "matching-gift-payment";
+  if (giftType.includes("pledge") && giftType.includes("payment")) return "pledge-payment";
+  if (giftType.includes("pledge")) return "pledge";
+  if (giftType.includes("in kind")) return "gift-in-kind";
+  if (giftType.includes("stock") || giftType.includes("securit") || giftType.includes("property")) {
+    return "stock-property";
+  }
+  if (giftType.includes("donation") || giftType.includes("cash") || giftType === "gift") {
+    return "donation";
+  }
+  return "other";
+}
+
+function getConstituencyCodeLabel(code) {
+  if (!code || typeof code !== "object") return getStringValue(code);
+  const candidates = [
+    code.description,
+    code.constituency_code,
+    code.constituencyCode,
+    code.constituent_code,
+    code.constituentCode,
+    code.code,
+    code.name,
+    code.value,
+  ];
+  for (const candidate of candidates) {
+    const label = getStringValue(candidate);
+    if (label) return label;
+  }
+  return "";
 }
 
 function getReportPresentation(access, donorConfiguration) {
@@ -223,333 +143,188 @@ function getPublicDonorDefinition(donorConfiguration) {
   return {
     sourceKey: donorConfiguration.sourceKey,
     sourceLabel: donorConfiguration.sourceLabel,
-    includeInactiveConstituents: donorConfiguration.includeInactiveConstituents,
-    includeDeceasedConstituents: donorConfiguration.includeDeceasedConstituents,
-    includeConstituentsWithoutValidAddress:
-      donorConfiguration.includeConstituentsWithoutValidAddress,
-    includeSoftCreditedDonors: donorConfiguration.includeSoftCreditedDonors,
-    includeMatchingGiftCredits: donorConfiguration.includeMatchingGiftCredits,
     constituencies: donorConfiguration.constituencies,
+    giftTypes: donorConfiguration.giftTypes.map((key) => ({
+      key,
+      label: GIFT_TYPE_OPTIONS.find((option) => option.key === key)?.label || key,
+    })),
   };
 }
 
-function attachReportPresentation({ cachedPayload, donorConfiguration, presentation, totalQueries }) {
+function attachReportPresentation({ cachedPayload, donorConfiguration, presentation, countRows }) {
   if (!cachedPayload) return null;
 
   const configurationFingerprint = getAlumniDonorConfigurationFingerprint(donorConfiguration);
   if (cachedPayload.configurationFingerprint !== configurationFingerprint) return null;
 
   const cachedTotals = Array.isArray(cachedPayload?.totals) ? cachedPayload.totals : [];
-  // Snapshots created before configurable donor counts did not include totals.
-  // Do not present those legacy snapshots as if they matched the active definition.
-  if (cachedTotals.length !== totalQueries.length) return null;
+  if (cachedTotals.length !== countRows.length) return null;
 
-  const hasEveryConfiguredQuery = totalQueries.every((query) =>
-    cachedTotals.some((total) => String(total?.queryId || "") === query.queryId),
+  const totalsByKey = new Map(
+    cachedTotals.map((total) => [String(total?.key || "").trim(), total]),
   );
-  if (!hasEveryConfiguredQuery) return null;
+  if (countRows.some((row) => !totalsByKey.has(row.key))) return null;
 
-  const queryById = new Map(totalQueries.map((query) => [query.queryId, query]));
-  const queryByKey = new Map(totalQueries.map((query) => [query.key, query]));
+  const { constituencyMembershipCache: ignoredMembershipCache, ...publicPayload } = cachedPayload;
   return {
-    ...cachedPayload,
+    ...publicPayload,
     report: presentation,
     donorDefinition: getPublicDonorDefinition(donorConfiguration),
     configurationFingerprint,
-    totals: cachedTotals.map((total) => {
-      const query = queryById.get(String(total?.queryId || "")) || queryByKey.get(total?.key);
-      return query
-        ? {
-            ...total,
-            key: query.key,
-            label: query.label,
-            queryId: query.queryId,
-          }
-        : total;
-    }),
-  };
-}
-
-function getQueryJobParameterName(query) {
-  return `${query.key}JobId`;
-}
-
-function getQueryJobPollingParameters(queryJobs) {
-  return Object.fromEntries(
-    queryJobs.map(({ query, jobId }) => [getQueryJobParameterName(query), jobId]),
-  );
-}
-
-function getSavedQueryTotal(content) {
-  const records = parseCsv(content);
-  return Math.max(records.length - 1, 0);
-}
-
-async function createAlumniQueryJob({ user, origin, query }) {
-  try {
-    const createdJob = await createBlackbaudQueryJob({
-      userId: user.id,
-      origin,
-      queryId: query.queryId,
-    });
-    return { createdJob, resolvedQueryId: query.queryId };
-  } catch (error) {
-    // NXT can display a saved query's system record ID while the Query API
-    // expects its API ID. Resolve only the exact known query name when the
-    // displayed ID is not callable, never a partial or unrelated match.
-    if (!isBlackbaudNotFoundError(error) || !query.queryName) throw error;
-
-    let resolvedQuery;
-    try {
-      resolvedQuery = await findBlackbaudQueryByName({
-        userId: user.id,
-        origin,
-        name: query.queryName,
-      });
-    } catch (fallbackError) {
-      // A 404 from both the query job endpoint and the Query API collection
-      // means the integration cannot use Query API at all, not that this
-      // specific saved query is absent.
-      if (isBlackbaudNotFoundError(fallbackError)) {
-        throw createQueryApiUnavailableError(query);
-      }
-      throw fallbackError;
-    }
-    const resolvedQueryId = String(resolvedQuery?.id || "").trim();
-    if (!resolvedQueryId) {
-      throw new Error(
-        `${query.label} could not find the saved NXT query named \"${query.queryName}\". ` +
-          "Confirm that the query is shared with the report refresh connection.",
-      );
-    }
-
-    const createdJob = await createBlackbaudQueryJob({
-      userId: user.id,
-      origin,
-      queryId: resolvedQueryId,
-    });
-    return { createdJob, resolvedQueryId };
-  }
-}
-
-function createRunningPayload({
-  donorConfiguration,
-  presentation,
-  queryJobs,
-  queryStatuses = {},
-}) {
-  return {
-    status: "running",
-    report: presentation,
-    donorDefinition: getPublicDonorDefinition(donorConfiguration),
-    configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
-    poll: getQueryJobPollingParameters(queryJobs),
-    queries: queryJobs.map(({ query, jobId }) => ({
-      key: query.key,
-      label: query.label,
-      queryId: query.queryId,
-      jobId,
-      jobStatus: queryStatuses[query.key] || "Queued",
+    totals: countRows.map((row) => ({
+      ...totalsByKey.get(row.key),
+      key: row.key,
+      label: row.label,
+      fiscalYearStart: row.fiscalYearStart,
+      fiscalYearEnd: row.fiscalYearEnd,
     })),
   };
 }
 
-function getRowName(values, constituentId, rowNumber) {
-  const name = findValue(values, NAME_ALIASES);
-  if (name) return name;
+function getReusableMembershipCache(cachedPayload) {
+  const entries = cachedPayload?.constituencyMembershipCache;
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) return {};
 
-  const firstName = findValue(values, ["firstname", "first"]);
-  const lastName = findValue(values, ["lastname", "last"]);
-  const combinedName = [firstName, lastName].filter(Boolean).join(" ");
-  return combinedName || `NXT constituent ${constituentId || rowNumber}`;
+  const cutoff = Date.now() - CONSTITUENCY_MEMBERSHIP_TTL_MS;
+  return Object.fromEntries(
+    Object.entries(entries).flatMap(([constituentId, entry]) => {
+      const cachedAt = Date.parse(String(entry?.cachedAt || ""));
+      if (!Array.isArray(entry?.codes) || !Number.isFinite(cachedAt) || cachedAt < cutoff) {
+        return [];
+      }
+      return [[String(constituentId), {
+        codes: entry.codes.map((code) => String(code || "").trim()).filter(Boolean),
+        cachedAt: new Date(cachedAt).toISOString(),
+      }]];
+    }),
+  );
 }
 
-function isAlumniConstituency(value) {
-  return normalizeText(value).startsWith("alumni");
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(concurrency, 1), items.length) }, () => worker()),
+  );
+  return results;
 }
 
-function parseDate(value) {
-  const normalized = String(value || "").trim();
-  if (!normalized) return null;
+async function buildDirectDonorTotals({ user, origin, donorConfiguration, cachedPayload }) {
+  const countRows = getAlumniDonorCountRows(donorConfiguration);
+  const selectedGiftTypes = new Set(donorConfiguration.giftTypes);
+  const recipientIdsByRow = new Map();
+  const allRecipientIds = new Set();
+  let giftRowsRead = 0;
+  let selectedGiftRows = 0;
+  let rowsMissingRecipient = 0;
 
-  const date = new Date(normalized);
-  return Number.isFinite(date.getTime()) ? date : null;
-}
-
-function isInFiscalYear(value, fiscalYear) {
-  const date = parseDate(value);
-  if (!date) return null;
-
-  const start = new Date(`${fiscalYear.startDate}T00:00:00Z`).getTime();
-  const end = new Date(`${fiscalYear.endDate}T23:59:59Z`).getTime();
-  const timestamp = date.getTime();
-  return timestamp >= start && timestamp <= end;
-}
-
-function classifyCredit(value) {
-  const normalized = normalizeText(value);
-  if (!normalized) return "Unspecified credit";
-  if (normalized.includes("soft")) return "Soft credit";
-  if (normalized.includes("direct") || normalized.includes("hard")) return "Direct credit";
-  return String(value || "").trim();
-}
-
-function sortDonors(left, right) {
-  return String(left?.name || "").localeCompare(String(right?.name || ""), "en", {
-    sensitivity: "base",
-  });
-}
-
-export function buildAlumniDonorReport(content, { fiscalYear = getCurrentFiscalYearWindow() } = {}) {
-  const records = parseCsv(content);
-  if (!records.length) {
-    return {
-      fiscalYear,
-      donors: [],
-      metrics: {
-        alumniDonors: 0,
-        directCreditDonors: 0,
-        softCreditDonors: 0,
-        totalSourceRows: 0,
-        qualifyingCreditRows: 0,
-        duplicateCreditsCollapsed: 0,
-        excludedNonAlumniRows: 0,
-        excludedOutOfRangeRows: 0,
-        excludedNonCashRows: 0,
-        rowsMissingConstituentId: 0,
+  // Refresh count rows serially so a manual refresh remains gentle on the
+  // shared Blackbaud quota even when a builder adds several fiscal years.
+  for (const row of countRows) {
+    const result = await listBlackbaudGifts({
+      userId: user.id,
+      authUserId: user.id,
+      origin,
+      searchParams: {
+        start_gift_date: row.fiscalYearStart,
+        end_gift_date: row.fiscalYearEnd,
       },
-      warnings: ["The saved NXT query did not return any rows."],
-      truncated: false,
-    };
-  }
-
-  const columns = getUniqueHeaders(records[0]);
-  const sourceRows = records.slice(1);
-  const rows = sourceRows.slice(0, MAX_QUERY_ROWS);
-  const hasConstituency = hasAnyColumn(columns, CONSTITUENCY_ALIASES);
-  const hasGiftDate = hasAnyColumn(columns, GIFT_DATE_ALIASES);
-  const hasGiftType = hasAnyColumn(columns, GIFT_TYPE_ALIASES);
-  const hasCreditType = hasAnyColumn(columns, CREDIT_TYPE_ALIASES);
-  const hasConstituentId = hasAnyColumn(columns, CONSTITUENT_ID_ALIASES);
-  const warnings = [];
-
-  if (!hasConstituentId) {
-    warnings.push(
-      "The saved query does not include a recognized constituent system record ID or lookup ID column. No donor count can be verified until it does.",
-    );
-  }
-  if (!hasConstituency) {
-    warnings.push(
-      "The saved query does not include a constituency code column. The report trusts the query's Alumni criterion.",
-    );
-  }
-  if (!hasGiftDate) {
-    warnings.push(
-      "The saved query does not include a Cash Received gift date column. The report trusts the query's current fiscal-year criterion.",
-    );
-  }
-  if (!hasGiftType) {
-    warnings.push(
-      "The saved query does not include a gift-type column. This does not affect the count because the saved query's Cash Received criteria control eligibility.",
-    );
-  }
-  if (!hasCreditType) {
-    warnings.push(
-      "The saved query does not include a credit type column. The total still counts distinct credited constituents, but direct and soft-credit subtotals are unavailable.",
-    );
-  }
-
-  const donorsById = new Map();
-  let qualifyingCreditRows = 0;
-  let duplicateCreditsCollapsed = 0;
-  let excludedNonAlumniRows = 0;
-  let excludedOutOfRangeRows = 0;
-  let excludedNonCashRows = 0;
-  let rowsMissingConstituentId = 0;
-
-  rows.forEach((record, index) => {
-    const values = Object.fromEntries(
-      columns.map((column, columnIndex) => [column, String(record[columnIndex] || "").trim()]),
-    );
-    const constituentId = findValue(values, CONSTITUENT_ID_ALIASES);
-    const constituency = findValue(values, CONSTITUENCY_ALIASES);
-    const giftDate = findValue(values, GIFT_DATE_ALIASES);
-    const giftType = findValue(values, GIFT_TYPE_ALIASES);
-    const creditType = findValue(values, CREDIT_TYPE_ALIASES);
-
-    if (!constituentId) {
-      rowsMissingConstituentId += 1;
-      return;
+      pageLimit: GIFT_PAGE_LIMIT,
+      maxPages: MAX_GIFT_PAGES,
+      includePageMetadata: true,
+    });
+    const gifts = Array.isArray(result) ? result : result?.gifts || [];
+    if (!Array.isArray(result) && result?.hasMore) {
+      throw new Error(
+        `${row.label} exceeds ${(MAX_GIFT_PAGES * GIFT_PAGE_LIMIT).toLocaleString("en-US")} gift rows. ` +
+          "Narrow its fiscal period or gift types before refreshing so the saved count is complete.",
+      );
     }
-    if (hasConstituency && !isAlumniConstituency(constituency)) {
-      excludedNonAlumniRows += 1;
-      return;
-    }
-    if (hasGiftDate) {
-      const inFiscalYear = isInFiscalYear(giftDate, fiscalYear);
-      if (inFiscalYear !== true) {
-        excludedOutOfRangeRows += 1;
+
+    giftRowsRead += gifts.length;
+    const recipientIds = new Set();
+    gifts.forEach((gift) => {
+      if (!selectedGiftTypes.has(getGiftTypeKey(gift))) return;
+      selectedGiftRows += 1;
+      const recipientId = getGiftRecipientId(gift);
+      if (!recipientId) {
+        rowsMissingRecipient += 1;
         return;
       }
-    }
-    // The configured saved query, rather than a display column, is the source
-    // of truth for Cash Received eligibility. NXT can label received revenue
-    // as Donation, Pledge Payment, Matching Gift Payment, and other values.
-    qualifyingCreditRows += 1;
-    const existing = donorsById.get(constituentId);
-    if (existing) {
-      duplicateCreditsCollapsed += 1;
-      existing.creditTypes.add(classifyCredit(creditType));
-      if (classifyCredit(creditType) === "Soft credit") existing.hasSoftCredit = true;
-      if (classifyCredit(creditType) === "Direct credit") existing.hasDirectCredit = true;
-      const currentGiftDate = parseDate(existing.giftDate);
-      const nextGiftDate = parseDate(giftDate);
-      if (nextGiftDate && (!currentGiftDate || nextGiftDate > currentGiftDate)) {
-        existing.giftDate = giftDate;
-        existing.giftType = giftType;
-      }
-      return;
-    }
-
-    const normalizedCreditType = classifyCredit(creditType);
-    donorsById.set(constituentId, {
-      id: `alumni-donor-${constituentId}`,
-      constituentId,
-      lookupId: findValue(values, LOOKUP_ID_ALIASES),
-      name: getRowName(values, constituentId, index + 1),
-      constituency,
-      giftDate,
-      giftType,
-      creditTypes: new Set([normalizedCreditType]),
-      hasSoftCredit: normalizedCreditType === "Soft credit",
-      hasDirectCredit: normalizedCreditType === "Direct credit",
+      recipientIds.add(recipientId);
+      allRecipientIds.add(recipientId);
     });
+    recipientIdsByRow.set(row.key, recipientIds);
+  }
+
+  const membershipCache = getReusableMembershipCache(cachedPayload);
+  const missingRecipientIds = Array.from(allRecipientIds).filter((id) => !membershipCache[id]);
+  const cachedAt = new Date().toISOString();
+
+  await mapWithConcurrency(
+    missingRecipientIds,
+    CONSTITUENCY_LOOKUP_CONCURRENCY,
+    async (constituentId) => {
+      const codes = await listBlackbaudConstituentCodes({
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+        constituentId,
+      });
+      membershipCache[constituentId] = {
+        codes: codes.map(getConstituencyCodeLabel).filter(Boolean),
+        cachedAt,
+      };
+    },
+  );
+
+  const selectedConstituencies = new Set(
+    donorConfiguration.constituencies.map((code) => normalizeText(code)).filter(Boolean),
+  );
+  const totals = countRows.map((row) => {
+    const recipientIds = recipientIdsByRow.get(row.key) || new Set();
+    const total = Array.from(recipientIds).filter((constituentId) =>
+      (membershipCache[constituentId]?.codes || []).some((code) =>
+        selectedConstituencies.has(normalizeText(code)),
+      ),
+    ).length;
+
+    return {
+      key: row.key,
+      label: row.label,
+      fiscalYearStart: row.fiscalYearStart,
+      fiscalYearEnd: row.fiscalYearEnd,
+      total,
+    };
   });
 
-  const donors = Array.from(donorsById.values())
-    .map((donor) => ({
-      ...donor,
-      creditTypes: Array.from(donor.creditTypes).sort(),
-    }))
-    .sort(sortDonors);
+  const warnings = [];
+  if (rowsMissingRecipient) {
+    warnings.push(
+      `${rowsMissingRecipient.toLocaleString("en-US")} selected NXT gift row(s) had no constituent recipient and were not counted.`,
+    );
+  }
 
   return {
-    fiscalYear,
-    donors,
-    metrics: {
-      alumniDonors: donors.length,
-      directCreditDonors: donors.filter((donor) => donor.hasDirectCredit).length,
-      softCreditDonors: donors.filter((donor) => donor.hasSoftCredit).length,
-      totalSourceRows: sourceRows.length,
-      qualifyingCreditRows,
-      duplicateCreditsCollapsed,
-      excludedNonAlumniRows,
-      excludedOutOfRangeRows,
-      excludedNonCashRows,
-      rowsMissingConstituentId,
-    },
+    totals,
+    totalRows: totals.reduce((sum, total) => sum + total.total, 0),
     warnings,
-    truncated: sourceRows.length > rows.length,
+    refreshMetrics: {
+      giftRowsRead,
+      selectedGiftRows,
+      uniqueGiftRecipients: allRecipientIds.size,
+      refreshedConstituencyMemberships: missingRecipientIds.length,
+    },
+    constituencyMembershipCache: membershipCache,
   };
 }
 
@@ -577,47 +352,31 @@ export async function GET(request) {
       );
     }
 
-    const fiscalYear = getCurrentFiscalYearWindow();
     const donorConfiguration = normalizeAlumniDonorConfiguration(access.dataConfiguration);
-    const totalQueries = getAlumniDonorQueryRows(donorConfiguration);
+    const countRows = getAlumniDonorCountRows(donorConfiguration);
     const presentation = getReportPresentation(access, donorConfiguration);
-    const { searchParams } = new URL(request.url);
     const forceRefresh = shouldBypassReportCache(request);
-    const requestedQueryJobs = totalQueries.map((query) => ({
-      query,
-      jobId: searchParams.get(getQueryJobParameterName(query))?.trim() || "",
-    }));
-    const hasPollingJobs = requestedQueryJobs.some(({ jobId }) => Boolean(jobId));
-    const hasEveryPollingJob = requestedQueryJobs.every(({ jobId }) => Boolean(jobId));
+    const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
+    const presentedCachedPayload = attachReportPresentation({
+      cachedPayload,
+      donorConfiguration,
+      presentation,
+      countRows,
+    });
 
-    if (hasPollingJobs && !hasEveryPollingJob) {
-      return Response.json(
-        { error: "Every alumni donor query job is required while the report is refreshing." },
-        { status: 400 },
-      );
+    if (!forceRefresh && presentedCachedPayload) {
+      return Response.json(presentedCachedPayload, { headers: getReportCacheHeaders("hit") });
     }
 
-    if (!hasPollingJobs && !forceRefresh) {
-      const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
-      const presentedCachedPayload = attachReportPresentation({
-        cachedPayload,
-        donorConfiguration,
-        presentation,
-        totalQueries,
-      });
-      if (presentedCachedPayload) {
-        return Response.json(presentedCachedPayload, { headers: getReportCacheHeaders("hit") });
-      }
-
+    if (!forceRefresh) {
       return Response.json(
         {
           status: "refresh_required",
-          fiscalYear,
           report: presentation,
           donorDefinition: getPublicDonorDefinition(donorConfiguration),
           configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
           message:
-            "No saved Alumni & Family Engagement snapshot is available yet. Select Refresh data to create one.",
+            "No saved Alumni & Family Engagement snapshot matches this donor definition yet. Select Refresh data to create one.",
         },
         { headers: getReportCacheHeaders("empty") },
       );
@@ -632,109 +391,29 @@ export async function GET(request) {
       );
     }
 
-    const activeQueryJobs = await Promise.all(
-      requestedQueryJobs.map(async ({ query, jobId }) => {
-        if (jobId) return { query, jobId, started: false };
-
-        const { createdJob, resolvedQueryId } = await createAlumniQueryJob({
-          user,
-          origin,
-          query,
-        });
-        const createdJobId = getQueryJobId(createdJob);
-        if (!createdJobId) {
-          throw new Error(`Blackbaud did not return a job ID for ${query.label}.`);
-        }
-        return { query, jobId: createdJobId, resolvedQueryId, started: true };
-      }),
-    );
-
-    const checkedQueryJobs = await Promise.all(
-      activeQueryJobs.map(async (activeQueryJob) => {
-        try {
-          const job = await getBlackbaudQueryJob({
-            userId: user.id,
-            origin,
-            jobId: activeQueryJob.jobId,
-          });
-          return { ...activeQueryJob, job };
-        } catch (error) {
-          // Query jobs can briefly return 404 immediately after creation while
-          // NXT materializes them. Keep both IDs so the next poll resumes them.
-          if (activeQueryJob.started && isBlackbaudNotFoundError(error)) {
-            return { ...activeQueryJob, job: null, starting: true };
-          }
-          throw error;
-        }
-      }),
-    );
-
-    const failedQueryJob = checkedQueryJobs.find(({ job }) =>
-      job && isFailedQueryJob(getQueryJobStatus(job)),
-    );
-    if (failedQueryJob) {
-      return Response.json(
-        {
-          error: `${failedQueryJob.query.label} could not run in NXT (${getQueryJobStatus(failedQueryJob.job) || "failed"}).`,
-        },
-        { status: 502 },
-      );
-    }
-
-    const queryStatuses = Object.fromEntries(
-      checkedQueryJobs.map(({ query, job, starting }) => [
-        query.key,
-        starting ? "Starting" : getQueryJobStatus(job) || "Queued",
-      ]),
-    );
-    const isAnyQueryStillRunning = checkedQueryJobs.some(
-      ({ job }) => !hasQueryResult(job),
-    );
-    if (isAnyQueryStillRunning) {
-      return Response.json(
-        {
-          ...createRunningPayload({
-            donorConfiguration,
-            presentation,
-            queryJobs: activeQueryJobs,
-            queryStatuses,
-          }),
-          fiscalYear,
-        },
-        { status: 202, headers: { "Cache-Control": "private, no-store" } },
-      );
-    }
-
-    const totals = await Promise.all(
-      checkedQueryJobs.map(async ({ query, job }) => {
-        const rowCount = getQueryRowCount(job);
-        const total =
-          rowCount !== null
-            ? rowCount
-            : getSavedQueryTotal(await downloadBlackbaudQueryResult(getQueryResultUrl(job)));
-        return {
-          key: query.key,
-          label: query.label,
-          queryId: query.queryId,
-          total,
-        };
-      }),
-    );
+    const directTotals = await buildDirectDonorTotals({
+      user,
+      origin,
+      donorConfiguration,
+      cachedPayload,
+    });
     const payload = {
       status: "complete",
-      fiscalYear,
       generatedAt: new Date().toISOString(),
       report: presentation,
       donorDefinition: getPublicDonorDefinition(donorConfiguration),
       configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
-      totals,
-      totalRows: totals.reduce((total, result) => total + result.total, 0),
+      ...directTotals,
     };
     await saveReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY, payload);
 
-    return Response.json(payload, {
-      headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
+    const publicPayload = attachReportPresentation({
+      cachedPayload: payload,
+      donorConfiguration,
+      presentation,
+      countRows,
     });
+    return Response.json(publicPayload, { headers: getReportCacheHeaders("refresh") });
   } catch (error) {
     console.error("Alumni & Family Engagement report error:", error);
     return Response.json(
@@ -742,7 +421,7 @@ export async function GET(request) {
         error:
           error instanceof Error
             ? error.message
-            : "Could not run the Alumni & Family Engagement report.",
+            : "Could not refresh the Alumni & Family Engagement report.",
       },
       { status: 500 },
     );

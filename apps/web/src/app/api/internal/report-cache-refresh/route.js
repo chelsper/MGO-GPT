@@ -21,10 +21,11 @@ const REFRESH_TARGETS = [
     path: "/api/reports/alumni-family-engagement",
   },
 ];
-const QUERY_POLL_INTERVAL_MS = 2_000;
-// Three reports are refreshed in sequence. Keep each polling window below 90
-// seconds so the complete cron stays inside Vercel's five-minute function cap.
-const MAX_QUERY_POLL_ATTEMPTS = 40;
+const REPORT_POLL_INTERVAL_MS = 2_000;
+// Some reports still use queued Blackbaud Query API jobs, while direct-data
+// reports return their refreshed snapshot immediately. Keep each polling window
+// below 90 seconds so the complete cron stays inside Vercel's five-minute cap.
+const MAX_REPORT_POLL_ATTEMPTS = 40;
 
 function getNewYorkTimeParts(now = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -76,7 +77,7 @@ async function readJson(response) {
 async function refreshReportSnapshot({ origin, target, authorization }) {
   let pollParameters = null;
 
-  for (let attempt = 0; attempt < MAX_QUERY_POLL_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_REPORT_POLL_ATTEMPTS; attempt += 1) {
     const url = new URL(target.path, origin);
     if (pollParameters) {
       Object.entries(pollParameters).forEach(([key, value]) => {
@@ -113,9 +114,9 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
           ? { jobId: returnedJobId }
           : null;
       if (!pollParameters) {
-        throw new Error("The report refresh did not return query polling information.");
+        throw new Error("The report refresh did not return polling information.");
       }
-      await wait(QUERY_POLL_INTERVAL_MS);
+      await wait(REPORT_POLL_INTERVAL_MS);
       continue;
     }
 
@@ -136,7 +137,7 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
     };
   }
 
-  throw new Error("The saved NXT query did not finish before the scheduled refresh window closed.");
+  throw new Error("The report refresh did not finish before the scheduled refresh window closed.");
 }
 
 export async function GET(request) {
