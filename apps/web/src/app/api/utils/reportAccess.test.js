@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canUserViewCustomFieldReport,
   canUserViewReport,
   normalizeReportVisibility,
   parseReportSpecificUserIds,
@@ -47,5 +48,22 @@ describe("report access", () => {
       canUserViewReport({ ...specificUsersReport, user: { id: 1, role: "admin" } }),
     ).toBe(true);
     expect(parseReportSpecificUserIds("[3, \"7\", \"invalid\"]")).toEqual([3, 7]);
+  });
+
+  it("does not give administrators an automatic Custom Field Report bypass", () => {
+    const report = { active: true, specificUserIds: [7, 12] };
+
+    expect(
+      canUserViewCustomFieldReport({ ...report, user: { id: 1, role: "admin" } }),
+    ).toBe(false);
+    expect(
+      canUserViewCustomFieldReport({ ...report, user: { id: 7, role: "mgo" } }),
+    ).toBe(true);
+    expect(
+      canUserViewCustomFieldReport({ ...report, user: { id: 12, role: "admin" } }),
+    ).toBe(true);
+    expect(
+      canUserViewCustomFieldReport({ ...report, active: false, user: { id: 7, role: "mgo" } }),
+    ).toBe(false);
   });
 });

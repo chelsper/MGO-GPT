@@ -22,9 +22,12 @@ const BLACKBAUD_CONSTITUENT_BASE_URL =
 const BLACKBAUD_GIFTS_URL = "https://api.sky.blackbaud.com/gift/v1/gifts";
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
-const BLACKBAUD_QUERY_V1_URL = "https://api.sky.blackbaud.com/query/v1/queries";
-const BLACKBAUD_QUERY_V2_URL = "https://api.sky.blackbaud.com/query/v2/queries";
-const BLACKBAUD_QUERY_JOBS_URL = "https://api.sky.blackbaud.com/query/v1/jobs";
+const BLACKBAUD_QUERY_URL = "https://api.sky.blackbaud.com/query";
+const BLACKBAUD_QUERY_LIST_URL = `${BLACKBAUD_QUERY_URL}/queries`;
+const BLACKBAUD_QUERY_EXECUTE_BY_ID_URL = `${BLACKBAUD_QUERY_LIST_URL}/executebyid`;
+const BLACKBAUD_QUERY_JOBS_URL = `${BLACKBAUD_QUERY_URL}/jobs`;
+const BLACKBAUD_QUERY_PRODUCT = "RE";
+const BLACKBAUD_QUERY_MODULE = "None";
 const BLACKBAUD_LIST_V2_EXECUTE_QUERY_URL =
   "https://api.sky.blackbaud.com/list/v2/execute-query";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
@@ -595,47 +598,34 @@ export async function findBlackbaudQueryByName({
   authUserId,
   origin,
   name,
-  versions = ["v1", "v2"],
 }) {
   const normalizedName = String(name || "").trim().toLocaleLowerCase("en-US");
   if (!normalizedName) return null;
 
-  const normalizedVersions = Array.from(
-    new Set(
-      versions
-        .map((version) => String(version || "").trim().toLocaleLowerCase("en-US"))
-        .filter(Boolean),
-    ),
-  );
-  const endpoints = normalizedVersions
-    .map((version) => {
-      if (version === "v1") return BLACKBAUD_QUERY_V1_URL;
-      if (version === "v2") return BLACKBAUD_QUERY_V2_URL;
-      return null;
-    })
-    .filter(Boolean);
+  let path = BLACKBAUD_QUERY_LIST_URL;
+  let searchParams = {
+    product: BLACKBAUD_QUERY_PRODUCT,
+    module: BLACKBAUD_QUERY_MODULE,
+    search_text: name,
+  };
 
-  if (!endpoints.length) return null;
-
-  for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex += 1) {
-    let path = endpoints[endpointIndex];
-    try {
-      for (let page = 0; path && page < 20; page += 1) {
-        const payload = await blackbaudApiFetch(path, { userId, authUserId, origin });
-        const match = getBlackbaudCollection(payload).find(
-          (query) => getBlackbaudQueryName(query).toLocaleLowerCase("en-US") === normalizedName,
-        );
-        if (match) {
-          const id = getBlackbaudQueryId(match);
-          if (id) return { id, name: getBlackbaudQueryName(match) };
-        }
-
-        path = payload?.next_link || payload?.nextLink || null;
-      }
-    } catch (error) {
-      const hasFallback = endpointIndex < endpoints.length - 1;
-      if (!hasFallback || !isBlackbaudNotFoundError(error)) throw error;
+  for (let page = 0; path && page < 20; page += 1) {
+    const payload = await blackbaudApiFetch(path, {
+      userId,
+      authUserId,
+      origin,
+      searchParams,
+    });
+    const match = getBlackbaudCollection(payload).find(
+      (query) => getBlackbaudQueryName(query).toLocaleLowerCase("en-US") === normalizedName,
+    );
+    if (match) {
+      const id = getBlackbaudQueryId(match);
+      if (id) return { id, name: getBlackbaudQueryName(match) };
     }
+
+    path = payload?.next_link || payload?.nextLink || null;
+    searchParams = undefined;
   }
 
   return null;
@@ -645,13 +635,24 @@ export async function createBlackbaudQueryJob({ userId, authUserId, origin, quer
   if (!queryId) throw new Error("A Blackbaud query ID is required");
 
   return blackbaudApiFetch(
-    `${BLACKBAUD_QUERY_V1_URL}/${encodeURIComponent(queryId)}/jobs`,
+    BLACKBAUD_QUERY_EXECUTE_BY_ID_URL,
     {
       userId,
       authUserId,
       origin,
+      searchParams: {
+        product: BLACKBAUD_QUERY_PRODUCT,
+        module: BLACKBAUD_QUERY_MODULE,
+        include_read_url: "OnceCompleted",
+      },
       method: "POST",
-      body: {},
+      body: {
+        id: Number(queryId),
+        ux_mode: "Asynchronous",
+        output_format: "Csv",
+        formatting_mode: "UI",
+        sql_generation_mode: "Query",
+      },
     },
   );
 }
@@ -661,7 +662,16 @@ export async function getBlackbaudQueryJob({ userId, authUserId, origin, jobId }
 
   return blackbaudApiFetch(
     `${BLACKBAUD_QUERY_JOBS_URL}/${encodeURIComponent(jobId)}`,
-    { userId, authUserId, origin },
+    {
+      userId,
+      authUserId,
+      origin,
+      searchParams: {
+        product: BLACKBAUD_QUERY_PRODUCT,
+        module: BLACKBAUD_QUERY_MODULE,
+        include_read_url: "OnceCompleted",
+      },
+    },
   );
 }
 

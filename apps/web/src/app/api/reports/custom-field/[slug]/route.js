@@ -1,0 +1,260 @@
+import { auth } from "@/auth";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import {
+  getCachedReportSnapshot,
+  getReportCacheHeaders,
+  saveReportSnapshot,
+  shouldBypassReportCache,
+} from "@/app/api/utils/reportCache";
+import {
+  getReportRefreshUser,
+  isAuthorizedReportRefreshRequest,
+} from "@/app/api/utils/reportRefresh";
+import {
+  createBlackbaudQueryJob,
+  downloadBlackbaudQueryResult,
+  getBlackbaudConfigIssues,
+  getBlackbaudQueryJob,
+} from "@/app/api/utils/blackbaud";
+import {
+  customFieldReportCacheKey,
+  serializeCustomFieldReport,
+} from "@/app/api/utils/customFieldReports";
+import { getCustomFieldReportAccessForUser } from "@/app/api/utils/reportAccess";
+
+const MAX_QUERY_ROWS = 10000;
+
+function getQueryJobId(job) {
+  return String(job?.id ?? job?.job_id ?? job?.jobId ?? "").trim();
+}
+
+function getQueryJobStatus(job) {
+  return String(job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "").trim();
+}
+
+function getQueryResultUrl(job) {
+  const candidates = [
+    job?.sas_uri,
+    job?.sasUri,
+    job?.result_uri,
+    job?.resultUri,
+    job?.result_file_url,
+    job?.resultFileUrl,
+    job?.download_url,
+    job?.downloadUrl,
+    job?.result?.sas_uri,
+    job?.result?.sasUri,
+    job?.result?.download_url,
+    job?.result?.downloadUrl,
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim()) || null;
+}
+
+function isFailedQueryJob(status) {
+  return /(?:fail|cancel|error)/i.test(status);
+}
+
+function parseCsv(content) {
+  const records = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  const text = String(content || "").replace(/^\uFEFF/, "");
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      row.push(cell);
+      cell = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && text[index + 1] === "\n") index += 1;
+      row.push(cell);
+      records.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+
+  if (cell.length || row.length) {
+    row.push(cell);
+    records.push(row);
+  }
+
+  return records.filter((record) => record.some((value) => String(value || "").trim()));
+}
+
+function getUniqueHeaders(headerRow) {
+  const used = new Map();
+  return headerRow.map((header, index) => {
+    const base = String(header || "").trim() || `Column ${index + 1}`;
+    const count = (used.get(base) || 0) + 1;
+    used.set(base, count);
+    return count === 1 ? base : `${base} (${count})`;
+  });
+}
+
+function parseQueryResult(content) {
+  const records = parseCsv(content);
+  if (!records.length) {
+    return { columns: [], rows: [], totalRows: 0, truncated: false };
+  }
+
+  const columns = getUniqueHeaders(records[0]);
+  const sourceRows = records.slice(1);
+  const rows = sourceRows.slice(0, MAX_QUERY_ROWS).map((record, index) => ({
+    id: `query-row-${index + 1}`,
+    values: Object.fromEntries(
+      columns.map((column, columnIndex) => [column, String(record[columnIndex] || "").trim()]),
+    ),
+  }));
+
+  return {
+    columns,
+    rows,
+    totalRows: sourceRows.length,
+    truncated: sourceRows.length > rows.length,
+  };
+}
+
+async function getCurrentUser(request) {
+  await ensureAppSchema();
+  if (isAuthorizedReportRefreshRequest(request)) {
+    return getReportRefreshUser();
+  }
+
+  const session = await auth();
+  if (!session?.user?.email) return null;
+  return getOrCreateUser(session, "admin");
+}
+
+function getReportPayload(record) {
+  // The caller has already passed the explicit-assignment access check. The
+  // value is serialized only for rendering this report snapshot.
+  return serializeCustomFieldReport(record, true);
+}
+
+export async function GET(request, { params }) {
+  try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const slug = String(params?.slug || "").trim();
+    const internalRefresh = isAuthorizedReportRefreshRequest(request);
+    const access = await getCustomFieldReportAccessForUser(slug, user);
+    if (!access) {
+      return Response.json({ error: "Custom Field Report not found." }, { status: 404 });
+    }
+    if (internalRefresh && !access.record?.active) {
+      return Response.json(
+        { error: "This Custom Field Report is disabled and cannot be refreshed." },
+        { status: 404 },
+      );
+    }
+    if (!internalRefresh && !access.canView) {
+      return Response.json(
+        { error: "This Custom Field Report has not been enabled for you." },
+        { status: 403 },
+      );
+    }
+
+    const report = getReportPayload(access.record);
+    const cacheKey = customFieldReportCacheKey(report.slug);
+    const { searchParams } = new URL(request.url);
+    const forceRefresh = shouldBypassReportCache(request);
+    let jobId = searchParams.get("jobId")?.trim() || "";
+
+    if (!jobId && !forceRefresh) {
+      const cachedPayload = await getCachedReportSnapshot(cacheKey);
+      if (cachedPayload) {
+        return Response.json(cachedPayload, { headers: getReportCacheHeaders("hit") });
+      }
+
+      return Response.json(
+        {
+          status: "refresh_required",
+          report,
+          message: "No saved report snapshot is available yet. Select Refresh data to create one.",
+        },
+        { headers: getReportCacheHeaders("empty") },
+      );
+    }
+
+    const origin = new URL(request.url).origin;
+    const configurationIssues = getBlackbaudConfigIssues(origin);
+    if (configurationIssues.length) {
+      return Response.json(
+        { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
+        { status: 500 },
+      );
+    }
+
+    if (!jobId) {
+      const createdJob = await createBlackbaudQueryJob({
+        userId: user.id,
+        origin,
+        queryId: report.sourceQueryId,
+      });
+      jobId = getQueryJobId(createdJob);
+      if (!jobId) {
+        throw new Error("Blackbaud did not return a query job ID.");
+      }
+    }
+
+    const job = await getBlackbaudQueryJob({ userId: user.id, origin, jobId });
+    const jobStatus = getQueryJobStatus(job);
+    const resultUrl = getQueryResultUrl(job);
+    if (!resultUrl) {
+      if (isFailedQueryJob(jobStatus)) {
+        return Response.json(
+          { error: `The configured NXT query ${jobStatus || "failed"}.`, jobId },
+          { status: 502 },
+        );
+      }
+      return Response.json(
+        {
+          status: "running",
+          report,
+          jobId,
+          query: { id: report.sourceQueryId, name: report.sourceQueryName || report.title },
+          jobStatus: jobStatus || "Queued",
+          poll: { jobId },
+        },
+        { status: 202, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+
+    const content = await downloadBlackbaudQueryResult(resultUrl);
+    const parsedResult = parseQueryResult(content);
+    const payload = {
+      status: "complete",
+      report,
+      jobId,
+      query: { id: report.sourceQueryId, name: report.sourceQueryName || report.title },
+      generatedAt: new Date().toISOString(),
+      ...parsedResult,
+    };
+    await saveReportSnapshot(cacheKey, payload);
+
+    return Response.json(payload, {
+      headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
+    });
+  } catch (error) {
+    console.error("Custom Field Report error:", error);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Could not load this Custom Field Report." },
+      { status: 500 },
+    );
+  }
+}

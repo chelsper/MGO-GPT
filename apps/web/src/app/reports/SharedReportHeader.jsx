@@ -10,8 +10,9 @@ const REPORT_PATHS = Object.freeze({
   "executive-team-standings": "/reports/executive-team-standings",
 });
 
-function getReportHref(reportKey) {
-  return REPORT_PATHS[reportKey] || "/reports";
+function getReportHref(report) {
+  const configuredHref = String(report?.href || "").trim();
+  return configuredHref || REPORT_PATHS[report?.key] || "/reports";
 }
 
 export default function SharedReportHeader({
@@ -125,7 +126,7 @@ export default function SharedReportHeader({
             return (
               <a
                 key={report.key}
-                href={getReportHref(report.key)}
+                href={getReportHref(report)}
                 aria-current={selected ? "page" : undefined}
                 style={{
                   minHeight: "40px",

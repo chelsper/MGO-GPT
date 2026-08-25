@@ -23,23 +23,22 @@ import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
   getReportAccessForUser,
 } from "@/app/api/utils/reportAccess";
+import {
+  DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+  getAlumniDonorConfigurationFingerprint,
+  getAlumniDonorQueryRows,
+  normalizeAlumniDonorConfiguration,
+} from "@/app/api/utils/alumniDonorConfiguration";
 
 const MAX_QUERY_ROWS = 10000;
 export const ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY = "report:alumni-family-engagement";
-export const ALUMNI_DONOR_TOTAL_QUERIES = [
-  {
-    key: "fy27",
-    label: "FY27 Alumni Donor Total",
-    queryId: "30976",
-    queryName: "Alumni Donors FY27",
-  },
-  {
-    key: "fy26",
-    label: "FY26 Alumni Donor Total",
-    queryId: "30679",
-    queryName: "Alumni Donors FY26",
-  },
-];
+export const ALUMNI_DONOR_TOTAL_QUERIES = getAlumniDonorQueryRows(
+  DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+);
+
+const DEFAULT_REPORT_TITLE = "Alumni & Family Engagement";
+const DEFAULT_REPORT_DESCRIPTION =
+  "Alumni donor totals from the configured saved NXT queries.";
 
 const CONSTITUENT_ID_ALIASES = [
   "constituentsystemrecordid",
@@ -172,6 +171,27 @@ function getQueryResultUrl(job) {
   return candidates.find((value) => typeof value === "string" && value.trim()) || null;
 }
 
+function getQueryRowCount(job) {
+  const candidates = [
+    job?.row_count,
+    job?.rowCount,
+    job?.result?.row_count,
+    job?.result?.rowCount,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || String(candidate).trim() === "") {
+      continue;
+    }
+    const count = Number(candidate);
+    if (Number.isInteger(count) && count >= 0) return count;
+  }
+  return null;
+}
+
+function hasQueryResult(job) {
+  return getQueryRowCount(job) !== null || Boolean(getQueryResultUrl(job));
+}
+
 function isFailedQueryJob(status) {
   return /(?:fail|cancel|error)/i.test(status);
 }
@@ -187,6 +207,67 @@ function createQueryApiUnavailableError(query) {
       `It cannot run ${query.label}. Enable Query API for this SKY application/subscription, ` +
       "grant the report refresh user Query > Export permission, then reconnect and refresh.",
   );
+}
+
+function getReportPresentation(access, donorConfiguration) {
+  return {
+    title: String(access?.title || "").trim() || DEFAULT_REPORT_TITLE,
+    description:
+      String(access?.description || "").trim() || DEFAULT_REPORT_DESCRIPTION,
+    sourceKey: donorConfiguration.sourceKey,
+    sourceLabel: donorConfiguration.sourceLabel,
+  };
+}
+
+function getPublicDonorDefinition(donorConfiguration) {
+  return {
+    sourceKey: donorConfiguration.sourceKey,
+    sourceLabel: donorConfiguration.sourceLabel,
+    includeInactiveConstituents: donorConfiguration.includeInactiveConstituents,
+    includeDeceasedConstituents: donorConfiguration.includeDeceasedConstituents,
+    includeConstituentsWithoutValidAddress:
+      donorConfiguration.includeConstituentsWithoutValidAddress,
+    includeSoftCreditedDonors: donorConfiguration.includeSoftCreditedDonors,
+    includeMatchingGiftCredits: donorConfiguration.includeMatchingGiftCredits,
+    constituencies: donorConfiguration.constituencies,
+  };
+}
+
+function attachReportPresentation({ cachedPayload, donorConfiguration, presentation, totalQueries }) {
+  if (!cachedPayload) return null;
+
+  const configurationFingerprint = getAlumniDonorConfigurationFingerprint(donorConfiguration);
+  if (cachedPayload.configurationFingerprint !== configurationFingerprint) return null;
+
+  const cachedTotals = Array.isArray(cachedPayload?.totals) ? cachedPayload.totals : [];
+  // Snapshots created before configurable donor counts did not include totals.
+  // Do not present those legacy snapshots as if they matched the active definition.
+  if (cachedTotals.length !== totalQueries.length) return null;
+
+  const hasEveryConfiguredQuery = totalQueries.every((query) =>
+    cachedTotals.some((total) => String(total?.queryId || "") === query.queryId),
+  );
+  if (!hasEveryConfiguredQuery) return null;
+
+  const queryById = new Map(totalQueries.map((query) => [query.queryId, query]));
+  const queryByKey = new Map(totalQueries.map((query) => [query.key, query]));
+  return {
+    ...cachedPayload,
+    report: presentation,
+    donorDefinition: getPublicDonorDefinition(donorConfiguration),
+    configurationFingerprint,
+    totals: cachedTotals.map((total) => {
+      const query = queryById.get(String(total?.queryId || "")) || queryByKey.get(total?.key);
+      return query
+        ? {
+            ...total,
+            key: query.key,
+            label: query.label,
+            queryId: query.queryId,
+          }
+        : total;
+    }),
+  };
 }
 
 function getQueryJobParameterName(query) {
@@ -213,9 +294,9 @@ async function createAlumniQueryJob({ user, origin, query }) {
     });
     return { createdJob, resolvedQueryId: query.queryId };
   } catch (error) {
-    // NXT shows a saved query's system record ID in its UI, while Query v1 can
-    // require a separate API ID. Resolve only the exact known query name when
-    // the system ID is not callable, never a partial or unrelated match.
+    // NXT can display a saved query's system record ID while the Query API
+    // expects its API ID. Resolve only the exact known query name when the
+    // displayed ID is not callable, never a partial or unrelated match.
     if (!isBlackbaudNotFoundError(error) || !query.queryName) throw error;
 
     let resolvedQuery;
@@ -224,7 +305,6 @@ async function createAlumniQueryJob({ user, origin, query }) {
         userId: user.id,
         origin,
         name: query.queryName,
-        versions: ["v1", "v2"],
       });
     } catch (fallbackError) {
       // A 404 from both the query job endpoint and the Query API collection
@@ -252,9 +332,17 @@ async function createAlumniQueryJob({ user, origin, query }) {
   }
 }
 
-function createRunningPayload({ queryJobs, queryStatuses = {} }) {
+function createRunningPayload({
+  donorConfiguration,
+  presentation,
+  queryJobs,
+  queryStatuses = {},
+}) {
   return {
     status: "running",
+    report: presentation,
+    donorDefinition: getPublicDonorDefinition(donorConfiguration),
+    configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
     poll: getQueryJobPollingParameters(queryJobs),
     queries: queryJobs.map(({ query, jobId }) => ({
       key: query.key,
@@ -490,9 +578,12 @@ export async function GET(request) {
     }
 
     const fiscalYear = getCurrentFiscalYearWindow();
+    const donorConfiguration = normalizeAlumniDonorConfiguration(access.dataConfiguration);
+    const totalQueries = getAlumniDonorQueryRows(donorConfiguration);
+    const presentation = getReportPresentation(access, donorConfiguration);
     const { searchParams } = new URL(request.url);
     const forceRefresh = shouldBypassReportCache(request);
-    const requestedQueryJobs = ALUMNI_DONOR_TOTAL_QUERIES.map((query) => ({
+    const requestedQueryJobs = totalQueries.map((query) => ({
       query,
       jobId: searchParams.get(getQueryJobParameterName(query))?.trim() || "",
     }));
@@ -501,21 +592,30 @@ export async function GET(request) {
 
     if (hasPollingJobs && !hasEveryPollingJob) {
       return Response.json(
-        { error: "Both alumni donor query jobs are required while the report is refreshing." },
+        { error: "Every alumni donor query job is required while the report is refreshing." },
         { status: 400 },
       );
     }
 
     if (!hasPollingJobs && !forceRefresh) {
       const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
-      if (cachedPayload) {
-        return Response.json(cachedPayload, { headers: getReportCacheHeaders("hit") });
+      const presentedCachedPayload = attachReportPresentation({
+        cachedPayload,
+        donorConfiguration,
+        presentation,
+        totalQueries,
+      });
+      if (presentedCachedPayload) {
+        return Response.json(presentedCachedPayload, { headers: getReportCacheHeaders("hit") });
       }
 
       return Response.json(
         {
           status: "refresh_required",
           fiscalYear,
+          report: presentation,
+          donorDefinition: getPublicDonorDefinition(donorConfiguration),
+          configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
           message:
             "No saved Alumni & Family Engagement snapshot is available yet. Select Refresh data to create one.",
         },
@@ -588,12 +688,17 @@ export async function GET(request) {
       ]),
     );
     const isAnyQueryStillRunning = checkedQueryJobs.some(
-      ({ job }) => !getQueryResultUrl(job),
+      ({ job }) => !hasQueryResult(job),
     );
     if (isAnyQueryStillRunning) {
       return Response.json(
         {
-          ...createRunningPayload({ queryJobs: activeQueryJobs, queryStatuses }),
+          ...createRunningPayload({
+            donorConfiguration,
+            presentation,
+            queryJobs: activeQueryJobs,
+            queryStatuses,
+          }),
           fiscalYear,
         },
         { status: 202, headers: { "Cache-Control": "private, no-store" } },
@@ -602,12 +707,16 @@ export async function GET(request) {
 
     const totals = await Promise.all(
       checkedQueryJobs.map(async ({ query, job }) => {
-        const content = await downloadBlackbaudQueryResult(getQueryResultUrl(job));
+        const rowCount = getQueryRowCount(job);
+        const total =
+          rowCount !== null
+            ? rowCount
+            : getSavedQueryTotal(await downloadBlackbaudQueryResult(getQueryResultUrl(job)));
         return {
           key: query.key,
           label: query.label,
           queryId: query.queryId,
-          total: getSavedQueryTotal(content),
+          total,
         };
       }),
     );
@@ -615,6 +724,9 @@ export async function GET(request) {
       status: "complete",
       fiscalYear,
       generatedAt: new Date().toISOString(),
+      report: presentation,
+      donorDefinition: getPublicDonorDefinition(donorConfiguration),
+      configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
       totals,
       totalRows: totals.reduce((total, result) => total + result.total, 0),
     };

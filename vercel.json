@@ -8,6 +8,10 @@
     {
       "path": "/api/internal/report-cache-refresh",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/internal/custom-field-report-cache-refresh",
+      "schedule": "30 * * * *"
     }
   ]
 }

@@ -1,4 +1,6 @@
 import sql from "@/app/api/utils/sql";
+import { normalizeAlumniDonorConfiguration } from "@/app/api/utils/alumniDonorConfiguration";
+import { customFieldReportKey } from "@/app/api/utils/customFieldReports";
 import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
 
 export const PORTFOLIO_GIVING_REPORT_KEY = "portfolio-fy-giving";
@@ -42,9 +44,60 @@ export function canUserViewReport({ user, visibility, specificUserIds }) {
   );
 }
 
+// Custom Field Reports intentionally have no role-based bypass. An
+// Advancement Services user must explicitly enable the report and select each
+// person who should see it, including administrators.
+export function canUserViewCustomFieldReport({ user, active, specificUserIds }) {
+  const userId = Number(user?.id);
+  return Boolean(active) && Number.isInteger(userId) && specificUserIds.includes(userId);
+}
+
+export async function getCustomFieldReportAccessForUser(slug, user) {
+  const normalizedSlug = String(slug || "").trim();
+  if (!normalizedSlug) return null;
+
+  const records = await sql`
+    SELECT
+      id,
+      slug,
+      title,
+      description,
+      field_category,
+      field_description,
+      source_query_id,
+      source_query_name,
+      specific_user_ids,
+      active,
+      created_at,
+      updated_at
+    FROM custom_field_reports
+    WHERE slug = ${normalizedSlug}
+    LIMIT 1
+  `;
+  const record = records[0] || null;
+  if (!record) return null;
+
+  const specificUserIds = parseReportSpecificUserIds(record.specific_user_ids);
+  return {
+    record,
+    key: customFieldReportKey(record.slug),
+    specificUserIds,
+    canView: canUserViewCustomFieldReport({
+      user,
+      active: record.active,
+      specificUserIds,
+    }),
+  };
+}
+
 export async function getReportAccessForUser(reportKey, user) {
   const records = await sql`
-    SELECT visibility, specific_user_ids
+    SELECT
+      title,
+      description,
+      visibility,
+      specific_user_ids,
+      data_configuration
     FROM report_configurations
     WHERE report_key = ${reportKey}
     LIMIT 1
@@ -54,6 +107,12 @@ export async function getReportAccessForUser(reportKey, user) {
   const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
 
   return {
+    title: String(record?.title || "").trim(),
+    description: String(record?.description || "").trim(),
+    dataConfiguration:
+      reportKey === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
+        ? normalizeAlumniDonorConfiguration(record?.data_configuration)
+        : null,
     visibility,
     specificUserIds,
     canView: canUserViewReport({ user, visibility, specificUserIds }),

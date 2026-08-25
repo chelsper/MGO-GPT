@@ -2105,6 +2105,7 @@ export default async function ensureAppSchema() {
         specific_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
         source_query_id TEXT,
         source_query_name TEXT,
+        data_configuration JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -2118,6 +2119,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE report_configurations
       ADD COLUMN IF NOT EXISTS source_query_name TEXT
+    `;
+    await sql`
+      ALTER TABLE report_configurations
+      ADD COLUMN IF NOT EXISTS data_configuration JSONB NOT NULL DEFAULT '{}'::jsonb
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_report_configurations_visibility
@@ -2199,6 +2204,32 @@ export default async function ensureAppSchema() {
         '[]'::jsonb
       )
       ON CONFLICT (report_key) DO NOTHING
+    `;
+
+    // Configured Custom Field Reports are deliberately opt-in. No default
+    // record is created, and a report remains hidden until it is enabled and
+    // assigned to one or more active workspace users.
+    await sql`
+      CREATE TABLE IF NOT EXISTS custom_field_reports (
+        id BIGSERIAL PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        description TEXT,
+        field_category TEXT NOT NULL,
+        field_description TEXT NOT NULL,
+        source_query_id TEXT NOT NULL,
+        source_query_name TEXT,
+        specific_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_custom_field_reports_active
+      ON custom_field_reports (active, updated_at DESC)
     `;
   })();
 

@@ -78,7 +78,11 @@ export default function AlumniFamilyEngagementPage() {
     async function loadReport() {
       setIsLoading(true);
       setError("");
-      setStatusText(refreshVersion > 0 ? "Preparing the Alumni donor total queries..." : "Loading the saved report snapshot...");
+      setStatusText(
+        refreshVersion > 0
+          ? "Preparing the configured Alumni donor total queries..."
+          : "Loading the saved report snapshot...",
+      );
       try {
         const refreshSuffix = refreshVersion > 0 ? "?refresh=1" : "";
         let { response, payload } = await requestReport(
@@ -87,13 +91,13 @@ export default function AlumniFamilyEngagementPage() {
 
         for (let attempt = 0; response.status === 202 && attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
           if (!active) return;
-          setStatusText("Waiting for NXT to finish the Alumni donor total queries...");
+          setStatusText("Waiting for NXT to finish the configured Alumni donor total queries...");
           const poll = payload?.poll && typeof payload.poll === "object" ? payload.poll : null;
           const pollParameters = new URLSearchParams(
             Object.entries(poll || {}).filter(([, value]) => String(value || "").trim()),
           );
           if (!pollParameters.size) {
-            throw new Error("The Alumni donor total refresh did not return polling information.");
+            throw new Error("The configured Alumni donor refresh did not return polling information.");
           }
           await wait(POLL_INTERVAL_MS);
           if (!active) return;
@@ -103,7 +107,7 @@ export default function AlumniFamilyEngagementPage() {
         }
 
         if (response.status === 202) {
-          throw new Error("The Alumni donor total queries are taking longer than expected. Please try refreshing this report.");
+          throw new Error("The configured Alumni donor queries are taking longer than expected. Please try refreshing this report.");
         }
         if (!active) return;
         setReport(payload);
@@ -135,6 +139,10 @@ export default function AlumniFamilyEngagementPage() {
 
   const isRefreshRequired = report?.status === "refresh_required";
   const totals = Array.isArray(report?.totals) ? report.totals : [];
+  const reportTitle = String(report?.report?.title || "Alumni & Family Engagement");
+  const reportDescription = String(
+    report?.report?.description || "Alumni donor totals from the saved NXT queries.",
+  );
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
@@ -142,8 +150,8 @@ export default function AlumniFamilyEngagementPage() {
         <SharedReportHeader
           activeReportKey="alumni-family-engagement"
           eyebrow="Shared engagement report"
-          title="Alumni & Family Engagement"
-          description="Alumni donor totals from the saved NXT queries."
+          title={reportTitle}
+          description={reportDescription}
           action={
             <button
               type="button"
@@ -201,7 +209,7 @@ export default function AlumniFamilyEngagementPage() {
             <strong>{statusText || "Loading the cached report..."}</strong>
             <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
               Normal visits use the last successful snapshot and do not make another NXT request. A refresh runs
-              the two saved total queries once.
+              each configured saved total query once.
             </p>
           </section>
         ) : null}
@@ -217,10 +225,10 @@ export default function AlumniFamilyEngagementPage() {
               color: "#1E3A8A",
             }}
           >
-            <strong>No saved Alumni & Family Engagement snapshot is available.</strong>
+            <strong>No saved {reportTitle} snapshot is available.</strong>
             <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
-              Select Refresh data once. The two saved totals will then remain available until the next 6 PM Eastern
-              refresh or another manual refresh.
+              Select Refresh data once. The configured saved totals will then remain available until the next 6 PM
+              Eastern refresh or another manual refresh.
             </p>
           </section>
         ) : null}
