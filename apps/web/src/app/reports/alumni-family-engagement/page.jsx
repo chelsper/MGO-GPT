@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleAlert, ExternalLink, RefreshCw, Users } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import useUser from "@/utils/useUser";
-import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
-import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 
 const POLL_INTERVAL_MS = 1250;
@@ -14,109 +12,34 @@ function wait(milliseconds) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function formatDate(value) {
-  const dateOnlyMatch = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const [, year, month, day] = dateOnlyMatch;
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: "UTC",
-    }).format(new Date(`${year}-${month}-${day}T00:00:00Z`));
-  }
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "Not available";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-}
-
 function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
 
-function MetricCard({ label, value, detail, color = "#1D4ED8" }) {
+function DonorTotal({ label, value }) {
   return (
     <article
       style={{
-        border: "1px solid #DCE7F7",
-        borderRadius: "16px",
+        border: "1px solid #BFDBFE",
+        borderRadius: "18px",
         backgroundColor: "white",
-        padding: "18px",
+        padding: "22px 24px",
       }}
     >
       <p
         style={{
           margin: 0,
-          color: "#64748B",
-          fontSize: "12px",
+          color: "#1E3A8A",
+          fontSize: "15px",
           fontWeight: 800,
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
         }}
       >
         {label}
       </p>
-      <strong style={{ display: "block", marginTop: "8px", color, fontSize: "31px" }}>
+      <strong style={{ display: "block", marginTop: "9px", color: "#166534", fontSize: "42px" }}>
         {formatNumber(value)}
       </strong>
-      {detail ? <p style={{ margin: "6px 0 0", color: "#64748B", fontSize: "13px" }}>{detail}</p> : null}
     </article>
-  );
-}
-
-function SetupInstructions({ canManage }) {
-  return (
-    <section
-      style={{
-        border: "1px solid #BFDBFE",
-        borderRadius: "18px",
-        padding: "24px",
-        backgroundColor: "#EFF6FF",
-      }}
-    >
-      <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "22px" }}>Connect the saved NXT query</h2>
-      <p style={{ margin: "9px 0 0", color: "#334155", lineHeight: 1.55 }}>
-        Enter the saved-query ID for Alumni Donors FY27 in Report Access. The report then uses one saved query
-        export, not a background scan of constituent records. The name is only a label because this Blackbaud
-        connection cannot safely enumerate saved queries by name.
-      </p>
-      <ol style={{ margin: "15px 0 0", paddingLeft: "22px", color: "#334155", lineHeight: 1.65 }}>
-        <li>Filter to constituency codes that begin with `Alumni`.</li>
-        <li>Filter to current-fiscal-year Cash Received gifts.</li>
-        <li>Include direct and soft-credit recipients as separate credited constituent rows.</li>
-        <li>
-          Output constituent system record ID or lookup ID, name, constituency code, Cash Received gift date and
-          type, and credit type.
-        </li>
-      </ol>
-      <p style={{ margin: "14px 0 0", color: "#1E3A8A", fontWeight: 800, lineHeight: 1.5 }}>
-        The report deduplicates by constituent. Two alumni spouses receiving soft credit for the same DAF gift
-        count as two alumni donors; repeated credits for one alum count once.
-      </p>
-      {canManage ? (
-        <a
-          href="/report-configurations"
-          style={{
-            display: "inline-flex",
-            marginTop: "18px",
-            minHeight: "42px",
-            alignItems: "center",
-            borderRadius: "10px",
-            backgroundColor: "#1D4ED8",
-            color: "white",
-            padding: "0 14px",
-            textDecoration: "none",
-            fontWeight: 800,
-          }}
-        >
-          Configure report source
-        </a>
-      ) : null}
-    </section>
   );
 }
 
@@ -155,7 +78,7 @@ export default function AlumniFamilyEngagementPage() {
     async function loadReport() {
       setIsLoading(true);
       setError("");
-      setStatusText("Preparing the saved NXT query...");
+      setStatusText(refreshVersion > 0 ? "Preparing the Alumni donor total queries..." : "Loading the saved report snapshot...");
       try {
         const refreshSuffix = refreshVersion > 0 ? "?refresh=1" : "";
         let { response, payload } = await requestReport(
@@ -164,16 +87,23 @@ export default function AlumniFamilyEngagementPage() {
 
         for (let attempt = 0; response.status === 202 && attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
           if (!active) return;
-          setStatusText(payload?.jobStatus || "Waiting for NXT to finish the saved query...");
+          setStatusText("Waiting for NXT to finish the Alumni donor total queries...");
+          const poll = payload?.poll && typeof payload.poll === "object" ? payload.poll : null;
+          const pollParameters = new URLSearchParams(
+            Object.entries(poll || {}).filter(([, value]) => String(value || "").trim()),
+          );
+          if (!pollParameters.size) {
+            throw new Error("The Alumni donor total refresh did not return polling information.");
+          }
           await wait(POLL_INTERVAL_MS);
           if (!active) return;
           ({ response, payload } = await requestReport(
-            `/api/reports/alumni-family-engagement?jobId=${encodeURIComponent(payload?.jobId || "")}`,
+            `/api/reports/alumni-family-engagement?${pollParameters.toString()}`,
           ));
         }
 
         if (response.status === 202) {
-          throw new Error("The saved NXT query is taking longer than expected. Please try refreshing this report.");
+          throw new Error("The Alumni donor total queries are taking longer than expected. Please try refreshing this report.");
         }
         if (!active) return;
         setReport(payload);
@@ -203,12 +133,8 @@ export default function AlumniFamilyEngagementPage() {
     );
   }
 
-  const metrics = report?.metrics || {};
-  const donors = Array.isArray(report?.donors) ? report.donors : [];
-  const warnings = Array.isArray(report?.warnings) ? report.warnings : [];
-  const canManage = canManageWorkspaceRole(user.role);
-  const isSetupRequired = report?.status === "setup_required";
   const isRefreshRequired = report?.status === "refresh_required";
+  const totals = Array.isArray(report?.totals) ? report.totals : [];
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
@@ -217,12 +143,12 @@ export default function AlumniFamilyEngagementPage() {
           activeReportKey="alumni-family-engagement"
           eyebrow="Shared engagement report"
           title="Alumni & Family Engagement"
-          description="Distinct alumni constituents with a current-fiscal-year Cash Received credit, including direct and soft credits."
+          description="Alumni donor totals from the saved NXT queries."
           action={
             <button
               type="button"
               onClick={() => setRefreshVersion((version) => version + 1)}
-              disabled={isLoading || isSetupRequired}
+              disabled={isLoading}
               style={{
                 minHeight: "42px",
                 display: "inline-flex",
@@ -234,8 +160,8 @@ export default function AlumniFamilyEngagementPage() {
                 color: "#1D4ED8",
                 padding: "0 14px",
                 fontWeight: 800,
-                cursor: isLoading || isSetupRequired ? "default" : "pointer",
-                opacity: isLoading || isSetupRequired ? 0.65 : 1,
+                cursor: isLoading ? "default" : "pointer",
+                opacity: isLoading ? 0.65 : 1,
               }}
             >
               <RefreshCw size={17} />
@@ -274,13 +200,11 @@ export default function AlumniFamilyEngagementPage() {
           >
             <strong>{statusText || "Loading the cached report..."}</strong>
             <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
-              A refresh runs one saved NXT query. Normal visits use the last successful snapshot and do not make
-              another NXT request for every constituent.
+              Normal visits use the last successful snapshot and do not make another NXT request. A refresh runs
+              the two saved total queries once.
             </p>
           </section>
         ) : null}
-
-        {isSetupRequired ? <SetupInstructions canManage={canManage} /> : null}
 
         {isRefreshRequired ? (
           <section
@@ -295,213 +219,18 @@ export default function AlumniFamilyEngagementPage() {
           >
             <strong>No saved Alumni & Family Engagement snapshot is available.</strong>
             <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
-              Select Refresh data once. The saved result will then remain available until the next 6 PM Eastern
+              Select Refresh data once. The two saved totals will then remain available until the next 6 PM Eastern
               refresh or another manual refresh.
             </p>
           </section>
         ) : null}
 
         {report?.status === "complete" ? (
-          <>
-            <section
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(205px, 1fr))",
-                gap: "14px",
-                marginBottom: "20px",
-              }}
-            >
-              <MetricCard
-                label={`${report?.fiscalYear?.yearLabel || "Current FY"} alumni donors`}
-                value={metrics.alumniDonors}
-                detail="Unique alumni constituents"
-                color="#166534"
-              />
-              <MetricCard
-                label="Soft-credit donors"
-                value={metrics.softCreditDonors}
-                detail="Also included in the total when eligible"
-                color="#7E22CE"
-              />
-              <MetricCard
-                label="Direct-credit donors"
-                value={metrics.directCreditDonors}
-                detail="Also included in the total when eligible"
-                color="#1D4ED8"
-              />
-              <MetricCard
-                label="Credits reviewed"
-                value={metrics.qualifyingCreditRows}
-                detail={`${formatNumber(metrics.duplicateCreditsCollapsed)} duplicate credits collapsed`}
-                color="#B45309"
-              />
-            </section>
-
-            <section
-              style={{
-                border: "1px solid #BBF7D0",
-                borderRadius: "15px",
-                backgroundColor: "#F0FDF4",
-                padding: "18px 20px",
-                color: "#166534",
-                marginBottom: "20px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                <Users size={20} style={{ marginTop: "2px", flexShrink: 0 }} />
-                <div>
-                  <strong>
-                    {report?.fiscalYear?.yearLabel || "Current FY"}: {report?.fiscalYear?.startDate} through{" "}
-                    {report?.fiscalYear?.endDate}
-                  </strong>
-                  <p style={{ margin: "6px 0 0", lineHeight: 1.5 }}>
-                    Each credited constituent is counted once. This means two alumni spouses who both receive soft
-                    credit for one DAF gift count as two alumni donors.
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            {warnings.length ? (
-              <section
-                style={{
-                  border: "1px solid #FDE68A",
-                  borderRadius: "15px",
-                  backgroundColor: "#FFFBEB",
-                  padding: "18px 20px",
-                  color: "#92400E",
-                  marginBottom: "20px",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                  <CircleAlert size={20} style={{ marginTop: "2px", flexShrink: 0 }} />
-                  <div>
-                    <strong>Saved-query data check</strong>
-                    <ul style={{ margin: "8px 0 0", paddingLeft: "20px", lineHeight: 1.5 }}>
-                      {warnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </section>
-            ) : null}
-
-            <section
-              style={{
-                border: "1px solid #E2E8F0",
-                borderRadius: "18px",
-                backgroundColor: "white",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  padding: "20px 22px",
-                  borderBottom: "1px solid #E2E8F0",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "16px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <h2 style={{ margin: 0, color: "#0F172A", fontSize: "21px" }}>Included alumni donors</h2>
-                  <p style={{ margin: "6px 0 0", color: "#64748B" }}>
-                    {formatNumber(donors.length)} unique donor{donors.length === 1 ? "" : "s"} from {report?.query?.name || "the saved NXT query"}.
-                  </p>
-                </div>
-                <p style={{ margin: 0, color: "#64748B", fontSize: "13px" }}>
-                  Last refreshed {formatDate(report.generatedAt)}
-                </p>
-              </div>
-
-              {report.truncated ? (
-                <p style={{ margin: 0, padding: "14px 22px", color: "#92400E", backgroundColor: "#FFFBEB", fontWeight: 700 }}>
-                  The saved query returned more than 10,000 rows. Only the first 10,000 were evaluated.
-                </p>
-              ) : null}
-
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "780px" }}>
-                  <thead>
-                    <tr style={{ backgroundColor: "#F8FAFC" }}>
-                      {["Constituent", "Constituency", "Credit", "Latest Cash Received", "Record"].map((label) => (
-                        <th
-                          key={label}
-                          scope="col"
-                          style={{
-                            padding: "13px 18px",
-                            textAlign: label === "Record" ? "right" : "left",
-                            color: "#475569",
-                            fontSize: "12px",
-                            letterSpacing: "0.05em",
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {donors.map((donor) => {
-                      const profileUrl = buildBlackbaudConstituentProfileUrl(donor.constituentId);
-                      return (
-                        <tr key={donor.id} style={{ borderTop: "1px solid #E2E8F0" }}>
-                          <td style={{ padding: "15px 18px", color: "#0F172A", fontWeight: 800 }}>
-                            <div>{donor.name}</div>
-                            {donor.lookupId ? (
-                              <div style={{ marginTop: "4px", color: "#64748B", fontSize: "13px", fontWeight: 500 }}>
-                                Lookup ID {donor.lookupId}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td style={{ padding: "15px 18px", color: "#334155" }}>{donor.constituency || "From query criteria"}</td>
-                          <td style={{ padding: "15px 18px", color: "#334155" }}>{donor.creditTypes.join(", ")}</td>
-                          <td style={{ padding: "15px 18px", color: "#334155" }}>
-                            {donor.giftDate ? formatDate(donor.giftDate) : "From query criteria"}
-                          </td>
-                          <td style={{ padding: "12px 18px", textAlign: "right" }}>
-                            {profileUrl ? (
-                              <a
-                                href={profileUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "7px",
-                                  minHeight: "38px",
-                                  border: "1px solid #93C5FD",
-                                  borderRadius: "9px",
-                                  color: "#1D4ED8",
-                                  padding: "0 11px",
-                                  textDecoration: "none",
-                                  fontWeight: 800,
-                                }}
-                              >
-                                Open NXT
-                                <ExternalLink size={15} />
-                              </a>
-                            ) : (
-                              <span style={{ color: "#94A3B8" }}>No ID</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {!donors.length ? (
-                <p style={{ margin: 0, padding: "22px", color: "#64748B" }}>
-                  No qualifying alumni donor rows were returned by this saved query.
-                </p>
-              ) : null}
-            </section>
-          </>
+          <section style={{ display: "grid", gap: "14px", maxWidth: "560px" }}>
+            {totals.map((total) => (
+              <DonorTotal key={total.key} label={total.label} value={total.total} />
+            ))}
+          </section>
         ) : null}
       </div>
     </main>

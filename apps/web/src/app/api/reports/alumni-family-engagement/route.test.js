@@ -6,7 +6,6 @@ const {
   getCachedReportSnapshotMock,
   getReportCacheHeadersMock,
   getOrCreateUserMock,
-  sqlMock,
   getReportAccessForUserMock,
   saveReportSnapshotMock,
   shouldBypassReportCacheMock,
@@ -20,7 +19,6 @@ const {
   getCachedReportSnapshotMock: vi.fn(),
   getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   getOrCreateUserMock: vi.fn(),
-  sqlMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
   shouldBypassReportCacheMock: vi.fn(
@@ -35,7 +33,6 @@ const {
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: getOrCreateUserMock }));
-vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 vi.mock("@/app/api/utils/reportAccess", () => ({
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY: "alumni-family-engagement",
   getReportAccessForUser: getReportAccessForUserMock,
@@ -60,8 +57,6 @@ function createRequest(search = "") {
 describe("Alumni & Family Engagement report route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_ID;
-    delete process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_NAME;
     authMock.mockResolvedValue({ user: { email: "mgo@example.edu" } });
     ensureAppSchemaMock.mockResolvedValue();
     getOrCreateUserMock.mockResolvedValue({ id: 7, role: "mgo" });
@@ -69,26 +64,37 @@ describe("Alumni & Family Engagement report route", () => {
     getCachedReportSnapshotMock.mockResolvedValue(null);
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
     saveReportSnapshotMock.mockResolvedValue();
-    sqlMock.mockResolvedValue([
-      {
-        source_query_id: "query-1",
-        source_query_name: "Alumni Donors FY27",
-      },
-    ]);
-    createBlackbaudQueryJobMock.mockResolvedValue({ id: "job-1" });
+    createBlackbaudQueryJobMock.mockImplementation(({ queryId }) =>
+      Promise.resolve({ id: queryId === "30976" ? "job-fy27" : "job-fy26" }),
+    );
     getBlackbaudQueryJobMock.mockResolvedValue({ status: "Running" });
   });
 
-  it("requires an administrator to configure the saved source query before it runs", async () => {
-    sqlMock.mockResolvedValueOnce([]);
+  it("starts both fixed alumni donor total queries together", async () => {
+    getBlackbaudQueryJobMock.mockRejectedValueOnce(
+      new Error("Blackbaud 404 Resource Not Found: Resource not found"),
+    );
     const { GET } = await import("./route.js");
 
     const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload).toMatchObject({ status: "setup_required" });
-    expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(202);
+    expect(payload).toMatchObject({
+      status: "running",
+      poll: {
+        fy27JobId: "job-fy27",
+        fy26JobId: "job-fy26",
+      },
+    });
+    expect(createBlackbaudQueryJobMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ queryId: "30976" }),
+    );
+    expect(createBlackbaudQueryJobMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ queryId: "30679" }),
+    );
   });
 
   it("returns the cached report without making another NXT request", async () => {
@@ -120,17 +126,34 @@ describe("Alumni & Family Engagement report route", () => {
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
-  it("returns a pollable response while Blackbaud materializes a newly created query job", async () => {
-    getBlackbaudQueryJobMock.mockRejectedValueOnce(
-      new Error("Blackbaud 404 Resource Not Found: Resource not found"),
+  it("counts the rows returned by each saved query and saves one snapshot", async () => {
+    getBlackbaudQueryJobMock.mockImplementation(({ jobId }) =>
+      Promise.resolve({
+        status: "Completed",
+        sas_uri: `https://results.example/${jobId}.csv`,
+      }),
     );
+    downloadBlackbaudQueryResultMock
+      .mockResolvedValueOnce("Constituent\nAlex\nJamie\nTaylor")
+      .mockResolvedValueOnce("Constituent\nMorgan\nRiley");
     const { GET } = await import("./route.js");
 
     const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
-    expect(response.status).toBe(202);
-    expect(payload).toMatchObject({ status: "running", jobId: "job-1", jobStatus: "Starting" });
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "complete",
+      totalRows: 5,
+      totals: [
+        { key: "fy27", label: "FY27 Alumni Donor Total", queryId: "30976", total: 3 },
+        { key: "fy26", label: "FY26 Alumni Donor Total", queryId: "30679", total: 2 },
+      ],
+    });
+    expect(saveReportSnapshotMock).toHaveBeenCalledWith(
+      "report:alumni-family-engagement",
+      expect.objectContaining({ status: "complete", totalRows: 5 }),
+    );
   });
 
   it("counts unique credited alumni, including two soft-credit spouses for one gift", async () => {

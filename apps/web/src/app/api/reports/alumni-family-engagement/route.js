@@ -1,7 +1,6 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
-import sql from "@/app/api/utils/sql";
 import {
   getCachedReportSnapshot,
   getReportCacheHeaders,
@@ -24,10 +23,20 @@ import {
   getReportAccessForUser,
 } from "@/app/api/utils/reportAccess";
 
-const DEFAULT_QUERY_NAME = "Alumni Donors FY27";
-const LEGACY_DEFAULT_QUERY_NAME = "alumni & family engagement";
 const MAX_QUERY_ROWS = 10000;
 export const ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY = "report:alumni-family-engagement";
+export const ALUMNI_DONOR_TOTAL_QUERIES = [
+  {
+    key: "fy27",
+    label: "FY27 Alumni Donor Total",
+    queryId: "30976",
+  },
+  {
+    key: "fy26",
+    label: "FY26 Alumni Donor Total",
+    queryId: "30679",
+  },
+];
 
 const CONSTITUENT_ID_ALIASES = [
   "constituentsystemrecordid",
@@ -167,6 +176,35 @@ function isFailedQueryJob(status) {
 function isBlackbaudNotFoundError(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   return /(?:404|not found|resource not found)/i.test(message);
+}
+
+function getQueryJobParameterName(query) {
+  return `${query.key}JobId`;
+}
+
+function getQueryJobPollingParameters(queryJobs) {
+  return Object.fromEntries(
+    queryJobs.map(({ query, jobId }) => [getQueryJobParameterName(query), jobId]),
+  );
+}
+
+function getSavedQueryTotal(content) {
+  const records = parseCsv(content);
+  return Math.max(records.length - 1, 0);
+}
+
+function createRunningPayload({ queryJobs, queryStatuses = {} }) {
+  return {
+    status: "running",
+    poll: getQueryJobPollingParameters(queryJobs),
+    queries: queryJobs.map(({ query, jobId }) => ({
+      key: query.key,
+      label: query.label,
+      queryId: query.queryId,
+      jobId,
+      jobStatus: queryStatuses[query.key] || "Queued",
+    })),
+  };
 }
 
 function getRowName(values, constituentId, rowNumber) {
@@ -378,45 +416,6 @@ async function getCurrentUser(request) {
   return getOrCreateUser(session, "admin");
 }
 
-async function getSourceQueryConfiguration() {
-  const records = await sql`
-    SELECT source_query_id, source_query_name
-    FROM report_configurations
-    WHERE report_key = ${ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY}
-    LIMIT 1
-  `;
-  const record = records[0] || {};
-  const queryId = String(
-    record.source_query_id || process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_ID || "",
-  ).trim();
-  const configuredQueryName = String(
-    record.source_query_name || process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_NAME || "",
-  ).trim();
-  const queryName =
-    configuredQueryName.toLocaleLowerCase("en-US") === LEGACY_DEFAULT_QUERY_NAME
-      ? DEFAULT_QUERY_NAME
-      : configuredQueryName || DEFAULT_QUERY_NAME;
-  const usesLegacyDefault =
-    configuredQueryName.toLocaleLowerCase("en-US") === LEGACY_DEFAULT_QUERY_NAME;
-
-  return {
-    // The original generic report configuration must not keep pointing to its
-    // old query after the report has been moved to the dedicated FY27 source.
-    queryId: usesLegacyDefault ? "" : queryId,
-    queryName: queryName || DEFAULT_QUERY_NAME,
-  };
-}
-
-function createSetupPayload({ fiscalYear, queryName }) {
-  return {
-    status: "setup_required",
-    fiscalYear,
-    query: { id: "", name: queryName },
-    message:
-      "An administrator must add this report's saved NXT query ID in Report Access before it can run. The saved query name alone is not used, so opening this report never performs a query-catalog scan.",
-  };
-}
-
 export async function GET(request) {
   try {
     const user = await getCurrentUser(request);
@@ -434,9 +433,21 @@ export async function GET(request) {
     const fiscalYear = getCurrentFiscalYearWindow();
     const { searchParams } = new URL(request.url);
     const forceRefresh = shouldBypassReportCache(request);
-    const jobId = searchParams.get("jobId")?.trim() || "";
+    const requestedQueryJobs = ALUMNI_DONOR_TOTAL_QUERIES.map((query) => ({
+      query,
+      jobId: searchParams.get(getQueryJobParameterName(query))?.trim() || "",
+    }));
+    const hasPollingJobs = requestedQueryJobs.some(({ jobId }) => Boolean(jobId));
+    const hasEveryPollingJob = requestedQueryJobs.every(({ jobId }) => Boolean(jobId));
 
-    if (!jobId && !forceRefresh) {
+    if (hasPollingJobs && !hasEveryPollingJob) {
+      return Response.json(
+        { error: "Both alumni donor query jobs are required while the report is refreshing." },
+        { status: 400 },
+      );
+    }
+
+    if (!hasPollingJobs && !forceRefresh) {
       const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
       if (cachedPayload) {
         return Response.json(cachedPayload, { headers: getReportCacheHeaders("hit") });
@@ -454,14 +465,6 @@ export async function GET(request) {
     }
 
     const origin = new URL(request.url).origin;
-    const configuredQuery = await getSourceQueryConfiguration();
-    const queryConfig = configuredQuery;
-    if (!queryConfig.queryId) {
-      return Response.json(createSetupPayload({ fiscalYear, queryName: queryConfig.queryName }), {
-        headers: getReportCacheHeaders("setup"),
-      });
-    }
-
     const configurationIssues = getBlackbaudConfigIssues(origin);
     if (configurationIssues.length) {
       return Response.json(
@@ -470,70 +473,91 @@ export async function GET(request) {
       );
     }
 
-    let activeJobId = jobId;
-    let jobStartedThisRequest = false;
-    if (!activeJobId) {
-      const createdJob = await createBlackbaudQueryJob({
-        userId: user.id,
-        origin,
-        queryId: queryConfig.queryId,
-      });
-      activeJobId = getQueryJobId(createdJob);
-      jobStartedThisRequest = true;
-      if (!activeJobId) {
-        throw new Error("Blackbaud did not return a query job ID.");
-      }
-    }
+    const activeQueryJobs = await Promise.all(
+      requestedQueryJobs.map(async ({ query, jobId }) => {
+        if (jobId) return { query, jobId, started: false };
 
-    let job;
-    try {
-      job = await getBlackbaudQueryJob({ userId: user.id, origin, jobId: activeJobId });
-    } catch (error) {
-      // Query v1 jobs can briefly return 404 immediately after creation while
-      // Blackbaud materializes the job. Subsequent client polling uses the ID.
-      if (jobStartedThisRequest && isBlackbaudNotFoundError(error)) {
-        return Response.json(
-          {
-            status: "running",
-            jobId: activeJobId,
-            query: queryConfig,
-            fiscalYear,
-            jobStatus: "Starting",
-          },
-          { status: 202, headers: { "Cache-Control": "private, no-store" } },
-        );
-      }
-      throw error;
-    }
-    const jobStatus = getQueryJobStatus(job);
-    const resultUrl = getQueryResultUrl(job);
-    if (!resultUrl) {
-      if (isFailedQueryJob(jobStatus)) {
-        return Response.json(
-          { error: `The NXT query job ${jobStatus || "failed"}.`, jobId: activeJobId },
-          { status: 502 },
-        );
-      }
+        const createdJob = await createBlackbaudQueryJob({
+          userId: user.id,
+          origin,
+          queryId: query.queryId,
+        });
+        const createdJobId = getQueryJobId(createdJob);
+        if (!createdJobId) {
+          throw new Error(`Blackbaud did not return a job ID for ${query.label}.`);
+        }
+        return { query, jobId: createdJobId, started: true };
+      }),
+    );
+
+    const checkedQueryJobs = await Promise.all(
+      activeQueryJobs.map(async (activeQueryJob) => {
+        try {
+          const job = await getBlackbaudQueryJob({
+            userId: user.id,
+            origin,
+            jobId: activeQueryJob.jobId,
+          });
+          return { ...activeQueryJob, job };
+        } catch (error) {
+          // Query jobs can briefly return 404 immediately after creation while
+          // NXT materializes them. Keep both IDs so the next poll resumes them.
+          if (activeQueryJob.started && isBlackbaudNotFoundError(error)) {
+            return { ...activeQueryJob, job: null, starting: true };
+          }
+          throw error;
+        }
+      }),
+    );
+
+    const failedQueryJob = checkedQueryJobs.find(({ job }) =>
+      job && isFailedQueryJob(getQueryJobStatus(job)),
+    );
+    if (failedQueryJob) {
       return Response.json(
         {
-          status: "running",
-          jobId: activeJobId,
-          query: queryConfig,
+          error: `${failedQueryJob.query.label} could not run in NXT (${getQueryJobStatus(failedQueryJob.job) || "failed"}).`,
+        },
+        { status: 502 },
+      );
+    }
+
+    const queryStatuses = Object.fromEntries(
+      checkedQueryJobs.map(({ query, job, starting }) => [
+        query.key,
+        starting ? "Starting" : getQueryJobStatus(job) || "Queued",
+      ]),
+    );
+    const isAnyQueryStillRunning = checkedQueryJobs.some(
+      ({ job }) => !getQueryResultUrl(job),
+    );
+    if (isAnyQueryStillRunning) {
+      return Response.json(
+        {
+          ...createRunningPayload({ queryJobs: activeQueryJobs, queryStatuses }),
           fiscalYear,
-          jobStatus: jobStatus || "Queued",
         },
         { status: 202, headers: { "Cache-Control": "private, no-store" } },
       );
     }
 
-    const content = await downloadBlackbaudQueryResult(resultUrl);
-    const parsed = buildAlumniDonorReport(content, { fiscalYear });
+    const totals = await Promise.all(
+      checkedQueryJobs.map(async ({ query, job }) => {
+        const content = await downloadBlackbaudQueryResult(getQueryResultUrl(job));
+        return {
+          key: query.key,
+          label: query.label,
+          queryId: query.queryId,
+          total: getSavedQueryTotal(content),
+        };
+      }),
+    );
     const payload = {
       status: "complete",
-      jobId: activeJobId,
-      query: queryConfig,
+      fiscalYear,
       generatedAt: new Date().toISOString(),
-      ...parsed,
+      totals,
+      totalRows: totals.reduce((total, result) => total + result.total, 0),
     };
     await saveReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY, payload);
 

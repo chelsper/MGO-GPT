@@ -134,8 +134,6 @@ export default function ReportConfigurationsPage() {
                         .map((id) => Number(id))
                         .filter(Number.isInteger)
                     : [],
-                  sourceQueryId: configuration.sourceQueryId || "",
-                  sourceQueryName: configuration.sourceQueryName || "",
                 },
               ]),
             ),
@@ -163,8 +161,6 @@ export default function ReportConfigurationsPage() {
       [reportKey]: {
         visibility: current[reportKey]?.visibility || "all_users",
         specificUserIds: current[reportKey]?.specificUserIds || [],
-        sourceQueryId: current[reportKey]?.sourceQueryId || "",
-        sourceQueryName: current[reportKey]?.sourceQueryName || "",
         ...update,
       },
     }));
@@ -183,8 +179,6 @@ export default function ReportConfigurationsPage() {
     const draft = drafts[configuration.key] || {
       visibility: "all_users",
       specificUserIds: [],
-      sourceQueryId: "",
-      sourceQueryName: "",
     };
     setSavingKey(configuration.key);
     setError("");
@@ -198,12 +192,6 @@ export default function ReportConfigurationsPage() {
           visibility: draft.visibility,
           specificUserIds:
             draft.visibility === "specific_users" ? draft.specificUserIds : [],
-          ...(configuration.key === "alumni-family-engagement"
-            ? {
-                sourceQueryId: draft.sourceQueryId,
-                sourceQueryName: draft.sourceQueryName,
-              }
-            : {}),
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -297,8 +285,6 @@ export default function ReportConfigurationsPage() {
               const draft = drafts[configuration.key] || {
                 visibility: "all_users",
                 specificUserIds: [],
-                sourceQueryId: "",
-                sourceQueryName: "",
               };
               const descriptions = getAudienceDescriptions(configuration);
               const isSaving = savingKey === configuration.key;
@@ -338,63 +324,16 @@ export default function ReportConfigurationsPage() {
                         Alumni donor source
                       </h3>
                       <p style={{ margin: "7px 0 0", color: "#334155", lineHeight: 1.5 }}>
-                        Enter the exact saved-query ID once, then this report keeps the last successful snapshot.
-                        It refreshes nightly at 6 PM Eastern or when a user explicitly refreshes it. It never loads
-                        one constituent at a time, which protects Blackbaud call volume.
+                        This first version uses two saved NXT queries and keeps the last successful snapshot. It
+                        refreshes nightly at 6 PM Eastern or when a user explicitly refreshes it.
                       </p>
-                      <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
-                        <label style={{ display: "grid", gap: "6px", color: "#1E3A8A", fontWeight: 800 }}>
-                          Saved NXT query ID
-                          <input
-                            name="alumni-family-engagement-query-id"
-                            value={draft.sourceQueryId}
-                            onChange={(event) =>
-                              updateDraft(configuration.key, { sourceQueryId: event.target.value })
-                            }
-                            placeholder="Example: 12345"
-                            maxLength={200}
-                            style={{
-                              minHeight: "42px",
-                              borderRadius: "9px",
-                              border: "1px solid #93C5FD",
-                              backgroundColor: "white",
-                              color: "#0F172A",
-                              padding: "0 12px",
-                              fontSize: "15px",
-                            }}
-                          />
-                        </label>
-                        <label style={{ display: "grid", gap: "6px", color: "#1E3A8A", fontWeight: 800 }}>
-                          Saved NXT query name (optional)
-                          <input
-                            name="alumni-family-engagement-query-name"
-                            value={draft.sourceQueryName}
-                            onChange={(event) =>
-                              updateDraft(configuration.key, { sourceQueryName: event.target.value })
-                            }
-                            placeholder="Alumni Donors FY27"
-                            maxLength={200}
-                            style={{
-                              minHeight: "42px",
-                              borderRadius: "9px",
-                              border: "1px solid #93C5FD",
-                              backgroundColor: "white",
-                              color: "#0F172A",
-                              padding: "0 12px",
-                              fontSize: "15px",
-                            }}
-                          />
-                        </label>
-                      </div>
                       <p style={{ margin: "14px 0 0", color: "#334155", lineHeight: 1.5, fontSize: "14px" }}>
-                        The query ID is required. The query name is for display only because this Blackbaud
-                        connection cannot enumerate saved queries by name.
+                        FY27 Alumni Donor Total uses saved NXT query ID 30976. FY26 Alumni Donor Total uses saved
+                        NXT query ID 30679.
                       </p>
                       <p style={{ margin: "10px 0 0", color: "#334155", lineHeight: 1.5, fontSize: "14px" }}>
-                        Configure the saved query to return one row per credited constituent with: constituent
-                        system record ID or lookup ID, constituent name, constituency code, Cash Received gift
-                        date/type, and credit type. Its criteria must limit results to constituency codes beginning
-                        with Alumni and current-fiscal-year Cash Received gifts, including direct and soft credits.
+                        Per-fiscal-year labels and additional saved-query rows will be configured in the next report
+                        configuration phase.
                       </p>
                     </section>
                   ) : null}

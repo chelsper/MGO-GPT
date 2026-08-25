@@ -74,12 +74,16 @@ async function readJson(response) {
 }
 
 async function refreshReportSnapshot({ origin, target, authorization }) {
-  let jobId = "";
+  let pollParameters = null;
 
   for (let attempt = 0; attempt < MAX_QUERY_POLL_ATTEMPTS; attempt += 1) {
     const url = new URL(target.path, origin);
-    if (jobId) {
-      url.searchParams.set("jobId", jobId);
+    if (pollParameters) {
+      Object.entries(pollParameters).forEach(([key, value]) => {
+        if (String(value || "").trim()) {
+          url.searchParams.set(key, String(value).trim());
+        }
+      });
     } else {
       url.searchParams.set("refresh", "1");
     }
@@ -94,9 +98,22 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
     const payload = await readJson(response);
 
     if (response.status === 202) {
-      jobId = String(payload?.jobId || jobId).trim();
-      if (!jobId) {
-        throw new Error("The report refresh did not return a query job ID.");
+      const returnedPollParameters = Object.entries(payload?.poll || {}).reduce(
+        (result, [key, value]) => {
+          const normalizedValue = String(value || "").trim();
+          if (normalizedValue) result[key] = normalizedValue;
+          return result;
+        },
+        {},
+      );
+      const returnedJobId = String(payload?.jobId || "").trim();
+      pollParameters = Object.keys(returnedPollParameters).length
+        ? returnedPollParameters
+        : returnedJobId
+          ? { jobId: returnedJobId }
+          : null;
+      if (!pollParameters) {
+        throw new Error("The report refresh did not return query polling information.");
       }
       await wait(QUERY_POLL_INTERVAL_MS);
       continue;
