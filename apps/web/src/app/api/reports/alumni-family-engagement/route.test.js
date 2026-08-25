@@ -13,6 +13,7 @@ const {
   createBlackbaudQueryJobMock,
   getBlackbaudQueryJobMock,
   downloadBlackbaudQueryResultMock,
+  findBlackbaudQueryByNameMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   ensureAppSchemaMock: vi.fn(),
@@ -28,6 +29,7 @@ const {
   createBlackbaudQueryJobMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
   downloadBlackbaudQueryResultMock: vi.fn(),
+  findBlackbaudQueryByNameMock: vi.fn(),
 }));
 
 vi.mock("@/auth", () => ({ auth: authMock }));
@@ -46,6 +48,7 @@ vi.mock("@/app/api/utils/reportCache", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   createBlackbaudQueryJob: createBlackbaudQueryJobMock,
   downloadBlackbaudQueryResult: downloadBlackbaudQueryResultMock,
+  findBlackbaudQueryByName: findBlackbaudQueryByNameMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJob: getBlackbaudQueryJobMock,
 }));
@@ -94,6 +97,32 @@ describe("Alumni & Family Engagement report route", () => {
     expect(createBlackbaudQueryJobMock).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ queryId: "30679" }),
+    );
+  });
+
+  it("resolves an NXT system record ID through the exact saved query name after a 404", async () => {
+    createBlackbaudQueryJobMock.mockImplementation(async ({ queryId }) => {
+      if (queryId === "30976") {
+        throw new Error("Blackbaud 404 Resource Not Found: Resource not found");
+      }
+      return { id: queryId === "query-api-fy27" ? "job-fy27" : "job-fy26" };
+    });
+    findBlackbaudQueryByNameMock.mockResolvedValue({
+      id: "query-api-fy27",
+      name: "Alumni Donors FY27",
+    });
+    const { GET } = await import("./route.js");
+
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload.poll).toMatchObject({ fy27JobId: "job-fy27", fy26JobId: "job-fy26" });
+    expect(findBlackbaudQueryByNameMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Alumni Donors FY27", versions: ["v1"] }),
+    );
+    expect(createBlackbaudQueryJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ queryId: "query-api-fy27" }),
     );
   });
 

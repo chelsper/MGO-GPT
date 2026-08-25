@@ -14,6 +14,7 @@ import {
 import {
   createBlackbaudQueryJob,
   downloadBlackbaudQueryResult,
+  findBlackbaudQueryByName,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
@@ -30,11 +31,13 @@ export const ALUMNI_DONOR_TOTAL_QUERIES = [
     key: "fy27",
     label: "FY27 Alumni Donor Total",
     queryId: "30976",
+    queryName: "Alumni Donors FY27",
   },
   {
     key: "fy26",
     label: "FY26 Alumni Donor Total",
     queryId: "30679",
+    queryName: "Alumni Donors FY26",
   },
 ];
 
@@ -191,6 +194,43 @@ function getQueryJobPollingParameters(queryJobs) {
 function getSavedQueryTotal(content) {
   const records = parseCsv(content);
   return Math.max(records.length - 1, 0);
+}
+
+async function createAlumniQueryJob({ user, origin, query }) {
+  try {
+    const createdJob = await createBlackbaudQueryJob({
+      userId: user.id,
+      origin,
+      queryId: query.queryId,
+    });
+    return { createdJob, resolvedQueryId: query.queryId };
+  } catch (error) {
+    // NXT shows a saved query's system record ID in its UI, while Query v1 can
+    // require a separate API ID. Resolve only the exact known query name when
+    // the system ID is not callable, never a partial or unrelated match.
+    if (!isBlackbaudNotFoundError(error) || !query.queryName) throw error;
+
+    const resolvedQuery = await findBlackbaudQueryByName({
+      userId: user.id,
+      origin,
+      name: query.queryName,
+      versions: ["v1"],
+    });
+    const resolvedQueryId = String(resolvedQuery?.id || "").trim();
+    if (!resolvedQueryId) {
+      throw new Error(
+        `${query.label} could not find the saved NXT query named \"${query.queryName}\". ` +
+          "Confirm that the query is shared with the report refresh connection.",
+      );
+    }
+
+    const createdJob = await createBlackbaudQueryJob({
+      userId: user.id,
+      origin,
+      queryId: resolvedQueryId,
+    });
+    return { createdJob, resolvedQueryId };
+  }
 }
 
 function createRunningPayload({ queryJobs, queryStatuses = {} }) {
@@ -477,16 +517,16 @@ export async function GET(request) {
       requestedQueryJobs.map(async ({ query, jobId }) => {
         if (jobId) return { query, jobId, started: false };
 
-        const createdJob = await createBlackbaudQueryJob({
-          userId: user.id,
+        const { createdJob, resolvedQueryId } = await createAlumniQueryJob({
+          user,
           origin,
-          queryId: query.queryId,
+          query,
         });
         const createdJobId = getQueryJobId(createdJob);
         if (!createdJobId) {
           throw new Error(`Blackbaud did not return a job ID for ${query.label}.`);
         }
-        return { query, jobId: createdJobId, started: true };
+        return { query, jobId: createdJobId, resolvedQueryId, started: true };
       }),
     );
 
