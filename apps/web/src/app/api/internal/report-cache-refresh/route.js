@@ -50,12 +50,19 @@ function getRefreshSecret() {
   ).trim();
 }
 
-function isAuthorizedCronRequest(request) {
+function getCronAuthorizationState(request) {
   const configuredSecret = getRefreshSecret();
-  if (!configuredSecret) return false;
-
   const authorization = String(request.headers.get("authorization") || "").trim();
-  return authorization === `Bearer ${configuredSecret}`;
+
+  return {
+    authorizationLength: authorization.length,
+    authorizationPresent: Boolean(authorization),
+    configuredSecretLength: configuredSecret.length,
+    configuredSecretPresent: Boolean(configuredSecret),
+    isAuthorized: Boolean(
+      configuredSecret && authorization === `Bearer ${configuredSecret}`,
+    ),
+  };
 }
 
 function wait(milliseconds) {
@@ -117,7 +124,10 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
 
 export async function GET(request) {
   try {
-    if (!isAuthorizedCronRequest(request)) {
+    const cronAuthorization = getCronAuthorizationState(request);
+    if (!cronAuthorization.isAuthorized) {
+      // Keep auth failures diagnosable without ever logging either secret.
+      console.warn("Unauthorized report snapshot refresh request", cronAuthorization);
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
