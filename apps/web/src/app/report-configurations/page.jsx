@@ -6,8 +6,19 @@ import useUser from "@/utils/useUser";
 import { getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 import {
   AVAILABLE_CONSTITUENCY_CODES,
-  GIFT_TYPE_OPTIONS,
 } from "@/app/api/utils/alumniDonorConfiguration";
+import {
+  getReportTypeDefinitions,
+  REPORT_TYPES,
+} from "@/app/api/utils/reportRegistry";
+
+const REPORT_TYPE_OPTIONS = getReportTypeDefinitions();
+
+const AUDIENCE_OPTIONS = Object.freeze({
+  all_users: Object.freeze({ title: "All active users", descriptionKey: "allUsers" }),
+  executive: Object.freeze({ title: "Executives", descriptionKey: "executives" }),
+  specific_users: Object.freeze({ title: "Specific users", descriptionKey: "specificUsers" }),
+});
 
 const panelStyle = {
   backgroundColor: "white",
@@ -54,6 +65,29 @@ function createDraft(configuration) {
       ? configuration.specificUserIds.map((id) => Number(id)).filter(Number.isInteger)
       : [],
     dataConfiguration: cloneDataConfiguration(configuration?.dataConfiguration),
+  };
+}
+
+function getConfigurationCapabilities(configuration) {
+  const capabilities = configuration?.configurationCapabilities || {};
+  const access = capabilities.access || {};
+  const configuredVisibilities = Array.isArray(access.allowedVisibilities)
+    ? access.allowedVisibilities.filter((visibility) => AUDIENCE_OPTIONS[visibility])
+    : [];
+  const allowedVisibilities = configuredVisibilities.length
+    ? configuredVisibilities
+    : ["all_users", "executive", "specific_users"];
+
+  return {
+    canEditTitle: capabilities.canEditTitle !== false,
+    canEditDescription: capabilities.canEditDescription !== false,
+    dataConfiguration: capabilities.dataConfiguration || null,
+    access: {
+      enabled: access.enabled !== false,
+      allowedVisibilities,
+      requiresSpecificUsers: access.requiresSpecificUsers !== false,
+      adminRoleBypass: access.adminRoleBypass !== false,
+    },
   };
 }
 
@@ -129,11 +163,7 @@ function ConfigurationCheckbox({ checked, description, label, onChange }) {
 }
 
 function getAudienceDescriptions(configuration) {
-  const isGlobalQuery = configuration.key === "future-made-phase-ii";
-  const isAlumniReport = configuration.key === "alumni-family-engagement";
-  const isTeamStandings = configuration.key === "executive-team-standings";
-
-  if (isGlobalQuery) {
+  if (configuration.audienceMode === "global_custom_field") {
     return {
       allUsers:
         "Every active user can run this saved query globally. Results do not depend on a selected MGO workspace.",
@@ -144,7 +174,7 @@ function getAudienceDescriptions(configuration) {
     };
   }
 
-  if (isTeamStandings) {
+  if (configuration.audienceMode === "team_standings") {
     return {
       allUsers:
         "Every active user can view the local team standings. No Blackbaud report data is loaded.",
@@ -155,7 +185,7 @@ function getAudienceDescriptions(configuration) {
     };
   }
 
-  if (isAlumniReport) {
+  if (configuration.audienceMode === "shared_snapshot") {
     return {
       allUsers:
         "Every active user can view this shared donor snapshot. Normal report visits do not make a new NXT request.",
@@ -185,6 +215,7 @@ export default function ReportConfigurationsPage() {
   const [configurations, setConfigurations] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [users, setUsers] = useState([]);
+  const [activeReportType, setActiveReportType] = useState(REPORT_TYPES.MGO_GPT);
   const [customFieldReports, setCustomFieldReports] = useState([]);
   const [customFieldDraft, setCustomFieldDraft] = useState(() => createCustomFieldDraft());
   const [editingCustomFieldSlug, setEditingCustomFieldSlug] = useState("");
@@ -442,6 +473,8 @@ export default function ReportConfigurationsPage() {
 
   async function saveConfiguration(configuration) {
     const draft = drafts[configuration.key] || createDraft(configuration);
+    const capabilities = getConfigurationCapabilities(configuration);
+    const isSpecificUsersVisibility = draft.visibility === "specific_users";
     setSavingKey(configuration.key);
     setError("");
     setStatusByKey((current) => ({ ...current, [configuration.key]: "" }));
@@ -451,12 +484,16 @@ export default function ReportConfigurationsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reportKey: configuration.key,
-          title: draft.title,
-          description: draft.description,
-          visibility: draft.visibility,
-          specificUserIds:
-            draft.visibility === "specific_users" ? draft.specificUserIds : [],
-          ...(configuration.key === "alumni-family-engagement"
+          ...(capabilities.canEditTitle ? { title: draft.title } : {}),
+          ...(capabilities.canEditDescription ? { description: draft.description } : {}),
+          ...(capabilities.access.enabled
+            ? {
+                visibility: draft.visibility,
+                specificUserIds:
+                  isSpecificUsersVisibility ? draft.specificUserIds : [],
+              }
+            : {}),
+          ...(capabilities.dataConfiguration === "alumni_donor_count"
             ? { dataConfiguration: draft.dataConfiguration }
             : {}),
         }),
@@ -501,6 +538,13 @@ export default function ReportConfigurationsPage() {
   const standardConfigurations = configurations.filter(
     (configuration) => !String(configuration.key || "").startsWith("custom-field:"),
   );
+  const activeReportTypeDefinition = REPORT_TYPE_OPTIONS.find(
+    (reportType) => reportType.key === activeReportType,
+  );
+  const visibleStandardConfigurations = standardConfigurations.filter(
+    (configuration) => configuration.reportType === activeReportType,
+  );
+  const isCustomFieldReportType = activeReportType === REPORT_TYPES.CUSTOM_FIELD;
   const selectedCustomUsers = customFieldDraft.specificUserIds.length;
   const canSaveCustomField =
     Boolean(customFieldDraft.title.trim()) &&
@@ -563,10 +607,59 @@ export default function ReportConfigurationsPage() {
           </section>
         ) : (
           <div style={{ display: "grid", gap: "20px" }}>
-            {standardConfigurations.map((configuration) => {
+            <section style={{ ...panelStyle, padding: "18px" }} aria-label="Report configuration categories">
+              <p style={{ margin: 0, color: "#475569", lineHeight: 1.5 }}>
+                Organize existing report configurations by source. This catalog does not change report refreshes,
+                NXT requests, caching, or report URLs.
+              </p>
+              <div
+                role="tablist"
+                aria-label="Report configuration categories"
+                style={{ display: "flex", gap: "9px", flexWrap: "wrap", marginTop: "16px" }}
+              >
+                {REPORT_TYPE_OPTIONS.map((reportType) => {
+                  const selected = reportType.key === activeReportType;
+                  return (
+                    <button
+                      key={reportType.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setActiveReportType(reportType.key)}
+                      style={{
+                        minHeight: "40px",
+                        border: selected ? "1px solid #4338CA" : "1px solid #CBD5E1",
+                        borderRadius: "999px",
+                        backgroundColor: selected ? "#EEF2FF" : "white",
+                        color: selected ? "#3730A3" : "#334155",
+                        padding: "0 14px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {reportType.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {activeReportTypeDefinition ? (
+                <p style={{ margin: "12px 0 0", color: "#64748B", lineHeight: 1.45, fontSize: "14px" }}>
+                  {activeReportTypeDefinition.description}
+                </p>
+              ) : null}
+            </section>
+
+            {visibleStandardConfigurations.length ? (
+              visibleStandardConfigurations.map((configuration) => {
               const draft = drafts[configuration.key] || createDraft(configuration);
               const donorConfiguration = draft.dataConfiguration;
               const descriptions = getAudienceDescriptions(configuration);
+              const capabilities = getConfigurationCapabilities(configuration);
+              const hasEditablePresentation =
+                capabilities.canEditTitle || capabilities.canEditDescription;
+              const supportsSpecificUsers = capabilities.access.allowedVisibilities.includes("specific_users");
+              const isSpecificUsersVisibility =
+                supportsSpecificUsers && draft.visibility === "specific_users";
               const isSaving = savingKey === configuration.key;
 
               return (
@@ -578,51 +671,59 @@ export default function ReportConfigurationsPage() {
                     <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5 }}>
                       {configuration.description}
                     </p>
-                    {configuration.key === "future-made-phase-ii" ? (
-                      <p style={{ margin: "10px 0 0", color: "#1D4ED8", lineHeight: 1.5, fontWeight: 700 }}>
-                        This report always uses the full saved NXT query, not the selected MGO portfolio.
-                      </p>
-                    ) : null}
-                    {configuration.key === "executive-team-standings" ? (
-                      <p style={{ margin: "10px 0 0", color: "#166534", lineHeight: 1.5, fontWeight: 700 }}>
-                        This report uses JUMGOGPT portfolio, opportunity, and next-step records. It does not load Blackbaud revenue data.
+                    {configuration.presentationNote ? (
+                      <p
+                        style={{
+                          margin: "10px 0 0",
+                          color: configuration.presentationNoteTone === "success" ? "#166534" : "#1D4ED8",
+                          lineHeight: 1.5,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {configuration.presentationNote}
                       </p>
                     ) : null}
                   </div>
 
-                  <section
-                    aria-label={`Presentation settings for ${configuration.title}`}
-                    style={{
-                      marginTop: "20px",
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                      gap: "14px",
-                    }}
-                  >
-                    <label style={fieldLabelStyle}>
-                      <span>Report title</span>
-                      <input
-                        style={fieldStyle}
-                        type="text"
-                        value={draft.title}
-                        maxLength={120}
-                        onChange={(event) => updateDraft(configuration.key, { title: event.target.value })}
-                      />
-                    </label>
-                    <label style={{ ...fieldLabelStyle, gridColumn: "1 / -1" }}>
-                      <span>Report description</span>
-                      <textarea
-                        style={{ ...fieldStyle, minHeight: "84px", resize: "vertical" }}
-                        value={draft.description}
-                        maxLength={1000}
-                        onChange={(event) =>
-                          updateDraft(configuration.key, { description: event.target.value })
-                        }
-                      />
-                    </label>
-                  </section>
+                  {hasEditablePresentation ? (
+                    <section
+                      aria-label={`Presentation settings for ${configuration.title}`}
+                      style={{
+                        marginTop: "20px",
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                        gap: "14px",
+                      }}
+                    >
+                      {capabilities.canEditTitle ? (
+                        <label style={fieldLabelStyle}>
+                          <span>Report title</span>
+                          <input
+                            style={fieldStyle}
+                            type="text"
+                            value={draft.title}
+                            maxLength={120}
+                            onChange={(event) => updateDraft(configuration.key, { title: event.target.value })}
+                          />
+                        </label>
+                      ) : null}
+                      {capabilities.canEditDescription ? (
+                        <label style={{ ...fieldLabelStyle, gridColumn: "1 / -1" }}>
+                          <span>Report description</span>
+                          <textarea
+                            style={{ ...fieldStyle, minHeight: "84px", resize: "vertical" }}
+                            value={draft.description}
+                            maxLength={1000}
+                            onChange={(event) =>
+                              updateDraft(configuration.key, { description: event.target.value })
+                            }
+                          />
+                        </label>
+                      ) : null}
+                    </section>
+                  ) : null}
 
-                  {configuration.key === "alumni-family-engagement" && donorConfiguration ? (
+                  {capabilities.dataConfiguration === "alumni_donor_count" && donorConfiguration ? (
                     <section
                       style={{
                         marginTop: "20px",
@@ -636,8 +737,14 @@ export default function ReportConfigurationsPage() {
                         Donors by Constituency
                       </h3>
                       <p style={{ margin: "7px 0 0", color: "#334155", lineHeight: 1.5 }}>
-                        Count distinct recipients of configured NXT Gift API records whose current constituency code
-                        matches one of the selections below. This report does not use a saved NXT query.
+                        Count distinct constituents with a compact NXT Query API job. The job is generated from
+                        these settings, returns only a row count, and never changes a saved NXT query or downloads
+                        constituent records.
+                      </p>
+
+                      <p style={{ margin: "9px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
+                        The default definition mirrors the supplied <strong>Alumni Donors FY27</strong> query:
+                        constituency-code field 2217, gift-date field 8471, and distinct constituent results.
                       </p>
 
                       <div style={{ marginTop: "20px" }}>
@@ -645,7 +752,7 @@ export default function ReportConfigurationsPage() {
                           Constituency codes
                         </h4>
                         <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
-                          Select the active NXT codes that identify a donor for this report. A recipient only needs
+                          Select the active NXT codes that identify a donor for this report. A constituent only needs
                           one selected code to count.
                         </p>
                         <div
@@ -712,14 +819,22 @@ export default function ReportConfigurationsPage() {
                           }}
                         />
                         <span style={{ color: "#64748B", fontSize: "13px", fontWeight: 500, lineHeight: 1.45 }}>
-                          Add any active NXT constituency code not shown above, one exact code per line.
+                          Add any active NXT constituency code not shown above as <code>12345 | Display label</code>,
+                          one per line. The numeric NXT code ID is required.
                         </span>
                       </label>
 
-                      <div style={{ marginTop: "20px" }}>
-                        <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>Gift types</h4>
+                      <div
+                        style={{
+                          marginTop: "20px",
+                          borderTop: "1px solid #BFDBFE",
+                          paddingTop: "18px",
+                        }}
+                      >
+                        <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>NXT inclusion rules</h4>
                         <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
-                          Include the NXT Gift API types that should count toward the donor total.
+                          These settings map directly to NXT Query API options. No separate gift-type selector is
+                          shown because the supplied NXT query definition does not include a gift-type field.
                         </p>
                         <div
                           style={{
@@ -729,21 +844,53 @@ export default function ReportConfigurationsPage() {
                             gap: "10px 18px",
                           }}
                         >
-                          {GIFT_TYPE_OPTIONS.map((option) => (
-                            <ConfigurationCheckbox
-                              key={option.key}
-                              checked={(donorConfiguration.giftTypes || []).includes(option.key)}
-                              label={option.label}
-                              onChange={(event) =>
-                                toggleDonorListValue(
-                                  configuration.key,
-                                  "giftTypes",
-                                  option.key,
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                          ))}
+                          <ConfigurationCheckbox
+                            checked={donorConfiguration.includeSoftCreditedDonors !== false}
+                            label="Include soft-credited donors"
+                            description="Uses NXT's Both credit option, so qualifying soft-credit recipients count."
+                            onChange={(event) =>
+                              updateDonorConfiguration(configuration.key, {
+                                includeSoftCreditedDonors: event.target.checked,
+                              })
+                            }
+                          />
+                          <ConfigurationCheckbox
+                            checked={donorConfiguration.includeMatchingGiftCredits !== false}
+                            label="Include matching-gift credits"
+                            description="Uses NXT's Both matching-gift credit option."
+                            onChange={(event) =>
+                              updateDonorConfiguration(configuration.key, {
+                                includeMatchingGiftCredits: event.target.checked,
+                              })
+                            }
+                          />
+                          <ConfigurationCheckbox
+                            checked={donorConfiguration.includeInactiveConstituents !== false}
+                            label="Include inactive constituents"
+                            onChange={(event) =>
+                              updateDonorConfiguration(configuration.key, {
+                                includeInactiveConstituents: event.target.checked,
+                              })
+                            }
+                          />
+                          <ConfigurationCheckbox
+                            checked={donorConfiguration.includeDeceasedConstituents !== false}
+                            label="Include deceased constituents"
+                            onChange={(event) =>
+                              updateDonorConfiguration(configuration.key, {
+                                includeDeceasedConstituents: event.target.checked,
+                              })
+                            }
+                          />
+                          <ConfigurationCheckbox
+                            checked={donorConfiguration.includeConstituentsWithNoValidAddress !== false}
+                            label="Include constituents with no valid address"
+                            onChange={(event) =>
+                              updateDonorConfiguration(configuration.key, {
+                                includeConstituentsWithNoValidAddress: event.target.checked,
+                              })
+                            }
+                          />
                         </div>
                       </div>
 
@@ -751,8 +898,8 @@ export default function ReportConfigurationsPage() {
                         <div>
                           <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>FY donor counts</h4>
                           <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
-                            Each row counts distinct recipients of the selected NXT gift types during its fiscal-year
-                            dates, then filters them by the selected constituency codes.
+                            Each row runs one count-only NXT query job for its fiscal-year dates. The completed job's
+                            row count is saved as the report total; no donor list is downloaded.
                           </p>
                         </div>
 
@@ -870,39 +1017,31 @@ export default function ReportConfigurationsPage() {
                     </section>
                   ) : null}
 
-                  <fieldset style={{ border: 0, padding: 0, margin: "22px 0 0" }}>
-                    <legend style={{ color: "#334155", fontSize: "15px", fontWeight: 800, marginBottom: "12px" }}>
-                      Who can view this report?
-                    </legend>
-                    <div style={{ display: "grid", gap: "11px" }}>
-                      <AudienceOption
-                        checked={draft.visibility === "all_users"}
-                        description={descriptions.allUsers}
-                        name={`report-visibility-${configuration.key}`}
-                        onChange={() => updateDraft(configuration.key, { visibility: "all_users" })}
-                        title="All active users"
-                        value="all_users"
-                      />
-                      <AudienceOption
-                        checked={draft.visibility === "executive"}
-                        description={descriptions.executives}
-                        name={`report-visibility-${configuration.key}`}
-                        onChange={() => updateDraft(configuration.key, { visibility: "executive" })}
-                        title="Executives"
-                        value="executive"
-                      />
-                      <AudienceOption
-                        checked={draft.visibility === "specific_users"}
-                        description={descriptions.specificUsers}
-                        name={`report-visibility-${configuration.key}`}
-                        onChange={() => updateDraft(configuration.key, { visibility: "specific_users" })}
-                        title="Specific users"
-                        value="specific_users"
-                      />
-                    </div>
-                  </fieldset>
+                  {capabilities.access.enabled ? (
+                    <fieldset style={{ border: 0, padding: 0, margin: "22px 0 0" }}>
+                      <legend style={{ color: "#334155", fontSize: "15px", fontWeight: 800, marginBottom: "12px" }}>
+                        Who can view this report?
+                      </legend>
+                      <div style={{ display: "grid", gap: "11px" }}>
+                        {capabilities.access.allowedVisibilities.map((visibility) => {
+                          const option = AUDIENCE_OPTIONS[visibility];
+                          return (
+                            <AudienceOption
+                              key={visibility}
+                              checked={draft.visibility === visibility}
+                              description={descriptions[option.descriptionKey]}
+                              name={`report-visibility-${configuration.key}`}
+                              onChange={() => updateDraft(configuration.key, { visibility })}
+                              title={option.title}
+                              value={visibility}
+                            />
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+                  ) : null}
 
-                  {draft.visibility === "specific_users" ? (
+                  {isSpecificUsersVisibility ? (
                     <section style={{ marginTop: "20px" }} aria-label={`Select users for ${configuration.title}`}>
                       <h3 style={{ color: "#334155", fontSize: "15px", margin: "0 0 10px" }}>Selected users</h3>
                       <div style={{ display: "grid", gap: "8px", maxHeight: "360px", overflowY: "auto" }}>
@@ -949,7 +1088,7 @@ export default function ReportConfigurationsPage() {
                   ) : null}
 
                   <p style={{ margin: "18px 0 0", color: "#64748B", lineHeight: 1.5, fontSize: "14px" }}>
-                    {configuration.key === "executive-team-standings"
+                    {configuration.adapterKey === "executive-team-standings"
                       ? "This report uses only JUMGOGPT operational data and does not require a Blackbaud connection to load."
                       : "Each person still needs a connected Blackbaud account with permission to read the report's data."}
                   </p>
@@ -960,7 +1099,9 @@ export default function ReportConfigurationsPage() {
                       onClick={() => saveConfiguration(configuration)}
                       disabled={
                         isSaving ||
-                        (draft.visibility === "specific_users" && draft.specificUserIds.length === 0)
+                        (isSpecificUsersVisibility &&
+                          capabilities.access.requiresSpecificUsers &&
+                          draft.specificUserIds.length === 0)
                       }
                       style={{
                         display: "inline-flex",
@@ -987,9 +1128,21 @@ export default function ReportConfigurationsPage() {
                   </div>
                 </section>
               );
-            })}
+              })
+            ) : (
+              <section style={panelStyle}>
+                <h2 style={{ margin: 0, color: "#0F172A", fontSize: "21px" }}>
+                  No built-in reports in this category yet
+                </h2>
+                <p style={{ margin: "8px 0 0", color: "#64748B", lineHeight: 1.5 }}>
+                  Existing report behavior is unchanged. This category will show configured reports as they are
+                  introduced.
+                </p>
+              </section>
+            )}
 
-            <section style={panelStyle}>
+            {isCustomFieldReportType ? (
+              <section style={panelStyle}>
               <div style={{ borderBottom: "1px solid #E2E8F0", paddingBottom: "18px" }}>
                 <h2 style={{ margin: 0, color: "#0F172A", fontSize: "21px" }}>Custom Field Reports</h2>
                 <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5 }}>
@@ -1309,6 +1462,7 @@ export default function ReportConfigurationsPage() {
                 )}
               </section>
             </section>
+            ) : null}
           </div>
         )}
       </div>

@@ -66,4 +66,36 @@ describe("report access", () => {
       canUserViewCustomFieldReport({ ...report, active: false, user: { id: 7, role: "mgo" } }),
     ).toBe(false);
   });
+
+  it("respects an explicit-user policy without changing the standard report policy", () => {
+    const explicitUserPolicy = {
+      allowedVisibilities: ["specific_users"],
+      adminRoleBypass: false,
+    };
+
+    expect(
+      canUserViewReport({
+        visibility: "specific_users",
+        specificUserIds: [7],
+        accessPolicy: explicitUserPolicy,
+        user: { id: 1, role: "admin" },
+      }),
+    ).toBe(false);
+    expect(
+      canUserViewReport({
+        visibility: "specific_users",
+        specificUserIds: [7],
+        accessPolicy: explicitUserPolicy,
+        user: { id: 7, role: "mgo" },
+      }),
+    ).toBe(true);
+    expect(
+      canUserViewReport({
+        visibility: "all_users",
+        specificUserIds: [],
+        accessPolicy: explicitUserPolicy,
+        user: { id: 7, role: "mgo" },
+      }),
+    ).toBe(false);
+  });
 });

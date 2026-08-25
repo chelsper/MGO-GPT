@@ -2182,7 +2182,7 @@ export default async function ensureAppSchema() {
       VALUES (
         'alumni-family-engagement',
         'Alumni & Family Engagement',
-        'Count current fiscal-year alumni donors from one shared NXT saved query, including soft-credit recipients.',
+        'Count distinct alumni donors with configured NXT constituency and gift-credit criteria.',
         'all_users',
         '[]'::jsonb
       )

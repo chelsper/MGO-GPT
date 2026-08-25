@@ -1,3 +1,5 @@
+import { getCustomFieldReportMetadata } from "@/app/api/utils/reportRegistry";
+
 const MAX_TITLE_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 1000;
 const MAX_FIELD_VALUE_LENGTH = 200;
@@ -92,11 +94,13 @@ export function createCustomFieldReportSlug(title, suffix = "") {
 
 export function serializeCustomFieldReport(record, canView = false) {
   const slug = String(record?.slug || "").trim();
+  const metadata = getCustomFieldReportMetadata(slug);
   return {
+    ...metadata,
     id: Number(record?.id || 0),
     key: customFieldReportKey(slug),
     slug,
-    href: `/reports/custom-field/${encodeURIComponent(slug)}`,
+    href: metadata.href,
     title: String(record?.title || "").trim(),
     description: String(record?.description || "").trim(),
     fieldCategory: String(record?.field_category || "").trim(),

@@ -24,6 +24,7 @@ const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
 const BLACKBAUD_QUERY_URL = "https://api.sky.blackbaud.com/query";
 const BLACKBAUD_QUERY_LIST_URL = `${BLACKBAUD_QUERY_URL}/queries`;
+const BLACKBAUD_QUERY_EXECUTE_URL = `${BLACKBAUD_QUERY_LIST_URL}/execute`;
 const BLACKBAUD_QUERY_EXECUTE_BY_ID_URL = `${BLACKBAUD_QUERY_LIST_URL}/executebyid`;
 const BLACKBAUD_QUERY_JOBS_URL = `${BLACKBAUD_QUERY_URL}/jobs`;
 const BLACKBAUD_QUERY_PRODUCT = "RE";
@@ -307,14 +308,19 @@ async function parseBlackbaudResponse(response) {
   }
   if (!response.ok) {
     const detail =
+      payload?.detail ||
       payload?.message ||
+      payload?.title ||
       payload?.error_description ||
       payload?.error ||
       responseText ||
       response.statusText ||
       "Blackbaud request failed";
+    const traceId = String(payload?.trace_id || payload?.traceId || "").trim();
     throw new Error(
-      `Blackbaud ${response.status} ${response.statusText}: ${detail}`,
+      `Blackbaud ${response.status} ${response.statusText}: ${detail}${
+        traceId ? ` (trace ${traceId})` : ""
+      }`,
     );
   }
 
@@ -652,6 +658,42 @@ export async function createBlackbaudQueryJob({ userId, authUserId, origin, quer
         output_format: "Csv",
         formatting_mode: "UI",
         sql_generation_mode: "Query",
+      },
+    },
+  );
+}
+
+// Executes an app-defined query without relying on a saved-query system ID.
+// Callers use the completed job's row_count and never download its result file.
+export async function createBlackbaudAdHocQueryJob({
+  userId,
+  authUserId,
+  origin,
+  query,
+  resultsFileName,
+}) {
+  if (!query || typeof query !== "object") {
+    throw new Error("A Blackbaud query definition is required");
+  }
+
+  return blackbaudApiFetch(
+    BLACKBAUD_QUERY_EXECUTE_URL,
+    {
+      userId,
+      authUserId,
+      origin,
+      searchParams: {
+        product: BLACKBAUD_QUERY_PRODUCT,
+        module: BLACKBAUD_QUERY_MODULE,
+        include_read_url: "OnceCompleted",
+      },
+      method: "POST",
+      body: {
+        query,
+        ux_mode: "Asynchronous",
+        output_format: "Csv",
+        formatting_mode: "UI",
+        ...(resultsFileName ? { results_file_name: String(resultsFileName) } : {}),
       },
     },
   );

@@ -3,6 +3,7 @@ import {
   createCustomFieldReportSlug,
   customFieldReportCacheKey,
   normalizeCustomFieldReportInput,
+  serializeCustomFieldReport,
   validateCustomFieldReportInput,
 } from "./customFieldReports";
 
@@ -51,5 +52,17 @@ describe("Custom Field Report configuration", () => {
     expect(customFieldReportCacheKey("alumni-family-fy27-abc")).toBe(
       "report:custom-field:alumni-family-fy27-abc",
     );
+  });
+
+  it("classifies generated reports as Custom Field Reports with a constrained route", () => {
+    const report = serializeCustomFieldReport({
+      id: 7,
+      slug: "future-made-phase-ii-abc",
+      title: "Future. Made. Phase II",
+    });
+
+    expect(report.reportType).toBe("custom_field");
+    expect(report.configurationSchema).toBe("custom-field-report-v1");
+    expect(report.href).toBe("/reports/custom-field/future-made-phase-ii-abc");
   });
 });

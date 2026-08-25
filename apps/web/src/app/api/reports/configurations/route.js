@@ -6,14 +6,10 @@ import {
   canManageWorkspaceRole,
 } from "@/utils/workspaceRoles";
 import {
-  ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
   canUserViewCustomFieldReport,
   canUserViewReport,
-  EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
-  FUTURE_MADE_PHASE_TWO_REPORT_KEY,
   normalizeReportVisibility,
   parseReportSpecificUserIds,
-  PORTFOLIO_GIVING_REPORT_KEY,
 } from "@/app/api/utils/reportAccess";
 import {
   createCustomFieldReportSlug,
@@ -27,34 +23,18 @@ import {
   normalizeAlumniDonorConfiguration,
   validateAlumniDonorConfiguration,
 } from "@/app/api/utils/alumniDonorConfiguration";
+import {
+  getReportDefinition,
+  getStandardReportMetadata,
+  STANDARD_REPORT_DEFINITIONS,
+  supportsReportDataConfiguration,
+  validateReportConfigurationPayload,
+} from "@/app/api/utils/reportRegistry";
 
-const REPORT_DEFINITIONS = [
-  {
-    key: PORTFOLIO_GIVING_REPORT_KEY,
-    title: "My Reports",
-    description: "Review current fiscal-year portfolio giving and shared engagement reports.",
-  },
-  {
-    key: FUTURE_MADE_PHASE_TWO_REPORT_KEY,
-    title: "Future. Made. Phase II",
-    description:
-      "View every constituent returned by the saved Future. Made. Phase II NXT query.",
-  },
-  {
-    key: EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
-    title: "Executive Team Standings",
-    description:
-      "Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.",
-  },
-  {
-    key: ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
-    title: "Alumni & Family Engagement",
-    description:
-      "Count distinct donors from configured NXT gift types and constituency codes.",
-  },
-];
+const STANDARD_REPORT_KEYS = STANDARD_REPORT_DEFINITIONS.map((definition) => definition.key);
 
 function serializeConfiguration(definition, record, currentUser) {
+  const metadata = getStandardReportMetadata(definition);
   const visibility = normalizeReportVisibility(record?.visibility);
   const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
   const canView = canUserViewReport({
@@ -64,6 +44,7 @@ function serializeConfiguration(definition, record, currentUser) {
   });
 
   return {
+    ...metadata,
     key: definition.key,
     title: record?.title || definition.title,
     description: record?.description || definition.description,
@@ -72,7 +53,7 @@ function serializeConfiguration(definition, record, currentUser) {
     sourceQueryId: "",
     sourceQueryName: "",
     dataConfiguration:
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
+      metadata.supportsDataConfiguration
         ? normalizeAlumniDonorConfiguration(record?.data_configuration)
         : null,
     canView,
@@ -207,12 +188,7 @@ export async function GET() {
         source_query_name,
         data_configuration
       FROM report_configurations
-      WHERE report_key IN (
-        'portfolio-fy-giving',
-        'future-made-phase-ii',
-        'executive-team-standings',
-        'alumni-family-engagement'
-      )
+      WHERE report_key = ANY(${STANDARD_REPORT_KEYS})
     `;
     const canManage = canManageWorkspaceRole(user.role);
     const recordsByKey = new Map(records.map((record) => [record.report_key, record]));
@@ -267,7 +243,7 @@ export async function GET() {
     return Response.json({
       canManage,
       configurations: [
-        ...REPORT_DEFINITIONS.map((definition) =>
+        ...STANDARD_REPORT_DEFINITIONS.map((definition) =>
           serializeConfiguration(definition, recordsByKey.get(definition.key), user),
         ),
         ...serializedCustomFieldReports.filter((report) => report.canView),
@@ -322,9 +298,14 @@ export async function PATCH(request) {
       });
     }
 
-    const definition = REPORT_DEFINITIONS.find((report) => report.key === body?.reportKey);
+    const definition = getReportDefinition(body?.reportKey);
     if (!definition) {
       return Response.json({ error: "Unknown report." }, { status: 400 });
+    }
+
+    const configurationPayloadError = validateReportConfigurationPayload(definition, body);
+    if (configurationPayloadError) {
+      return Response.json({ error: configurationPayloadError }, { status: 400 });
     }
 
     const visibility = normalizeReportVisibility(body?.visibility);
@@ -371,7 +352,7 @@ export async function PATCH(request) {
 
     const hasDataConfigurationUpdate = Object.hasOwn(body || {}, "dataConfiguration");
     const shouldUpdateDataConfiguration =
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY && hasDataConfigurationUpdate;
+      supportsReportDataConfiguration(definition) && hasDataConfigurationUpdate;
     const dataConfiguration = shouldUpdateDataConfiguration
       ? normalizeAlumniDonorConfiguration(body?.dataConfiguration)
       : null;
@@ -391,7 +372,7 @@ export async function PATCH(request) {
       );
     }
     const shouldUpdateSourceQuery =
-      definition.key === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY && shouldUpdateDataConfiguration;
+      supportsReportDataConfiguration(definition) && shouldUpdateDataConfiguration;
 
     const saved = await sql`
       INSERT INTO report_configurations (

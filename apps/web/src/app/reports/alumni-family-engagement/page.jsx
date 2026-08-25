@@ -73,7 +73,7 @@ export default function AlumniFamilyEngagementPage() {
       setError("");
       setStatusText(
         refreshVersion > 0
-          ? "Refreshing configured NXT gift and constituency data..."
+          ? "Running the configured NXT donor-count query jobs..."
           : "Loading the saved report snapshot...",
       );
       try {
@@ -111,7 +111,7 @@ export default function AlumniFamilyEngagementPage() {
   const totals = Array.isArray(report?.totals) ? report.totals : [];
   const reportTitle = String(report?.report?.title || "Alumni & Family Engagement");
   const reportDescription = String(
-    report?.report?.description || "Alumni donor totals from configured NXT gifts and constituency codes.",
+    report?.report?.description || "Distinct alumni donor totals from configured NXT Query API criteria.",
   );
 
   return (
@@ -165,6 +165,23 @@ export default function AlumniFamilyEngagementPage() {
           </section>
         ) : null}
 
+        {report?.refreshWarning ? (
+          <section
+            role="status"
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #FDE68A",
+              borderRadius: "14px",
+              padding: "18px",
+              color: "#92400E",
+              backgroundColor: "#FFFBEB",
+              fontWeight: 700,
+            }}
+          >
+            {report.refreshWarning}
+          </section>
+        ) : null}
+
         {isLoading ? (
           <section
             style={{
@@ -179,7 +196,7 @@ export default function AlumniFamilyEngagementPage() {
             <strong>{statusText || "Loading the cached report..."}</strong>
             <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
               Normal visits use the last successful snapshot and do not make another NXT request. A refresh runs
-              the configured NXT gift and constituency check, then replaces that saved snapshot.
+              the configured NXT donor-count query jobs, then replaces that saved snapshot.
             </p>
           </section>
         ) : null}
@@ -204,11 +221,18 @@ export default function AlumniFamilyEngagementPage() {
         ) : null}
 
         {report?.status === "complete" ? (
-          <section style={{ display: "grid", gap: "14px", maxWidth: "560px" }}>
-            {totals.map((total) => (
-              <DonorTotal key={total.key} label={total.label} value={total.total} />
-            ))}
-          </section>
+          <>
+            {report.generatedAt ? (
+              <p style={{ margin: "0 0 14px", color: "#64748B", fontSize: "14px" }}>
+                Last refreshed: {new Date(report.generatedAt).toLocaleString("en-US")}
+              </p>
+            ) : null}
+            <section style={{ display: "grid", gap: "14px", maxWidth: "560px" }}>
+              {totals.map((total) => (
+                <DonorTotal key={total.key} label={total.label} value={total.total} />
+              ))}
+            </section>
+          </>
         ) : null}
       </div>
     </main>

@@ -1,21 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { getReportHref } from "@/app/api/utils/reportRegistry";
+import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 
-const REPORT_PATHS = Object.freeze({
-  "portfolio-fy-giving": "/reports",
-  "alumni-family-engagement": "/reports/alumni-family-engagement",
-  "future-made-phase-ii": "/reports/future-made-phase-ii",
-  "executive-team-standings": "/reports/executive-team-standings",
-});
-
-function getReportHref(report) {
-  const configuredHref = String(report?.href || "").trim();
-  return configuredHref || REPORT_PATHS[report?.key] || "/reports";
-}
-
-export default function SharedReportHeader({
+function SharedReportHeaderContent({
   activeReportKey,
   eyebrow,
   title,
@@ -23,35 +12,8 @@ export default function SharedReportHeader({
   action = null,
   backHref = "/reports",
   backLabel = "Back to reports",
+  accessibleReports = [],
 }) {
-  const [reports, setReports] = useState([]);
-
-  useEffect(() => {
-    let active = true;
-
-    async function loadReports() {
-      try {
-        const response = await fetch("/api/reports/configurations", {
-          cache: "no-store",
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) return;
-
-        const visibleReports = Array.isArray(payload?.configurations)
-          ? payload.configurations.filter((report) => report?.canView)
-          : [];
-        if (active) setReports(visibleReports);
-      } catch {
-        if (active) setReports([]);
-      }
-    }
-
-    loadReports();
-    return () => {
-      active = false;
-    };
-  }, []);
-
   return (
     <>
       <header
@@ -108,7 +70,7 @@ export default function SharedReportHeader({
         {action}
       </header>
 
-      {reports.length ? (
+      {accessibleReports.length ? (
         <nav
           aria-label="Reports"
           style={{
@@ -121,7 +83,7 @@ export default function SharedReportHeader({
             borderBottom: "1px solid #E2E8F0",
           }}
         >
-          {reports.map((report) => {
+          {accessibleReports.map((report) => {
             const selected = report.key === activeReportKey;
             return (
               <a
@@ -150,4 +112,17 @@ export default function SharedReportHeader({
       ) : null}
     </>
   );
+}
+
+function SharedReportHeaderWithConfigurationLoader(props) {
+  const { visibleReports } = useReportConfigurations();
+  return <SharedReportHeaderContent {...props} accessibleReports={visibleReports} />;
+}
+
+export default function SharedReportHeader({ accessibleReports, ...props }) {
+  if (Array.isArray(accessibleReports)) {
+    return <SharedReportHeaderContent {...props} accessibleReports={accessibleReports} />;
+  }
+
+  return <SharedReportHeaderWithConfigurationLoader {...props} />;
 }

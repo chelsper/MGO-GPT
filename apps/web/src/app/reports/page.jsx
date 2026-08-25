@@ -6,6 +6,8 @@ import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { canUseExecutiveViewRole, isMgoRole } from "@/utils/workspaceRoles";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
+import { getReportHref } from "@/app/api/utils/reportRegistry";
+import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 
 const REPORT_BATCH_SIZE = 10;
 const REPORT_BATCH_CONCURRENCY = 2;
@@ -332,9 +334,6 @@ function MetricCard({ label, value, hint }) {
 export default function ReportsPage() {
   const { data: user, loading: loadingUser } = useUser();
   const [profileStatus, setProfileStatus] = useState(null);
-  const [reportAccessStatus, setReportAccessStatus] = useState(null);
-  const [reportAccessLoading, setReportAccessLoading] = useState(true);
-  const [reportAccessError, setReportAccessError] = useState("");
   const [actingWorkspaceStatus, setActingWorkspaceStatus] = useState(null);
   const [mgoUsers, setMgoUsers] = useState([]);
   const [reportRows, setReportRows] = useState([]);
@@ -346,6 +345,13 @@ export default function ReportsPage() {
   const [hardCreditTotals, setHardCreditTotals] = useState({ received: 0, committed: 0 });
   const [closedGiftSummary, setClosedGiftSummary] = useState(undefined);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const {
+    configurations: reportConfigurations,
+    visibleReports,
+    canManage: canManageReports,
+    isLoading: isLoadingReportConfigurations,
+    error: reportConfigurationsError,
+  } = useReportConfigurations({ enabled: Boolean(user) });
 
   useEffect(() => {
     if (!loadingUser && !user) {
@@ -380,59 +386,21 @@ export default function ReportsPage() {
     };
   }, [user]);
 
-  useEffect(() => {
-    if (!user) return undefined;
-
-    let active = true;
-    async function loadReportAccess() {
-      setReportAccessLoading(true);
-      setReportAccessError("");
-      try {
-        const response = await fetch("/api/reports/configurations");
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(payload?.error || "Could not load report access.");
-        }
-        const configuration = Array.isArray(payload?.configurations)
-          ? payload.configurations.find((item) => item.key === "portfolio-fy-giving")
-          : null;
-        const futureMadeConfiguration = Array.isArray(payload?.configurations)
-          ? payload.configurations.find((item) => item.key === "future-made-phase-ii")
-          : null;
-        const teamStandingsConfiguration = Array.isArray(payload?.configurations)
-          ? payload.configurations.find((item) => item.key === "executive-team-standings")
-          : null;
-        if (!configuration) {
-          throw new Error("My Reports access could not be loaded.");
-        }
-        if (active) {
-          setReportAccessStatus({
-            configuration,
-            futureMadeConfiguration,
-            teamStandingsConfiguration,
-            canManage: Boolean(payload?.canManage),
-          });
-        }
-      } catch (error) {
-        if (active) {
-          setReportAccessError(
-            error instanceof Error ? error.message : "Could not load report access.",
-          );
-        }
-      } finally {
-        if (active) setReportAccessLoading(false);
-      }
-    }
-
-    loadReportAccess();
-    return () => {
-      active = false;
-    };
-  }, [user]);
-
   const canUseExecutiveView = canUseExecutiveViewRole(profileStatus?.user?.role);
-  const reportAccess = reportAccessStatus?.configuration || null;
-  const canManageReports = Boolean(reportAccessStatus?.canManage);
+  const reportAccess = reportConfigurations.find(
+    (configuration) => configuration.key === "portfolio-fy-giving",
+  ) || null;
+  const reportAccessLoading = Boolean(user) && isLoadingReportConfigurations;
+  const reportAccessError = reportConfigurationsError
+    ? reportConfigurationsError instanceof Error
+      ? reportConfigurationsError.message
+      : "Could not load report access."
+    : !reportAccessLoading && user && !reportAccess
+      ? "My Reports access could not be loaded."
+      : "";
+  const additionalReports = visibleReports.filter(
+    (configuration) => configuration.key !== "portfolio-fy-giving",
+  );
 
   useEffect(() => {
     if (!user || !canUseExecutiveView) return undefined;
@@ -919,6 +887,7 @@ export default function ReportsPage() {
           description="Review portfolio giving and shared engagement reports."
           backHref="/"
           backLabel="Return to home"
+          accessibleReports={visibleReports}
           action={
             <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
               {canManageReports ? (
@@ -965,6 +934,65 @@ export default function ReportsPage() {
             </div>
           }
         />
+
+        {additionalReports.length ? (
+          <section
+            aria-label="Available reports"
+            style={{
+              marginBottom: "22px",
+              backgroundColor: "white",
+              border: "1px solid #E2E8F0",
+              borderRadius: "18px",
+              padding: "22px",
+              boxShadow: "0 10px 28px rgba(15, 23, 42, 0.04)",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, color: "#0F172A", fontSize: "20px" }}>Available reports</h2>
+              <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5 }}>
+                These reports are enabled for you by Advancement Services. Opening one uses its existing data and refresh policy.
+              </p>
+            </div>
+            <div
+              style={{
+                marginTop: "16px",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                gap: "12px",
+              }}
+            >
+              {additionalReports.map((configuration) => (
+                <a
+                  key={configuration.key}
+                  href={getReportHref(configuration)}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                    minHeight: "156px",
+                    border: "1px solid #C7D2FE",
+                    backgroundColor: "#FAFAFF",
+                    borderRadius: "14px",
+                    padding: "16px",
+                    color: "inherit",
+                    textDecoration: "none",
+                  }}
+                >
+                  <span style={{ color: "#4338CA", fontSize: "12px", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {configuration.reportTypeLabel || "Shared report"}
+                  </span>
+                  <strong style={{ color: "#0F172A", fontSize: "17px" }}>{configuration.title}</strong>
+                  <span style={{ color: "#64748B", lineHeight: 1.45, flex: 1 }}>
+                    {configuration.description || "Open this shared report."}
+                  </span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "#4338CA", fontSize: "14px", fontWeight: 800 }}>
+                    Open report <ExternalLink size={15} />
+                  </span>
+                </a>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section
           style={{

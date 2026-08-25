@@ -12,122 +12,36 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import {
+  createBlackbaudAdHocQueryJob,
   getBlackbaudConfigIssues,
-  listBlackbaudConstituentCodes,
-  listBlackbaudGifts,
+  getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
 import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
   getReportAccessForUser,
 } from "@/app/api/utils/reportAccess";
 import {
+  buildAlumniDonorQueryDefinition,
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
   getAlumniDonorConfigurationFingerprint,
+  getAlumniDonorConstituencyOptions,
   getAlumniDonorCountRows,
-  GIFT_TYPE_OPTIONS,
   normalizeAlumniDonorConfiguration,
 } from "@/app/api/utils/alumniDonorConfiguration";
 
 export const maxDuration = 300;
 
-const MAX_GIFT_PAGES = 20;
-const GIFT_PAGE_LIMIT = 500;
-const CONSTITUENCY_LOOKUP_CONCURRENCY = 2;
-const CONSTITUENCY_MEMBERSHIP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 export const ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY = "report:alumni-family-engagement";
-// The old export name is kept so any internal reference remains compatible;
-// these are now direct NXT count rows rather than saved queries.
+// The old export name is kept so any internal reference remains compatible.
 export const ALUMNI_DONOR_TOTAL_QUERIES = getAlumniDonorCountRows(
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
 );
 
 const DEFAULT_REPORT_TITLE = "Alumni & Family Engagement";
 const DEFAULT_REPORT_DESCRIPTION =
-  "Alumni donor totals from configured NXT gifts and constituency codes.";
-
-function normalizeText(value) {
-  return String(value || "")
-    .toLocaleLowerCase("en-US")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getStringValue(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string" || typeof value === "number") return String(value).trim();
-  if (typeof value !== "object") return "";
-
-  const candidates = [
-    value.description,
-    value.name,
-    value.value,
-    value.label,
-    value.type,
-    value.code,
-  ];
-  for (const candidate of candidates) {
-    const text = getStringValue(candidate);
-    if (text) return text;
-  }
-  return "";
-}
-
-function getGiftRecipientId(gift) {
-  const candidates = [
-    gift?.constituent_id,
-    gift?.constituentId,
-    gift?.constituent?.id,
-    gift?.constituent?.constituent_id,
-    gift?.donor_id,
-    gift?.donorId,
-    gift?.donor?.id,
-  ];
-  for (const candidate of candidates) {
-    const id = getStringValue(candidate);
-    if (id) return id;
-  }
-  return "";
-}
-
-function getGiftTypeKey(gift) {
-  const rawGiftType = getStringValue(
-    gift?.gift_type ?? gift?.giftType ?? gift?.type ?? gift?.type_name ?? gift?.category,
-  );
-  const giftType = normalizeText(rawGiftType);
-  if (giftType.includes("recurring")) return "recurring-gift-payment";
-  if (giftType.includes("matching")) return "matching-gift-payment";
-  if (giftType.includes("pledge") && giftType.includes("payment")) return "pledge-payment";
-  if (giftType.includes("pledge")) return "pledge";
-  if (giftType.includes("in kind")) return "gift-in-kind";
-  if (giftType.includes("stock") || giftType.includes("securit") || giftType.includes("property")) {
-    return "stock-property";
-  }
-  if (giftType.includes("donation") || giftType.includes("cash") || giftType === "gift") {
-    return "donation";
-  }
-  return "other";
-}
-
-function getConstituencyCodeLabel(code) {
-  if (!code || typeof code !== "object") return getStringValue(code);
-  const candidates = [
-    code.description,
-    code.constituency_code,
-    code.constituencyCode,
-    code.constituent_code,
-    code.constituentCode,
-    code.code,
-    code.name,
-    code.value,
-  ];
-  for (const candidate of candidates) {
-    const label = getStringValue(candidate);
-    if (label) return label;
-  }
-  return "";
-}
+  "Distinct donor totals from configured NXT constituency and gift-credit criteria.";
+const QUERY_POLL_INTERVAL_MS = 1500;
+const QUERY_MAX_WAIT_MS = 90000;
 
 function getReportPresentation(access, donorConfiguration) {
   return {
@@ -140,14 +54,18 @@ function getReportPresentation(access, donorConfiguration) {
 }
 
 function getPublicDonorDefinition(donorConfiguration) {
+  const constituencyOptions = getAlumniDonorConstituencyOptions(donorConfiguration);
   return {
     sourceKey: donorConfiguration.sourceKey,
     sourceLabel: donorConfiguration.sourceLabel,
-    constituencies: donorConfiguration.constituencies,
-    giftTypes: donorConfiguration.giftTypes.map((key) => ({
-      key,
-      label: GIFT_TYPE_OPTIONS.find((option) => option.key === key)?.label || key,
-    })),
+    countMethod: "Distinct constituents returned by an NXT Query API job",
+    constituencies: constituencyOptions.map((option) => option.label),
+    includeSoftCreditedDonors: donorConfiguration.includeSoftCreditedDonors,
+    includeMatchingGiftCredits: donorConfiguration.includeMatchingGiftCredits,
+    includeInactiveConstituents: donorConfiguration.includeInactiveConstituents,
+    includeDeceasedConstituents: donorConfiguration.includeDeceasedConstituents,
+    includeConstituentsWithNoValidAddress:
+      donorConfiguration.includeConstituentsWithNoValidAddress,
   };
 }
 
@@ -181,150 +99,114 @@ function attachReportPresentation({ cachedPayload, donorConfiguration, presentat
   };
 }
 
-function getReusableMembershipCache(cachedPayload) {
-  const entries = cachedPayload?.constituencyMembershipCache;
-  if (!entries || typeof entries !== "object" || Array.isArray(entries)) return {};
-
-  const cutoff = Date.now() - CONSTITUENCY_MEMBERSHIP_TTL_MS;
-  return Object.fromEntries(
-    Object.entries(entries).flatMap(([constituentId, entry]) => {
-      const cachedAt = Date.parse(String(entry?.cachedAt || ""));
-      if (!Array.isArray(entry?.codes) || !Number.isFinite(cachedAt) || cachedAt < cutoff) {
-        return [];
-      }
-      return [[String(constituentId), {
-        codes: entry.codes.map((code) => String(code || "").trim()).filter(Boolean),
-        cachedAt: new Date(cachedAt).toISOString(),
-      }]];
-    }),
-  );
+function getQueryJobId(job) {
+  return String(job?.id ?? job?.job_id ?? job?.jobId ?? "").trim();
 }
 
-async function mapWithConcurrency(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(Math.max(concurrency, 1), items.length) }, () => worker()),
-  );
-  return results;
+function getQueryJobStatus(job) {
+  return String(job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "").trim();
 }
 
-async function buildDirectDonorTotals({ user, origin, donorConfiguration, cachedPayload }) {
-  const countRows = getAlumniDonorCountRows(donorConfiguration);
-  const selectedGiftTypes = new Set(donorConfiguration.giftTypes);
-  const recipientIdsByRow = new Map();
-  const allRecipientIds = new Set();
-  let giftRowsRead = 0;
-  let selectedGiftRows = 0;
-  let rowsMissingRecipient = 0;
+function getQueryJobRowCount(job) {
+  const rowCount = Number(job?.row_count ?? job?.rowCount ?? job?.result?.row_count);
+  return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
+}
 
-  // Refresh count rows serially so a manual refresh remains gentle on the
-  // shared Blackbaud quota even when a builder adds several fiscal years.
-  for (const row of countRows) {
-    const result = await listBlackbaudGifts({
+function isCompletedQueryJob(status) {
+  return /^(?:completed|complete|succeeded|success)$/i.test(String(status || "").trim());
+}
+
+function isFailedQueryJob(status) {
+  return /(?:fail|cancel|error|declin)/i.test(String(status || ""));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
+  const startedAt = Date.now();
+  let polls = 0;
+  let lastStatus = "Queued";
+
+  while (Date.now() - startedAt < QUERY_MAX_WAIT_MS) {
+    const job = await getBlackbaudQueryJob({
       userId: user.id,
       authUserId: user.id,
       origin,
-      searchParams: {
-        start_gift_date: row.fiscalYearStart,
-        end_gift_date: row.fiscalYearEnd,
-      },
-      pageLimit: GIFT_PAGE_LIMIT,
-      maxPages: MAX_GIFT_PAGES,
-      includePageMetadata: true,
+      jobId,
     });
-    const gifts = Array.isArray(result) ? result : result?.gifts || [];
-    if (!Array.isArray(result) && result?.hasMore) {
-      throw new Error(
-        `${row.label} exceeds ${(MAX_GIFT_PAGES * GIFT_PAGE_LIMIT).toLocaleString("en-US")} gift rows. ` +
-          "Narrow its fiscal period or gift types before refreshing so the saved count is complete.",
-      );
+    polls += 1;
+    lastStatus = getQueryJobStatus(job) || lastStatus;
+
+    if (isCompletedQueryJob(lastStatus)) {
+      const total = getQueryJobRowCount(job);
+      if (total === null) {
+        throw new Error(
+          `NXT completed ${label}, but did not return a row count. The report was not updated.`,
+        );
+      }
+      return { total, polls };
     }
 
-    giftRowsRead += gifts.length;
-    const recipientIds = new Set();
-    gifts.forEach((gift) => {
-      if (!selectedGiftTypes.has(getGiftTypeKey(gift))) return;
-      selectedGiftRows += 1;
-      const recipientId = getGiftRecipientId(gift);
-      if (!recipientId) {
-        rowsMissingRecipient += 1;
-        return;
-      }
-      recipientIds.add(recipientId);
-      allRecipientIds.add(recipientId);
-    });
-    recipientIdsByRow.set(row.key, recipientIds);
+    if (isFailedQueryJob(lastStatus)) {
+      throw new Error(`NXT query job for ${label} ${lastStatus.toLocaleLowerCase("en-US")}.`);
+    }
+
+    await sleep(QUERY_POLL_INTERVAL_MS);
   }
 
-  const membershipCache = getReusableMembershipCache(cachedPayload);
-  const missingRecipientIds = Array.from(allRecipientIds).filter((id) => !membershipCache[id]);
-  const cachedAt = new Date().toISOString();
-
-  await mapWithConcurrency(
-    missingRecipientIds,
-    CONSTITUENCY_LOOKUP_CONCURRENCY,
-    async (constituentId) => {
-      const codes = await listBlackbaudConstituentCodes({
-        userId: user.id,
-        authUserId: user.id,
-        origin,
-        constituentId,
-      });
-      membershipCache[constituentId] = {
-        codes: codes.map(getConstituencyCodeLabel).filter(Boolean),
-        cachedAt,
-      };
-    },
+  throw new Error(
+    `NXT is still preparing ${label}. The last saved report remains available; try Refresh data again shortly.`,
   );
+}
 
-  const selectedConstituencies = new Set(
-    donorConfiguration.constituencies.map((code) => normalizeText(code)).filter(Boolean),
-  );
-  const totals = countRows.map((row) => {
-    const recipientIds = recipientIdsByRow.get(row.key) || new Set();
-    const total = Array.from(recipientIds).filter((constituentId) =>
-      (membershipCache[constituentId]?.codes || []).some((code) =>
-        selectedConstituencies.has(normalizeText(code)),
-      ),
-    ).length;
+async function buildQueryApiDonorTotals({ user, origin, donorConfiguration }) {
+  const countRows = getAlumniDonorCountRows(donorConfiguration);
+  const totals = [];
+  let queryJobPolls = 0;
 
-    return {
+  // A small sequential job queue avoids burst throttling while keeping this
+  // report to a handful of requests instead of one request per donor.
+  for (const row of countRows) {
+    const query = buildAlumniDonorQueryDefinition(donorConfiguration, row);
+    const createdJob = await createBlackbaudAdHocQueryJob({
+      userId: user.id,
+      authUserId: user.id,
+      origin,
+      query,
+      resultsFileName: `alumni-donor-count-${row.key}.csv`,
+    });
+    const jobId = getQueryJobId(createdJob);
+    if (!jobId) {
+      throw new Error(`NXT did not return a query job ID for ${row.label}.`);
+    }
+
+    const { total, polls } = await waitForBlackbaudQueryJob({
+      user,
+      origin,
+      jobId,
+      label: row.label,
+    });
+    queryJobPolls += polls;
+    totals.push({
       key: row.key,
       label: row.label,
       fiscalYearStart: row.fiscalYearStart,
       fiscalYearEnd: row.fiscalYearEnd,
       total,
-    };
-  });
-
-  const warnings = [];
-  if (rowsMissingRecipient) {
-    warnings.push(
-      `${rowsMissingRecipient.toLocaleString("en-US")} selected NXT gift row(s) had no constituent recipient and were not counted.`,
-    );
+    });
   }
 
   return {
     totals,
     totalRows: totals.reduce((sum, total) => sum + total.total, 0),
-    warnings,
+    warnings: [],
     refreshMetrics: {
-      giftRowsRead,
-      selectedGiftRows,
-      uniqueGiftRecipients: allRecipientIds.size,
-      refreshedConstituencyMemberships: missingRecipientIds.length,
+      source: "blackbaud-query-api",
+      queryJobs: totals.length,
+      queryJobPolls,
     },
-    constituencyMembershipCache: membershipCache,
   };
 }
 
@@ -339,6 +221,8 @@ async function getCurrentUser(request) {
 }
 
 export async function GET(request) {
+  let presentedCachedPayload = null;
+
   try {
     const user = await getCurrentUser(request);
     if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -357,7 +241,7 @@ export async function GET(request) {
     const presentation = getReportPresentation(access, donorConfiguration);
     const forceRefresh = shouldBypassReportCache(request);
     const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
-    const presentedCachedPayload = attachReportPresentation({
+    presentedCachedPayload = attachReportPresentation({
       cachedPayload,
       donorConfiguration,
       presentation,
@@ -391,11 +275,10 @@ export async function GET(request) {
       );
     }
 
-    const directTotals = await buildDirectDonorTotals({
+    const queryTotals = await buildQueryApiDonorTotals({
       user,
       origin,
       donorConfiguration,
-      cachedPayload,
     });
     const payload = {
       status: "complete",
@@ -403,7 +286,7 @@ export async function GET(request) {
       report: presentation,
       donorDefinition: getPublicDonorDefinition(donorConfiguration),
       configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
-      ...directTotals,
+      ...queryTotals,
     };
     await saveReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY, payload);
 
@@ -416,14 +299,21 @@ export async function GET(request) {
     return Response.json(publicPayload, { headers: getReportCacheHeaders("refresh") });
   } catch (error) {
     console.error("Alumni & Family Engagement report error:", error);
-    return Response.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not refresh the Alumni & Family Engagement report.",
-      },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not refresh the Alumni & Family Engagement report.";
+
+    if (presentedCachedPayload) {
+      return Response.json(
+        {
+          ...presentedCachedPayload,
+          refreshWarning: `${message} Showing the last successful snapshot instead.`,
+        },
+        { headers: getReportCacheHeaders("stale") },
+      );
+    }
+
+    return Response.json({ error: message }, { status: 500 });
   }
 }

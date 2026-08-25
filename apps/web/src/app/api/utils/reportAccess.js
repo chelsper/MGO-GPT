@@ -1,12 +1,23 @@
 import sql from "@/app/api/utils/sql";
 import { normalizeAlumniDonorConfiguration } from "@/app/api/utils/alumniDonorConfiguration";
 import { customFieldReportKey } from "@/app/api/utils/customFieldReports";
+import {
+  ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
+  EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
+  FUTURE_MADE_PHASE_TWO_REPORT_KEY,
+  getReportConfigurationCapabilities,
+  getReportDefinition,
+  PORTFOLIO_GIVING_REPORT_KEY,
+  supportsReportDataConfiguration,
+} from "@/app/api/utils/reportRegistry";
 import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
 
-export const PORTFOLIO_GIVING_REPORT_KEY = "portfolio-fy-giving";
-export const FUTURE_MADE_PHASE_TWO_REPORT_KEY = "future-made-phase-ii";
-export const EXECUTIVE_TEAM_STANDINGS_REPORT_KEY = "executive-team-standings";
-export const ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY = "alumni-family-engagement";
+export {
+  ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
+  EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
+  FUTURE_MADE_PHASE_TWO_REPORT_KEY,
+  PORTFOLIO_GIVING_REPORT_KEY,
+};
 
 const VISIBILITY_OPTIONS = new Set(["all_users", "executive", "specific_users"]);
 
@@ -34,10 +45,17 @@ export function parseReportSpecificUserIds(value) {
   ];
 }
 
-export function canUserViewReport({ user, visibility, specificUserIds }) {
+export function canUserViewReport({ user, visibility, specificUserIds, accessPolicy = null }) {
+  const allowedVisibilities = Array.isArray(accessPolicy?.allowedVisibilities)
+    ? accessPolicy.allowedVisibilities
+    : ["all_users", "executive", "specific_users"];
+  const adminRoleBypass = accessPolicy?.adminRoleBypass !== false;
   const userId = Number(user?.id);
+
+  if (!allowedVisibilities.includes(visibility)) return false;
+
   return (
-    isAdminRole(user?.role) ||
+    (adminRoleBypass && isAdminRole(user?.role)) ||
     visibility === "all_users" ||
     (visibility === "executive" && isExecutiveRole(user?.role)) ||
     (visibility === "specific_users" && specificUserIds.includes(userId))
@@ -105,16 +123,23 @@ export async function getReportAccessForUser(reportKey, user) {
   const record = records[0];
   const visibility = normalizeReportVisibility(record?.visibility);
   const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
+  const definition = getReportDefinition(reportKey);
+  const configurationCapabilities = getReportConfigurationCapabilities(definition);
 
   return {
     title: String(record?.title || "").trim(),
     description: String(record?.description || "").trim(),
     dataConfiguration:
-      reportKey === ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY
+      supportsReportDataConfiguration(definition)
         ? normalizeAlumniDonorConfiguration(record?.data_configuration)
         : null,
     visibility,
     specificUserIds,
-    canView: canUserViewReport({ user, visibility, specificUserIds }),
+    canView: canUserViewReport({
+      user,
+      visibility,
+      specificUserIds,
+      accessPolicy: configurationCapabilities.access,
+    }),
   };
 }

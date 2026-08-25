@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
   getAlumniDonorConfigurationFingerprint,
@@ -6,34 +6,34 @@ import {
 
 const {
   authMock,
+  createBlackbaudAdHocQueryJobMock,
   ensureAppSchemaMock,
+  getBlackbaudConfigIssuesMock,
+  getBlackbaudQueryJobMock,
   getCachedReportSnapshotMock,
-  getReportCacheHeadersMock,
   getOrCreateUserMock,
   getReportAccessForUserMock,
+  getReportCacheHeadersMock,
   getReportRefreshUserMock,
   isAuthorizedReportRefreshRequestMock,
   saveReportSnapshotMock,
   shouldBypassReportCacheMock,
-  getBlackbaudConfigIssuesMock,
-  listBlackbaudConstituentCodesMock,
-  listBlackbaudGiftsMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
+  createBlackbaudAdHocQueryJobMock: vi.fn(),
   ensureAppSchemaMock: vi.fn(),
+  getBlackbaudConfigIssuesMock: vi.fn(),
+  getBlackbaudQueryJobMock: vi.fn(),
   getCachedReportSnapshotMock: vi.fn(),
-  getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   getOrCreateUserMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
+  getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   getReportRefreshUserMock: vi.fn(),
   isAuthorizedReportRefreshRequestMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
   shouldBypassReportCacheMock: vi.fn(
     (request) => new URL(request.url).searchParams.get("refresh") === "1",
   ),
-  getBlackbaudConfigIssuesMock: vi.fn(),
-  listBlackbaudConstituentCodesMock: vi.fn(),
-  listBlackbaudGiftsMock: vi.fn(),
 }));
 
 vi.mock("@/auth", () => ({ auth: authMock }));
@@ -54,9 +54,9 @@ vi.mock("@/app/api/utils/reportCache", () => ({
   shouldBypassReportCache: shouldBypassReportCacheMock,
 }));
 vi.mock("@/app/api/utils/blackbaud", () => ({
+  createBlackbaudAdHocQueryJob: createBlackbaudAdHocQueryJobMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
-  listBlackbaudConstituentCodes: listBlackbaudConstituentCodesMock,
-  listBlackbaudGifts: listBlackbaudGiftsMock,
+  getBlackbaudQueryJob: getBlackbaudQueryJobMock,
 }));
 
 function createRequest(search = "") {
@@ -75,14 +75,21 @@ function createCachedSnapshot(overrides = {}) {
       { key: "fy27-alumni-giving", total: 3 },
       { key: "fy26-alumni-giving", total: 2 },
     ],
-    constituencyMembershipCache: {
-      "100": {
-        codes: ["Alumni Bachelor's Degree"],
-        cachedAt: "2026-08-25T18:00:00.000Z",
-      },
-    },
     ...overrides,
   };
+}
+
+function mockCompletedDefaultCountJobs() {
+  createBlackbaudAdHocQueryJobMock.mockImplementation(async ({ query }) => {
+    const dateFilter = query.filter_fields.find((field) => field.query_field_id === 8471);
+    const startDate = dateFilter?.filter_values?.[0];
+    return { id: startDate === "7/1/2026" ? "fy27-job" : "fy26-job", status: "Queued" };
+  });
+  getBlackbaudQueryJobMock.mockImplementation(async ({ jobId }) => ({
+    id: jobId,
+    status: "Completed",
+    row_count: jobId === "fy27-job" ? 3 : 2,
+  }));
 }
 
 describe("Alumni & Family Engagement report route", () => {
@@ -96,9 +103,15 @@ describe("Alumni & Family Engagement report route", () => {
     getCachedReportSnapshotMock.mockResolvedValue(null);
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
     saveReportSnapshotMock.mockResolvedValue();
+    mockCompletedDefaultCountJobs();
+    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("returns the matching snapshot without making another NXT request", async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns the matching snapshot without another NXT request", async () => {
     getCachedReportSnapshotMock.mockResolvedValueOnce(createCachedSnapshot());
     const { GET } = await import("./route.js");
 
@@ -114,9 +127,8 @@ describe("Alumni & Family Engagement report route", () => {
         { key: "fy26-alumni-giving", label: "FY26 Alumni Giving", total: 2 },
       ],
     });
-    expect(payload).not.toHaveProperty("constituencyMembershipCache");
-    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
-    expect(listBlackbaudConstituentCodesMock).not.toHaveBeenCalled();
+    expect(createBlackbaudAdHocQueryJobMock).not.toHaveBeenCalled();
+    expect(getBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
   it("requires an explicit refresh when no matching snapshot exists", async () => {
@@ -127,37 +139,10 @@ describe("Alumni & Family Engagement report route", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ status: "refresh_required" });
-    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
-    expect(listBlackbaudConstituentCodesMock).not.toHaveBeenCalled();
+    expect(createBlackbaudAdHocQueryJobMock).not.toHaveBeenCalled();
   });
 
-  it("counts distinct selected-constituency recipients from direct NXT gift records", async () => {
-    listBlackbaudGiftsMock.mockImplementation(async ({ searchParams }) => {
-      if (searchParams.start_gift_date === "2026-07-01") {
-        return {
-          gifts: [
-            { constituent_id: "100", gift_type: "Donation" },
-            { constituent_id: "100", gift_type: "Donation" },
-            { constituent_id: "101", gift_type: "Pledge" },
-            { constituent_id: "102", gift_type: "Donation" },
-          ],
-          hasMore: false,
-        };
-      }
-      return {
-        gifts: [{ constituent_id: "103", gift_type: "Donation" }],
-        hasMore: false,
-      };
-    });
-    listBlackbaudConstituentCodesMock.mockImplementation(async ({ constituentId }) => {
-      const codesById = {
-        "100": [{ description: "Alumni Bachelor's Degree" }],
-        "101": [{ description: "Parent" }],
-        "102": [{ description: "Alumni Graduate Degree" }],
-        "103": [{ description: "Alumni" }],
-      };
-      return codesById[constituentId] || [];
-    });
+  it("refreshes totals from compact NXT Query API jobs", async () => {
     const { GET } = await import("./route.js");
 
     const response = await GET(createRequest("?refresh=1"));
@@ -166,36 +151,60 @@ describe("Alumni & Family Engagement report route", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       status: "complete",
-      totalRows: 3,
+      totalRows: 5,
       totals: [
-        { key: "fy27-alumni-giving", total: 2 },
-        { key: "fy26-alumni-giving", total: 1 },
+        { key: "fy27-alumni-giving", label: "FY27 Alumni Giving", total: 3 },
+        { key: "fy26-alumni-giving", label: "FY26 Alumni Giving", total: 2 },
       ],
       refreshMetrics: {
-        giftRowsRead: 5,
-        selectedGiftRows: 5,
-        uniqueGiftRecipients: 4,
-        refreshedConstituencyMemberships: 4,
+        source: "blackbaud-query-api",
+        queryJobs: 2,
+        queryJobPolls: 2,
       },
     });
-    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(2);
-    expect(listBlackbaudConstituentCodesMock).toHaveBeenCalledTimes(4);
+    expect(createBlackbaudAdHocQueryJobMock).toHaveBeenCalledTimes(2);
+    expect(getBlackbaudQueryJobMock).toHaveBeenCalledTimes(2);
+    expect(createBlackbaudAdHocQueryJobMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        query: expect.objectContaining({
+          type_id: 18,
+          suppress_duplicates: true,
+          select_fields: [],
+          gift_processing_options: expect.objectContaining({
+            soft_credit_option: "Both",
+            matching_gift_credit_option: "Both",
+          }),
+          filter_fields: [
+            expect.objectContaining({
+              query_field_id: 2217,
+              filter_values: ["13", "12366", "9799", "14061", "9721", "10296", "8818", "8897", "9384"],
+            }),
+            expect.objectContaining({
+              query_field_id: 8471,
+              filter_values: ["7/1/2026", "6/30/2027"],
+            }),
+          ],
+        }),
+      }),
+    );
     expect(saveReportSnapshotMock).toHaveBeenCalledWith(
       "report:alumni-family-engagement",
       expect.objectContaining({
         status: "complete",
-        totalRows: 3,
-        constituencyMembershipCache: expect.any(Object),
+        totalRows: 5,
+        refreshMetrics: expect.objectContaining({ source: "blackbaud-query-api" }),
       }),
     );
   });
 
-  it("uses the configured gift types and constituency codes", async () => {
+  it("uses a custom selected constituency code in the generated query", async () => {
     getReportAccessForUserMock.mockResolvedValue({
       canView: true,
       dataConfiguration: {
-        constituencies: ["Alumni Bachelor's Degree"],
-        giftTypes: ["donation"],
+        constituencies: ["8818 | Alumni Bachelor's Degree"],
+        includeSoftCreditedDonors: false,
+        includeMatchingGiftCredits: false,
         rows: [
           {
             key: "fy25-alumni-giving",
@@ -206,18 +215,8 @@ describe("Alumni & Family Engagement report route", () => {
         ],
       },
     });
-    listBlackbaudGiftsMock.mockResolvedValue({
-      gifts: [
-        { constituent_id: "100", gift_type: "Donation" },
-        { constituent_id: "101", gift_type: "Pledge" },
-        { constituent_id: "102", gift_type: "Donation" },
-      ],
-      hasMore: false,
-    });
-    listBlackbaudConstituentCodesMock.mockImplementation(async ({ constituentId }) => {
-      if (constituentId === "100") return [{ description: "Alumni Bachelor's Degree" }];
-      return [{ description: "Alumni Graduate Degree" }];
-    });
+    createBlackbaudAdHocQueryJobMock.mockResolvedValue({ id: "fy25-job" });
+    getBlackbaudQueryJobMock.mockResolvedValue({ id: "fy25-job", status: "Completed", row_count: 8 });
     const { GET } = await import("./route.js");
 
     const response = await GET(createRequest("?refresh=1"));
@@ -225,34 +224,50 @@ describe("Alumni & Family Engagement report route", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
+      totals: [{ key: "fy25-alumni-giving", label: "FY25 Alumni Giving", total: 8 }],
       donorDefinition: {
         constituencies: ["Alumni Bachelor's Degree"],
-        giftTypes: [{ key: "donation", label: "Donation / cash received" }],
+        includeSoftCreditedDonors: false,
+        includeMatchingGiftCredits: false,
       },
-      totals: [{ key: "fy25-alumni-giving", label: "FY25 Alumni Giving", total: 1 }],
     });
-    expect(listBlackbaudConstituentCodesMock).toHaveBeenCalledTimes(2);
+    expect(createBlackbaudAdHocQueryJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({
+          gift_processing_options: expect.objectContaining({
+            soft_credit_option: "Donor",
+            matching_gift_credit_option: "Donor",
+          }),
+          filter_fields: [
+            expect.objectContaining({ filter_values: ["8818"] }),
+            expect.objectContaining({ filter_values: ["7/1/2024", "6/30/2025"] }),
+          ],
+        }),
+      }),
+    );
   });
 
-  it("does not save an incomplete count when the Gift API indicates more pages", async () => {
-    listBlackbaudGiftsMock.mockResolvedValue({
-      gifts: [{ constituent_id: "100", gift_type: "Donation" }],
-      hasMore: true,
-    });
+  it("preserves the last successful snapshot when a manual refresh fails", async () => {
+    getCachedReportSnapshotMock.mockResolvedValueOnce(createCachedSnapshot());
+    getBlackbaudQueryJobMock.mockResolvedValue({ id: "fy27-job", status: "Failed" });
     const { GET } = await import("./route.js");
 
     const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(payload.error).toContain("exceeds 10,000 gift rows");
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "complete",
+      totalRows: 5,
+    });
+    expect(payload.refreshWarning).toContain("Showing the last successful snapshot instead");
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 
   it("does not present a snapshot created with a different donor definition", async () => {
     getReportAccessForUserMock.mockResolvedValue({
       canView: true,
-      dataConfiguration: { giftTypes: ["donation"] },
+      dataConfiguration: { includeSoftCreditedDonors: false },
     });
     getCachedReportSnapshotMock.mockResolvedValueOnce(createCachedSnapshot());
     const { GET } = await import("./route.js");
@@ -262,6 +277,6 @@ describe("Alumni & Family Engagement report route", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ status: "refresh_required" });
-    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+    expect(createBlackbaudAdHocQueryJobMock).not.toHaveBeenCalled();
   });
 });
