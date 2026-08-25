@@ -15,7 +15,6 @@ import {
 import {
   createBlackbaudQueryJob,
   downloadBlackbaudQueryResult,
-  findBlackbaudQueryByName,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
@@ -408,39 +407,13 @@ async function getSourceQueryConfiguration() {
   };
 }
 
-async function resolveSourceQueryConfiguration({ user, origin, configuration }) {
-  if (configuration.queryId) return configuration;
-
-  const query = await findBlackbaudQueryByName({
-    userId: user.id,
-    origin,
-    name: configuration.queryName,
-    versions: ["v1"],
-  });
-  if (!query?.id) return configuration;
-
-  await sql`
-    UPDATE report_configurations
-    SET
-      source_query_id = ${query.id},
-      source_query_name = ${query.name || configuration.queryName},
-      updated_at = NOW()
-    WHERE report_key = ${ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY}
-  `;
-
-  return {
-    queryId: String(query.id),
-    queryName: String(query.name || configuration.queryName),
-  };
-}
-
 function createSetupPayload({ fiscalYear, queryName }) {
   return {
     status: "setup_required",
     fiscalYear,
     query: { id: "", name: queryName },
     message:
-      "An administrator must add this report's saved NXT query ID in Report Access before it can run.",
+      "An administrator must add this report's saved NXT query ID in Report Access before it can run. The saved query name alone is not used, so opening this report never performs a query-catalog scan.",
   };
 }
 
@@ -482,11 +455,7 @@ export async function GET(request) {
 
     const origin = new URL(request.url).origin;
     const configuredQuery = await getSourceQueryConfiguration();
-    const queryConfig = await resolveSourceQueryConfiguration({
-      user,
-      origin,
-      configuration: configuredQuery,
-    });
+    const queryConfig = configuredQuery;
     if (!queryConfig.queryId) {
       return Response.json(createSetupPayload({ fiscalYear, queryName: queryConfig.queryName }), {
         headers: getReportCacheHeaders("setup"),

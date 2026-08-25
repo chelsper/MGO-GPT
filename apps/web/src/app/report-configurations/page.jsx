@@ -338,9 +338,9 @@ export default function ReportConfigurationsPage() {
                         Alumni donor source
                       </h3>
                       <p style={{ margin: "7px 0 0", color: "#334155", lineHeight: 1.5 }}>
-                        This report resolves one saved NXT query and keeps the last successful snapshot. It refreshes
-                        nightly at 6 PM Eastern or when a user explicitly refreshes it. It never loads one
-                        constituent at a time, which protects Blackbaud call volume.
+                        Enter the exact saved-query ID once, then this report keeps the last successful snapshot.
+                        It refreshes nightly at 6 PM Eastern or when a user explicitly refreshes it. It never loads
+                        one constituent at a time, which protects Blackbaud call volume.
                       </p>
                       <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
                         <label style={{ display: "grid", gap: "6px", color: "#1E3A8A", fontWeight: 800 }}>
@@ -387,6 +387,10 @@ export default function ReportConfigurationsPage() {
                         </label>
                       </div>
                       <p style={{ margin: "14px 0 0", color: "#334155", lineHeight: 1.5, fontSize: "14px" }}>
+                        The query ID is required. The query name is for display only because this Blackbaud
+                        connection cannot enumerate saved queries by name.
+                      </p>
+                      <p style={{ margin: "10px 0 0", color: "#334155", lineHeight: 1.5, fontSize: "14px" }}>
                         Configure the saved query to return one row per credited constituent with: constituent
                         system record ID or lookup ID, constituent name, constituency code, Cash Received gift
                         date/type, and credit type. Its criteria must limit results to constituency codes beginning

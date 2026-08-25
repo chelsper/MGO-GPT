@@ -80,9 +80,9 @@ function SetupInstructions({ canManage }) {
     >
       <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "22px" }}>Connect the saved NXT query</h2>
       <p style={{ margin: "9px 0 0", color: "#334155", lineHeight: 1.55 }}>
-        This report resolves the saved NXT query named Alumni Donors FY27 when it first refreshes. An
-        administrator can also enter its query ID in Report Access. The report then uses one saved query export,
-        not a background scan of constituent records.
+        Enter the saved-query ID for Alumni Donors FY27 in Report Access. The report then uses one saved query
+        export, not a background scan of constituent records. The name is only a label because this Blackbaud
+        connection cannot safely enumerate saved queries by name.
       </p>
       <ol style={{ margin: "15px 0 0", paddingLeft: "22px", color: "#334155", lineHeight: 1.65 }}>
         <li>Filter to constituency codes that begin with `Alumni`.</li>

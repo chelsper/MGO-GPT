@@ -11,7 +11,6 @@ const {
   saveReportSnapshotMock,
   shouldBypassReportCacheMock,
   getBlackbaudConfigIssuesMock,
-  findBlackbaudQueryByNameMock,
   createBlackbaudQueryJobMock,
   getBlackbaudQueryJobMock,
   downloadBlackbaudQueryResultMock,
@@ -28,7 +27,6 @@ const {
     (request) => new URL(request.url).searchParams.get("refresh") === "1",
   ),
   getBlackbaudConfigIssuesMock: vi.fn(),
-  findBlackbaudQueryByNameMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
   downloadBlackbaudQueryResultMock: vi.fn(),
@@ -51,7 +49,6 @@ vi.mock("@/app/api/utils/reportCache", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   createBlackbaudQueryJob: createBlackbaudQueryJobMock,
   downloadBlackbaudQueryResult: downloadBlackbaudQueryResultMock,
-  findBlackbaudQueryByName: findBlackbaudQueryByNameMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJob: getBlackbaudQueryJobMock,
 }));
@@ -80,7 +77,6 @@ describe("Alumni & Family Engagement report route", () => {
     ]);
     createBlackbaudQueryJobMock.mockResolvedValue({ id: "job-1" });
     getBlackbaudQueryJobMock.mockResolvedValue({ status: "Running" });
-    findBlackbaudQueryByNameMock.mockResolvedValue(null);
   });
 
   it("requires an administrator to configure the saved source query before it runs", async () => {
@@ -122,34 +118,6 @@ describe("Alumni & Family Engagement report route", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ status: "refresh_required" });
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
-  });
-
-  it("resolves and saves the Alumni Donors FY27 query when the legacy source is configured", async () => {
-    sqlMock
-      .mockResolvedValueOnce([
-        {
-          source_query_id: "legacy-query",
-          source_query_name: "Alumni & Family Engagement",
-        },
-      ])
-      .mockResolvedValue([]);
-    findBlackbaudQueryByNameMock.mockResolvedValue({
-      id: "alumni-donors-fy27",
-      name: "Alumni Donors FY27",
-    });
-    const { GET } = await import("./route.js");
-
-    const response = await GET(createRequest("?refresh=1"));
-    const payload = await response.json();
-
-    expect(response.status).toBe(202);
-    expect(payload).toMatchObject({ status: "running", jobId: "job-1" });
-    expect(findBlackbaudQueryByNameMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Alumni Donors FY27", versions: ["v1"] }),
-    );
-    expect(createBlackbaudQueryJobMock).toHaveBeenCalledWith(
-      expect.objectContaining({ queryId: "alumni-donors-fy27" }),
-    );
   });
 
   it("returns a pollable response while Blackbaud materializes a newly created query job", async () => {
