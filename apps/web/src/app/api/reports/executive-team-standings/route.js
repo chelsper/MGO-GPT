@@ -9,6 +9,10 @@ import {
   saveReportSnapshot,
   shouldBypassReportCache,
 } from "@/app/api/utils/reportCache";
+import {
+  getReportRefreshUser,
+  isAuthorizedReportRefreshRequest,
+} from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import {
   EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
@@ -40,8 +44,11 @@ function asText(value) {
   return String(value || "").trim();
 }
 
-async function getCurrentUser() {
+async function getCurrentUser(request) {
   await ensureAppSchema();
+  if (isAuthorizedReportRefreshRequest(request)) {
+    return getReportRefreshUser();
+  }
   const session = await auth();
   if (!session?.user?.email) return null;
   return getOrCreateUser(session, "admin");
@@ -369,13 +376,14 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
 
 export async function GET(request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const internalRefresh = isAuthorizedReportRefreshRequest(request);
     const access = await getReportAccessForUser(EXECUTIVE_TEAM_STANDINGS_REPORT_KEY, user);
-    if (!access.canView) {
+    if (!internalRefresh && !access.canView) {
       return Response.json(
         { error: "You do not have access to Executive Team Standings." },
         { status: 403 },
@@ -390,6 +398,15 @@ export async function GET(request) {
           headers: getReportCacheHeaders("hit"),
         });
       }
+
+      return Response.json(
+        {
+          status: "refresh_required",
+          message:
+            "No saved Team Standings snapshot is available yet. Select Refresh standings to create one.",
+        },
+        { headers: getReportCacheHeaders("empty") },
+      );
     }
 
     const origin = request?.url ? new URL(request.url).origin : null;

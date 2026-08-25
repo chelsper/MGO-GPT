@@ -1,13 +1,30 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { invalidateReportSnapshots } from "@/app/api/utils/reportCache";
-import { clearAllDashboardDataCaches } from "@/app/api/utils/userDataCache";
+import { getReportRefreshUser } from "@/app/api/utils/reportRefresh";
 
-const DASHBOARD_REFRESH_HOURS = new Set([8, 15]);
-const REPORT_KEYS = [
-  "report:executive-team-standings",
-  "report:future-made-phase-ii",
-  "report:alumni-family-engagement",
+export const maxDuration = 300;
+
+// Vercel cron expressions use UTC. This endpoint runs hourly, but performs the
+// real refresh only at 6 PM in New York so the schedule stays correct through
+// daylight-saving changes.
+const DASHBOARD_REFRESH_HOURS = new Set([18]);
+const REFRESH_TARGETS = [
+  {
+    key: "executive-team-standings",
+    path: "/api/reports/executive-team-standings",
+  },
+  {
+    key: "future-made-phase-ii",
+    path: "/api/reports/future-made-phase-ii",
+  },
+  {
+    key: "alumni-family-engagement",
+    path: "/api/reports/alumni-family-engagement",
+  },
 ];
+const QUERY_POLL_INTERVAL_MS = 2_000;
+// Three reports are refreshed in sequence. Keep each polling window below 90
+// seconds so the complete cron stays inside Vercel's five-minute function cap.
+const MAX_QUERY_POLL_ATTEMPTS = 40;
 
 function getNewYorkTimeParts(now = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -27,17 +44,75 @@ function getNewYorkTimeParts(now = new Date()) {
   }, {});
 }
 
-function isAuthorizedCronRequest(request) {
-  const configuredSecret = String(
+function getRefreshSecret() {
+  return String(
     process.env.CRON_SECRET || process.env.REPORT_REFRESH_CRON_SECRET || "",
   ).trim();
+}
 
-  if (!configuredSecret) {
-    return false;
-  }
+function isAuthorizedCronRequest(request) {
+  const configuredSecret = getRefreshSecret();
+  if (!configuredSecret) return false;
 
   const authorization = String(request.headers.get("authorization") || "").trim();
   return authorization === `Bearer ${configuredSecret}`;
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function readJson(response) {
+  return response.json().catch(() => null);
+}
+
+async function refreshReportSnapshot({ origin, target, authorization }) {
+  let jobId = "";
+
+  for (let attempt = 0; attempt < MAX_QUERY_POLL_ATTEMPTS; attempt += 1) {
+    const url = new URL(target.path, origin);
+    if (jobId) {
+      url.searchParams.set("jobId", jobId);
+    } else {
+      url.searchParams.set("refresh", "1");
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: authorization,
+        "x-mgogpt-report-refresh": "scheduled",
+      },
+      cache: "no-store",
+    });
+    const payload = await readJson(response);
+
+    if (response.status === 202) {
+      jobId = String(payload?.jobId || jobId).trim();
+      if (!jobId) {
+        throw new Error("The report refresh did not return a query job ID.");
+      }
+      await wait(QUERY_POLL_INTERVAL_MS);
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(payload?.error || `Report refresh returned ${response.status}.`);
+    }
+
+    if (payload?.status !== "complete" && !Array.isArray(payload?.standings)) {
+      throw new Error(payload?.message || "The report did not return a completed snapshot.");
+    }
+
+    return {
+      key: target.key,
+      status: "refreshed",
+      generatedAt: payload?.generatedAt || null,
+      totalRows: Number(payload?.totalRows ?? payload?.donors?.length ?? 0),
+      queryName: payload?.query?.name || null,
+    };
+  }
+
+  throw new Error("The saved NXT query did not finish before the scheduled refresh window closed.");
 }
 
 export async function GET(request) {
@@ -53,32 +128,68 @@ export async function GET(request) {
     const now = new Date();
     const ny = getNewYorkTimeParts(now);
     const currentHour = Number(ny.hour);
+    const localTime = `${ny.year}-${ny.month}-${ny.day} ${ny.hour}:${ny.minute}:${ny.second}`;
 
     if (!force && !DASHBOARD_REFRESH_HOURS.has(currentHour)) {
       return Response.json({
         status: "skipped",
-        reason: "Outside scheduled New York refresh window.",
-        localTime: `${ny.year}-${ny.month}-${ny.day} ${ny.hour}:${ny.minute}:${ny.second}`,
+        reason: "Outside the scheduled 6 PM New York refresh window.",
+        localTime,
       });
     }
 
-    const invalidated = await invalidateReportSnapshots(REPORT_KEYS);
-    await clearAllDashboardDataCaches();
+    const refreshUser = await getReportRefreshUser();
+    if (!refreshUser) {
+      return Response.json(
+        {
+          status: "skipped",
+          reason:
+            "No active Admin or Advancement Services Blackbaud connection is available for the scheduled report refresh.",
+          localTime,
+        },
+        { status: 503 },
+      );
+    }
+
+    const authorization = request.headers.get("authorization");
+    const origin = url.origin;
+    const refreshed = [];
+    const failed = [];
+
+    // Run one report at a time to avoid consuming NXT quota in bursts. Each
+    // route writes a new snapshot only after it receives valid data, so a
+    // failed refresh leaves the last successful snapshot available.
+    for (const target of REFRESH_TARGETS) {
+      try {
+        refreshed.push(
+          await refreshReportSnapshot({ origin, target, authorization }),
+        );
+      } catch (error) {
+        failed.push({
+          key: target.key,
+          error: error instanceof Error ? error.message : "Could not refresh this report.",
+        });
+      }
+    }
 
     return Response.json({
-      status: "invalidated",
-      localTime: `${ny.year}-${ny.month}-${ny.day} ${ny.hour}:${ny.minute}:${ny.second}`,
-      invalidated,
-      dashboardCaches: ["my-top-prospects"],
-      portfolioCachePreserved: true,
+      status: failed.length ? "partial" : "refreshed",
+      localTime,
+      refreshUser: {
+        id: refreshUser.id,
+        name: refreshUser.name || refreshUser.email || "Scheduled refresh user",
+      },
+      refreshed,
+      failed,
       forced: force,
+      nextScheduledRefresh: "6:00 PM America/New_York",
     });
   } catch (error) {
-    console.error("Failed to refresh report caches:", error);
+    console.error("Failed to refresh report snapshots:", error);
     return Response.json(
       {
         error:
-          error instanceof Error ? error.message : "Could not refresh report caches.",
+          error instanceof Error ? error.message : "Could not refresh report snapshots.",
       },
       { status: 500 },
     );

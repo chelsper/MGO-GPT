@@ -30,6 +30,16 @@ function formatShortDate(value) {
   });
 }
 
+function formatRefreshTime(value) {
+  if (!value) return "Unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 function pluralize(value, singular, plural = `${singular}s`) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
@@ -110,6 +120,7 @@ export default function ExecutiveTeamStandingsPage() {
   }, [user, refreshVersion]);
 
   const standings = Array.isArray(report?.standings) ? report.standings : [];
+  const refreshRequired = report?.status === "refresh_required";
   const totals = standings.reduce(
     (result, entry) => ({
       activeProspects: result.activeProspects + Number(entry.activeProspects || 0),
@@ -176,10 +187,36 @@ export default function ExecutiveTeamStandingsPage() {
           }
         />
 
+        {report?.generatedAt && !refreshRequired ? (
+          <p style={{ color: "#64748B", fontSize: "13px", margin: "16px 0 0" }}>
+            Last refreshed {formatRefreshTime(report.generatedAt)}. This shared snapshot remains unchanged until
+            6 PM Eastern or a manual refresh.
+          </p>
+        ) : null}
+
         {error ? (
           <section style={{ ...panelStyle, borderColor: "#FECACA", backgroundColor: "#FEF2F2", color: "#991B1B", marginTop: "28px", padding: "18px" }}>
             <strong style={{ display: "flex", alignItems: "center", gap: "8px" }}><AlertTriangle size={19} /> Standings could not load</strong>
             <p style={{ margin: "8px 0 0" }}>{error}</p>
+          </section>
+        ) : null}
+
+        {refreshRequired ? (
+          <section
+            style={{
+              ...panelStyle,
+              borderColor: "#BFDBFE",
+              backgroundColor: "#EFF6FF",
+              color: "#1E3A8A",
+              marginTop: "28px",
+              padding: "18px",
+            }}
+          >
+            <strong>No saved Team Standings snapshot is available.</strong>
+            <p style={{ margin: "8px 0 0" }}>
+              Select Refresh standings once to create it. Future visits will use that saved result until the
+              next 6 PM Eastern refresh or another manual refresh.
+            </p>
           </section>
         ) : null}
 

@@ -80,8 +80,9 @@ function SetupInstructions({ canManage }) {
     >
       <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "22px" }}>Connect the saved NXT query</h2>
       <p style={{ margin: "9px 0 0", color: "#334155", lineHeight: 1.55 }}>
-        This report is ready to use once an administrator enters its saved NXT query ID in Report Access. The
-        report will then use one cached query export, not a background scan of constituent records.
+        This report resolves the saved NXT query named Alumni Donors FY27 when it first refreshes. An
+        administrator can also enter its query ID in Report Access. The report then uses one saved query export,
+        not a background scan of constituent records.
       </p>
       <ol style={{ margin: "15px 0 0", paddingLeft: "22px", color: "#334155", lineHeight: 1.65 }}>
         <li>Filter to constituency codes that begin with `Alumni`.</li>
@@ -207,6 +208,7 @@ export default function AlumniFamilyEngagementPage() {
   const warnings = Array.isArray(report?.warnings) ? report.warnings : [];
   const canManage = canManageWorkspaceRole(user.role);
   const isSetupRequired = report?.status === "setup_required";
+  const isRefreshRequired = report?.status === "refresh_required";
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
@@ -272,13 +274,32 @@ export default function AlumniFamilyEngagementPage() {
           >
             <strong>{statusText || "Loading the cached report..."}</strong>
             <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
-              A refresh runs one saved NXT query and caches the result for 15 minutes. It does not make a request
-              for every constituent.
+              A refresh runs one saved NXT query. Normal visits use the last successful snapshot and do not make
+              another NXT request for every constituent.
             </p>
           </section>
         ) : null}
 
         {isSetupRequired ? <SetupInstructions canManage={canManage} /> : null}
+
+        {isRefreshRequired ? (
+          <section
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #BFDBFE",
+              borderRadius: "16px",
+              padding: "20px",
+              backgroundColor: "#EFF6FF",
+              color: "#1E3A8A",
+            }}
+          >
+            <strong>No saved Alumni & Family Engagement snapshot is available.</strong>
+            <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
+              Select Refresh data once. The saved result will then remain available until the next 6 PM Eastern
+              refresh or another manual refresh.
+            </p>
+          </section>
+        ) : null}
 
         {report?.status === "complete" ? (
           <>
@@ -391,7 +412,7 @@ export default function AlumniFamilyEngagementPage() {
                   </p>
                 </div>
                 <p style={{ margin: 0, color: "#64748B", fontSize: "13px" }}>
-                  Generated {formatDate(report.generatedAt)}
+                  Last refreshed {formatDate(report.generatedAt)}
                 </p>
               </div>
 

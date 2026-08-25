@@ -26,7 +26,9 @@ const {
   sqlMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
-  shouldBypassReportCacheMock: vi.fn(() => false),
+  shouldBypassReportCacheMock: vi.fn(
+    (request) => new URL(request.url).searchParams.get("refresh") === "1",
+  ),
   getBlackbaudConfigIssuesMock: vi.fn(),
   findBlackbaudQueryByNameMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
@@ -89,7 +91,7 @@ describe("Future. Made. Phase II report route", () => {
 
   it("creates a saved-query job and returns the job while NXT is still running", async () => {
     const { GET } = await import("./route.js");
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(202);
@@ -122,12 +124,23 @@ describe("Future. Made. Phase II report route", () => {
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
+  it("does not start a Blackbaud query without a saved snapshot unless explicitly refreshed", async () => {
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ status: "refresh_required" });
+    expect(findBlackbaudQueryByNameMock).not.toHaveBeenCalled();
+    expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
+  });
+
   it("uses an explicit query ID override when configured", async () => {
     process.env.BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_ID = "query-override";
     process.env.BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_NAME = "Future. Made. Phase II (Pinned)";
 
     const { GET } = await import("./route.js");
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(202);
@@ -175,7 +188,7 @@ describe("Future. Made. Phase II report route", () => {
       name: "Jordan Prospect",
     });
 
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -211,7 +224,7 @@ describe("Future. Made. Phase II report route", () => {
     });
 
     const { GET } = await import("./route.js");
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(202);
@@ -239,7 +252,7 @@ describe("Future. Made. Phase II report route", () => {
       new Error("Blackbaud 404 Resource Not Found: Resource not found"),
     );
 
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(202);

@@ -338,8 +338,9 @@ export default function ReportConfigurationsPage() {
                         Alumni donor source
                       </h3>
                       <p style={{ margin: "7px 0 0", color: "#334155", lineHeight: 1.5 }}>
-                        This report runs one saved NXT query and keeps a 15-minute snapshot. It never loads
-                        one constituent at a time, which protects Blackbaud call volume.
+                        This report resolves one saved NXT query and keeps the last successful snapshot. It refreshes
+                        nightly at 6 PM Eastern or when a user explicitly refreshes it. It never loads one
+                        constituent at a time, which protects Blackbaud call volume.
                       </p>
                       <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
                         <label style={{ display: "grid", gap: "6px", color: "#1E3A8A", fontWeight: 800 }}>
@@ -371,7 +372,7 @@ export default function ReportConfigurationsPage() {
                             onChange={(event) =>
                               updateDraft(configuration.key, { sourceQueryName: event.target.value })
                             }
-                            placeholder="Alumni & Family Engagement"
+                            placeholder="Alumni Donors FY27"
                             maxLength={200}
                             style={{
                               minHeight: "42px",

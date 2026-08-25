@@ -1,13 +1,9 @@
 import sql from "@/app/api/utils/sql";
 
-export const REPORT_CACHE_TTL_MS = 15 * 60 * 1000;
-export const REPORT_CACHE_TTL_SECONDS = Math.floor(REPORT_CACHE_TTL_MS / 1000);
-
-function isFreshReportCache(cachedAt) {
-  if (!cachedAt) return false;
-  const cachedTime = new Date(cachedAt).getTime();
-  return Number.isFinite(cachedTime) && Date.now() - cachedTime <= REPORT_CACHE_TTL_MS;
-}
+// Shared reports are snapshots, not short-lived response caches. A normal
+// report visit must remain read-only so it never unexpectedly consumes NXT API
+// quota. Snapshots are replaced only by a scheduled or explicit refresh.
+export const REPORT_SNAPSHOT_POLICY = "last-successful-refresh";
 
 export function shouldBypassReportCache(request) {
   const url = new URL(request.url);
@@ -39,7 +35,7 @@ export async function getCachedReportSnapshot(reportKey) {
   `;
 
   const row = rows[0];
-  if (!row?.payload || !isFreshReportCache(row.updated_at)) {
+  if (!row?.payload) {
     return null;
   }
 

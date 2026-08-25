@@ -22,7 +22,9 @@ const {
   getOrCreateUserMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
-  shouldBypassReportCacheMock: vi.fn(() => false),
+  shouldBypassReportCacheMock: vi.fn(
+    (request) => new URL(request.url).searchParams.get("refresh") === "1",
+  ),
   sqlMock: vi.fn(),
 }));
 
@@ -138,7 +140,9 @@ describe("Executive Team Standings report route", () => {
 
   it("returns team metrics with underlying drilldowns", async () => {
     const { GET } = await import("./route.js");
-    const response = await GET(new Request("https://jumgogpt.app/api/reports/executive-team-standings"));
+    const response = await GET(
+      new Request("https://jumgogpt.app/api/reports/executive-team-standings?refresh=1"),
+    );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -211,6 +215,21 @@ describe("Executive Team Standings report route", () => {
     expect(response.status).toBe(200);
     expect(payload.standings).toEqual([{ userId: 99, name: "Cached User" }]);
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("does not rebuild standings without an explicit refresh when no snapshot exists", async () => {
+    const { GET } = await import("./route.js");
+
+    const response = await GET(
+      new Request("https://jumgogpt.app/api/reports/executive-team-standings"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ status: "refresh_required" });
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(getNxtActionSummaryByWorkspaceUserMock).not.toHaveBeenCalled();
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 

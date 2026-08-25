@@ -15,6 +15,16 @@ function formatValue(value) {
   return text || "-";
 }
 
+function formatRefreshTime(value) {
+  if (!value) return "Unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 function getSearchText(row) {
   return [row?.name, ...Object.values(row?.values || {})]
     .join(" ")
@@ -114,6 +124,11 @@ export default function FutureMadePhaseTwoReportPage() {
 
           if (!response.ok) {
             throw new Error(payload?.error || "Could not run the Future. Made. Phase II report.");
+          }
+
+          if (payload?.status === "refresh_required") {
+            if (active) setReport(payload);
+            return;
           }
 
           if (payload?.status !== "complete") {
@@ -263,6 +278,8 @@ export default function FutureMadePhaseTwoReportPage() {
     );
   }
 
+  const refreshRequired = report?.status === "refresh_required";
+
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "32px 24px" }}>
       <div style={{ width: "min(1440px, 100%)", margin: "0 auto" }}>
@@ -296,6 +313,13 @@ export default function FutureMadePhaseTwoReportPage() {
           }
         />
 
+        {report?.generatedAt && !refreshRequired ? (
+          <p style={{ color: "#64748B", fontSize: "13px", margin: "16px 0 0" }}>
+            Last refreshed {formatRefreshTime(report.generatedAt)}. This shared snapshot remains unchanged until
+            6 PM Eastern or a manual refresh.
+          </p>
+        ) : null}
+
         {error ? (
           <section
             role="alert"
@@ -310,6 +334,25 @@ export default function FutureMadePhaseTwoReportPage() {
             }}
           >
             {error}
+          </section>
+        ) : null}
+
+        {refreshRequired ? (
+          <section
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #DDD6FE",
+              borderRadius: "18px",
+              padding: "22px",
+              backgroundColor: "#FAF5FF",
+              color: "#5B21B6",
+            }}
+          >
+            <strong>No saved Future. Made. Phase II snapshot is available.</strong>
+            <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
+              Select Run query again once. The resulting table will remain available until the next 6 PM Eastern
+              refresh or another manual refresh.
+            </p>
           </section>
         ) : null}
 

@@ -11,6 +11,7 @@ const {
   saveReportSnapshotMock,
   shouldBypassReportCacheMock,
   getBlackbaudConfigIssuesMock,
+  findBlackbaudQueryByNameMock,
   createBlackbaudQueryJobMock,
   getBlackbaudQueryJobMock,
   downloadBlackbaudQueryResultMock,
@@ -23,8 +24,11 @@ const {
   sqlMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
   saveReportSnapshotMock: vi.fn(),
-  shouldBypassReportCacheMock: vi.fn(() => false),
+  shouldBypassReportCacheMock: vi.fn(
+    (request) => new URL(request.url).searchParams.get("refresh") === "1",
+  ),
   getBlackbaudConfigIssuesMock: vi.fn(),
+  findBlackbaudQueryByNameMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
   downloadBlackbaudQueryResultMock: vi.fn(),
@@ -47,6 +51,7 @@ vi.mock("@/app/api/utils/reportCache", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   createBlackbaudQueryJob: createBlackbaudQueryJobMock,
   downloadBlackbaudQueryResult: downloadBlackbaudQueryResultMock,
+  findBlackbaudQueryByName: findBlackbaudQueryByNameMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJob: getBlackbaudQueryJobMock,
 }));
@@ -70,18 +75,19 @@ describe("Alumni & Family Engagement report route", () => {
     sqlMock.mockResolvedValue([
       {
         source_query_id: "query-1",
-        source_query_name: "FY27 Alumni Donors",
+        source_query_name: "Alumni Donors FY27",
       },
     ]);
     createBlackbaudQueryJobMock.mockResolvedValue({ id: "job-1" });
     getBlackbaudQueryJobMock.mockResolvedValue({ status: "Running" });
+    findBlackbaudQueryByNameMock.mockResolvedValue(null);
   });
 
   it("requires an administrator to configure the saved source query before it runs", async () => {
     sqlMock.mockResolvedValueOnce([]);
     const { GET } = await import("./route.js");
 
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -108,13 +114,51 @@ describe("Alumni & Family Engagement report route", () => {
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
+  it("does not start a Blackbaud query without a snapshot unless explicitly refreshed", async () => {
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ status: "refresh_required" });
+    expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves and saves the Alumni Donors FY27 query when the legacy source is configured", async () => {
+    sqlMock
+      .mockResolvedValueOnce([
+        {
+          source_query_id: "legacy-query",
+          source_query_name: "Alumni & Family Engagement",
+        },
+      ])
+      .mockResolvedValue([]);
+    findBlackbaudQueryByNameMock.mockResolvedValue({
+      id: "alumni-donors-fy27",
+      name: "Alumni Donors FY27",
+    });
+    const { GET } = await import("./route.js");
+
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toMatchObject({ status: "running", jobId: "job-1" });
+    expect(findBlackbaudQueryByNameMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Alumni Donors FY27", versions: ["v1"] }),
+    );
+    expect(createBlackbaudQueryJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ queryId: "alumni-donors-fy27" }),
+    );
+  });
+
   it("returns a pollable response while Blackbaud materializes a newly created query job", async () => {
     getBlackbaudQueryJobMock.mockRejectedValueOnce(
       new Error("Blackbaud 404 Resource Not Found: Resource not found"),
     );
     const { GET } = await import("./route.js");
 
-    const response = await GET(createRequest());
+    const response = await GET(createRequest("?refresh=1"));
     const payload = await response.json();
 
     expect(response.status).toBe(202);

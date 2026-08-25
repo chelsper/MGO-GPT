@@ -7,6 +7,10 @@ import {
   saveReportSnapshot,
   shouldBypassReportCache,
 } from "@/app/api/utils/reportCache";
+import {
+  getReportRefreshUser,
+  isAuthorizedReportRefreshRequest,
+} from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import {
   createBlackbaudQueryJob,
@@ -629,8 +633,11 @@ async function enrichQueryRows({ rows, user, origin }) {
   return results;
 }
 
-async function getCurrentUser() {
+async function getCurrentUser(request) {
   await ensureAppSchema();
+  if (isAuthorizedReportRefreshRequest(request)) {
+    return getReportRefreshUser();
+  }
   const session = await auth();
   if (!session?.user?.email) return null;
   return getOrCreateUser(session, "admin");
@@ -639,25 +646,17 @@ async function getCurrentUser() {
 export async function GET(request) {
   let forceRefresh = false;
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const internalRefresh = isAuthorizedReportRefreshRequest(request);
     const access = await getReportAccessForUser(FUTURE_MADE_PHASE_TWO_REPORT_KEY, user);
-    if (!access.canView) {
+    if (!internalRefresh && !access.canView) {
       return Response.json(
         { error: "Future. Made. Phase II is not shared with you." },
         { status: 403 },
-      );
-    }
-
-    const origin = new URL(request.url).origin;
-    const configurationIssues = getBlackbaudConfigIssues(origin);
-    if (configurationIssues.length) {
-      return Response.json(
-        { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
-        { status: 500 },
       );
     }
 
@@ -676,6 +675,24 @@ export async function GET(request) {
           headers: getReportCacheHeaders("hit"),
         });
       }
+
+      return Response.json(
+        {
+          status: "refresh_required",
+          message:
+            "No saved Future. Made. Phase II snapshot is available yet. Select Run query again to create one.",
+        },
+        { headers: getReportCacheHeaders("empty") },
+      );
+    }
+
+    const origin = new URL(request.url).origin;
+    const configurationIssues = getBlackbaudConfigIssues(origin);
+    if (configurationIssues.length) {
+      return Response.json(
+        { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
+        { status: 500 },
+      );
     }
 
     if (!jobId) {
@@ -816,7 +833,7 @@ export async function GET(request) {
   } catch (error) {
     console.error("Future. Made. Phase II report error:", error);
     if (isBlackbaudNotFoundError(error)) {
-      const user = await getCurrentUser();
+      const user = await getCurrentUser(request);
       if (user) {
         const origin = new URL(request.url).origin;
         const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({

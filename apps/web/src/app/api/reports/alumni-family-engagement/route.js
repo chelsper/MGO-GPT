@@ -9,8 +9,13 @@ import {
   shouldBypassReportCache,
 } from "@/app/api/utils/reportCache";
 import {
+  getReportRefreshUser,
+  isAuthorizedReportRefreshRequest,
+} from "@/app/api/utils/reportRefresh";
+import {
   createBlackbaudQueryJob,
   downloadBlackbaudQueryResult,
+  findBlackbaudQueryByName,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
@@ -20,7 +25,8 @@ import {
   getReportAccessForUser,
 } from "@/app/api/utils/reportAccess";
 
-const DEFAULT_QUERY_NAME = "Alumni & Family Engagement";
+const DEFAULT_QUERY_NAME = "Alumni Donors FY27";
+const LEGACY_DEFAULT_QUERY_NAME = "alumni & family engagement";
 const MAX_QUERY_ROWS = 10000;
 export const ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY = "report:alumni-family-engagement";
 
@@ -363,8 +369,11 @@ export function buildAlumniDonorReport(content, { fiscalYear = getCurrentFiscalY
   };
 }
 
-async function getCurrentUser() {
+async function getCurrentUser(request) {
   await ensureAppSchema();
+  if (isAuthorizedReportRefreshRequest(request)) {
+    return getReportRefreshUser();
+  }
   const session = await auth();
   if (!session?.user?.email) return null;
   return getOrCreateUser(session, "admin");
@@ -381,15 +390,47 @@ async function getSourceQueryConfiguration() {
   const queryId = String(
     record.source_query_id || process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_ID || "",
   ).trim();
-  const queryName = String(
-    record.source_query_name ||
-      process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_NAME ||
-      DEFAULT_QUERY_NAME,
+  const configuredQueryName = String(
+    record.source_query_name || process.env.BLACKBAUD_ALUMNI_FAMILY_ENGAGEMENT_QUERY_NAME || "",
   ).trim();
+  const queryName =
+    configuredQueryName.toLocaleLowerCase("en-US") === LEGACY_DEFAULT_QUERY_NAME
+      ? DEFAULT_QUERY_NAME
+      : configuredQueryName || DEFAULT_QUERY_NAME;
+  const usesLegacyDefault =
+    configuredQueryName.toLocaleLowerCase("en-US") === LEGACY_DEFAULT_QUERY_NAME;
 
   return {
-    queryId,
+    // The original generic report configuration must not keep pointing to its
+    // old query after the report has been moved to the dedicated FY27 source.
+    queryId: usesLegacyDefault ? "" : queryId,
     queryName: queryName || DEFAULT_QUERY_NAME,
+  };
+}
+
+async function resolveSourceQueryConfiguration({ user, origin, configuration }) {
+  if (configuration.queryId) return configuration;
+
+  const query = await findBlackbaudQueryByName({
+    userId: user.id,
+    origin,
+    name: configuration.queryName,
+    versions: ["v1"],
+  });
+  if (!query?.id) return configuration;
+
+  await sql`
+    UPDATE report_configurations
+    SET
+      source_query_id = ${query.id},
+      source_query_name = ${query.name || configuration.queryName},
+      updated_at = NOW()
+    WHERE report_key = ${ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY}
+  `;
+
+  return {
+    queryId: String(query.id),
+    queryName: String(query.name || configuration.queryName),
   };
 }
 
@@ -405,11 +446,12 @@ function createSetupPayload({ fiscalYear, queryName }) {
 
 export async function GET(request) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
+    const internalRefresh = isAuthorizedReportRefreshRequest(request);
     const access = await getReportAccessForUser(ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY, user);
-    if (!access.canView) {
+    if (!internalRefresh && !access.canView) {
       return Response.json(
         { error: "Alumni & Family Engagement is not shared with you." },
         { status: 403 },
@@ -419,23 +461,38 @@ export async function GET(request) {
     const fiscalYear = getCurrentFiscalYearWindow();
     const { searchParams } = new URL(request.url);
     const forceRefresh = shouldBypassReportCache(request);
-    const queryConfig = await getSourceQueryConfiguration();
     const jobId = searchParams.get("jobId")?.trim() || "";
-
-    if (!queryConfig.queryId) {
-      return Response.json(createSetupPayload({ fiscalYear, queryName: queryConfig.queryName }), {
-        headers: getReportCacheHeaders("setup"),
-      });
-    }
 
     if (!jobId && !forceRefresh) {
       const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
       if (cachedPayload) {
         return Response.json(cachedPayload, { headers: getReportCacheHeaders("hit") });
       }
+
+      return Response.json(
+        {
+          status: "refresh_required",
+          fiscalYear,
+          message:
+            "No saved Alumni & Family Engagement snapshot is available yet. Select Refresh data to create one.",
+        },
+        { headers: getReportCacheHeaders("empty") },
+      );
     }
 
     const origin = new URL(request.url).origin;
+    const configuredQuery = await getSourceQueryConfiguration();
+    const queryConfig = await resolveSourceQueryConfiguration({
+      user,
+      origin,
+      configuration: configuredQuery,
+    });
+    if (!queryConfig.queryId) {
+      return Response.json(createSetupPayload({ fiscalYear, queryName: queryConfig.queryName }), {
+        headers: getReportCacheHeaders("setup"),
+      });
+    }
+
     const configurationIssues = getBlackbaudConfigIssues(origin);
     if (configurationIssues.length) {
       return Response.json(
