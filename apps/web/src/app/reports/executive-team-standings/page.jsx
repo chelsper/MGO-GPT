@@ -126,6 +126,7 @@ export default function ExecutiveTeamStandingsPage() {
       activeProspects: result.activeProspects + Number(entry.activeProspects || 0),
       openPipeline: result.openPipeline + Number(entry.openPipeline || 0),
       funded: result.funded + Number(entry.fundedThisFiscalYear || 0),
+      lifetimeGiving: result.lifetimeGiving + Number(entry.lifetimeGiving || 0),
       nxtActionsThisFiscalYear:
         result.nxtActionsThisFiscalYear + Number(entry.nxtActionsThisFiscalYear || 0),
       overdue: result.overdue + Number(entry.overdueNextSteps || 0),
@@ -141,6 +142,7 @@ export default function ExecutiveTeamStandingsPage() {
       activeProspects: 0,
       openPipeline: 0,
       funded: 0,
+      lifetimeGiving: 0,
       nxtActionsThisFiscalYear: 0,
       overdue: 0,
       prospectsTouched: 0,
@@ -225,6 +227,7 @@ export default function ExecutiveTeamStandingsPage() {
           <MetricCard label="Active prospects" value={totals.activeProspects} icon={<Target size={20} />} color="#0369A1" />
           <MetricCard label="Open pipeline" value={formatCurrency(totals.openPipeline)} icon={<TrendingUp size={20} />} color="#0F766E" />
           <MetricCard label={`${report?.fiscalYear?.label || "Current FY"} closed-opportunity value`} value={formatCurrency(totals.funded)} icon={<TrendingUp size={20} />} color="#166534" />
+          <MetricCard label="Lifetime giving" value={formatCurrency(totals.lifetimeGiving)} icon={<TrendingUp size={20} />} color="#0F766E" />
           <MetricCard label={`${report?.fiscalYear?.label || "Current FY"} NXT actions`} value={totals.nxtActionsThisFiscalYear} icon={<TrendingUp size={20} />} color="#7C3AED" />
         </section>
 
@@ -249,7 +252,7 @@ export default function ExecutiveTeamStandingsPage() {
           <div style={{ padding: "22px 24px", borderBottom: "1px solid #E2E8F0" }}>
             <h2 style={{ color: "#0F172A", fontSize: "22px", margin: 0 }}>Team board</h2>
             <p style={{ color: "#64748B", lineHeight: 1.5, margin: "7px 0 0" }}>
-              Pipeline and follow-up metrics come from JUMGOGPT. Funded totals and NXT action counts are attributed by Blackbaud fundraiser identity for the current fiscal year.
+              Pipeline and follow-up metrics come from JUMGOGPT. Current-year closed, lifetime giving, and NXT action totals are attributed by Blackbaud fundraiser identity.
             </p>
           </div>
 
@@ -285,6 +288,7 @@ export default function ExecutiveTeamStandingsPage() {
                   <div style={{ borderTop: "1px solid #E2E8F0", display: "grid", gap: "13px", gridTemplateColumns: "1fr 1fr", marginTop: "18px", paddingTop: "18px" }}>
                     <StandingsMetric label="Open pipeline" value={formatCurrency(entry.openPipeline)} color="#0F766E" />
                     <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} closed`} value={formatCurrency(entry.fundedThisFiscalYear)} color="#166534" />
+                    <StandingsMetric label="Lifetime giving" value={formatCurrency(entry.lifetimeGiving)} color="#0F766E" />
                     <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} NXT actions`} value={Number(entry.nxtActionsThisFiscalYear || 0)} color="#7C3AED" />
                     <StandingsMetric label="Next-step coverage" value={getCoverage(entry.prospectsWithNextSteps, entry.activeProspects)} color="#1D4ED8" />
                     <StandingsMetric label="Overdue follow-ups" value={entry.overdueNextSteps} color={entry.overdueNextSteps ? "#B91C1C" : "#166534"} />
@@ -487,7 +491,7 @@ export default function ExecutiveTeamStandingsPage() {
         </section>
 
         <p style={{ color: "#64748B", fontSize: "13px", lineHeight: 1.5, margin: "18px 0 0" }}>
-          Source: {report?.source || "JUMGOGPT local operational records"}. Pipeline and follow-up sections come from JUMGOGPT records; closed totals and NXT actions use Blackbaud fundraiser attribution.
+          Source: {report?.source || "JUMGOGPT local operational records"}. Pipeline and follow-up sections come from JUMGOGPT records; current-year closed, lifetime giving, and NXT actions use Blackbaud fundraiser attribution.
         </p>
       </div>
     </main>

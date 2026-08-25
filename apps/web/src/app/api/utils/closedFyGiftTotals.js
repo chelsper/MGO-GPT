@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
+const LIFETIME_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -200,10 +201,10 @@ function isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet) {
   return Boolean(fundraiserId && fundraiserIdentitySet.has(fundraiserId));
 }
 
-function isFreshSummaryCache(cachedAt) {
+function isFreshSummaryCache(cachedAt, maxAgeMs = SUMMARY_CACHE_TTL_MS) {
   if (!cachedAt) return false;
   const cachedTime = new Date(cachedAt).getTime();
-  return Number.isFinite(cachedTime) && Date.now() - cachedTime <= SUMMARY_CACHE_TTL_MS;
+  return Number.isFinite(cachedTime) && Date.now() - cachedTime <= maxAgeMs;
 }
 
 async function getCachedBlackbaudSummary(workspaceUserId, cacheKey) {
@@ -234,7 +235,62 @@ async function saveCachedBlackbaudSummary(workspaceUserId, cacheKey, payload) {
   `;
 }
 
-async function getLiveBlackbaudClosedThisFY({
+function getSummaryIdentityCacheParts(workspaceUser) {
+  return [
+    workspaceUser.id,
+    workspaceUser.blackbaud_constituent_id || "",
+    workspaceUser.blackbaud_lookup_id || "",
+    normalizeBlackbaudFundraiserAliasIds(workspaceUser.blackbaud_fundraiser_alias_ids).join(","),
+    workspaceUser.email || "",
+    workspaceUser.name || "",
+  ];
+}
+
+function getLifetimeGivingCacheKey(workspaceUser) {
+  return [
+    "metric:executive-team-standings:lifetime-giving:v1",
+    ...getSummaryIdentityCacheParts(workspaceUser),
+  ].join("|");
+}
+
+async function getCachedLifetimeGiving(cacheKey) {
+  if (!cacheKey) return null;
+  const rows = await sql`
+    SELECT payload, updated_at
+    FROM report_snapshots_cache
+    WHERE report_key = ${cacheKey}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row?.payload || !isFreshSummaryCache(row.updated_at, LIFETIME_SUMMARY_CACHE_TTL_MS)) {
+    return null;
+  }
+
+  const lifetimeGiving = Number(row.payload.lifetimeGiving);
+  return Number.isFinite(lifetimeGiving) ? lifetimeGiving : null;
+}
+
+async function saveLifetimeGiving(cacheKey, lifetimeGiving) {
+  if (!cacheKey) return;
+  await sql`
+    INSERT INTO report_snapshots_cache (
+      report_key,
+      payload,
+      updated_at
+    )
+    VALUES (
+      ${cacheKey},
+      ${JSON.stringify({ lifetimeGiving: Number(lifetimeGiving || 0) })}::jsonb,
+      NOW()
+    )
+    ON CONFLICT (report_key)
+    DO UPDATE SET
+      payload = EXCLUDED.payload,
+      updated_at = NOW()
+  `;
+}
+
+async function getLiveBlackbaudAttributedGiving({
   workspaceUser,
   authUserId,
   origin,
@@ -276,17 +332,21 @@ async function getLiveBlackbaudClosedThisFY({
   const giftsById = new Map();
   const paginationByGiftType = [];
   let rawFetchedRows = 0;
+  const hasFiscalYearWindow = Boolean(fiscalYearStart && fiscalYearEnd);
   for (const giftTypeQuery of CLOSED_FY_GIFT_TYPE_QUERIES) {
+    const searchParams = {
+      limit: 500,
+      gift_type: giftTypeQuery,
+    };
+    if (hasFiscalYearWindow) {
+      searchParams.start_gift_date = fiscalYearStart;
+      searchParams.end_gift_date = fiscalYearEnd;
+    }
     const typedGifts = await listBlackbaudGifts({
       userId: workspaceUser.id,
       authUserId,
       origin,
-      searchParams: {
-        limit: 500,
-        gift_type: giftTypeQuery,
-        start_gift_date: fiscalYearStart,
-        end_gift_date: fiscalYearEnd,
-      },
+      searchParams,
       pageLimit: 500,
       maxPages: 20,
     }).catch(() => []);
@@ -306,8 +366,12 @@ async function getLiveBlackbaudClosedThisFY({
     }
   }
 
-  const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
-  const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
+  const fiscalStart = hasFiscalYearWindow
+    ? new Date(`${fiscalYearStart}T00:00:00Z`).getTime()
+    : null;
+  const fiscalEnd = hasFiscalYearWindow
+    ? new Date(`${fiscalYearEnd}T23:59:59Z`).getTime()
+    : null;
   let closedTotal = 0;
   let fiscalYearGiftRows = 0;
   let eligibleFyGiftRows = 0;
@@ -323,9 +387,10 @@ async function getLiveBlackbaudClosedThisFY({
     const giftDate = getGiftDate(gift);
     const giftTimestamp = giftDate ? new Date(giftDate).getTime() : Number.NaN;
     const inFiscalYear =
-      !Number.isNaN(giftTimestamp) &&
-      giftTimestamp >= fiscalStart &&
-      giftTimestamp <= fiscalEnd;
+      !hasFiscalYearWindow ||
+      (!Number.isNaN(giftTimestamp) &&
+        giftTimestamp >= fiscalStart &&
+        giftTimestamp <= fiscalEnd);
     if (!inFiscalYear) {
       excludedWrongFyCount += 1;
       continue;
@@ -457,10 +522,12 @@ async function getLiveBlackbaudClosedThisFY({
           ),
         },
         workspaceFundraiserIdentitySet: Array.from(fundraiserIdentitySet),
-        fiscalYearRange: {
-          start: fiscalYearStart,
-          end: fiscalYearEnd,
-        },
+        fiscalYearRange: hasFiscalYearWindow
+          ? {
+              start: fiscalYearStart,
+              end: fiscalYearEnd,
+            }
+          : null,
         totalGiftRowsFetched: giftsById.size,
         rawFetchedRows,
         dedupedByGiftId: rawFetchedRows - giftsById.size,
@@ -524,12 +591,7 @@ export async function getClosedFiscalYearSummary({
     "closed-summary-v3",
     fiscal.currentFY,
     fiscal.priorFY,
-    workspaceUser.id,
-    workspaceUser.blackbaud_constituent_id || "",
-    workspaceUser.blackbaud_lookup_id || "",
-    normalizeBlackbaudFundraiserAliasIds(workspaceUser.blackbaud_fundraiser_alias_ids).join(","),
-    workspaceUser.email || "",
-    workspaceUser.name || "",
+    ...getSummaryIdentityCacheParts(workspaceUser),
   ].join("|");
   const cachedSummary = await getCachedBlackbaudSummary(workspaceUser.id, cacheKey);
   if (cachedSummary && typeof cachedSummary === "object") {
@@ -541,14 +603,14 @@ export async function getClosedFiscalYearSummary({
   }
 
   const [closedThisFY, closedPriorFY] = await Promise.all([
-    getLiveBlackbaudClosedThisFY({
+    getLiveBlackbaudAttributedGiving({
       workspaceUser,
       authUserId,
       origin,
       fiscalYearStart: fiscal.fiscalYearStart,
       fiscalYearEnd: fiscal.fiscalYearEnd,
     }).catch(() => 0),
-    getLiveBlackbaudClosedThisFY({
+    getLiveBlackbaudAttributedGiving({
       workspaceUser,
       authUserId,
       origin,
@@ -563,6 +625,25 @@ export async function getClosedFiscalYearSummary({
   };
   await saveCachedBlackbaudSummary(workspaceUser.id, cacheKey, summary).catch(() => {});
   return { ...fiscal, ...summary };
+}
+
+export async function getLifetimeGivingTotal({ workspaceUser, authUserId, origin }) {
+  if (!workspaceUser?.id || !origin) return 0;
+
+  const cacheKey = getLifetimeGivingCacheKey(workspaceUser);
+  const cachedLifetimeGiving = await getCachedLifetimeGiving(cacheKey);
+  if (cachedLifetimeGiving !== null) {
+    return cachedLifetimeGiving;
+  }
+
+  const lifetimeGiving = await getLiveBlackbaudAttributedGiving({
+    workspaceUser,
+    authUserId,
+    origin,
+  }).catch(() => 0);
+  const normalizedLifetimeGiving = Number(lifetimeGiving || 0);
+  await saveLifetimeGiving(cacheKey, normalizedLifetimeGiving).catch(() => {});
+  return normalizedLifetimeGiving;
 }
 
 export function getClosedFiscalYearWindowForLabel(label) {
@@ -601,7 +682,7 @@ export async function getClosedFiscalYearDiagnostic({
       };
     })();
 
-  const payload = await getLiveBlackbaudClosedThisFY({
+  const payload = await getLiveBlackbaudAttributedGiving({
     workspaceUser,
     authUserId,
     origin,

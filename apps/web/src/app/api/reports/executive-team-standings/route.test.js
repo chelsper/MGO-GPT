@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   authMock,
   getClosedFiscalYearSummaryMock,
+  getLifetimeGivingTotalMock,
   getCachedReportSnapshotMock,
   getReportCacheHeadersMock,
   ensureAppSchemaMock,
@@ -15,6 +16,7 @@ const {
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   getClosedFiscalYearSummaryMock: vi.fn(),
+  getLifetimeGivingTotalMock: vi.fn(),
   getCachedReportSnapshotMock: vi.fn(),
   getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   ensureAppSchemaMock: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/closedFyGiftTotals", () => ({
   getClosedFiscalYearSummary: getClosedFiscalYearSummaryMock,
+  getLifetimeGivingTotal: getLifetimeGivingTotalMock,
 }));
 vi.mock("@/app/api/utils/nxtActionTotals", () => ({
   getNxtActionSummaryByWorkspaceUser: getNxtActionSummaryByWorkspaceUserMock,
@@ -57,6 +60,7 @@ describe("Executive Team Standings report route", () => {
     getOrCreateUserMock.mockResolvedValue({ id: 7, role: "executive" });
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
     getClosedFiscalYearSummaryMock.mockResolvedValue({ closedThisFY: 25000 });
+    getLifetimeGivingTotalMock.mockResolvedValue(380000);
     getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(
       new Map([
         [
@@ -154,6 +158,7 @@ describe("Executive Team Standings report route", () => {
         activeProspects: 12,
         openPipeline: 400000,
         fundedThisFiscalYear: 25000,
+        lifetimeGiving: 380000,
         nxtActionsThisFiscalYear: 11,
         prospectsWithNextSteps: 8,
         overdueNextSteps: 2,
@@ -215,6 +220,7 @@ describe("Executive Team Standings report route", () => {
     expect(response.status).toBe(200);
     expect(payload.standings).toEqual([{ userId: 99, name: "Cached User" }]);
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(getLifetimeGivingTotalMock).not.toHaveBeenCalled();
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 

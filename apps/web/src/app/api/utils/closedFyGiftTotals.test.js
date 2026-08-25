@@ -61,4 +61,28 @@ describe("closed FY gift totals", () => {
       normalizeBlackbaudFundraiserAliasIds("152922,\n172263\n234684,152922"),
     ).toEqual(["152922", "172263", "234684"]);
   });
+
+  it("uses the same eligible gifts for lifetime giving without fiscal-year dates", async () => {
+    const { getLifetimeGivingTotal } = await import("./closedFyGiftTotals.js");
+
+    const lifetimeGiving = await getLifetimeGivingTotal({
+      workspaceUser: {
+        id: 7,
+        name: "Leslie M. Redd",
+        email: "lredd@ju.edu",
+        blackbaud_constituent_id: "186057",
+        blackbaud_lookup_id: "436887",
+        blackbaud_fundraiser_alias_ids: ["152922"],
+      },
+      authUserId: 7,
+      origin: "https://www.jumgogpt.app",
+    });
+
+    expect(lifetimeGiving).toBe(1000);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalled();
+    for (const [{ searchParams }] of listBlackbaudGiftsMock.mock.calls) {
+      expect(searchParams).not.toHaveProperty("start_gift_date");
+      expect(searchParams).not.toHaveProperty("end_gift_date");
+    }
+  });
 });

@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
-import { getClosedFiscalYearSummary } from "@/app/api/utils/closedFyGiftTotals";
+import {
+  getClosedFiscalYearSummary,
+  getLifetimeGivingTotal,
+} from "@/app/api/utils/closedFyGiftTotals";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getNxtActionSummaryByWorkspaceUser } from "@/app/api/utils/nxtActionTotals";
 import {
@@ -245,29 +248,49 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
       `
     : [];
 
-  const closedTotals = origin
+  const givingTotals = origin
     ? await mapWithConcurrency(rows, 2, async (row) => {
+        const workspaceUser = {
+          id: Number(row.user_id),
+          name: row.name,
+          email: row.email,
+          blackbaud_constituent_id: row.blackbaud_constituent_id,
+          blackbaud_lookup_id: row.blackbaud_lookup_id,
+          blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
+        };
+
+        let closedThisFY = 0;
+        let lifetimeGiving = 0;
         try {
           const summary = await getClosedFiscalYearSummary({
-            workspaceUser: {
-              id: Number(row.user_id),
-              name: row.name,
-              email: row.email,
-              blackbaud_constituent_id: row.blackbaud_constituent_id,
-              blackbaud_lookup_id: row.blackbaud_lookup_id,
-              blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
-            },
+            workspaceUser,
             authUserId: authUser.id,
             origin,
           });
-          return [Number(row.user_id), asNumber(summary.closedThisFY)];
+          closedThisFY = asNumber(summary.closedThisFY);
         } catch {
-          return [Number(row.user_id), 0];
+          // Preserve the rest of the standings when a single MGO's gift summary is unavailable.
         }
+
+        try {
+          // Keep the all-time fetch after the fiscal-year fetch so refreshing the report does not
+          // double the concurrent request burst against Blackbaud.
+          lifetimeGiving = asNumber(
+            await getLifetimeGivingTotal({
+              workspaceUser,
+              authUserId: authUser.id,
+              origin,
+            }),
+          );
+        } catch {
+          // A cached report still protects normal dashboard views from a temporary provider issue.
+        }
+
+        return [Number(row.user_id), { closedThisFY, lifetimeGiving }];
       })
     : [];
 
-  const closedTotalsByUser = new Map(closedTotals);
+  const givingTotalsByUser = new Map(givingTotals);
   const nxtActionSummaryByUser = origin
     ? await getNxtActionSummaryByWorkspaceUser({
         workspaceUsers: rows.map((row) => ({
@@ -339,7 +362,10 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     email: row.email || "",
     activeProspects: asNumber(row.active_prospects),
     openPipeline: asNumber(row.open_pipeline),
-    fundedThisFiscalYear: asNumber(closedTotalsByUser.get(Number(row.user_id))),
+    fundedThisFiscalYear: asNumber(
+      givingTotalsByUser.get(Number(row.user_id))?.closedThisFY,
+    ),
+    lifetimeGiving: asNumber(givingTotalsByUser.get(Number(row.user_id))?.lifetimeGiving),
     nxtActionsThisFiscalYear: asNumber(
       nxtActionSummaryByUser.get(Number(row.user_id))?.actionsThisFY,
     ),
@@ -368,7 +394,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     fiscalYear,
     trendWindowDays: TREND_WINDOW_DAYS,
     source:
-      "Raiser's Edge NXT gift and action fundraiser attribution, plus JUMGOGPT pipeline and next-step records",
+      "Raiser's Edge NXT gift fundraiser attribution for current-fiscal-year closed and lifetime giving, plus NXT actions and JUMGOGPT pipeline and next-step records",
     generatedAt: new Date().toISOString(),
     standings,
   };
