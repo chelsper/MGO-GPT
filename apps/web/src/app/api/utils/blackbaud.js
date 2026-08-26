@@ -20,6 +20,7 @@ const BLACKBAUD_OPPORTUNITIES_URL =
 const BLACKBAUD_CONSTITUENT_BASE_URL =
   "https://api.sky.blackbaud.com/constituent/v1/constituents";
 const BLACKBAUD_GIFTS_URL = "https://api.sky.blackbaud.com/gift/v1/gifts";
+const BLACKBAUD_GIFT_V2_URL = "https://api.sky.blackbaud.com/gft-gifts/v2/gifts";
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
 const BLACKBAUD_QUERY_URL = "https://api.sky.blackbaud.com/query";
@@ -1392,6 +1393,45 @@ export async function getBlackbaudGift({
       origin,
     },
   );
+}
+
+// Gift V2 exposes the authoritative relationship between a planned gift and
+// the revenue realized against it. Keep this separate from the Gift V1 list
+// endpoint, which does not reliably include that relationship in list rows.
+export async function listBlackbaudRealizedPlannedGiftRevenueGifts({
+  userId,
+  authUserId,
+  origin,
+  plannedGiftId,
+} = {}) {
+  const normalizedGiftId = String(plannedGiftId || "").trim();
+  if (!normalizedGiftId) {
+    throw new Error("A planned gift ID is required");
+  }
+
+  const payload = await blackbaudApiFetch(
+    `${BLACKBAUD_GIFT_V2_URL}/${encodeURIComponent(
+      normalizedGiftId,
+    )}/plannedgift/realizedrevenuegifts`,
+    {
+      userId,
+      authUserId,
+      origin,
+      searchParams: { limit: 500, offset: 0 },
+      // A relationship check is supplemental. Do not retry it automatically
+      // and spend additional provider quota when Blackbaud is unavailable.
+      maxRetries: 0,
+      timeoutMs: 10000,
+    },
+  );
+
+  if (Array.isArray(payload?.realized_revenue_gifts)) {
+    return payload.realized_revenue_gifts;
+  }
+  if (Array.isArray(payload?.realizedRevenueGifts)) {
+    return payload.realizedRevenueGifts;
+  }
+  return getBlackbaudCollection(payload);
 }
 
 export async function listBlackbaudFundraiserAssignments({

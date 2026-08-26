@@ -7,6 +7,7 @@ const getBlackbaudConfigIssuesMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 const listGivingSocietyConfigurationsMock = vi.fn();
+const getRealizedPlannedGiftIdsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -24,6 +25,10 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   listBlackbaudGifts: listBlackbaudGiftsMock,
+}));
+
+vi.mock("../../utils/plannedGiftRevenue.js", () => ({
+  getRealizedPlannedGiftIds: getRealizedPlannedGiftIdsMock,
 }));
 
 vi.mock("../../utils/givingSocietyConfigurations.js", async () => {
@@ -47,10 +52,12 @@ describe("annual giving societies batch route", () => {
     listBlackbaudGiftsMock.mockReset();
     blackbaudApiFetchMock.mockReset();
     listGivingSocietyConfigurationsMock.mockReset();
+    getRealizedPlannedGiftIdsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
+    getRealizedPlannedGiftIdsMock.mockResolvedValue(new Set());
     getWorkspaceUserMock.mockResolvedValue({
       sessionUser: { id: 9, email: "mgo@example.com" },
       workspaceUser: { id: 9, email: "mgo@example.com" },

@@ -90,6 +90,37 @@ describe("current fiscal year giving", () => {
     ]);
   });
 
+  it("counts realized planned-gift revenue without retaining the linked planned gift", () => {
+    const summary = calculateCurrentFiscalYearGiving({
+      now: NOW,
+      constituentIds: ["100"],
+      realizedPlannedGiftIds: ["planned-1"],
+      gifts: [
+        gift({
+          id: "planned-1",
+          gift_type: "Planned Gift",
+          amount: 2500000,
+        }),
+        gift({
+          id: "realized-1",
+          gift_type: "Realized Planned Gift Revenue",
+          amount: 500000,
+        }),
+      ],
+    });
+
+    expect(summary.byConstituentId["100"]).toMatchObject({
+      hardReceived: 500000,
+      hardCommitted: 0,
+      recognizedReceived: 500000,
+      recognizedCommitted: 0,
+      plannedGifts: 0,
+      receivedGiftCount: 1,
+      committedGiftCount: 0,
+      plannedGiftCount: 0,
+    });
+  });
+
   it("keeps DAF hard-credit revenue separate from individual acknowledgment credit", () => {
     const summary = calculateCurrentFiscalYearGiving({
       now: NOW,

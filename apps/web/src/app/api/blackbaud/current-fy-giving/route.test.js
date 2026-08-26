@@ -6,6 +6,7 @@ const getWorkspaceUserMock = vi.fn();
 const getBlackbaudConfigIssuesMock = vi.fn();
 const getBlackbaudGiftMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
+const getRealizedPlannedGiftIdsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -25,6 +26,10 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   listBlackbaudGifts: listBlackbaudGiftsMock,
 }));
 
+vi.mock("../../utils/plannedGiftRevenue.js", () => ({
+  getRealizedPlannedGiftIds: getRealizedPlannedGiftIdsMock,
+}));
+
 describe("current fiscal year giving route", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -36,10 +41,12 @@ describe("current fiscal year giving route", () => {
     getBlackbaudConfigIssuesMock.mockReset();
     getBlackbaudGiftMock.mockReset();
     listBlackbaudGiftsMock.mockReset();
+    getRealizedPlannedGiftIdsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
     getBlackbaudConfigIssuesMock.mockReturnValue([]);
+    getRealizedPlannedGiftIdsMock.mockResolvedValue(new Set());
     getWorkspaceUserMock.mockResolvedValue({
       sessionUser: { id: 9, email: "mgo@example.com" },
       workspaceUser: { id: 9, email: "mgo@example.com" },

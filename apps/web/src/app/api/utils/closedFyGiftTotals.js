@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { listBlackbaudGifts } from "@/app/api/utils/blackbaud";
+import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
 const LIFETIME_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +35,7 @@ const CLOSED_FY_GIFT_TYPES = new Set(
     "SoldStock",
     "Other",
     "RecurringGiftPayment",
+    "RealizedPlannedGiftRevenue",
     "PlannedGift",
     "Pledge",
     "GiftInKind",
@@ -85,6 +87,16 @@ function getGiftType(gift) {
     "type_name",
     "category",
   ]) || "");
+}
+
+function getGiftId(gift) {
+  return String(
+    firstDefined(gift, ["id", "gift_id", "giftId", "gift.id", "gift.gift_id"]) || "",
+  ).trim();
+}
+
+function isPlannedGiftType(giftType) {
+  return giftType === "plannedgift" || giftType === "plannedgiving";
 }
 
 function getGiftFundraiserName(fundraiser) {
@@ -248,7 +260,7 @@ function getSummaryIdentityCacheParts(workspaceUser) {
 
 function getLifetimeGivingCacheKey(workspaceUser) {
   return [
-    "metric:executive-team-standings:lifetime-giving:v1",
+    "metric:executive-team-standings:lifetime-giving:v2",
     ...getSummaryIdentityCacheParts(workspaceUser),
   ].join("|");
 }
@@ -366,6 +378,13 @@ async function getLiveBlackbaudAttributedGiving({
     }
   }
 
+  const realizedPlannedGiftIds = await getRealizedPlannedGiftIds({
+    gifts: Array.from(giftsById.values()),
+    userId: workspaceUser.id,
+    authUserId,
+    origin,
+  });
+
   const fiscalStart = hasFiscalYearWindow
     ? new Date(`${fiscalYearStart}T00:00:00Z`).getTime()
     : null;
@@ -377,6 +396,7 @@ async function getLiveBlackbaudAttributedGiving({
   let eligibleFyGiftRows = 0;
   let excludedWrongFyCount = 0;
   let excludedWrongGiftTypeCount = 0;
+  let excludedRealizedPlannedGiftCount = 0;
   let excludedNoMatchingFundraiserCount = 0;
   const countedGiftIds = [];
   const giftsMatchedByEachWorkspaceId = new Map();
@@ -399,6 +419,26 @@ async function getLiveBlackbaudAttributedGiving({
     fiscalYearGiftRows += 1;
 
     const giftType = getGiftType(gift);
+    const giftId = getGiftId(gift);
+    if (isPlannedGiftType(giftType) && realizedPlannedGiftIds.has(giftId)) {
+      excludedRealizedPlannedGiftCount += 1;
+      if (debug && sampledGifts.length < 50) {
+        sampledGifts.push({
+          id: giftId || null,
+          date: giftDate || null,
+          amount: Number(getGiftAmount(gift) ?? 0) || 0,
+          giftType: giftType || null,
+          included: false,
+          exclusionReason: "realized_planned_gift_revenue",
+          fundraisers: getGiftFundraiserCandidates(gift).map((candidate) => ({
+            sourcePath: candidate.sourcePath,
+            id: getGiftFundraiserId(candidate.value) || null,
+            name: getGiftFundraiserName(candidate.value),
+          })),
+        });
+      }
+      continue;
+    }
     if (!CLOSED_FY_GIFT_TYPES.has(giftType)) {
       excludedWrongGiftTypeCount += 1;
       if (debug && sampledGifts.length < 50) {
@@ -538,6 +578,7 @@ async function getLiveBlackbaudAttributedGiving({
         countedGiftIds: countedGiftIds.slice(0, 200),
         excludedWrongFyCount,
         excludedWrongGiftTypeCount,
+        excludedRealizedPlannedGiftCount,
         excludedNoMatchingFundraiserCount,
         giftsMatchedByEachWorkspaceId: Array.from(giftsMatchedByEachWorkspaceId.values()).sort(
           (a, b) => a.workspaceId.localeCompare(b.workspaceId),
@@ -588,7 +629,7 @@ export async function getClosedFiscalYearSummary({
   }
 
   const cacheKey = [
-    "closed-summary-v3",
+    "closed-summary-v4",
     fiscal.currentFY,
     fiscal.priorFY,
     ...getSummaryIdentityCacheParts(workspaceUser),

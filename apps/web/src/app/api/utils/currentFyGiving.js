@@ -9,6 +9,7 @@ const RECEIVED_GIFT_TYPES = new Set([
   "paycash",
   "pledgepayment",
   "pledgepaycash",
+  "realizedplannedgiftrevenue",
   "recurringgiftpayment",
   "recurringgiftpaycash",
   "soldstock",
@@ -104,6 +105,20 @@ function getGiftType(gift) {
     getTextFromMaybeObject(
       firstDefined(gift, ["gift_type", "giftType", "type", "type_name", "category"]),
     ),
+  );
+}
+
+function getGiftId(gift) {
+  return String(
+    firstDefined(gift, ["id", "gift_id", "giftId", "gift.id", "gift.gift_id"]) || "",
+  ).trim();
+}
+
+function normalizeGiftIdSet(value) {
+  return new Set(
+    (value instanceof Set ? [...value] : Array.isArray(value) ? value : [])
+      .map((giftId) => String(giftId || "").trim())
+      .filter(Boolean),
   );
 }
 
@@ -432,6 +447,7 @@ export function calculateCurrentFiscalYearGiving({
   gifts = [],
   now = new Date(),
   fiscalYearStartMonth = 7,
+  realizedPlannedGiftIds = [],
 } = {}) {
   const period = getCurrentFiscalYearWindow({ now, fiscalYearStartMonth });
   const requestedIds = new Set(
@@ -475,6 +491,7 @@ export function calculateCurrentFiscalYearGiving({
   };
   const acknowledgmentCredits = [];
   const acknowledgmentCreditKeys = new Set();
+  const realizedPlannedGiftIdSet = normalizeGiftIdSet(realizedPlannedGiftIds);
 
   for (const gift of gifts) {
     const giftTime = new Date(getGiftDate(gift)).getTime();
@@ -484,21 +501,21 @@ export function calculateCurrentFiscalYearGiving({
     if (isExcludedFund(gift)) continue;
 
     const giftType = getGiftType(gift);
+    const giftId =
+      getGiftId(gift) ||
+      `${giftType}:${getGiftDate(gift)}:${getGiftConstituentId(gift) || "unknown"}`;
+    const isRealizedPlannedGift =
+      PLANNED_GIFT_TYPES.has(giftType) && realizedPlannedGiftIdSet.has(giftId);
     const isReceived =
       RECEIVED_GIFT_TYPES.has(giftType) || isPledgePaymentGiftType(giftType);
-    const isCommitted = COMMITTED_GIFT_TYPES.has(giftType);
-    const isPlannedGift = PLANNED_GIFT_TYPES.has(giftType);
+    const isCommitted = COMMITTED_GIFT_TYPES.has(giftType) && !isRealizedPlannedGift;
+    const isPlannedGift = PLANNED_GIFT_TYPES.has(giftType) && !isRealizedPlannedGift;
     if (!isReceived && !isCommitted) continue;
 
     const directId = String(getGiftConstituentId(gift) || "").trim();
     const directAmount = toAmount(getGiftAmount(gift));
     const recognizedAmounts = new Map();
     const softRecognitionAmounts = new Map();
-    const giftId =
-      gift?.id ||
-      gift?.gift_id ||
-      gift?.giftId ||
-      `${giftType}:${getGiftDate(gift)}:${directId || "unknown"}`;
     const giftSolicitors = getGiftSolicitors(gift);
 
     if (directId && requestedIds.has(directId) && directAmount != null && directAmount > 0) {

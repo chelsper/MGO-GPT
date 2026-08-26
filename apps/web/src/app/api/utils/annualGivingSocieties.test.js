@@ -284,6 +284,38 @@ describe("annual giving societies", () => {
     ]);
   });
 
+  it("does not qualify a planned-gift society from a gift with realized revenue", () => {
+    const summary = calculateAnnualGivingSocieties({
+      constituentId: "123",
+      now: NOW,
+      societyDefinitions: [
+        {
+          key: "legacy_society",
+          name: "Legacy Society",
+          basis: "lifetime",
+          periodBasis: "lifetime",
+          minimumAmount: 0,
+          maximumAmount: null,
+          countSources: ["planned_gift"],
+          active: true,
+          displayOrder: 1,
+        },
+      ],
+      gifts: [
+        gift({
+          id: "planned-hard",
+          gift_type: "Planned Gift",
+          amount: 0,
+          date: "2020-01-01T00:00:00.000Z",
+        }),
+      ],
+      realizedPlannedGiftIds: ["planned-hard"],
+    });
+
+    expect(summary.primaryLifetimeSociety).toBeNull();
+    expect(summary.allQualifiedLifetimeSocieties).toEqual([]);
+  });
+
   it("fetches full gift history when a lifetime planned gift society is configured", async () => {
     const listGifts = vi.fn(async () => [
       gift({

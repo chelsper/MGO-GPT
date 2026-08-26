@@ -7,6 +7,7 @@ import {
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import { fetchAnnualGivingSocieties } from "../../utils/annualGivingSocieties.js";
+import { getRealizedPlannedGiftIds } from "../../utils/plannedGiftRevenue.js";
 import {
   getGivingSocietyConfigurationSignature,
   listGivingSocietyConfigurations,
@@ -112,6 +113,13 @@ export async function GET(request) {
             origin,
             constituentId,
             societyDefinitions: givingSocietyConfigurations,
+            resolveRealizedPlannedGiftIds: (gifts) =>
+              getRealizedPlannedGiftIds({
+                gifts,
+                userId: user.id,
+                authUserId,
+                origin,
+              }),
             loadLifetimeGiving: () =>
               blackbaudApiFetch(
                 `/constituent/v1/constituents/${encodeURIComponent(

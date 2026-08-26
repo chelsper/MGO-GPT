@@ -14,6 +14,7 @@ const RECEIVED_REVENUE_GIFT_TYPE_TOKENS = new Set([
   "paycash",
   "pledgepayment",
   "pledgepaycash",
+  "realizedplannedgiftrevenue",
   "recurringgiftpayment",
   "recurringgiftpaycash",
   "soldstock",
@@ -192,6 +193,20 @@ function getGiftTypeToken(gift) {
       "type_name",
       "category",
     ]) || "",
+  );
+}
+
+function getGiftId(gift) {
+  return String(
+    firstDefined(gift, ["id", "gift_id", "giftId", "gift.id", "gift.gift_id"]) || "",
+  ).trim();
+}
+
+function normalizeGiftIdSet(value) {
+  return new Set(
+    (value instanceof Set ? [...value] : Array.isArray(value) ? value : [])
+      .map((giftId) => String(giftId || "").trim())
+      .filter(Boolean),
   );
 }
 
@@ -409,6 +424,7 @@ function calculateGivingTotalsForWindow({
   gifts = [],
   startDate,
   endDate,
+  realizedPlannedGiftIds = [],
 }) {
   const startTime = new Date(`${startDate}T00:00:00.000Z`).getTime();
   const endTime = new Date(`${endDate}T23:59:59.999Z`).getTime();
@@ -419,6 +435,7 @@ function calculateGivingTotalsForWindow({
   let plannedGiftCount = 0;
   const countedGiftIds = new Set();
   const countedPlannedGiftIds = new Set();
+  const realizedPlannedGiftIdSet = normalizeGiftIdSet(realizedPlannedGiftIds);
 
   for (const gift of gifts) {
     const giftDate = getGiftDate(gift);
@@ -430,11 +447,15 @@ function calculateGivingTotalsForWindow({
     const context = getGiftConstituentContext(gift, constituentId);
     const { recognitionCredits, directMatches } = context;
 
-    if (isPlannedGiftForConstituent(gift, constituentId, context)) {
+    const giftId = getGiftId(gift);
+    if (
+      isPlannedGiftForConstituent(gift, constituentId, context) &&
+      !realizedPlannedGiftIdSet.has(giftId)
+    ) {
       plannedGiftCount += 1;
-      if (gift?.id) {
-        countedGiftIds.add(String(gift.id));
-        countedPlannedGiftIds.add(String(gift.id));
+      if (giftId) {
+        countedGiftIds.add(giftId);
+        countedPlannedGiftIds.add(giftId);
       }
     }
 
@@ -445,7 +466,7 @@ function calculateGivingTotalsForWindow({
       if (amount != null && amount > 0) {
         receivedRevenueTotal += amount;
         receivedRevenueGiftCount += 1;
-        if (gift?.id) countedGiftIds.add(String(gift.id));
+        if (giftId) countedGiftIds.add(giftId);
       }
     }
 
@@ -460,7 +481,7 @@ function calculateGivingTotalsForWindow({
     if (recognitionAmountForGift > 0) {
       recognitionCreditTotal += recognitionAmountForGift;
       recognitionCreditGiftCount += 1;
-      if (gift?.id) countedGiftIds.add(String(gift.id));
+      if (giftId) countedGiftIds.add(giftId);
     }
   }
 
@@ -477,14 +498,25 @@ function calculateGivingTotalsForWindow({
   };
 }
 
-function calculatePlannedGiftPresence({ constituentId, gifts = [] } = {}) {
+function calculatePlannedGiftPresence({
+  constituentId,
+  gifts = [],
+  realizedPlannedGiftIds = [],
+} = {}) {
   const plannedGiftIds = new Set();
   let plannedGiftCount = 0;
+  const realizedPlannedGiftIdSet = normalizeGiftIdSet(realizedPlannedGiftIds);
 
   for (const gift of gifts) {
-    if (!isPlannedGiftForConstituent(gift, constituentId)) continue;
+    const giftId = getGiftId(gift);
+    if (
+      !isPlannedGiftForConstituent(gift, constituentId) ||
+      realizedPlannedGiftIdSet.has(giftId)
+    ) {
+      continue;
+    }
     plannedGiftCount += 1;
-    if (gift?.id) plannedGiftIds.add(String(gift.id));
+    if (giftId) plannedGiftIds.add(giftId);
   }
 
   return {
@@ -538,11 +570,16 @@ function calculateLifetimeGivingSocieties({
   lifetimeGiving,
   gifts = [],
   constituentId,
+  realizedPlannedGiftIds = [],
 } = {}) {
   const definitions = normalizeGivingSocietyConfigurations(societyDefinitions)
     .filter((definition) => definition.active !== false && definition.basis === "lifetime");
   const totals = calculateLifetimeGivingTotals(lifetimeGiving);
-  const plannedGiftPresence = calculatePlannedGiftPresence({ constituentId, gifts });
+  const plannedGiftPresence = calculatePlannedGiftPresence({
+    constituentId,
+    gifts,
+    realizedPlannedGiftIds,
+  });
 
   const societyResults = definitions
     .map((definition) => {
@@ -625,6 +662,7 @@ export function calculateAnnualGivingSocieties({
   now = new Date(),
   societyDefinitions,
   lifetimeGiving = null,
+  realizedPlannedGiftIds = [],
 } = {}) {
   const definitions = normalizeGivingSocietyConfigurations(societyDefinitions);
   const annualDefinitions = definitions
@@ -637,6 +675,7 @@ export function calculateAnnualGivingSocieties({
     lifetimeGiving,
     gifts,
     constituentId,
+    realizedPlannedGiftIds,
   });
   const totalsByWindow = new Map();
 
@@ -652,6 +691,7 @@ export function calculateAnnualGivingSocieties({
             gifts,
             startDate: window.startDate,
             endDate: window.endDate,
+            realizedPlannedGiftIds,
           }),
         );
       }
@@ -730,6 +770,7 @@ export function calculateAnnualGivingSocieties({
     gifts,
     startDate: primaryWindow.startDate,
     endDate: primaryWindow.endDate,
+    realizedPlannedGiftIds,
   });
   const combinedAnnualGiving =
     primarySociety?.qualifyingAmount ??
@@ -790,6 +831,7 @@ export async function fetchAnnualGivingSocieties({
   societyDefinitions,
   lifetimeGiving,
   loadLifetimeGiving,
+  resolveRealizedPlannedGiftIds,
 } = {}) {
   if (!listGifts) {
     throw new Error("A Blackbaud gift list function is required");
@@ -824,6 +866,12 @@ export async function fetchAnnualGivingSocieties({
         ? Promise.resolve().then(loadLifetimeGiving).catch(() => null)
         : Promise.resolve(null),
   ]);
+  const realizedPlannedGiftIds =
+    typeof resolveRealizedPlannedGiftIds === "function"
+      ? await Promise.resolve()
+          .then(() => resolveRealizedPlannedGiftIds(gifts))
+          .catch(() => new Set())
+      : new Set();
 
   return calculateAnnualGivingSocieties({
     constituentId,
@@ -831,5 +879,6 @@ export async function fetchAnnualGivingSocieties({
     now,
     societyDefinitions: definitions,
     lifetimeGiving: resolvedLifetimeGiving,
+    realizedPlannedGiftIds,
   });
 }

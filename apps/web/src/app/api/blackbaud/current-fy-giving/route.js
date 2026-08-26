@@ -15,6 +15,7 @@ import {
   getCurrentFiscalYearWindow,
   isPledgePaymentGiftType,
 } from "../../utils/currentFyGiving.js";
+import { getRealizedPlannedGiftIds } from "../../utils/plannedGiftRevenue.js";
 
 const MAX_CONSTITUENT_IDS = 50;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -243,6 +244,7 @@ function parseConstituentIds(request) {
 
 function getCacheKey({ userId, authUserId, constituentIds, period }) {
   return [
+    "v2",
     userId,
     authUserId,
     period.startDate,
@@ -387,11 +389,18 @@ export async function GET(request) {
       authUserId,
       origin,
     });
+    let realizedPlannedGiftIds = await getRealizedPlannedGiftIds({
+      gifts: enrichedGifts,
+      userId: user.id,
+      authUserId,
+      origin,
+    });
     let summary = calculateCurrentFiscalYearGiving({
       constituentIds,
       gifts: enrichedGifts,
       now,
       fiscalYearStartMonth: 7,
+      realizedPlannedGiftIds,
     });
 
     // The Gift List endpoint documents constituent_id as an associated-record
@@ -421,11 +430,18 @@ export async function GET(request) {
         authUserId,
         origin,
       });
+      realizedPlannedGiftIds = await getRealizedPlannedGiftIds({
+        gifts: enrichedGifts,
+        userId: user.id,
+        authUserId,
+        origin,
+      });
       summary = calculateCurrentFiscalYearGiving({
         constituentIds,
         gifts: enrichedGifts,
         now,
         fiscalYearStartMonth: 7,
+        realizedPlannedGiftIds,
       });
       usedZeroResultFallback = true;
     }

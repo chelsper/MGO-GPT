@@ -8,6 +8,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { getClosedFiscalYearSummary } from "@/app/api/utils/closedFyGiftTotals";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -39,6 +40,7 @@ const CLOSED_FY_GIFT_TYPES = new Set(
     "SoldStock",
     "Other",
     "RecurringGiftPayment",
+    "RealizedPlannedGiftRevenue",
     "PlannedGift",
     "Pledge",
     "GiftInKind",
@@ -94,6 +96,16 @@ function getGiftType(gift) {
       "category",
     ]) || "",
   );
+}
+
+function getGiftId(gift) {
+  return String(
+    firstDefined(gift, ["id", "gift_id", "giftId", "gift.id", "gift.gift_id"]) || "",
+  ).trim();
+}
+
+function isPlannedGiftType(giftType) {
+  return giftType === "plannedgift" || giftType === "plannedgiving";
 }
 
 function getGiftFundraiserCandidates(gift) {
@@ -523,6 +535,12 @@ async function getLiveBlackbaudClosedThisFY({
   }
 
   const gifts = Array.from(giftsById.values());
+  const realizedPlannedGiftIds = await getRealizedPlannedGiftIds({
+    gifts,
+    userId: user.id,
+    authUserId,
+    origin,
+  });
 
   const fiscalStart = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const fiscalEnd = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
@@ -537,6 +555,7 @@ async function getLiveBlackbaudClosedThisFY({
   let eligibleFyGiftRows = 0;
   let excludedWrongFyCount = 0;
   let excludedWrongGiftTypeCount = 0;
+  let excludedRealizedPlannedGiftCount = 0;
   let excludedPledgePaymentCount = 0;
   let excludedNoMatchingFundraiserCount = 0;
   const unmatchedFundraiserSummary = new Map();
@@ -560,6 +579,23 @@ async function getLiveBlackbaudClosedThisFY({
     fiscalYearGiftRows += 1;
 
     const giftType = getGiftType(gift);
+    const giftId = getGiftId(gift);
+    if (isPlannedGiftType(giftType) && realizedPlannedGiftIds.has(giftId)) {
+      excludedRealizedPlannedGiftCount += 1;
+      if (debug && debugRows.length < 50) {
+        debugRows.push({
+          id: giftId || null,
+          date: giftDate || null,
+          amount: Number(getGiftAmount(gift) ?? 0) || 0,
+          giftType: giftType || null,
+          fundraisers: [],
+          matchingFundraisers: [],
+          included: false,
+          exclusionReason: "realized_planned_gift_revenue",
+        });
+      }
+      continue;
+    }
     const typeAllowed = CLOSED_FY_GIFT_TYPES.has(giftType);
     if (!typeAllowed) {
       excludedWrongGiftTypeCount += 1;
@@ -733,6 +769,7 @@ async function getLiveBlackbaudClosedThisFY({
         excludedPledgePaymentCount,
         excludedWrongFyCount,
         excludedWrongGiftTypeCount,
+        excludedRealizedPlannedGiftCount,
         excludedNoMatchingFundraiserCount,
         giftFundraiserFieldShapesSeen: Array.from(fieldShapesSeen.values())
           .sort((a, b) => b.count - a.count),

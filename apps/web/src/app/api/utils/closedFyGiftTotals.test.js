@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sqlMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
+const getRealizedPlannedGiftIdsMock = vi.fn();
 
 vi.mock("@/app/api/utils/sql", () => ({
   default: sqlMock,
@@ -11,10 +12,15 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   listBlackbaudGifts: listBlackbaudGiftsMock,
 }));
 
+vi.mock("@/app/api/utils/plannedGiftRevenue", () => ({
+  getRealizedPlannedGiftIds: getRealizedPlannedGiftIdsMock,
+}));
+
 describe("closed FY gift totals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlMock.mockResolvedValue([]);
+    getRealizedPlannedGiftIdsMock.mockResolvedValue(new Set());
     listBlackbaudGiftsMock.mockImplementation(async ({ searchParams }) => {
       if (searchParams?.gift_type !== "Donation") {
         return [];
@@ -84,5 +90,67 @@ describe("closed FY gift totals", () => {
       expect(searchParams).not.toHaveProperty("start_gift_date");
       expect(searchParams).not.toHaveProperty("end_gift_date");
     }
+  });
+
+  it("excludes a realized planned gift but retains its realized revenue", async () => {
+    listBlackbaudGiftsMock.mockImplementation(async ({ searchParams }) => {
+      if (searchParams?.gift_type === "PlannedGift") {
+        return [
+          {
+            id: "planned-gift",
+            date: "2026-08-12T00:00:00",
+            amount: { value: 2500000 },
+            fundraisers: [{ constituent_id: "152922" }],
+            gift_type: "Planned Gift",
+          },
+        ];
+      }
+      if (searchParams?.gift_type === "Donation") {
+        return [
+          {
+            id: "realized-revenue",
+            date: "2026-08-12T00:00:00",
+            amount: { value: 500000 },
+            fundraisers: [{ constituent_id: "152922" }],
+            gift_type: "Realized Planned Gift Revenue",
+          },
+        ];
+      }
+      return [];
+    });
+    getRealizedPlannedGiftIdsMock.mockResolvedValue(new Set(["planned-gift"]));
+
+    const { getClosedFiscalYearSummary, getLifetimeGivingTotal } = await import(
+      "./closedFyGiftTotals.js"
+    );
+    const summary = await getClosedFiscalYearSummary({
+      workspaceUser: {
+        id: 7,
+        name: "Leslie M. Redd",
+        email: "lredd@ju.edu",
+        blackbaud_constituent_id: "186057",
+        blackbaud_lookup_id: "436887",
+        blackbaud_fundraiser_alias_ids: ["152922"],
+      },
+      authUserId: 7,
+      origin: "https://www.jumgogpt.app",
+      now: new Date("2026-08-18T12:00:00Z"),
+    });
+
+    expect(summary.closedThisFY).toBe(500000);
+    await expect(
+      getLifetimeGivingTotal({
+        workspaceUser: {
+          id: 7,
+          name: "Leslie M. Redd",
+          email: "lredd@ju.edu",
+          blackbaud_constituent_id: "186057",
+          blackbaud_lookup_id: "436887",
+          blackbaud_fundraiser_alias_ids: ["152922"],
+        },
+        authUserId: 7,
+        origin: "https://www.jumgogpt.app",
+      }),
+    ).resolves.toBe(500000);
   });
 });

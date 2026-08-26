@@ -8,6 +8,7 @@ import {
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import { fetchAnnualGivingSocieties } from "../../../../utils/annualGivingSocieties.js";
+import { getRealizedPlannedGiftIds } from "../../../../utils/plannedGiftRevenue.js";
 import {
   getGivingSocietyConfigurationSignature,
   listGivingSocietyConfigurations,
@@ -1448,6 +1449,13 @@ export async function GET(request, { params }) {
           constituentId: resolvedConstituentId,
           societyDefinitions: givingSocietyConfigurations,
           lifetimeGiving,
+          resolveRealizedPlannedGiftIds: (gifts) =>
+            getRealizedPlannedGiftIds({
+              gifts,
+              userId: user.id,
+              authUserId,
+              origin,
+            }),
         }),
     );
     const annualGivingSocieties = annualGivingSocietiesResult.ok
