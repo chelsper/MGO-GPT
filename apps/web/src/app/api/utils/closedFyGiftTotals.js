@@ -1,6 +1,7 @@
 import sql from "@/app/api/utils/sql";
 import { listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
+import { getLiveLifetimeFundraiserCredit } from "@/app/api/utils/lifetimeFundraiserCredit";
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
 const LIFETIME_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -258,14 +259,14 @@ function getSummaryIdentityCacheParts(workspaceUser) {
   ];
 }
 
-function getLifetimeGivingCacheKey(workspaceUser) {
+function getLifetimeGivingCacheKey(workspaceUser, version = "v4") {
   return [
-    "metric:executive-team-standings:lifetime-giving:v2",
+    `metric:executive-team-standings:lifetime-giving:${version}`,
     ...getSummaryIdentityCacheParts(workspaceUser),
   ].join("|");
 }
 
-async function getCachedLifetimeGiving(cacheKey) {
+async function getCachedLifetimeGiving(cacheKey, { allowStale = false } = {}) {
   if (!cacheKey) return null;
   const rows = await sql`
     SELECT payload, updated_at
@@ -274,7 +275,10 @@ async function getCachedLifetimeGiving(cacheKey) {
     LIMIT 1
   `;
   const row = rows[0];
-  if (!row?.payload || !isFreshSummaryCache(row.updated_at, LIFETIME_SUMMARY_CACHE_TTL_MS)) {
+  if (
+    !row?.payload ||
+    (!allowStale && !isFreshSummaryCache(row.updated_at, LIFETIME_SUMMARY_CACHE_TTL_MS))
+  ) {
     return null;
   }
 
@@ -677,14 +681,30 @@ export async function getLifetimeGivingTotal({ workspaceUser, authUserId, origin
     return cachedLifetimeGiving;
   }
 
-  const lifetimeGiving = await getLiveBlackbaudAttributedGiving({
-    workspaceUser,
-    authUserId,
-    origin,
-  }).catch(() => 0);
-  const normalizedLifetimeGiving = Number(lifetimeGiving || 0);
-  await saveLifetimeGiving(cacheKey, normalizedLifetimeGiving).catch(() => {});
-  return normalizedLifetimeGiving;
+  try {
+    const lifetimeGiving = await getLiveLifetimeFundraiserCredit({
+      workspaceUser,
+      authUserId,
+      origin,
+    });
+    const normalizedLifetimeGiving = Number(lifetimeGiving || 0);
+    await saveLifetimeGiving(cacheKey, normalizedLifetimeGiving).catch(() => {});
+    return normalizedLifetimeGiving;
+  } catch {
+    // Never overwrite a useful lifetime total with a partial or failed provider read.
+    // Older cache versions are only a failure fallback, never the normal live result.
+    for (const staleCacheKey of [
+      cacheKey,
+      getLifetimeGivingCacheKey(workspaceUser, "v3"),
+      getLifetimeGivingCacheKey(workspaceUser, "v2"),
+    ]) {
+      const staleLifetimeGiving = await getCachedLifetimeGiving(staleCacheKey, {
+        allowStale: true,
+      }).catch(() => null);
+      if (staleLifetimeGiving !== null) return staleLifetimeGiving;
+    }
+    return 0;
+  }
 }
 
 export function getClosedFiscalYearWindowForLabel(label) {
