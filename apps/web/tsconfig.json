@@ -18,6 +18,8 @@
 		"esModuleInterop": true,
 		"verbatimModuleSyntax": true,
 		"noEmit": true,
+		"allowJs": true,
+		"checkJs": false,
 		"resolveJsonModule": true,
 		"skipLibCheck": true,
 		"strict": true,

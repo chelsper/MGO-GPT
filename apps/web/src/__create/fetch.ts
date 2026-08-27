@@ -9,10 +9,22 @@ const safeStringify = (value: unknown) =>
     return v;
   });
 
+const consoleMethods = {
+  debug: console.debug,
+  error: console.error,
+  info: console.info,
+  log: console.log,
+  warn: console.warn,
+} as const;
+
 const postToParent = (level: string, text: string, extra: unknown) => {
   try {
     if (isBackend() || !window.parent || window.parent === window) {
-      ('level' in console ? console[level] : console.log)(text, extra);
+      const method =
+        level in consoleMethods
+          ? consoleMethods[level as keyof typeof consoleMethods]
+          : console.log;
+      method.call(console, text, extra);
       return;
     }
     window.parent.postMessage(
