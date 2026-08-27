@@ -14,6 +14,7 @@ import {
   Star,
   X,
   MessageSquare,
+  Mic,
 } from "lucide-react";
 import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 import {
@@ -149,6 +150,84 @@ function OpportunityStatusBadge({ status }) {
 function formatCurrency(amount) {
   if (!amount) return "$0";
   return "$" + Number(amount).toLocaleString();
+}
+
+const ACTION_DICTATION_TARGET_LABELS = {
+  notes: "Action notes",
+  nextStep: "Next step",
+};
+
+function getActionDictationTargetLabel(target) {
+  return ACTION_DICTATION_TARGET_LABELS[target] || "this field";
+}
+
+function appendActionDictationTranscript(existingValue, transcript) {
+  const existingText = String(existingValue || "").trim();
+  const transcriptText = String(transcript || "").trim();
+
+  if (!existingText) return transcriptText;
+  if (!transcriptText) return existingText;
+  return `${existingText}\n\n${transcriptText}`;
+}
+
+function getActionDictationErrorMessage(errorCode) {
+  switch (errorCode) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "Microphone access was blocked. Allow microphone access for jumgogpt.app, then try again.";
+    case "audio-capture":
+      return "No microphone was found. Check that a microphone is connected and selected in your browser.";
+    case "no-speech":
+      return "No speech was detected. Check the selected microphone in Chrome, speak close to it, and try again.";
+    case "network":
+      return "Dictation could not reach the browser speech service. Check your connection and try again.";
+    case "aborted":
+      return "Dictation was stopped before any transcript was captured.";
+    case "language-not-supported":
+      return "This browser does not support English dictation for this microphone session.";
+    default:
+      return "Live dictation failed. Try again, or type the note manually if the browser keeps blocking the microphone.";
+  }
+}
+
+function ActionDictationButton({
+  target,
+  label,
+  dictationTarget,
+  isRecording,
+  onStart,
+  onStop,
+  disabled = false,
+}) {
+  const active = isRecording && dictationTarget === target;
+  const isDisabled = disabled && !active;
+
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
+      <button
+        type="button"
+        disabled={isDisabled}
+        onClick={() => (active ? onStop() : onStart(target))}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 12px",
+          borderRadius: "999px",
+          border: active ? "1px solid #FCA5A5" : "1px solid #D1D5DB",
+          backgroundColor: active ? "#FEF2F2" : "white",
+          color: active ? "#B91C1C" : "#374151",
+          cursor: isDisabled ? "not-allowed" : "pointer",
+          opacity: isDisabled ? 0.55 : 1,
+          fontSize: "13px",
+          fontWeight: 700,
+        }}
+      >
+        <Mic size={14} />
+        {active ? "Stop dictation" : `Dictate ${label}`}
+      </button>
+    </div>
+  );
 }
 
 function chunkValues(values, size) {
@@ -2806,6 +2885,16 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const [actionLinkedOpportunityId, setActionLinkedOpportunityId] = useState("");
   const [actionAdditionalFundraiserUserId, setActionAdditionalFundraiserUserId] =
     useState("");
+  const [isActionDictating, setIsActionDictating] = useState(false);
+  const [actionDictationTarget, setActionDictationTarget] = useState("");
+  const [actionDictationStatus, setActionDictationStatus] = useState("");
+  const [actionDictationError, setActionDictationError] = useState("");
+  const [supportsActionDictation, setSupportsActionDictation] = useState(false);
+  const actionSpeechRecognitionRef = useRef(null);
+  const actionRecognitionTranscriptRef = useRef("");
+  const actionRecognitionDisplayRef = useRef("");
+  const actionRecognitionFinalizedRef = useRef(false);
+  const actionRecognitionBaseValueRef = useRef("");
   const [showOpportunityForm, setShowOpportunityForm] = useState(false);
   const [showDiscussionForm, setShowDiscussionForm] = useState(false);
   const [showDataRequestForm, setShowDataRequestForm] = useState(false);
@@ -2885,6 +2974,34 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       return;
     }
   }, [initialPanel, prospectId, readOnly]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSupportsActionDictation(
+      typeof window.SpeechRecognition !== "undefined" ||
+        typeof window.webkitSpeechRecognition !== "undefined",
+    );
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const recognition = actionSpeechRecognitionRef.current;
+      if (!recognition) return;
+      actionRecognitionFinalizedRef.current = true;
+      recognition.abort();
+      actionSpeechRecognitionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (showActionForm || !actionSpeechRecognitionRef.current) return;
+    actionRecognitionFinalizedRef.current = true;
+    actionSpeechRecognitionRef.current.stop();
+    actionSpeechRecognitionRef.current = null;
+    setIsActionDictating(false);
+    setActionDictationTarget("");
+    setActionDictationStatus("");
+  }, [showActionForm]);
 
   useEffect(() => {
     if (!prospectId || typeof window === "undefined") return;
@@ -3590,6 +3707,199 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       closeDate: normalizeDateInputValue(opportunity.close_date),
       declineReason: opportunity.decline_reason || "",
     });
+  };
+
+  const getActionDictationFieldValue = (target) => {
+    switch (target) {
+      case "notes":
+        return actionNotes;
+      case "nextStep":
+        return actionNextStep;
+      default:
+        return "";
+    }
+  };
+
+  const setActionDictationFieldValue = (target, value) => {
+    switch (target) {
+      case "notes":
+        setActionNotes(value);
+        break;
+      case "nextStep":
+        setActionNextStep(value);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const stopActionDictation = () => {
+    const recognition = actionSpeechRecognitionRef.current;
+    if (!recognition || !isActionDictating) return;
+
+    actionRecognitionFinalizedRef.current = true;
+    recognition.stop();
+    actionSpeechRecognitionRef.current = null;
+    setIsActionDictating(false);
+    setActionDictationStatus(
+      actionRecognitionDisplayRef.current || actionRecognitionTranscriptRef.current
+        ? `Dictation added to ${getActionDictationTargetLabel(actionDictationTarget)}.`
+        : "",
+    );
+    setActionDictationTarget("");
+  };
+
+  const startActionDictation = (target) => {
+    setActionDictationError("");
+    setActionDictationStatus("");
+
+    if (isActionDictating) {
+      setActionDictationError("Stop the current dictation before starting another field.");
+      return;
+    }
+
+    const SpeechRecognition =
+      typeof window === "undefined"
+        ? null
+        : window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setActionDictationError(
+        "This browser does not support live microphone dictation. Use Chrome or Edge, or type the note manually.",
+      );
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      actionRecognitionTranscriptRef.current = "";
+      actionRecognitionDisplayRef.current = "";
+      actionRecognitionFinalizedRef.current = false;
+      actionRecognitionBaseValueRef.current = getActionDictationFieldValue(target);
+      actionSpeechRecognitionRef.current = recognition;
+      setActionDictationTarget(target);
+
+      recognition.onstart = () => {
+        setActionDictationStatus(
+          `Ready for ${getActionDictationTargetLabel(target)}. Start speaking now.`,
+        );
+      };
+
+      recognition.onaudiostart = () => {
+        setActionDictationStatus(
+          `Microphone is on for ${getActionDictationTargetLabel(target)}. Start speaking.`,
+        );
+      };
+
+      recognition.onspeechstart = () => {
+        setActionDictationStatus(
+          `Hearing you. Dictating into ${getActionDictationTargetLabel(target)}.`,
+        );
+      };
+
+      recognition.onspeechend = () => {
+        setActionDictationStatus(
+          `Still listening for ${getActionDictationTargetLabel(target)}. Continue speaking or stop dictation.`,
+        );
+      };
+
+      recognition.onresult = (event) => {
+        let finalTranscript = "";
+        let interimTranscript = "";
+
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const text = result[0]?.transcript || "";
+          if (result.isFinal) {
+            finalTranscript += text;
+          } else {
+            interimTranscript += text;
+          }
+        }
+
+        if (finalTranscript) {
+          actionRecognitionTranscriptRef.current =
+            `${actionRecognitionTranscriptRef.current} ${finalTranscript}`.trim();
+        }
+
+        const combinedTranscript =
+          `${actionRecognitionTranscriptRef.current} ${interimTranscript}`.trim();
+        actionRecognitionDisplayRef.current = combinedTranscript;
+        setActionDictationFieldValue(
+          target,
+          appendActionDictationTranscript(
+            actionRecognitionBaseValueRef.current,
+            combinedTranscript,
+          ),
+        );
+        if (combinedTranscript) {
+          setActionDictationStatus(
+            `Writing into ${getActionDictationTargetLabel(target)}.`,
+          );
+        }
+      };
+
+      recognition.onerror = (event) => {
+        if (actionRecognitionFinalizedRef.current) return;
+        actionRecognitionFinalizedRef.current = true;
+        actionSpeechRecognitionRef.current = null;
+        setIsActionDictating(false);
+        setActionDictationTarget("");
+
+        const capturedTranscript =
+          actionRecognitionDisplayRef.current || actionRecognitionTranscriptRef.current;
+        if (String(capturedTranscript || "").trim()) {
+          setActionDictationStatus(
+            `Dictation added to ${getActionDictationTargetLabel(target)}.`,
+          );
+          return;
+        }
+
+        setActionDictationStatus("");
+        setActionDictationError(getActionDictationErrorMessage(event.error));
+      };
+
+      recognition.onend = () => {
+        actionSpeechRecognitionRef.current = null;
+        if (actionRecognitionFinalizedRef.current) return;
+        actionRecognitionFinalizedRef.current = true;
+        setIsActionDictating(false);
+        setActionDictationTarget("");
+
+        const capturedTranscript =
+          actionRecognitionDisplayRef.current || actionRecognitionTranscriptRef.current;
+        if (String(capturedTranscript || "").trim()) {
+          setActionDictationStatus(
+            `Dictation added to ${getActionDictationTargetLabel(target)}.`,
+          );
+          return;
+        }
+
+        setActionDictationStatus("");
+        setActionDictationError(
+          "No speech was detected. Check the selected microphone in Chrome, speak close to it, and try again.",
+        );
+      };
+
+      setIsActionDictating(true);
+      setActionDictationStatus(
+        `Starting microphone for ${getActionDictationTargetLabel(target)}...`,
+      );
+      recognition.start();
+    } catch (dictationStartError) {
+      console.error("Top Prospect action dictation error:", dictationStartError);
+      actionSpeechRecognitionRef.current = null;
+      setIsActionDictating(false);
+      setActionDictationTarget("");
+      setActionDictationStatus("");
+      setActionDictationError(
+        "Live dictation could not start in this browser. Check microphone permissions and try again.",
+      );
+    }
   };
 
   const saveOpportunityEdit = () => {
@@ -5522,6 +5832,71 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
               >
                 Capture the latest movement
               </h4>
+              {supportsActionDictation ? (
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #BFDBFE",
+                    backgroundColor: "#EFF6FF",
+                    color: "#1D4ED8",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Use Dictate on Action Notes or Next Step to speak directly into the field.
+                  Check the text before saving the action.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #FCD34D",
+                    backgroundColor: "#FFFBEB",
+                    color: "#92400E",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Live dictation is unavailable in this browser. Use Chrome or Edge to dictate an
+                  action, or type the notes manually.
+                </div>
+              )}
+              {actionDictationError ? (
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #FECACA",
+                    backgroundColor: "#FEF2F2",
+                    color: "#B91C1C",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {actionDictationError}
+                </div>
+              ) : null}
+              {actionDictationStatus ? (
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #DDD6FE",
+                    backgroundColor: "#F5F3FF",
+                    color: "#5B21B6",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {actionDictationStatus}
+                </div>
+              ) : null}
               <div style={{ marginBottom: "12px" }}>
                 <label
                   style={{
@@ -5691,6 +6066,17 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                 >
                   Notes
                 </label>
+                {supportsActionDictation ? (
+                  <ActionDictationButton
+                    target="notes"
+                    label="notes"
+                    dictationTarget={actionDictationTarget}
+                    isRecording={isActionDictating}
+                    onStart={startActionDictation}
+                    onStop={stopActionDictation}
+                    disabled={addActionMutation.isPending}
+                  />
+                ) : null}
                 <textarea
                   value={actionNotes}
                   onChange={(e) => setActionNotes(e.target.value)}
@@ -5728,6 +6114,17 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   >
                     Next Step
                   </label>
+                  {supportsActionDictation ? (
+                    <ActionDictationButton
+                      target="nextStep"
+                      label="next step"
+                      dictationTarget={actionDictationTarget}
+                      isRecording={isActionDictating}
+                      onStart={startActionDictation}
+                      onStop={stopActionDictation}
+                      disabled={addActionMutation.isPending}
+                    />
+                  ) : null}
                   <input
                     type="text"
                     value={actionNextStep}
@@ -5897,6 +6294,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   onClick={saveActionLog}
                   disabled={
                     addActionMutation.isPending ||
+                    isActionDictating ||
                     (!actionSummary.trim() && !actionNotes.trim())
                   }
                   style={{
@@ -5913,7 +6311,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   {addActionMutation.isPending ? "Saving..." : "Save Action"}
                 </button>
                 <button
-                  onClick={() => setShowActionForm(false)}
+                  onClick={() => {
+                    stopActionDictation();
+                    setShowActionForm(false);
+                  }}
                   style={{
                     padding: "8px 16px",
                     backgroundColor: "#F3F4F6",
