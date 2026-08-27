@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import crypto from "crypto";
 
 const FROM_EMAIL =
@@ -6,6 +7,8 @@ const FROM_EMAIL =
 
 export async function POST(request) {
   try {
+    await ensureAppSchema();
+
     const { email } = await request.json();
 
     if (!email) {

@@ -189,6 +189,28 @@ export default async function ensureAppSchema() {
       ALTER TABLE user_invitations
       ADD COLUMN IF NOT EXISTS blackbaud_name TEXT
     `;
+
+    // Auth.js owns the user/account tables. Password-reset records keep the
+    // text user ID it assigns, so the reset flow can initialize independently.
+    await sql`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id BIGSERIAL PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        used BOOLEAN NOT NULL DEFAULT FALSE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_expires
+      ON password_reset_tokens (user_id, expires_at DESC)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires
+      ON password_reset_tokens (expires_at)
+    `;
+
     await sql`
       CREATE TABLE IF NOT EXISTS constituents (
         id BIGSERIAL PRIMARY KEY,

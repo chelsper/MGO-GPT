@@ -1,7 +1,10 @@
 import sql from "@/app/api/utils/sql";
+import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 
 export async function POST(request) {
   try {
+    await ensureAppSchema();
+
     const { token, password } = await request.json();
 
     if (!token || !password) {

@@ -33,6 +33,8 @@ export default function SignInPage() {
           CredentialsSignin: "Incorrect email or password. Try again.",
           AccessDenied: ACCESS_DENIED_MESSAGE,
           Configuration: "There is a problem with the server configuration.",
+          OAuthCallbackError:
+            "Jacksonville University SSO did not complete. Try password sign-in below, or contact an administrator if it continues.",
         };
         setError(
           errorMessages[urlError] || "Something went wrong. Please try again.",
