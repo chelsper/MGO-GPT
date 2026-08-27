@@ -244,7 +244,11 @@ export default function ExecutiveTeamStandingsPage() {
               padding: "18px",
             }}
           >
-            <strong>Showing the last completed snapshot</strong>
+            <strong>
+              {report?.snapshotStatus === "partial"
+                ? "Showing a partial refreshed snapshot"
+                : "Showing the last completed snapshot"}
+            </strong>
             <p style={{ margin: "8px 0 0" }}>{report.refreshWarning}</p>
           </section>
         ) : null}

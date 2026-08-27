@@ -215,7 +215,7 @@ describe("Executive Team Standings report route", () => {
     ]);
   });
 
-  it("does not replace a completed snapshot when lifetime solicitor credit is unavailable", async () => {
+  it("saves a clearly marked partial snapshot when no prior snapshot exists", async () => {
     const { GET } = await import("./route.js");
     getLifetimeGivingTotalMock.mockResolvedValue(null);
 
@@ -224,9 +224,33 @@ describe("Executive Team Standings report route", () => {
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(503);
-    expect(payload.error).toContain("Lifetime solicitor credit was not refreshed");
+    expect(response.status).toBe(200);
     expect(payload.lifetimeCreditUnavailableUserIds).toEqual([8]);
+    expect(payload.snapshotStatus).toBe("partial");
+    expect(payload.refreshWarning).toContain("unavailable");
+    expect(payload.standings[0].lifetimeGiving).toBeNull();
+    expect(saveReportSnapshotMock).toHaveBeenCalledWith(
+      "report:executive-team-standings:v3-lifetime-query",
+      expect.objectContaining({ snapshotStatus: "partial" }),
+    );
+  });
+
+  it("preserves a completed snapshot when lifetime solicitor credit is unavailable", async () => {
+    const { GET } = await import("./route.js");
+    getLifetimeGivingTotalMock.mockResolvedValue(null);
+    getCachedReportSnapshotMock.mockResolvedValueOnce({
+      standings: [{ userId: 99, name: "Cached User" }],
+      generatedAt: "2026-08-18T12:00:00.000Z",
+    });
+
+    const response = await GET(
+      new Request("https://jumgogpt.app/api/reports/executive-team-standings?refresh=1"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.snapshotStatus).toBe("stale");
+    expect(payload.standings).toEqual([{ userId: 99, name: "Cached User" }]);
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 

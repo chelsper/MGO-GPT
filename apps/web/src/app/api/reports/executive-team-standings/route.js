@@ -459,6 +459,7 @@ export async function GET(request) {
         return Response.json(
           {
             ...cachedPayload,
+            snapshotStatus: "stale",
             refreshWarning:
               "Lifetime solicitor credit could not be refreshed for every active MGO, so the last completed Team Standings snapshot is still displayed.",
           },
@@ -466,13 +467,21 @@ export async function GET(request) {
         );
       }
 
+      // A missing or temporarily unavailable credit total for one MGO must not
+      // make the whole dashboard unusable. Save the other safely refreshed
+      // metrics, preserve unavailable values as null, and make the partial
+      // state explicit to the UI instead of presenting a misleading zero.
+      const partialPayload = {
+        ...payload,
+        snapshotStatus: "partial",
+        refreshWarning:
+          "Some lifetime solicitor credit values could not be refreshed. Those values are shown as unavailable, not as $0; all other saved Team Standings metrics are current.",
+      };
+      await saveReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY, partialPayload);
+
       return Response.json(
-        {
-          error:
-            "Lifetime solicitor credit was not refreshed for every active MGO. No updated Team Standings snapshot was saved. Try again after Blackbaud is available.",
-          lifetimeCreditUnavailableUserIds: payload.lifetimeCreditUnavailableUserIds,
-        },
-        { status: 503, headers: getReportCacheHeaders("refresh-failed") },
+        partialPayload,
+        { headers: getReportCacheHeaders(forceRefresh ? "partial" : "miss") },
       );
     }
     await saveReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY, payload);
