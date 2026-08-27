@@ -97,6 +97,23 @@ describe("closed FY gift totals", () => {
     expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
   });
 
+  it("does not substitute a zero or legacy lifetime cache value when the query refresh fails", async () => {
+    getLiveLifetimeFundraiserCreditMock.mockRejectedValue(
+      new Error("Blackbaud query unavailable"),
+    );
+    const { getLifetimeGivingTotal } = await import("./closedFyGiftTotals.js");
+
+    await expect(
+      getLifetimeGivingTotal({
+        workspaceUser: leslie,
+        authUserId: 7,
+        origin: "https://www.jumgogpt.app",
+      }),
+    ).resolves.toBeNull();
+
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
   it("retains the existing FY behavior for a realized planned gift", async () => {
     listBlackbaudGiftsMock.mockImplementation(async ({ searchParams }) => {
       if (searchParams?.gift_type === "PlannedGift") {

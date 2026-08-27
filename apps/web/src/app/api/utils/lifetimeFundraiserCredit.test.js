@@ -1,12 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listBlackbaudGiftsMock = vi.fn();
-
-vi.mock("@/app/api/utils/blackbaud", () => ({
-  listBlackbaudGifts: listBlackbaudGiftsMock,
+const {
+  createBlackbaudAdHocQueryJobMock,
+  downloadBlackbaudQueryResultMock,
+  getBlackbaudGiftMock,
+  getBlackbaudQueryJobMock,
+  sqlMock,
+} = vi.hoisted(() => ({
+  createBlackbaudAdHocQueryJobMock: vi.fn(),
+  downloadBlackbaudQueryResultMock: vi.fn(),
+  getBlackbaudGiftMock: vi.fn(),
+  getBlackbaudQueryJobMock: vi.fn(),
+  sqlMock: vi.fn(),
 }));
 
-const leslieFundraiserIds = new Set(["186057", "436887", "152922"]);
+vi.mock("@/app/api/utils/blackbaud", () => ({
+  createBlackbaudAdHocQueryJob: createBlackbaudAdHocQueryJobMock,
+  downloadBlackbaudQueryResult: downloadBlackbaudQueryResultMock,
+  getBlackbaudGift: getBlackbaudGiftMock,
+  getBlackbaudQueryJob: getBlackbaudQueryJobMock,
+}));
+
+vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
+
+const leslieFundraiserIds = new Set(["186057", "152922"]);
 
 function creditedGift(overrides = {}) {
   return {
@@ -18,6 +35,14 @@ function creditedGift(overrides = {}) {
 describe("lifetime fundraiser credit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sqlMock.mockResolvedValue([]);
+    createBlackbaudAdHocQueryJobMock.mockResolvedValue({ id: "job-1" });
+    getBlackbaudQueryJobMock.mockResolvedValue({
+      status: "Completed",
+      read_url: "https://example.test/lifetime-credit.csv",
+    });
+    downloadBlackbaudQueryResultMock.mockResolvedValue("");
+    getBlackbaudGiftMock.mockResolvedValue({ write_off_amount: { value: 0 } });
   });
 
   it("counts a planned gift and separately credited realized revenue", async () => {
@@ -96,7 +121,7 @@ describe("lifetime fundraiser credit", () => {
         }),
         creditedGift({
           id: "matching-payment",
-          gift_type: "Matching Gift Payment",
+          gift_type: "Matching Gift Pledge Payment",
           amount: { value: 1000 },
           matching_gift_pledge_id: "matching-pledge",
         }),
@@ -157,50 +182,94 @@ describe("lifetime fundraiser credit", () => {
     expect(result.excluded.reversalOrVoid).toBe(1);
   });
 
-  it("uses one undated bounded request and rejects an incomplete result", async () => {
-    const { getLiveLifetimeFundraiserCredit } = await import(
+  it("uses a server-side query filtered by fundraiser system record IDs", async () => {
+    const { getLiveLifetimeFundraiserCredit, getWorkspaceFundraiserIds } = await import(
       "./lifetimeFundraiserCredit.js"
     );
-    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], hasMore: false });
+    downloadBlackbaudQueryResultMock.mockResolvedValue([
+      "gift_system_record_id,gift_date,gift_type,gift_amount,pledge_balance,gift_status,fundraiser_system_record_id,fundraiser_name",
+      "gift-1,2026-08-01,One-Time Gift,1000,,Active,186057,Leslie M. Redd",
+      "pledge-1,2025-08-01,Pledge,750000,300000,Active,186057,Leslie M. Redd",
+    ].join("\n"));
+    getBlackbaudGiftMock.mockResolvedValue({ write_off_amount: { value: 450000 } });
 
+    const workspaceUser = {
+      id: 7,
+      blackbaud_constituent_id: "186057",
+      blackbaud_lookup_id: "436887",
+      blackbaud_fundraiser_alias_ids: ["152922"],
+    };
     await expect(
       getLiveLifetimeFundraiserCredit({
-        workspaceUser: {
-          id: 7,
-          blackbaud_constituent_id: "186057",
-          blackbaud_lookup_id: "436887",
-          blackbaud_fundraiser_alias_ids: ["152922"],
-        },
+        workspaceUser,
         authUserId: 7,
         origin: "https://www.jumgogpt.app",
       }),
-    ).resolves.toBe(0);
+    ).resolves.toBe(301000);
 
-    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(
+    expect([...getWorkspaceFundraiserIds(workspaceUser)]).toEqual(["186057", "152922"]);
+    expect(createBlackbaudAdHocQueryJobMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 7,
         authUserId: 7,
         origin: "https://www.jumgogpt.app",
-        pageLimit: 500,
-        maxPages: 20,
-        includePageMetadata: true,
-        searchParams: expect.objectContaining({
-          gift_type: expect.arrayContaining(["PledgePayment", "PlannedGift"]),
+        query: expect.objectContaining({
+          sql_generation_mode: "Query",
+          result_layout: "MultiRow",
+          filter_fields: [
+            expect.objectContaining({
+              query_field_id: 214249,
+              filter_values: ["186057", "152922"],
+              operator: "OneOf",
+            }),
+          ],
         }),
       }),
     );
-    const [{ searchParams }] = listBlackbaudGiftsMock.mock.calls[0];
-    expect(searchParams.gift_type).toContain("PlannedGift");
-    expect(searchParams).not.toHaveProperty("start_gift_date");
-    expect(searchParams).not.toHaveProperty("end_gift_date");
+    const [{ query }] = createBlackbaudAdHocQueryJobMock.mock.calls[0];
+    expect(JSON.stringify(query)).not.toContain("436887");
+    expect(JSON.stringify(query)).not.toContain("start_gift_date");
+    expect(JSON.stringify(query)).not.toContain("end_gift_date");
+    expect(getBlackbaudGiftMock).toHaveBeenCalledWith(
+      expect.objectContaining({ giftId: "pledge-1" }),
+    );
+  });
 
-    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], hasMore: true });
+  it("accepts Blackbaud's descriptive CSV headers but rejects incomplete output", async () => {
+    const { parseLifetimeFundraiserCreditCsv } = await import(
+      "./lifetimeFundraiserCredit.js"
+    );
+
+    expect(
+      parseLifetimeFundraiserCreditCsv([
+        "Gift System Record ID,Gift Type,Gift Amount,Gift Fundraiser System Record ID",
+        "gift-1,Donation,1250,186057",
+      ].join("\n")),
+    ).toEqual([
+      expect.objectContaining({
+        id: "gift-1",
+        gift_type: "Donation",
+        amount: "1250",
+        fundraisers: [{ fundraiser_id: "186057" }],
+      }),
+    ]);
+
+    expect(() => parseLifetimeFundraiserCreditCsv("Gift Type,Gift Amount\nDonation,1250"))
+      .toThrow("missing required output columns");
+  });
+
+  it("does not turn a missing fundraiser identity into a zero credit total", async () => {
+    const { getLiveLifetimeFundraiserCredit } = await import(
+      "./lifetimeFundraiserCredit.js"
+    );
+
     await expect(
       getLiveLifetimeFundraiserCredit({
-        workspaceUser: { id: 7, blackbaud_constituent_id: "186057" },
+        workspaceUser: { id: 7 },
         authUserId: 7,
         origin: "https://www.jumgogpt.app",
       }),
-    ).rejects.toThrow("could not be read completely");
+    ).rejects.toThrow("No Blackbaud fundraiser system record ID");
+    expect(createBlackbaudAdHocQueryJobMock).not.toHaveBeenCalled();
   });
 });

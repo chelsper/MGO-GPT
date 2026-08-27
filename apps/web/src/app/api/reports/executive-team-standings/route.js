@@ -23,8 +23,9 @@ import {
 } from "@/app/api/utils/reportAccess";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 const TREND_WINDOW_DAYS = 7;
-export const EXECUTIVE_TEAM_STANDINGS_CACHE_KEY = "report:executive-team-standings";
+export const EXECUTIVE_TEAM_STANDINGS_CACHE_KEY = "report:executive-team-standings:v3-lifetime-query";
 
 export function getFiscalYearWindow(now = new Date()) {
   const currentYear = now.getUTCFullYear();
@@ -41,6 +42,12 @@ export function getFiscalYearWindow(now = new Date()) {
 function asNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function asOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function asText(value) {
@@ -248,6 +255,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
       `
     : [];
 
+  const lifetimeCreditUnavailableUserIds = [];
   const givingTotals = origin
     ? await mapWithConcurrency(rows, 2, async (row) => {
         const workspaceUser = {
@@ -260,8 +268,26 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
         };
 
         let closedThisFY = 0;
-        let lifetimeGiving = 0;
+        let lifetimeGiving = null;
         try {
+          const candidate = asOptionalNumber(await getLifetimeGivingTotal({
+            workspaceUser,
+            authUserId: authUser.id,
+            origin,
+          }));
+          if (candidate === null) {
+            lifetimeCreditUnavailableUserIds.push(Number(row.user_id));
+          } else {
+            lifetimeGiving = candidate;
+          }
+        } catch {
+          lifetimeCreditUnavailableUserIds.push(Number(row.user_id));
+        }
+
+        try {
+          // Query-based lifetime credit runs first. The former fiscal-year
+          // scan can consume a large provider quota, while this metric must
+          // never fall back to a partial global gift list.
           const summary = await getClosedFiscalYearSummary({
             workspaceUser,
             authUserId: authUser.id,
@@ -270,20 +296,6 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
           closedThisFY = asNumber(summary.closedThisFY);
         } catch {
           // Preserve the rest of the standings when a single MGO's gift summary is unavailable.
-        }
-
-        try {
-          // Keep the all-time fetch after the fiscal-year fetch so refreshing the report does not
-          // double the concurrent request burst against Blackbaud.
-          lifetimeGiving = asNumber(
-            await getLifetimeGivingTotal({
-              workspaceUser,
-              authUserId: authUser.id,
-              origin,
-            }),
-          );
-        } catch {
-          // A cached report still protects normal dashboard views from a temporary provider issue.
         }
 
         return [Number(row.user_id), { closedThisFY, lifetimeGiving }];
@@ -365,7 +377,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     fundedThisFiscalYear: asNumber(
       givingTotalsByUser.get(Number(row.user_id))?.closedThisFY,
     ),
-    lifetimeGiving: asNumber(givingTotalsByUser.get(Number(row.user_id))?.lifetimeGiving),
+    lifetimeGiving: givingTotalsByUser.get(Number(row.user_id))?.lifetimeGiving ?? null,
     nxtActionsThisFiscalYear: asNumber(
       nxtActionSummaryByUser.get(Number(row.user_id))?.actionsThisFY,
     ),
@@ -394,8 +406,9 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     fiscalYear,
     trendWindowDays: TREND_WINDOW_DAYS,
     source:
-      "Raiser's Edge NXT gift fundraiser attribution for current-fiscal-year closed and lifetime giving, plus NXT actions and JUMGOGPT pipeline and next-step records",
+      "Raiser's Edge NXT explicit fundraiser attribution for current-fiscal-year closed and lifetime solicitor credit, plus NXT actions and JUMGOGPT pipeline and next-step records",
     generatedAt: new Date().toISOString(),
+    lifetimeCreditUnavailableUserIds: [...new Set(lifetimeCreditUnavailableUserIds)],
     standings,
   };
 }
@@ -440,6 +453,28 @@ export async function GET(request) {
       authUser: user,
       origin,
     });
+    if (payload.lifetimeCreditUnavailableUserIds.length > 0) {
+      const cachedPayload = await getCachedReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY);
+      if (cachedPayload) {
+        return Response.json(
+          {
+            ...cachedPayload,
+            refreshWarning:
+              "Lifetime solicitor credit could not be refreshed for every active MGO, so the last completed Team Standings snapshot is still displayed.",
+          },
+          { headers: getReportCacheHeaders("stale") },
+        );
+      }
+
+      return Response.json(
+        {
+          error:
+            "Lifetime solicitor credit was not refreshed for every active MGO. No updated Team Standings snapshot was saved. Try again after Blackbaud is available.",
+          lifetimeCreditUnavailableUserIds: payload.lifetimeCreditUnavailableUserIds,
+        },
+        { status: 503, headers: getReportCacheHeaders("refresh-failed") },
+      );
+    }
     await saveReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY, payload);
 
     return Response.json(payload, {

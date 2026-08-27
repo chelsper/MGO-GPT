@@ -259,7 +259,7 @@ function getSummaryIdentityCacheParts(workspaceUser) {
   ];
 }
 
-function getLifetimeGivingCacheKey(workspaceUser, version = "v4") {
+function getLifetimeGivingCacheKey(workspaceUser, version = "v6-query-multirow") {
   return [
     `metric:executive-team-standings:lifetime-giving:${version}`,
     ...getSummaryIdentityCacheParts(workspaceUser),
@@ -287,7 +287,8 @@ async function getCachedLifetimeGiving(cacheKey, { allowStale = false } = {}) {
 }
 
 async function saveLifetimeGiving(cacheKey, lifetimeGiving) {
-  if (!cacheKey) return;
+  const normalizedLifetimeGiving = Number(lifetimeGiving);
+  if (!cacheKey || !Number.isFinite(normalizedLifetimeGiving)) return;
   await sql`
     INSERT INTO report_snapshots_cache (
       report_key,
@@ -296,7 +297,7 @@ async function saveLifetimeGiving(cacheKey, lifetimeGiving) {
     )
     VALUES (
       ${cacheKey},
-      ${JSON.stringify({ lifetimeGiving: Number(lifetimeGiving || 0) })}::jsonb,
+      ${JSON.stringify({ lifetimeGiving: normalizedLifetimeGiving })}::jsonb,
       NOW()
     )
     ON CONFLICT (report_key)
@@ -673,7 +674,7 @@ export async function getClosedFiscalYearSummary({
 }
 
 export async function getLifetimeGivingTotal({ workspaceUser, authUserId, origin }) {
-  if (!workspaceUser?.id || !origin) return 0;
+  if (!workspaceUser?.id || !origin) return null;
 
   const cacheKey = getLifetimeGivingCacheKey(workspaceUser);
   const cachedLifetimeGiving = await getCachedLifetimeGiving(cacheKey);
@@ -687,23 +688,17 @@ export async function getLifetimeGivingTotal({ workspaceUser, authUserId, origin
       authUserId,
       origin,
     });
-    const normalizedLifetimeGiving = Number(lifetimeGiving || 0);
+    const normalizedLifetimeGiving = Number(lifetimeGiving);
+    if (!Number.isFinite(normalizedLifetimeGiving)) {
+      throw new Error("Lifetime solicitor credit was unavailable from Blackbaud");
+    }
     await saveLifetimeGiving(cacheKey, normalizedLifetimeGiving).catch(() => {});
     return normalizedLifetimeGiving;
   } catch {
-    // Never overwrite a useful lifetime total with a partial or failed provider read.
-    // Older cache versions are only a failure fallback, never the normal live result.
-    for (const staleCacheKey of [
-      cacheKey,
-      getLifetimeGivingCacheKey(workspaceUser, "v3"),
-      getLifetimeGivingCacheKey(workspaceUser, "v2"),
-    ]) {
-      const staleLifetimeGiving = await getCachedLifetimeGiving(staleCacheKey, {
-        allowStale: true,
-      }).catch(() => null);
-      if (staleLifetimeGiving !== null) return staleLifetimeGiving;
-    }
-    return 0;
+    // Never revive the old global-list scan cache. It was incomplete for high
+    // volume fundraisers. Only a prior result from this query-based version is
+    // safe to show when Blackbaud is temporarily unavailable.
+    return getCachedLifetimeGiving(cacheKey, { allowStale: true }).catch(() => null);
   }
 }
 
