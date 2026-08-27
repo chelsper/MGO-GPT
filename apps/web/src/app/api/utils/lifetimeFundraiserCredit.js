@@ -13,6 +13,7 @@ const LIFETIME_QUERY_POLL_INTERVAL_MS = 1000;
 const LIFETIME_QUERY_MAX_WAIT_MS = 90000;
 const LIFETIME_PLEDGE_WRITE_OFF_CACHE_VERSION = "v1";
 const LIFETIME_PLEDGE_DETAIL_CONCURRENCY = 2;
+const BLACKBAUD_QUERY_RESULTS_FILE_NAME_MAX_LENGTH = 30;
 
 const ELIGIBLE_GIFT_TYPES = new Set(
   [
@@ -163,6 +164,21 @@ export function getWorkspaceFundraiserIds(workspaceUser) {
     ids.add(aliasId);
   }
   return ids;
+}
+
+export function getLifetimeQueryResultsFileName(workspaceUser) {
+  // Blackbaud rejects result file names longer than 30 characters. Keep the
+  // per-user identifier while using a deliberately short, stable prefix.
+  const rawUserId = String(workspaceUser?.id || "user")
+    .replace(/[^a-z0-9_-]/gi, "")
+    .slice(-12) || "user";
+  const resultsFileName = `lt-credit-${rawUserId}.csv`;
+
+  if (resultsFileName.length > BLACKBAUD_QUERY_RESULTS_FILE_NAME_MAX_LENGTH) {
+    throw new Error("Blackbaud lifetime query result file name is too long");
+  }
+
+  return resultsFileName;
 }
 
 function getFundraiserCandidates(gift) {
@@ -800,7 +816,7 @@ export async function getLiveLifetimeFundraiserCredit({
     authUserId,
     origin,
     query: buildLifetimeFundraiserCreditQuery(fundraiserIds),
-    resultsFileName: `lifetime-fundraiser-credit-${workspaceUser.id}.csv`,
+    resultsFileName: getLifetimeQueryResultsFileName(workspaceUser),
   });
   const jobId = getQueryJobId(createdJob);
   if (!jobId) throw new Error("Blackbaud did not return a lifetime query job ID");

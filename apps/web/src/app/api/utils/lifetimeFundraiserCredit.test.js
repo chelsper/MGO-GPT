@@ -183,7 +183,11 @@ describe("lifetime fundraiser credit", () => {
   });
 
   it("uses a server-side query filtered by fundraiser system record IDs", async () => {
-    const { getLiveLifetimeFundraiserCredit, getWorkspaceFundraiserIds } = await import(
+    const {
+      getLifetimeQueryResultsFileName,
+      getLiveLifetimeFundraiserCredit,
+      getWorkspaceFundraiserIds,
+    } = await import(
       "./lifetimeFundraiserCredit.js"
     );
     downloadBlackbaudQueryResultMock.mockResolvedValue([
@@ -213,6 +217,7 @@ describe("lifetime fundraiser credit", () => {
         userId: 7,
         authUserId: 7,
         origin: "https://www.jumgogpt.app",
+        resultsFileName: "lt-credit-7.csv",
         query: expect.objectContaining({
           sql_generation_mode: "Query",
           result_layout: "MultiRow",
@@ -233,6 +238,8 @@ describe("lifetime fundraiser credit", () => {
     expect(getBlackbaudGiftMock).toHaveBeenCalledWith(
       expect.objectContaining({ giftId: "pledge-1" }),
     );
+
+    expect(getLifetimeQueryResultsFileName({ id: "a".repeat(80) }).length).toBeLessThanOrEqual(30);
   });
 
   it("accepts Blackbaud's descriptive CSV headers but rejects incomplete output", async () => {
