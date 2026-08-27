@@ -56,6 +56,7 @@ export async function GET(request) {
             .split(/\s+/)
             .some((value) => value && value !== "offline_access"),
       ),
+      automaticRenewalAvailable: Boolean(connection?.refresh_token),
       expiresAt: connection?.expires_at || null,
       connectedAt: connection?.connected_at || null,
       updatedAt: connection?.updated_at || null,

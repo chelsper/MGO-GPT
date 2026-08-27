@@ -341,8 +341,13 @@ export default function SettingsPage() {
               <Notice tone="success">Connected to Blackbaud NXT.</Notice>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px" }}>
                 <Detail label="Connected">{formatDateTime(blackbaudStatus.connectedAt)}</Detail>
-                <Detail label="Authorization expires">{formatDateTime(blackbaudStatus.expiresAt)}</Detail>
+                <Detail label="Access token expires">{formatDateTime(blackbaudStatus.expiresAt)}</Detail>
               </div>
+              <Notice tone={blackbaudStatus.automaticRenewalAvailable ? "info" : "warning"}>
+                {blackbaudStatus.automaticRenewalAvailable
+                  ? "Automatic renewal is enabled. JUMGOGPT refreshes this short-lived access token when it is needed, so you do not need to reconnect every hour."
+                  : "Automatic renewal is unavailable. Reconnect Blackbaud NXT before this access token expires to keep NXT features available."}
+              </Notice>
               <div>
                 <div style={{ color: "#6B7280", fontSize: "12px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.04em" }}>Granted scopes</div>
                 <div style={{ marginTop: "7px", display: "flex", gap: "7px", flexWrap: "wrap" }}>

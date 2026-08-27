@@ -45,6 +45,7 @@ describe("Blackbaud status route", () => {
     });
     getValidBlackbaudConnectionMock.mockResolvedValue({
       scope: "offline_access rnxt.r",
+      refresh_token: "refresh-token",
       expires_at: "2026-08-21T17:00:00.000Z",
       connected_at: "2026-08-21T15:00:00.000Z",
       updated_at: "2026-08-21T15:00:00.000Z",
@@ -81,6 +82,7 @@ describe("Blackbaud status route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.connected).toBe(true);
+    expect(payload.automaticRenewalAvailable).toBe(true);
     expect(payload.quota).toMatchObject({ status: "available", paused: false });
     expect(getValidBlackbaudConnectionMock).toHaveBeenCalledWith(7, "https://example.com");
   });
