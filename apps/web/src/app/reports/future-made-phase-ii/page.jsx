@@ -216,9 +216,21 @@ export default function FutureMadePhaseTwoReportPage() {
   }, [lookupQuery]);
 
   const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
-  const visibleRows = (report?.rows || []).filter(
+  const refreshRequired = report?.status === "refresh_required";
+  const reportRows = Array.isArray(report?.rows) ? report.rows : [];
+  const reportColumns = Array.isArray(report?.columns) ? report.columns : [];
+  const parsedTotalRows = Number(report?.totalRows);
+  const totalRows =
+    report?.totalRows === undefined ||
+    report?.totalRows === null ||
+    report?.totalRows === "" ||
+    !Number.isFinite(parsedTotalRows)
+      ? reportRows.length
+      : parsedTotalRows;
+  const visibleRows = reportRows.filter(
     (row) => !normalizedSearch || getSearchText(row).includes(normalizedSearch),
   );
+  const hasResultTable = !refreshRequired && reportColumns.length > 0;
   const canManageFutureMadePhaseTwo =
     isAdminRole(viewerRole) || isExecutiveRole(viewerRole);
 
@@ -277,8 +289,6 @@ export default function FutureMadePhaseTwoReportPage() {
       </main>
     );
   }
-
-  const refreshRequired = report?.status === "refresh_required";
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "32px 24px" }}>
@@ -352,6 +362,25 @@ export default function FutureMadePhaseTwoReportPage() {
             <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
               Select Run query again once. The resulting table will remain available until the next 6 PM Eastern
               refresh or another manual refresh.
+            </p>
+          </section>
+        ) : null}
+
+        {report && !refreshRequired && !hasResultTable ? (
+          <section
+            role="status"
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #FDE68A",
+              borderRadius: "18px",
+              padding: "22px",
+              backgroundColor: "#FFFBEB",
+              color: "#92400E",
+            }}
+          >
+            <strong>The saved report snapshot is incomplete.</strong>
+            <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
+              Select Run query again to rebuild the report. No list membership or NXT data has been changed.
             </p>
           </section>
         ) : null}
@@ -598,7 +627,7 @@ export default function FutureMadePhaseTwoReportPage() {
           </section>
         ) : null}
 
-        {report ? (
+        {hasResultTable ? (
           <section
             style={{
               border: "1px solid #E2E8F0",
@@ -621,7 +650,7 @@ export default function FutureMadePhaseTwoReportPage() {
               <div>
                 <h2 style={{ margin: 0, color: "#0F172A", fontSize: "22px" }}>Query results</h2>
                 <p style={{ margin: "5px 0 0", color: "#64748B" }}>
-                  {report.totalRows.toLocaleString("en-US")} records returned by NXT
+                  {totalRows.toLocaleString("en-US")} records returned by NXT
                   {normalizedSearch ? `, ${visibleRows.length.toLocaleString("en-US")} shown` : ""}.
                 </p>
               </div>
@@ -668,7 +697,7 @@ export default function FutureMadePhaseTwoReportPage() {
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "780px" }}>
                 <thead>
                   <tr style={{ backgroundColor: "#F8FAFC" }}>
-                    {report.columns.map((column) => (
+                    {reportColumns.map((column) => (
                       <th
                         key={column}
                         scope="col"
@@ -705,7 +734,7 @@ export default function FutureMadePhaseTwoReportPage() {
                     const profileUrl = buildBlackbaudConstituentProfileUrl(row.constituentId);
                     return (
                       <tr key={row.id} style={{ borderTop: "1px solid #E2E8F0" }}>
-                        {report.columns.map((column) => (
+                        {reportColumns.map((column) => (
                           <td
                             key={column}
                             style={{ padding: "16px 18px", color: "#1E293B", verticalAlign: "top" }}
