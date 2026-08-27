@@ -287,7 +287,7 @@ export default function ExecutiveTeamStandingsPage() {
             </p>
           </div>
 
-          {loading ? (
+          {loading && !report ? (
             <p style={{ color: "#64748B", margin: 0, padding: "28px 24px" }}>Loading team standings...</p>
           ) : standings.length ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))", gap: "18px", padding: "22px" }}>
