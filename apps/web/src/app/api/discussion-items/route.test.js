@@ -95,18 +95,19 @@ describe("discussion items route", () => {
     expect(insertCall[5]).toBe(777);
   });
 
-  it("maps a Blackbaud constituent id to the local constituent id before insert", async () => {
+  it("links a Blackbaud constituent discussion to the owner's local prospect", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([]);
     queueSqlResult([{ id: 333 }]);
+    queueSqlResult([{ id: 98 }]);
     queueSqlResult([
       {
         id: 13,
         owner_user_id: 44,
         created_by: 44,
         assigned_user_id: null,
-        prospect_id: null,
+        prospect_id: 98,
         constituent_id: 333,
         subject: "Need strategy input",
         status: "Open",
@@ -121,7 +122,8 @@ describe("discussion items route", () => {
     );
 
     expect(response.status).toBe(201);
-    const insertCall = sqlMockImpl.mock.calls[2];
+    const insertCall = sqlMockImpl.mock.calls[3];
+    expect(insertCall[4]).toBe(98);
     expect(insertCall[5]).toBe(333);
   });
 

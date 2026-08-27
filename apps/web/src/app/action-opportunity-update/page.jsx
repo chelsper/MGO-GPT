@@ -2027,7 +2027,12 @@ export default function ActionOpportunityUpdatePage() {
 
         if (submittedDiscussionItem) {
           const resolvedProspectId =
-            matchedProspect?.id || data?.opportunity?.prospect_id || null;
+            matchedProspect?.id ||
+            data?.opportunity?.prospect_id ||
+            data?.opportunity?.prospectId ||
+            data?.action?.prospect_id ||
+            data?.action?.prospectId ||
+            null;
           try {
             await createDiscussionMutation.mutateAsync({
               subject: submittedDiscussionItem.subject,
@@ -2057,12 +2062,19 @@ export default function ActionOpportunityUpdatePage() {
         console.error("Prospect lookup error:", prospectLookupError);
         setNextStepPrompt(null);
         if (submittedDiscussionItem) {
+          const resolvedProspectId =
+            data?.opportunity?.prospect_id ||
+            data?.opportunity?.prospectId ||
+            data?.action?.prospect_id ||
+            data?.action?.prospectId ||
+            null;
           try {
             await createDiscussionMutation.mutateAsync({
               subject: submittedDiscussionItem.subject,
               body: submittedDiscussionItem.body,
               dueDate: submittedDiscussionItem.dueDate,
               assignedUserId: submittedDiscussionItem.assignedUserId,
+              prospectId: resolvedProspectId,
               constituentId: submittedConstituentId,
             });
             setDiscussionFeedback({

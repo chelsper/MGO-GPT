@@ -188,6 +188,24 @@ export async function POST(request) {
       resolvedConstituentId = await resolveLocalConstituentId(constituentId);
     }
 
+    // Portfolio and action workflows sometimes start with only a constituent ID.
+    // Link the discussion to the owner's most relevant local prospect when possible
+    // so the discussion remains visible in that prospect workspace.
+    if (!resolvedProspectId && resolvedConstituentId) {
+      const prospectMatch = await sql`
+        SELECT id
+        FROM prospects
+        WHERE user_id = ${user.id}
+          AND constituent_id = ${resolvedConstituentId}
+        ORDER BY
+          CASE WHEN status = 'Active' THEN 0 ELSE 1 END,
+          updated_at DESC,
+          id DESC
+        LIMIT 1
+      `;
+      resolvedProspectId = normalizeNumericId(prospectMatch[0]?.id);
+    }
+
     const result = await sql`
       INSERT INTO discussion_items (
         owner_user_id,

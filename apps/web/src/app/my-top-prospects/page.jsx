@@ -548,6 +548,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
             category: "General",
           }
         : {
+            prospectId: person.prospectId || person.prospect_id || null,
             constituentId: person.constituentId,
             subject: title.trim(),
             body: details.trim() || null,
@@ -9082,6 +9083,18 @@ export default function MyTopProspectsPage() {
     }
   }
   const topProspectConstituentIds = new Set(topProspectByConstituentId.keys());
+  const openPortfolioFollowUp = (kind, person) => {
+    const prospect = topProspectByConstituentId.get(
+      String(person?.constituentId || ""),
+    );
+    setPortfolioFollowUp({
+      kind,
+      person: {
+        ...person,
+        prospectId: prospect?.id || person?.prospectId || person?.prospect_id || null,
+      },
+    });
+  };
   const closedSecured = prospects.filter(
     (p) => p.status === "Closed – Gift Secured",
   );
@@ -9905,10 +9918,10 @@ export default function MyTopProspectsPage() {
                         allowSolicitorAssignmentRemoval={!isLocalPortfolioFallback}
                         allowNxtSummary={!isLocalPortfolioFallback}
                         onOpenPortfolioNextStep={(person) =>
-                          setPortfolioFollowUp({ kind: "next-step", person })
+                          openPortfolioFollowUp("next-step", person)
                         }
                         onOpenPortfolioDiscussion={(person) =>
-                          setPortfolioFollowUp({ kind: "discussion", person })
+                          openPortfolioFollowUp("discussion", person)
                         }
                         isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                         removingSolicitorConstituentId={removingSolicitorConstituentId}
@@ -9955,10 +9968,10 @@ export default function MyTopProspectsPage() {
                   allowSolicitorAssignmentRemoval={!isLocalPortfolioFallback}
                   allowNxtSummary={!isLocalPortfolioFallback}
                   onOpenPortfolioNextStep={(person) =>
-                    setPortfolioFollowUp({ kind: "next-step", person })
+                    openPortfolioFollowUp("next-step", person)
                   }
                   onOpenPortfolioDiscussion={(person) =>
-                    setPortfolioFollowUp({ kind: "discussion", person })
+                    openPortfolioFollowUp("discussion", person)
                   }
                   isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                   removingSolicitorConstituentId={removingSolicitorConstituentId}
@@ -9992,10 +10005,10 @@ export default function MyTopProspectsPage() {
                     allowSolicitorAssignmentRemoval={!isLocalPortfolioFallback}
                     allowNxtSummary={!isLocalPortfolioFallback}
                     onOpenPortfolioNextStep={(person) =>
-                      setPortfolioFollowUp({ kind: "next-step", person })
+                      openPortfolioFollowUp("next-step", person)
                     }
                     onOpenPortfolioDiscussion={(person) =>
-                      setPortfolioFollowUp({ kind: "discussion", person })
+                      openPortfolioFollowUp("discussion", person)
                     }
                     isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                     removingSolicitorConstituentId={removingSolicitorConstituentId}
