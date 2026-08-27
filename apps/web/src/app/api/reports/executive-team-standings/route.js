@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
   getClosedFiscalYearSummary,
-  getLifetimeGivingTotal,
+  getLifetimeGivingTotalsForWorkspaceUsers,
 } from "@/app/api/utils/closedFyGiftTotals";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { getNxtActionSummaryByWorkspaceUser } from "@/app/api/utils/nxtActionTotals";
@@ -25,7 +25,8 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const TREND_WINDOW_DAYS = 7;
-export const EXECUTIVE_TEAM_STANDINGS_CACHE_KEY = "report:executive-team-standings:v3-lifetime-query";
+export const EXECUTIVE_TEAM_STANDINGS_CACHE_KEY =
+  "report:executive-team-standings:v4-lifetime-gift-feed";
 
 export function getFiscalYearWindow(now = new Date()) {
   const currentYear = now.getUTCFullYear();
@@ -255,7 +256,24 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
       `
     : [];
 
-  const lifetimeCreditUnavailableUserIds = [];
+  const workspaceUsers = rows.map((row) => ({
+    id: Number(row.user_id),
+    name: row.name,
+    email: row.email,
+    blackbaud_constituent_id: row.blackbaud_constituent_id,
+    blackbaud_lookup_id: row.blackbaud_lookup_id,
+    blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
+  }));
+  const lifetimeGivingByUser = origin
+    ? await getLifetimeGivingTotalsForWorkspaceUsers({
+        workspaceUsers,
+        authUserId: authUser.id,
+        origin,
+      }).catch(() => new Map())
+    : new Map();
+  const lifetimeCreditUnavailableUserIds = workspaceUsers
+    .filter((workspaceUser) => !lifetimeGivingByUser.has(workspaceUser.id))
+    .map((workspaceUser) => workspaceUser.id);
   const givingTotals = origin
     ? await mapWithConcurrency(rows, 2, async (row) => {
         const workspaceUser = {
@@ -268,26 +286,13 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
         };
 
         let closedThisFY = 0;
-        let lifetimeGiving = null;
-        try {
-          const candidate = asOptionalNumber(await getLifetimeGivingTotal({
-            workspaceUser,
-            authUserId: authUser.id,
-            origin,
-          }));
-          if (candidate === null) {
-            lifetimeCreditUnavailableUserIds.push(Number(row.user_id));
-          } else {
-            lifetimeGiving = candidate;
-          }
-        } catch {
-          lifetimeCreditUnavailableUserIds.push(Number(row.user_id));
-        }
+        const lifetimeGiving = asOptionalNumber(
+          lifetimeGivingByUser.get(Number(row.user_id)),
+        );
 
         try {
-          // Query-based lifetime credit runs first. The former fiscal-year
-          // scan can consume a large provider quota, while this metric must
-          // never fall back to a partial global gift list.
+          // FY Closed remains a separate, fiscal-year-limited calculation.
+          // Lifetime credit was prepared once for the entire team above.
           const summary = await getClosedFiscalYearSummary({
             workspaceUser,
             authUserId: authUser.id,
@@ -305,14 +310,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
   const givingTotalsByUser = new Map(givingTotals);
   const nxtActionSummaryByUser = origin
     ? await getNxtActionSummaryByWorkspaceUser({
-        workspaceUsers: rows.map((row) => ({
-          id: Number(row.user_id),
-          name: row.name,
-          email: row.email,
-          blackbaud_constituent_id: row.blackbaud_constituent_id,
-          blackbaud_lookup_id: row.blackbaud_lookup_id,
-          blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
-        })),
+        workspaceUsers,
         authUserId: authUser.id,
         origin,
         fiscalYearStart: fiscalYear.startsOn,

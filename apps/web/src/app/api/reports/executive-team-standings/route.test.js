@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   authMock,
   getClosedFiscalYearSummaryMock,
-  getLifetimeGivingTotalMock,
+  getLifetimeGivingTotalsForWorkspaceUsersMock,
   getCachedReportSnapshotMock,
   getReportCacheHeadersMock,
   getReportRefreshUserMock,
@@ -18,7 +18,7 @@ const {
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   getClosedFiscalYearSummaryMock: vi.fn(),
-  getLifetimeGivingTotalMock: vi.fn(),
+  getLifetimeGivingTotalsForWorkspaceUsersMock: vi.fn(),
   getCachedReportSnapshotMock: vi.fn(),
   getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
   getReportRefreshUserMock: vi.fn(),
@@ -38,7 +38,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/closedFyGiftTotals", () => ({
   getClosedFiscalYearSummary: getClosedFiscalYearSummaryMock,
-  getLifetimeGivingTotal: getLifetimeGivingTotalMock,
+  getLifetimeGivingTotalsForWorkspaceUsers: getLifetimeGivingTotalsForWorkspaceUsersMock,
 }));
 vi.mock("@/app/api/utils/nxtActionTotals", () => ({
   getNxtActionSummaryByWorkspaceUser: getNxtActionSummaryByWorkspaceUserMock,
@@ -70,7 +70,7 @@ describe("Executive Team Standings report route", () => {
     getReportRefreshUserMock.mockResolvedValue({ id: 99, role: "admin" });
     isAuthorizedReportRefreshRequestMock.mockReturnValue(false);
     getClosedFiscalYearSummaryMock.mockResolvedValue({ closedThisFY: 25000 });
-    getLifetimeGivingTotalMock.mockResolvedValue(380000);
+    getLifetimeGivingTotalsForWorkspaceUsersMock.mockResolvedValue(new Map([[8, 380000]]));
     getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(
       new Map([
         [
@@ -217,7 +217,7 @@ describe("Executive Team Standings report route", () => {
 
   it("saves a clearly marked partial snapshot when no prior snapshot exists", async () => {
     const { GET } = await import("./route.js");
-    getLifetimeGivingTotalMock.mockResolvedValue(null);
+    getLifetimeGivingTotalsForWorkspaceUsersMock.mockResolvedValue(new Map());
 
     const response = await GET(
       new Request("https://jumgogpt.app/api/reports/executive-team-standings?refresh=1"),
@@ -230,14 +230,14 @@ describe("Executive Team Standings report route", () => {
     expect(payload.refreshWarning).toContain("unavailable");
     expect(payload.standings[0].lifetimeGiving).toBeNull();
     expect(saveReportSnapshotMock).toHaveBeenCalledWith(
-      "report:executive-team-standings:v3-lifetime-query",
+      "report:executive-team-standings:v4-lifetime-gift-feed",
       expect.objectContaining({ snapshotStatus: "partial" }),
     );
   });
 
   it("preserves a completed snapshot when lifetime solicitor credit is unavailable", async () => {
     const { GET } = await import("./route.js");
-    getLifetimeGivingTotalMock.mockResolvedValue(null);
+    getLifetimeGivingTotalsForWorkspaceUsersMock.mockResolvedValue(new Map());
     getCachedReportSnapshotMock.mockResolvedValueOnce({
       standings: [{ userId: 99, name: "Cached User" }],
       generatedAt: "2026-08-18T12:00:00.000Z",
@@ -269,7 +269,7 @@ describe("Executive Team Standings report route", () => {
     expect(response.status).toBe(200);
     expect(payload.standings).toEqual([{ userId: 99, name: "Cached User" }]);
     expect(sqlMock).not.toHaveBeenCalled();
-    expect(getLifetimeGivingTotalMock).not.toHaveBeenCalled();
+    expect(getLifetimeGivingTotalsForWorkspaceUsersMock).not.toHaveBeenCalled();
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 

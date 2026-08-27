@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const sqlMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
 const getRealizedPlannedGiftIdsMock = vi.fn();
-const getLiveLifetimeFundraiserCreditMock = vi.fn();
+const calculateLifetimeFundraiserCreditMock = vi.fn();
 
 vi.mock("@/app/api/utils/sql", () => ({
   default: sqlMock,
@@ -18,7 +18,7 @@ vi.mock("@/app/api/utils/plannedGiftRevenue", () => ({
 }));
 
 vi.mock("@/app/api/utils/lifetimeFundraiserCredit", () => ({
-  getLiveLifetimeFundraiserCredit: getLiveLifetimeFundraiserCreditMock,
+  calculateLifetimeFundraiserCredit: calculateLifetimeFundraiserCreditMock,
 }));
 
 const leslie = {
@@ -35,11 +35,17 @@ describe("closed FY gift totals", () => {
     vi.clearAllMocks();
     sqlMock.mockResolvedValue([]);
     getRealizedPlannedGiftIdsMock.mockResolvedValue(new Set());
-    getLiveLifetimeFundraiserCreditMock.mockResolvedValue(1000);
-    listBlackbaudGiftsMock.mockImplementation(async ({ searchParams }) => {
+    calculateLifetimeFundraiserCreditMock.mockImplementation(({ gifts, fundraiserIds }) => ({
+      total: gifts
+        .filter((gift) =>
+          gift.fundraisers?.some((fundraiser) => fundraiserIds.has(fundraiser.constituent_id)),
+        )
+        .reduce((total, gift) => total + Number(gift.amount?.value || 0), 0),
+    }));
+    listBlackbaudGiftsMock.mockImplementation(async ({ searchParams, includePageMetadata }) => {
       if (searchParams?.gift_type !== "Donation") return [];
 
-      return [
+      const gifts = [
         {
           id: "gift-1",
           date: "2026-08-12T00:00:00",
@@ -48,6 +54,7 @@ describe("closed FY gift totals", () => {
           gift_type: "Donation",
         },
       ];
+      return includePageMetadata ? { gifts, hasMore: false, pageCount: 1 } : gifts;
     });
   });
 
@@ -77,8 +84,7 @@ describe("closed FY gift totals", () => {
     ).toEqual(["152922", "172263", "234684"]);
   });
 
-  it("uses the dedicated lifetime calculator without fiscal-year gift requests", async () => {
-    getLiveLifetimeFundraiserCreditMock.mockResolvedValue(4500000);
+  it("uses one direct lifetime gift feed without fiscal-year date requests", async () => {
     const { getLifetimeGivingTotal } = await import("./closedFyGiftTotals.js");
 
     await expect(
@@ -87,20 +93,42 @@ describe("closed FY gift totals", () => {
         authUserId: 7,
         origin: "https://www.jumgogpt.app",
       }),
-    ).resolves.toBe(4500000);
+    ).resolves.toBe(1000);
 
-    expect(getLiveLifetimeFundraiserCreditMock).toHaveBeenCalledWith({
-      workspaceUser: leslie,
+    expect(calculateLifetimeFundraiserCreditMock).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalled();
+    for (const call of listBlackbaudGiftsMock.mock.calls) {
+      expect(call[0].searchParams).not.toHaveProperty("start_date");
+      expect(call[0].searchParams).not.toHaveProperty("end_date");
+    }
+  });
+
+  it("calculates every configured fundraiser from one shared lifetime gift scan", async () => {
+    const { getLifetimeGivingTotalsForWorkspaceUsers } = await import(
+      "./closedFyGiftTotals.js"
+    );
+
+    const totals = await getLifetimeGivingTotalsForWorkspaceUsers({
+      workspaceUsers: [
+        leslie,
+        {
+          id: 8,
+          name: "Morgan Major",
+          blackbaud_constituent_id: "238901",
+        },
+      ],
       authUserId: 7,
       origin: "https://www.jumgogpt.app",
     });
-    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+
+    expect(totals.get(7)).toBe(1000);
+    expect(totals.get(8)).toBe(0);
+    expect(calculateLifetimeFundraiserCreditMock).toHaveBeenCalledTimes(2);
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledTimes(10);
   });
 
-  it("does not substitute a zero or legacy lifetime cache value when the query refresh fails", async () => {
-    getLiveLifetimeFundraiserCreditMock.mockRejectedValue(
-      new Error("Blackbaud query unavailable"),
-    );
+  it("does not substitute a zero when the direct lifetime feed fails", async () => {
+    listBlackbaudGiftsMock.mockRejectedValue(new Error("Blackbaud gifts unavailable"));
     const { getLifetimeGivingTotal } = await import("./closedFyGiftTotals.js");
 
     await expect(
@@ -111,7 +139,7 @@ describe("closed FY gift totals", () => {
       }),
     ).resolves.toBeNull();
 
-    expect(sqlMock).toHaveBeenCalledTimes(2);
+    expect(calculateLifetimeFundraiserCreditMock).not.toHaveBeenCalled();
   });
 
   it("retains the existing FY behavior for a realized planned gift", async () => {

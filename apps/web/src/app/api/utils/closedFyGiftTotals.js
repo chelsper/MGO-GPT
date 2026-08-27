@@ -1,7 +1,7 @@
 import sql from "@/app/api/utils/sql";
 import { listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
-import { getLiveLifetimeFundraiserCredit } from "@/app/api/utils/lifetimeFundraiserCredit";
+import { calculateLifetimeFundraiserCredit } from "@/app/api/utils/lifetimeFundraiserCredit";
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
 const LIFETIME_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -55,6 +55,19 @@ const CLOSED_FY_GIFT_TYPE_QUERIES = [
   "GiftInKind",
   "MatchingGiftPledge",
 ];
+
+// Lifetime solicitor credit intentionally reuses the same Gift API feed as
+// FY Closed. It has no fiscal-year date parameters, and runs once for the
+// entire team rather than launching one Blackbaud Query job per MGO.
+const LIFETIME_GIFT_TYPE_QUERIES = [
+  ...CLOSED_FY_GIFT_TYPE_QUERIES,
+  // Unlike FY Closed, lifetime credit deliberately counts separately credited
+  // realized planned-gift revenue. The calculator still requires an explicit
+  // fundraiser credit on that record.
+  "RealizedPlannedGiftRevenue",
+];
+const LIFETIME_GIFT_PAGE_LIMIT = 500;
+const LIFETIME_GIFT_MAX_PAGES_PER_TYPE = 20;
 
 function getGiftAmount(gift) {
   return firstDefined(gift, [
@@ -259,11 +272,15 @@ function getSummaryIdentityCacheParts(workspaceUser) {
   ];
 }
 
-function getLifetimeGivingCacheKey(workspaceUser, version = "v6-query-multirow") {
+function getLifetimeGivingCacheKey(workspaceUser, version = "v7-direct-gift-feed") {
   return [
     `metric:executive-team-standings:lifetime-giving:${version}`,
     ...getSummaryIdentityCacheParts(workspaceUser),
   ].join("|");
+}
+
+function getLegacyLifetimeGivingCacheKey(workspaceUser) {
+  return getLifetimeGivingCacheKey(workspaceUser, "v6-query-multirow");
 }
 
 async function getCachedLifetimeGiving(cacheKey, { allowStale = false } = {}) {
@@ -305,6 +322,164 @@ async function saveLifetimeGiving(cacheKey, lifetimeGiving) {
       payload = EXCLUDED.payload,
       updated_at = NOW()
   `;
+}
+
+function getWorkspaceFundraiserIdSet(workspaceUser) {
+  return new Set(
+    normalizeWorkspaceFundraiserIds(workspaceUser).map((candidate) => candidate.id),
+  );
+}
+
+function dedupeGiftsById(gifts) {
+  const giftsById = new Map();
+  for (const gift of gifts) {
+    const giftId = getGiftId(gift);
+    if (!giftId || giftsById.has(giftId)) continue;
+    giftsById.set(giftId, gift);
+  }
+  return Array.from(giftsById.values());
+}
+
+export function calculateLifetimeGivingByWorkspaceUser({ workspaceUsers = [], gifts = [] } = {}) {
+  const dedupedGifts = dedupeGiftsById(gifts);
+  const totals = new Map();
+
+  for (const workspaceUser of workspaceUsers) {
+    const workspaceUserId = Number(workspaceUser?.id);
+    if (!Number.isFinite(workspaceUserId)) continue;
+
+    const fundraiserIds = getWorkspaceFundraiserIdSet(workspaceUser);
+    if (fundraiserIds.size === 0) {
+      totals.set(workspaceUserId, null);
+      continue;
+    }
+
+    const { total } = calculateLifetimeFundraiserCredit({
+      gifts: dedupedGifts,
+      fundraiserIds,
+    });
+    totals.set(workspaceUserId, Number.isFinite(Number(total)) ? Number(total) : null);
+  }
+
+  return totals;
+}
+
+async function getLiveLifetimeGivingTotals({ workspaceUsers, authUserId, origin }) {
+  const connectionUserId = workspaceUsers
+    .map((workspaceUser) => Number(workspaceUser?.id))
+    .find((workspaceUserId) => Number.isFinite(workspaceUserId));
+  if (!Number.isFinite(connectionUserId) || !origin) {
+    throw new Error("A connected Blackbaud user is required for lifetime solicitor credit");
+  }
+
+  const gifts = [];
+  for (const giftType of LIFETIME_GIFT_TYPE_QUERIES) {
+    const page = await listBlackbaudGifts({
+      userId: connectionUserId,
+      authUserId,
+      origin,
+      searchParams: {
+        limit: LIFETIME_GIFT_PAGE_LIMIT,
+        gift_type: giftType,
+      },
+      pageLimit: LIFETIME_GIFT_PAGE_LIMIT,
+      maxPages: LIFETIME_GIFT_MAX_PAGES_PER_TYPE,
+      includePageMetadata: true,
+    });
+
+    if (page?.hasMore) {
+      throw new Error(
+        `Lifetime solicitor credit needs more than ${LIFETIME_GIFT_PAGE_LIMIT * LIFETIME_GIFT_MAX_PAGES_PER_TYPE} ${giftType} gifts.`,
+      );
+    }
+    gifts.push(...(page?.gifts || []));
+  }
+
+  return calculateLifetimeGivingByWorkspaceUser({ workspaceUsers, gifts });
+}
+
+async function getCachedLifetimeGivingWithLegacyFallback(workspaceUser, { allowStale = false } = {}) {
+  const directCacheKey = getLifetimeGivingCacheKey(workspaceUser);
+  const directValue = await getCachedLifetimeGiving(directCacheKey, { allowStale });
+  if (directValue !== null) return directValue;
+
+  // Preserve a known, previously completed query result during the one-time
+  // migration. The old value is never used as a substitute for a failed
+  // provider response unless it was actually saved by the previous calculator.
+  const legacyCacheKey = getLegacyLifetimeGivingCacheKey(workspaceUser);
+  return getCachedLifetimeGiving(legacyCacheKey, { allowStale });
+}
+
+export async function getLifetimeGivingTotalsForWorkspaceUsers({
+  workspaceUsers = [],
+  authUserId,
+  origin,
+} = {}) {
+  const validUsers = workspaceUsers.filter((workspaceUser) =>
+    Number.isFinite(Number(workspaceUser?.id)),
+  );
+  const totals = new Map();
+  if (!origin || validUsers.length === 0) return totals;
+
+  const usersWithFundraiserIds = validUsers.filter(
+    (workspaceUser) => getWorkspaceFundraiserIdSet(workspaceUser).size > 0,
+  );
+
+  // A user without an NXT fundraiser identifier cannot safely receive a
+  // credit total. Do not consume provider calls attempting to infer one.
+  for (const workspaceUser of validUsers) {
+    if (getWorkspaceFundraiserIdSet(workspaceUser).size === 0) {
+      totals.set(Number(workspaceUser.id), null);
+    }
+  }
+
+  if (usersWithFundraiserIds.length === 0) return totals;
+
+  const cachedValues = await Promise.all(
+    usersWithFundraiserIds.map(async (workspaceUser) => [
+      Number(workspaceUser.id),
+      await getCachedLifetimeGivingWithLegacyFallback(workspaceUser),
+    ]),
+  );
+  for (const [workspaceUserId, lifetimeGiving] of cachedValues) {
+    if (lifetimeGiving !== null) totals.set(workspaceUserId, lifetimeGiving);
+  }
+
+  // A complete fresh cache means this report refresh performs no historical
+  // gift calls. Lifetime credit is intentionally refreshed at most daily.
+  if (totals.size === validUsers.length) return totals;
+
+  try {
+    const liveTotals = await getLiveLifetimeGivingTotals({
+      workspaceUsers: usersWithFundraiserIds,
+      authUserId,
+      origin,
+    });
+    await Promise.all(
+      usersWithFundraiserIds.map(async (workspaceUser) => {
+        const workspaceUserId = Number(workspaceUser.id);
+        const lifetimeGiving = liveTotals.get(workspaceUserId);
+        if (lifetimeGiving === null || lifetimeGiving === undefined) return;
+        totals.set(workspaceUserId, lifetimeGiving);
+        await saveLifetimeGiving(getLifetimeGivingCacheKey(workspaceUser), lifetimeGiving);
+      }),
+    );
+  } catch {
+    // Do not replace a valid older result with a zero when Blackbaud is slow,
+    // disconnected, or rate-limited. The standings route will save a partial
+    // snapshot only for the individual users without any usable cached value.
+    const staleValues = await Promise.all(
+      usersWithFundraiserIds.map(async (workspaceUser) => [
+        Number(workspaceUser.id),
+        await getCachedLifetimeGivingWithLegacyFallback(workspaceUser, { allowStale: true }),
+      ]),
+    );
+    for (const [workspaceUserId, lifetimeGiving] of staleValues) {
+      if (lifetimeGiving !== null) totals.set(workspaceUserId, lifetimeGiving);
+    }
+  }
+
+  return totals;
 }
 
 async function getLiveBlackbaudAttributedGiving({
@@ -675,31 +850,12 @@ export async function getClosedFiscalYearSummary({
 
 export async function getLifetimeGivingTotal({ workspaceUser, authUserId, origin }) {
   if (!workspaceUser?.id || !origin) return null;
-
-  const cacheKey = getLifetimeGivingCacheKey(workspaceUser);
-  const cachedLifetimeGiving = await getCachedLifetimeGiving(cacheKey);
-  if (cachedLifetimeGiving !== null) {
-    return cachedLifetimeGiving;
-  }
-
-  try {
-    const lifetimeGiving = await getLiveLifetimeFundraiserCredit({
-      workspaceUser,
-      authUserId,
-      origin,
-    });
-    const normalizedLifetimeGiving = Number(lifetimeGiving);
-    if (!Number.isFinite(normalizedLifetimeGiving)) {
-      throw new Error("Lifetime solicitor credit was unavailable from Blackbaud");
-    }
-    await saveLifetimeGiving(cacheKey, normalizedLifetimeGiving).catch(() => {});
-    return normalizedLifetimeGiving;
-  } catch {
-    // Never revive the old global-list scan cache. It was incomplete for high
-    // volume fundraisers. Only a prior result from this query-based version is
-    // safe to show when Blackbaud is temporarily unavailable.
-    return getCachedLifetimeGiving(cacheKey, { allowStale: true }).catch(() => null);
-  }
+  const totals = await getLifetimeGivingTotalsForWorkspaceUsers({
+    workspaceUsers: [workspaceUser],
+    authUserId,
+    origin,
+  });
+  return totals.get(Number(workspaceUser.id)) ?? null;
 }
 
 export function getClosedFiscalYearWindowForLabel(label) {
