@@ -614,10 +614,20 @@ function buildIndividualProfileWrite(input, match, fieldDecisions = {}) {
 }
 
 export function serializeNameFormat(value) {
-  if (!value || typeof value !== "object") return { id: "", value: "" };
+  if (!value || typeof value !== "object") {
+    return { id: "", value: "", configurationId: "", customFormat: null };
+  }
   return {
     id: cleanText(value.id || value.name_format_id),
     value: cleanText(value.formatted_name || value.name || value.value),
+    configurationId: cleanText(
+      value.configuration_id ||
+        value.configurationId ||
+        value.name_format_configuration_id ||
+        value.nameFormatConfigurationId ||
+        value.configuration?.id,
+    ),
+    customFormat: parseBoolean(value.custom_format ?? value.customFormat),
   };
 }
 
@@ -629,8 +639,16 @@ export function buildNameFormatDetailWrites(input, currentNameFormats, fieldDeci
       if (shouldSkipField(fieldDecisions, "constituent_name_format", kind)) return null;
       const value = cleanText(input.nameFormatUpdate[kind]);
       if (!value) return null;
-      const current = currentNameFormats?.[kind] || { id: "", value: "" };
+      const current = currentNameFormats?.[kind] || {
+        id: "",
+        value: "",
+        configurationId: "",
+        customFormat: null,
+      };
       if (normalizeText(value) === normalizeText(current.value)) return null;
+      const fieldDecision = getFieldDecision(fieldDecisions, "constituent_name_format", kind);
+      const currentUsesConfiguredFormula =
+        Boolean(current.configurationId) && current.customFormat !== true;
       const write = {
         type: "constituent_name_format",
         action: "update_primary",
@@ -638,12 +656,18 @@ export function buildNameFormatDetailWrites(input, currentNameFormats, fieldDeci
         value,
         targetId: current.id || "",
         currentValue: current.value || "",
+        currentConfigurationId: current.configurationId || "",
+        currentCustomFormat: current.customFormat,
         source: input.nameFormatUpdate.source || "CSV",
         blankValuePolicy: "leave_unchanged",
       };
       if (!write.targetId) {
         write.requiresReview = true;
         write.validationMessage = `Could not identify the current primary ${kind} format in NXT.`;
+      } else if (currentUsesConfiguredFormula && fieldDecision.mode !== "apply") {
+        write.requiresReview = true;
+        write.explicitSelectionRequired = true;
+        write.validationMessage = `The current primary ${kind} uses a configured NXT formula. Select Use CSV custom text to replace it with a one-off value, or Keep NXT value to preserve the configured formula.`;
       }
       return write;
     })
@@ -1404,7 +1428,7 @@ function buildDeferredNameFormatDetailWrite(input, fieldDecisions = {}) {
     deferredHydration: true,
     fieldDecisions,
     validationMessage:
-      "Open this row to load the current NXT addressee and salutation values before reviewing CSV changes.",
+      "Open this row to load the current NXT addressee and salutation formats before reviewing CSV changes.",
   };
 }
 
@@ -3709,7 +3733,7 @@ export async function POST(request) {
               : []),
             ...(writePlan.some((write) => write.type === "constituent_name_format")
               ? [
-                  "Primary addressee and salutation values are staged as custom NXT name formats. Review the current and proposed values before applying.",
+                  "Primary addressee and salutation values are staged as one-off custom NXT text only when selected during review. Existing configured NXT formulas are preserved unless you explicitly replace them.",
                 ]
               : []),
             ...(writePlan.some((write) => write.type === "email_address")

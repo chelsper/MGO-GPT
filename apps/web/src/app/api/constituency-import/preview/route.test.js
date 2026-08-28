@@ -571,6 +571,51 @@ describe("constituency import preview route", () => {
     );
   });
 
+  it("requires an explicit choice before replacing a configured NXT name format", async () => {
+    const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "A123",
+      name: "Jane Dolphin",
+      raw: { type: "Individual", first: "Jane", last: "Dolphin", preferred_name: "Jane" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({
+      primary_addressee: {
+        id: "addressee-1",
+        formatted_name: "Jane Dolphin",
+        configuration_id: "configured-addressee-1",
+        custom_format: false,
+      },
+      primary_salutation: { id: "salutation-1", formatted_name: "Dear Jane" },
+    });
+
+    const response = await POST(
+      makeRequest({
+        rows: [{ "NXT ID": "123", Addressee: "Dr. Jane Dolphin" }],
+        mappings: {
+          blackbaudConstituentId: "NXT ID",
+          addressee: "Addressee",
+        },
+        defaults: { updateNameFormatFields: true },
+      }),
+    );
+    const payload = await response.json();
+    const write = payload.rows[0].writePlan.find(
+      (item) => item.type === "constituent_name_format" && item.kind === "addressee",
+    );
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].status).toBe("Needs Review");
+    expect(write).toEqual(
+      expect.objectContaining({
+        targetId: "addressee-1",
+        currentConfigurationId: "configured-addressee-1",
+        explicitSelectionRequired: true,
+        requiresReview: true,
+      }),
+    );
+  });
+
   it("treats an explicitly selected email address as an import change", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

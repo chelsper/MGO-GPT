@@ -475,6 +475,15 @@ async function applyConstituentNameFormatUpdate({ request, user, row, write }) {
   const value = cleanText(write?.value);
   const kind = cleanText(write?.kind) || "name";
 
+  if (write?.explicitSelectionRequired === true) {
+    return {
+      status: "manual_required",
+      type: "constituent_name_format",
+      action: "update_primary",
+      message: `Choose Use CSV custom text or Keep NXT value before replacing the configured primary ${kind} format.`,
+    };
+  }
+
   if (!constituentId || !targetId || !value) {
     return {
       status: "manual_required",
@@ -502,7 +511,7 @@ async function applyConstituentNameFormatUpdate({ request, user, row, write }) {
     status: "applied",
     type: "constituent_name_format",
     action: "update_primary",
-    message: `Updated the primary NXT ${kind} to ${value}.`,
+    message: `Updated the primary NXT ${kind} with a custom text override: ${value}.`,
     blackbaudResult: result || null,
   };
 }
