@@ -51,6 +51,10 @@ function getPreview(row) {
   return row?.preview && typeof row.preview === "object" ? row.preview : {};
 }
 
+function canCreateNewRecord(preview) {
+  return ["potential_new", "ready_new"].includes(cleanText(preview?.intentDisposition?.key));
+}
+
 function getCandidateId(candidate) {
   return cleanText(
     candidate?.blackbaudConstituentId ||
@@ -292,9 +296,9 @@ export async function POST(request, { params }) {
         : null,
     ].filter(Boolean).join(" and ");
     const requestedNxtLookupId = suppliedNxtIdentifier.lookupId || null;
-    if (preview.intentDisposition?.key !== "potential_new") {
+    if (!canCreateNewRecord(preview)) {
       return Response.json(
-        { error: "Only an unmatched potential-new-record row can be created from this endpoint." },
+        { error: "Only an unmatched new-record candidate can be created from this endpoint." },
         { status: 409 },
       );
     }
@@ -332,7 +336,7 @@ export async function POST(request, { params }) {
       WHERE
         id = ${rowId}
         AND run_id = ${runId}
-        AND status = 'Needs Review'
+        AND status IN ('Needs Review', 'Ready')
         AND created_blackbaud_constituent_id IS NULL
       RETURNING *
     `;

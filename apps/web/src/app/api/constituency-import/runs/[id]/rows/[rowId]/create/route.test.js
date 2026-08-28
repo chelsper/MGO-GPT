@@ -214,6 +214,37 @@ describe("constituency import new-record create route", () => {
     expect(createCall?.[1]?.body).toHaveProperty("lookup_id", "593441");
   });
 
+  it("creates a clean unmatched row that is ready for new-record creation", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow({
+      status: "Ready",
+      preview: {
+        ...makeRow().preview,
+        intentDisposition: { key: "ready_new" },
+      },
+    });
+    row.preview.input.lookupId = "593441";
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456", lookup_id: "593441" });
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.createdConstituentId).toBe("456");
+    const createCall = blackbaudApiFetchMock.mock.calls.find(
+      ([path]) => path === "/constituent/v1/constituents",
+    );
+    expect(createCall?.[1]?.body).toHaveProperty("lookup_id", "593441");
+  });
+
   it("does not send an unresolved NXT system record ID in a new-record create payload", async () => {
     const { POST } = await import("./route.js");
     const row = makeRow();
