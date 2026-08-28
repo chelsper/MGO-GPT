@@ -274,6 +274,108 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].status).toBe("Ready");
   });
 
+  it("falls back to an NXT system ID when a numeric lookup-ID column contains that identifier", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue(null);
+    getBlackbaudConstituentByIdMock.mockResolvedValue({
+      blackbaudConstituentId: "593441",
+      lookupId: "IKENNA-593441",
+      name: "Ikenna Nwagwu",
+      raw: { type: "Individual", first: "Ikenna", last: "Nwagwu" },
+    });
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "593441",
+            "First Name": "Ikenna",
+            "Last Name": "Nwagwu",
+            "New Constituent Code": "Student",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+          targetConstituency: "New Constituent Code",
+        },
+        defaults: { defaultAction: "add", updateNameFields: true },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "593441" }),
+    );
+    expect(payload.rows[0]).toMatchObject({
+      matchStatus: "matched",
+      matchMethod: "NXT system ID (from Lookup ID column)",
+      match: {
+        blackbaudConstituentId: "593441",
+        name: "Ikenna Nwagwu",
+      },
+    });
+  });
+
+  it("continues to name and email suggestions when a supplied NXT identifier does not resolve", async () => {
+    const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue(null);
+    getBlackbaudConstituentByIdMock.mockResolvedValue(null);
+    searchBlackbaudConstituentsMock.mockResolvedValue([
+      {
+        blackbaudConstituentId: "117",
+        lookupId: "EXISTING-117",
+        name: "Ikenna Nwagwu",
+        email: "ikenna@example.com",
+      },
+    ]);
+    blackbaudApiFetchMock.mockResolvedValue({ value: [] });
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "NXT Lookup ID": "593441",
+            "First Name": "Ikenna",
+            "Last Name": "Nwagwu",
+            Email: "ikenna@example.com",
+            "New Constituent Code": "Student",
+          },
+        ],
+        mappings: {
+          lookupId: "NXT Lookup ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+          email: "Email",
+          targetConstituency: "New Constituent Code",
+        },
+        defaults: { defaultAction: "add", importIntent: "new" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "593441" }),
+    );
+    expect(searchBlackbaudConstituentsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "Ikenna Nwagwu" }),
+    );
+    expect(payload.rows[0]).toMatchObject({
+      status: "Needs Review",
+      matchStatus: "needs_review",
+      intentDisposition: { key: "needs_resolution" },
+    });
+    expect(payload.rows[0].reasons).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Continuing with email and name suggestions"),
+      ]),
+    );
+  });
+
   it("stages a preferred-name correction only when name updates are explicitly enabled", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

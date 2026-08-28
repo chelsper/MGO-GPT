@@ -4,6 +4,9 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import {
   blackbaudApiFetch,
+  findBlackbaudConstituentByEmail,
+  findBlackbaudConstituentByLookupId,
+  getBlackbaudConstituentById,
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -74,6 +77,92 @@ function isLikelyDuplicate(candidate, input) {
   const lastName = lastParts.join(" ");
   return candidateName === inputName ||
     (Boolean(firstName && lastName) && candidateName.startsWith(`${firstName} `) && candidateName.endsWith(lastName));
+}
+
+function isNumericIdentifier(value) {
+  return /^\d+$/.test(cleanText(value));
+}
+
+function isBlackbaudNotFoundError(error) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status);
+  if (status === 404) return true;
+  return /(?:^|\b)(404|not found)(?:\b|$)/i.test(cleanText(error?.message));
+}
+
+async function getBlackbaudConstituentBySystemIdOrNull({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+}) {
+  try {
+    return await getBlackbaudConstituentById({
+      userId,
+      authUserId,
+      origin,
+      constituentId,
+    });
+  } catch (error) {
+    if (isBlackbaudNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+async function findBlackbaudConstituentByLookupIdOrNull({
+  userId,
+  authUserId,
+  origin,
+  lookupId,
+}) {
+  try {
+    return await findBlackbaudConstituentByLookupId({
+      userId,
+      authUserId,
+      origin,
+      lookupId,
+    });
+  } catch (error) {
+    if (isBlackbaudNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+async function findResolvedNxtIdentifier({ input, userId, authUserId, origin }) {
+  const constituentId = cleanText(input.blackbaudConstituentId);
+  if (constituentId) {
+    const match = await getBlackbaudConstituentBySystemIdOrNull({
+      userId,
+      authUserId,
+      origin,
+      constituentId,
+    });
+    if (match) return { match, method: "NXT system ID" };
+  }
+
+  const lookupId = cleanText(input.lookupId);
+  if (!lookupId) return null;
+
+  const lookupMatch = await findBlackbaudConstituentByLookupIdOrNull({
+    userId,
+    authUserId,
+    origin,
+    lookupId,
+  });
+  if (lookupMatch && getCandidateLookupId(lookupMatch) === lookupId) {
+    return { match: lookupMatch, method: "NXT lookup ID" };
+  }
+
+  // Some imports label the numeric NXT system ID as a lookup ID.
+  if (!isNumericIdentifier(lookupId)) return null;
+  const systemIdMatch = await getBlackbaudConstituentBySystemIdOrNull({
+    userId,
+    authUserId,
+    origin,
+    constituentId: lookupId,
+  });
+  return systemIdMatch
+    ? { match: systemIdMatch, method: "NXT system ID (from Lookup ID column)" }
+    : null;
 }
 
 function summarizeRows(rows) {
@@ -190,6 +279,19 @@ export async function POST(request, { params }) {
     const input = preview.input && typeof preview.input === "object" ? preview.input : {};
     const externalSourceId = cleanText(input.externalConstituentId);
     const targetConstituency = cleanText(input.targetConstituency);
+    const suppliedNxtIdentifier = {
+      blackbaudConstituentId: cleanText(input.blackbaudConstituentId) || null,
+      lookupId: cleanText(input.lookupId) || null,
+    };
+    const suppliedNxtIdentifierSummary = [
+      suppliedNxtIdentifier.blackbaudConstituentId
+        ? `System ID ${suppliedNxtIdentifier.blackbaudConstituentId}`
+        : null,
+      suppliedNxtIdentifier.lookupId
+        ? `Lookup ID ${suppliedNxtIdentifier.lookupId}`
+        : null,
+    ].filter(Boolean).join(" and ");
+    const requestedNxtLookupId = suppliedNxtIdentifier.lookupId || null;
     if (preview.intentDisposition?.key !== "potential_new") {
       return Response.json(
         { error: "Only an unmatched potential-new-record row can be created from this endpoint." },
@@ -202,13 +304,6 @@ export async function POST(request, { params }) {
         { status: 409 },
       );
     }
-    if (cleanText(input.blackbaudConstituentId) || cleanText(input.lookupId)) {
-      return Response.json(
-        { error: "This row includes an NXT identifier that did not resolve. Review the identifier before creating a new record." },
-        { status: 409 },
-      );
-    }
-
     const firstName = cleanText(input.firstName);
     const lastName = cleanText(input.lastName);
     if (!firstName || !lastName) {
@@ -249,14 +344,43 @@ export async function POST(request, { params }) {
     }
 
     const origin = new URL(request.url).origin;
-    let candidates;
+    let duplicate = null;
+    let duplicateCheckMethod = null;
     try {
-      candidates = await searchBlackbaudConstituents({
+      const identifierMatch = await findResolvedNxtIdentifier({
+        input,
         userId: authResult.user.id,
         authUserId: authResult.user.id,
         origin,
-        query: [firstName, lastName].join(" "),
       });
+      if (identifierMatch) {
+        duplicate = identifierMatch.match;
+        duplicateCheckMethod = identifierMatch.method;
+      }
+
+      if (!duplicate && cleanText(input.email)) {
+        const emailMatch = await findBlackbaudConstituentByEmail({
+          userId: authResult.user.id,
+          authUserId: authResult.user.id,
+          origin,
+          email: cleanText(input.email),
+        });
+        if (emailMatch && isLikelyDuplicate(emailMatch, input)) {
+          duplicate = emailMatch;
+          duplicateCheckMethod = "NXT email address";
+        }
+      }
+
+      if (!duplicate) {
+        const candidates = await searchBlackbaudConstituents({
+          userId: authResult.user.id,
+          authUserId: authResult.user.id,
+          origin,
+          query: [firstName, lastName].join(" "),
+        });
+        duplicate = candidates.find((candidate) => isLikelyDuplicate(candidate, input));
+        if (duplicate) duplicateCheckMethod = "NXT name search";
+      }
     } catch (error) {
       const message = "The final NXT duplicate check failed. No new record was created; try again after the NXT search connection is available.";
       await returnToReview({
@@ -266,15 +390,15 @@ export async function POST(request, { params }) {
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           duplicateCheckFailedAt: new Date().toISOString(),
+          suppliedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
         },
       });
       await refreshRunSummary(runId);
       return Response.json({ error: message }, { status: 502 });
     }
 
-    const duplicate = candidates.find((candidate) => isLikelyDuplicate(candidate, input));
     if (duplicate) {
-      const message = `A likely NXT duplicate was found during the final check: ${cleanText(duplicate.name) || "existing constituent"}${getCandidateLookupId(duplicate) ? ` (Lookup ID ${getCandidateLookupId(duplicate)})` : ""}. No new record was created.`;
+      const message = `A likely NXT duplicate was found during the final check${duplicateCheckMethod ? ` by ${duplicateCheckMethod}` : ""}: ${cleanText(duplicate.name) || "existing constituent"}${getCandidateLookupId(duplicate) ? ` (Lookup ID ${getCandidateLookupId(duplicate)})` : ""}. No new record was created.`;
       await returnToReview({
         rowId,
         message,
@@ -282,6 +406,7 @@ export async function POST(request, { params }) {
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           duplicateCheckAt: new Date().toISOString(),
+          duplicateCheckMethod,
           duplicateCandidate: {
             constituentId: getCandidateId(duplicate),
             lookupId: getCandidateLookupId(duplicate),
@@ -297,6 +422,8 @@ export async function POST(request, { params }) {
       type: "Individual",
       first: firstName,
       last: lastName,
+      // Preserve a requested NXT Lookup ID; NXT assigns system record IDs on creation.
+      ...(requestedNxtLookupId ? { lookup_id: requestedNxtLookupId } : {}),
     };
     if (cleanText(input.preferredName)) createPayload.preferred_name = cleanText(input.preferredName);
     if (cleanText(input.title)) createPayload.title = cleanText(input.title);
@@ -315,7 +442,10 @@ export async function POST(request, { params }) {
         body: createPayload,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "NXT rejected the create request.";
+      const providerMessage = error instanceof Error ? error.message : "NXT rejected the create request.";
+      const message = requestedNxtLookupId
+        ? `NXT rejected the new record with Lookup ID ${requestedNxtLookupId}. No record was created. ${providerMessage}`
+        : providerMessage;
       await returnToReview({
         rowId,
         message,
@@ -333,6 +463,7 @@ export async function POST(request, { params }) {
       createResult?.id || createResult?.constituent_id || createResult?.constituentId,
     );
     const createdLookupId = cleanText(createResult?.lookup_id || createResult?.lookupId);
+    const resolvedCreatedLookupId = createdLookupId || requestedNxtLookupId;
     if (!createdConstituentId) {
       const message = "NXT accepted the create request but did not return a constituent ID. No retry was attempted; reconcile this row in NXT before creating anything else.";
       await returnToReview({
@@ -369,7 +500,7 @@ export async function POST(request, { params }) {
       confidence: 100,
       match: {
         blackbaudConstituentId: createdConstituentId,
-        lookupId: createdLookupId || null,
+        lookupId: resolvedCreatedLookupId || null,
         name: [firstName, lastName].join(" "),
         email: cleanText(input.email) || null,
         raw: { id: createdConstituentId, type: "Individual" },
@@ -387,6 +518,12 @@ export async function POST(request, { params }) {
         ...(externalSourceId
           ? [`External source ID ${externalSourceId} was retained in this import audit and was not sent to NXT.`]
           : []),
+        ...(requestedNxtLookupId
+          ? [`The supplied NXT Lookup ID ${requestedNxtLookupId} did not resolve to an existing constituent and was assigned to the new NXT record after final duplicate checks.`]
+          : []),
+        ...(suppliedNxtIdentifier.blackbaudConstituentId
+          ? [`The supplied NXT System ID ${suppliedNxtIdentifier.blackbaudConstituentId} did not resolve and was retained only in this import audit; NXT assigned the new system record ID.`]
+          : []),
       ],
     };
 
@@ -398,19 +535,21 @@ export async function POST(request, { params }) {
         match_method = 'Created NXT record',
         confidence = 100,
         matched_blackbaud_constituent_id = ${createdConstituentId},
-        matched_lookup_id = ${createdLookupId || null},
+        matched_lookup_id = ${resolvedCreatedLookupId || null},
         constituent_name = ${[firstName, lastName].join(" ")},
         preview = ${JSON.stringify(nextPreview)}::jsonb,
         requested_writes = ${JSON.stringify(writePlan)}::jsonb,
         created_blackbaud_constituent_id = ${createdConstituentId},
-        created_blackbaud_lookup_id = ${createdLookupId || null},
+        created_blackbaud_lookup_id = ${resolvedCreatedLookupId || null},
         blackbaud_result = ${JSON.stringify({
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           createdAt: new Date().toISOString(),
           createdConstituentId,
-          createdLookupId: createdLookupId || null,
+          createdLookupId: resolvedCreatedLookupId || null,
+          requestedNxtLookupId,
           externalSourceId: externalSourceId || null,
+          unresolvedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
           createResult,
         })}::jsonb,
         blackbaud_error = NULL,
@@ -420,10 +559,11 @@ export async function POST(request, { params }) {
     await refreshRunSummary(runId);
 
     return Response.json({
-      message: `Created NXT individual record for ${firstName} ${lastName}.${targetConstituency ? ` The spreadsheet constituency ${targetConstituency} remains staged for review and send.` : ""} Review and apply its staged updates separately.`,
+      message: `Created NXT individual record for ${firstName} ${lastName}.${targetConstituency ? ` The spreadsheet constituency ${targetConstituency} remains staged for review and send.` : ""}${requestedNxtLookupId ? ` The new NXT record was assigned Lookup ID ${resolvedCreatedLookupId}.` : ""}${suppliedNxtIdentifier.blackbaudConstituentId ? ` The unresolved NXT System ID ${suppliedNxtIdentifier.blackbaudConstituentId} was retained in the import audit only; NXT assigned the new system record ID.` : ""} Review and apply its staged updates separately.`,
       createdConstituentId,
-      createdLookupId: createdLookupId || null,
+      createdLookupId: resolvedCreatedLookupId || null,
       externalSourceId: externalSourceId || null,
+      unresolvedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
     });
   } catch (error) {
     console.error("Error creating NXT constituent from import row:", error);

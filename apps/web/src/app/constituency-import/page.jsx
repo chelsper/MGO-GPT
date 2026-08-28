@@ -23,7 +23,8 @@ const IMPORT_FIELDS = [
     header: "NXT Lookup ID",
     label: "NXT Lookup ID",
     group: "Match fields",
-    description: "Strong match key commonly visible on the NXT constituent profile.",
+    description:
+      "Strong match key commonly visible on the NXT constituent profile. For a reviewed new record with no match, the value is assigned as the new NXT lookup ID after the final duplicate check.",
     recommended: true,
   },
   {
@@ -5654,15 +5655,25 @@ export default function ConstituencyImportPage() {
 
     const displayName = row.input?.constituentName || "this individual";
     const externalSourceId = String(row.input?.externalConstituentId || "").trim();
+    const suppliedNxtSystemId = String(row.input?.blackbaudConstituentId || "").trim();
+    const suppliedLookupId = String(row.input?.lookupId || "").trim();
     const targetConstituency = String(row.input?.targetConstituency || "").trim();
     const externalIdNote = externalSourceId
       ? ` The external source ID ${externalSourceId} will be retained in this import audit only; it will not be sent to NXT.`
       : "";
+    const suppliedIdentifierNote = [
+      suppliedNxtSystemId
+        ? ` The supplied NXT system ID ${suppliedNxtSystemId} did not resolve. JUMGOGPT will re-check it, then check exact email and name for an existing NXT constituent. If none is found, the system ID will be retained in the import audit only because NXT assigns new system record IDs.`
+        : "",
+      suppliedLookupId
+        ? ` The supplied NXT lookup ID ${suppliedLookupId} did not resolve. JUMGOGPT will re-check it, then check exact email and name for an existing NXT constituent. If none is found, it will be assigned to the new NXT record.`
+        : "",
+    ].join("");
     const constituencyNote = targetConstituency
       ? ` The spreadsheet constituency ${targetConstituency} will remain staged for your normal review and send step after the record is created.`
       : "";
     const approved = window.confirm(
-      `Create a new individual NXT record for ${displayName}? This is a one-record action. JUMGOGPT will run one final duplicate check before creating the constituent. Contact, constituency, education, and relationship changes will remain staged until you separately apply them.${externalIdNote}${constituencyNote}`,
+      `Create a new individual NXT record for ${displayName}? This is a one-record action. JUMGOGPT will re-check supplied identifiers, exact email, and name before creating the constituent. Contact, constituency, education, and relationship changes will remain staged until you separately apply them.${externalIdNote}${suppliedIdentifierNote}${constituencyNote}`,
     );
     if (!approved) return;
 
@@ -9536,7 +9547,7 @@ export default function ConstituencyImportPage() {
                           }}
                         >
                           <span style={{ color: "#1E3A8A", fontWeight: 800, lineHeight: 1.45 }}>
-                            Create only after reviewing this unmatched individual. A final duplicate check will run immediately before NXT changes.
+                            Create only after reviewing this unmatched individual. The final duplicate check re-checks any supplied identifier, exact email, and name. An unresolved NXT Lookup ID is assigned to the new record after those checks clear; an unresolved NXT System ID is retained in the import audit because NXT assigns that system record ID.
                           </span>
                           <button
                             type="button"

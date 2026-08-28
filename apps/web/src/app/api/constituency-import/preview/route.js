@@ -1796,34 +1796,84 @@ function scoreCandidate(candidate, input) {
   return { score, reasons };
 }
 
+function isNumericIdentifier(value) {
+  return /^\d+$/.test(cleanText(value));
+}
+
+function isBlackbaudNotFoundError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /(?:404|not found|resource not found)/i.test(message);
+}
+
+async function getBlackbaudConstituentBySystemIdOrNull({
+  userId,
+  authUserId,
+  origin,
+  constituentId,
+  requestOptions,
+}) {
+  try {
+    return await getBlackbaudConstituentById({
+      userId,
+      authUserId,
+      origin,
+      constituentId,
+      requestOptions,
+    });
+  } catch (error) {
+    if (isBlackbaudNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+async function findBlackbaudConstituentByLookupIdOrNull({
+  userId,
+  authUserId,
+  origin,
+  lookupId,
+  requestOptions,
+}) {
+  try {
+    return await findBlackbaudConstituentByLookupId({
+      userId,
+      authUserId,
+      origin,
+      lookupId,
+      requestOptions,
+    });
+  } catch (error) {
+    if (isBlackbaudNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
 async function resolveMatch({ input, userId, authUserId, origin, requestOptions = {} }) {
+  const identifierNotes = [];
+
   if (input.blackbaudConstituentId) {
-    const match = await getBlackbaudConstituentById({
+    const match = await getBlackbaudConstituentBySystemIdOrNull({
       userId,
       authUserId,
       origin,
       constituentId: input.blackbaudConstituentId,
       requestOptions,
     });
-    return match
-      ? {
-          status: "matched",
-          method: "NXT system ID",
-          confidence: 100,
-          match,
-          notes: [],
-        }
-      : {
-          status: "not_matched",
-          method: "NXT system ID",
-          confidence: 0,
-          match: null,
-          notes: ["No NXT record was found for that system ID."],
-        };
+    if (match) {
+      return {
+        status: "matched",
+        method: "NXT system ID",
+        confidence: 100,
+        match,
+        notes: [],
+      };
+    }
+    identifierNotes.push(
+      "No NXT record was found for that system ID. Continuing with email and name suggestions.",
+    );
   }
 
   if (input.lookupId) {
-    const match = await findBlackbaudConstituentByLookupId({
+    const match = await findBlackbaudConstituentByLookupIdOrNull({
       userId,
       authUserId,
       origin,
@@ -1832,21 +1882,42 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
     });
     const hasExactLookupId =
       match && String(match.lookupId || match.blackbaudLookupId || "").trim() === input.lookupId;
-    return hasExactLookupId
-      ? {
-          status: "matched",
-          method: "NXT lookup ID",
-          confidence: 98,
-          match,
-          notes: [],
-        }
-      : {
-          status: "not_matched",
-          method: "NXT lookup ID",
-          confidence: 0,
-          match: null,
-          notes: ["No NXT record was found for that lookup ID."],
+    if (hasExactLookupId) {
+      return {
+        status: "matched",
+        method: "NXT lookup ID",
+        confidence: 98,
+        match,
+        notes: [],
       };
+    }
+
+    // Some extracts label the NXT system record ID as a lookup ID. Match it
+    // directly before treating an existing constituent as a potential new one.
+    if (isNumericIdentifier(input.lookupId)) {
+      const systemIdMatch = await getBlackbaudConstituentBySystemIdOrNull({
+        userId,
+        authUserId,
+        origin,
+        constituentId: input.lookupId,
+        requestOptions,
+      });
+      if (systemIdMatch) {
+        return {
+          status: "matched",
+          method: "NXT system ID (from Lookup ID column)",
+          confidence: 100,
+          match: systemIdMatch,
+          notes: [
+            "The supplied value matched the NXT system record ID rather than the lookup ID.",
+          ],
+        };
+      }
+    }
+
+    identifierNotes.push(
+      "No NXT record was found for that lookup ID or system record ID. Continuing with email and name suggestions.",
+    );
   }
 
   if (input.email) {
@@ -1865,7 +1936,7 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
         method: "NXT email address",
         confidence: 96,
         match,
-        notes: [],
+        notes: identifierNotes,
       };
     }
   }
@@ -1877,7 +1948,10 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
       method: "none",
       confidence: 0,
       match: null,
-      notes: ["No constituent identifier, lookup ID, email, or name was provided."],
+      notes: [
+        ...identifierNotes,
+        "No constituent identifier, lookup ID, email, or name was provided.",
+      ],
     };
   }
 
@@ -1899,7 +1973,7 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
       method: input.constituentName ? "name search" : input.email ? "email search" : "address search",
       confidence: 0,
       match: null,
-      notes: ["No likely NXT match was found."],
+      notes: [...identifierNotes, "No likely NXT match was found."],
     };
   }
 
@@ -1909,6 +1983,7 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
     confidence: Math.min(best.score, 85),
     match: best.candidate,
     notes: [
+      ...identifierNotes,
       ...best.reasons,
       "Name, email, and address matches are previewed for human review before import.",
     ],

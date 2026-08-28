@@ -5,6 +5,9 @@ const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
+const findBlackbaudConstituentByEmailMock = vi.fn();
+const findBlackbaudConstituentByLookupIdMock = vi.fn();
+const getBlackbaudConstituentByIdMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
 
 vi.mock("@/auth", () => ({
@@ -25,6 +28,9 @@ vi.mock("@/app/api/utils/sql", () => ({
 
 vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: blackbaudApiFetchMock,
+  findBlackbaudConstituentByEmail: findBlackbaudConstituentByEmailMock,
+  findBlackbaudConstituentByLookupId: findBlackbaudConstituentByLookupIdMock,
+  getBlackbaudConstituentById: getBlackbaudConstituentByIdMock,
   searchBlackbaudConstituents: searchBlackbaudConstituentsMock,
 }));
 
@@ -81,6 +87,9 @@ describe("constituency import new-record create route", () => {
     getWorkspaceUserMock.mockReset();
     sqlMock.mockReset();
     blackbaudApiFetchMock.mockReset();
+    findBlackbaudConstituentByEmailMock.mockReset();
+    findBlackbaudConstituentByLookupIdMock.mockReset();
+    getBlackbaudConstituentByIdMock.mockReset();
     searchBlackbaudConstituentsMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
@@ -93,6 +102,9 @@ describe("constituency import new-record create route", () => {
         role: "reviewer",
       },
     });
+    findBlackbaudConstituentByEmailMock.mockResolvedValue(null);
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue(null);
+    getBlackbaudConstituentByIdMock.mockResolvedValue(null);
   });
 
   it("creates one reviewed individual record only after a final duplicate check", async () => {
@@ -164,6 +176,94 @@ describe("constituency import new-record create route", () => {
     );
     expect(createCall?.[1]?.body).not.toHaveProperty("externalConstituentId");
     expect(createCall?.[1]?.body).not.toHaveProperty("targetConstituency");
+  });
+
+  it("assigns an unresolved supplied lookup ID to a reviewed new record after final duplicate checks", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.input.lookupId = "593441";
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456", lookup_id: "NEW-456" });
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(findBlackbaudConstituentByLookupIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ lookupId: "593441", userId: 7, authUserId: 7 }),
+    );
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "593441", userId: 7, authUserId: 7 }),
+    );
+    expect(payload.unresolvedNxtIdentifier).toEqual({
+      blackbaudConstituentId: null,
+      lookupId: "593441",
+    });
+    expect(payload.message).toContain("assigned Lookup ID NEW-456");
+    const createCall = blackbaudApiFetchMock.mock.calls.find(
+      ([path]) => path === "/constituent/v1/constituents",
+    );
+    expect(createCall?.[1]?.body).not.toHaveProperty("id");
+    expect(createCall?.[1]?.body).toHaveProperty("lookup_id", "593441");
+  });
+
+  it("does not send an unresolved NXT system record ID in a new-record create payload", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.input.blackbaudConstituentId = "593441";
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456", lookup_id: "NEW-456" });
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toContain("retained in the import audit only");
+    const createCall = blackbaudApiFetchMock.mock.calls.find(
+      ([path]) => path === "/constituent/v1/constituents",
+    );
+    expect(createCall?.[1]?.body).not.toHaveProperty("id");
+    expect(createCall?.[1]?.body).not.toHaveProperty("lookup_id");
+  });
+
+  it("returns an exact email duplicate to review without creating a record", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Needs Review" }])
+      .mockResolvedValueOnce([]);
+    findBlackbaudConstituentByEmailMock.mockResolvedValue({
+      blackbaudConstituentId: "123",
+      lookupId: "DUP-123",
+      name: "Different Name",
+      email: "jane@example.com",
+    });
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("by NXT email address");
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
   it("returns a final duplicate candidate to review without creating a record", async () => {
