@@ -2321,6 +2321,40 @@ describe("constituency import preview route", () => {
     expect(payload.summary.potentialNew).toBe(1);
   });
 
+  it("keeps an external source ID as audit data without treating it as an NXT identifier", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+
+    const response = await POST(
+      makeRequest({
+        rows: [
+          {
+            "Source Constituent ID": "SIS-193848",
+            "First Name": "Avery",
+            "Last Name": "Newcomer",
+            "New Constituency": "Friend",
+          },
+        ],
+        mappings: {
+          externalConstituentId: "Source Constituent ID",
+          firstName: "First Name",
+          lastName: "Last Name",
+          targetConstituency: "New Constituency",
+        },
+        defaults: { defaultAction: "add", importIntent: "new" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows[0]).toMatchObject({
+      input: { externalConstituentId: "SIS-193848" },
+      intentDisposition: { key: "potential_new", allowApply: false },
+    });
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
+  });
+
   it("holds an exact NXT match for duplicate review in a new-record file", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue({

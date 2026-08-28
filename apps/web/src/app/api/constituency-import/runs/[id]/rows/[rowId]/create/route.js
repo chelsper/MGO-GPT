@@ -188,6 +188,8 @@ export async function POST(request, { params }) {
 
     const preview = getPreview(row);
     const input = preview.input && typeof preview.input === "object" ? preview.input : {};
+    const externalSourceId = cleanText(input.externalConstituentId);
+    const targetConstituency = cleanText(input.targetConstituency);
     if (preview.intentDisposition?.key !== "potential_new") {
       return Response.json(
         { error: "Only an unmatched potential-new-record row can be created from this endpoint." },
@@ -382,6 +384,9 @@ export async function POST(request, { params }) {
       reasons: [
         ...(Array.isArray(preview.reasons) ? preview.reasons : []),
         "A new individual NXT constituent was created after a final duplicate check. Staged updates have not been applied yet.",
+        ...(externalSourceId
+          ? [`External source ID ${externalSourceId} was retained in this import audit and was not sent to NXT.`]
+          : []),
       ],
     };
 
@@ -405,6 +410,7 @@ export async function POST(request, { params }) {
           createdAt: new Date().toISOString(),
           createdConstituentId,
           createdLookupId: createdLookupId || null,
+          externalSourceId: externalSourceId || null,
           createResult,
         })}::jsonb,
         blackbaud_error = NULL,
@@ -414,9 +420,10 @@ export async function POST(request, { params }) {
     await refreshRunSummary(runId);
 
     return Response.json({
-      message: `Created NXT individual record for ${firstName} ${lastName}. Review and apply its staged updates separately.`,
+      message: `Created NXT individual record for ${firstName} ${lastName}.${targetConstituency ? ` The spreadsheet constituency ${targetConstituency} remains staged for review and send.` : ""} Review and apply its staged updates separately.`,
       createdConstituentId,
       createdLookupId: createdLookupId || null,
+      externalSourceId: externalSourceId || null,
     });
   } catch (error) {
     console.error("Error creating NXT constituent from import row:", error);

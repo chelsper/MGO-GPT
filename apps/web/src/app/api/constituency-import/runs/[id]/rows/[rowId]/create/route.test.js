@@ -138,6 +138,34 @@ describe("constituency import new-record create route", () => {
     expect(payload.createdLookupId).toBe("NEW-456");
   });
 
+  it("allows an external source ID without sending it to NXT", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.input.externalConstituentId = "SIS-100001";
+    row.preview.input.targetConstituency = "Alumni - Graduate Degree";
+    sqlMock
+      .mockResolvedValueOnce([{ id: "42" }])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, status: "Creating" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "Ready" }])
+      .mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456", lookup_id: "NEW-456" });
+
+    const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.externalSourceId).toBe("SIS-100001");
+    expect(payload.message).toContain("Alumni - Graduate Degree remains staged");
+    const createCall = blackbaudApiFetchMock.mock.calls.find(
+      ([path]) => path === "/constituent/v1/constituents",
+    );
+    expect(createCall?.[1]?.body).not.toHaveProperty("externalConstituentId");
+    expect(createCall?.[1]?.body).not.toHaveProperty("targetConstituency");
+  });
+
   it("returns a final duplicate candidate to review without creating a record", async () => {
     const { POST } = await import("./route.js");
     const row = makeRow();

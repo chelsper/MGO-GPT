@@ -274,6 +274,7 @@ function getRowInput(row, mappings, defaults = {}) {
     constituentName: derivedName,
     blackbaudConstituentId: getMappedValue(row, mappings, "blackbaudConstituentId"),
     lookupId: getMappedValue(row, mappings, "lookupId"),
+    externalConstituentId: getMappedValue(row, mappings, "externalConstituentId"),
     email: getMappedValue(row, mappings, "email"),
     addressLine1: getMappedValue(row, mappings, "addressLine1"),
     sourceConstituency: getMappedValue(row, mappings, "sourceConstituency"),

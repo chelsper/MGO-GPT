@@ -27,6 +27,14 @@ const IMPORT_FIELDS = [
     recommended: true,
   },
   {
+    key: "externalConstituentId",
+    header: "External Constituent ID",
+    label: "External Constituent ID",
+    group: "Match fields",
+    description:
+      "An identifier from another system. It is retained in the import audit only and is never used as an NXT ID or written to NXT.",
+  },
+  {
     key: "firstName",
     header: "First Name",
     label: "First Name",
@@ -430,6 +438,42 @@ const FIELD_BY_KEY = IMPORT_FIELDS.reduce((acc, field) => {
   return acc;
 }, {});
 
+const IMPORT_HEADER_ALIASES = {
+  externalConstituentId: [
+    "External Constituent ID",
+    "Source Constituent ID",
+    "Source Constituent ID #",
+    "Constituent ID",
+    "Constituent ID #",
+    "Legacy Constituent ID",
+    "Legacy ID",
+  ],
+};
+
+function normalizeImportHeader(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function getUploadedHeaderForField(fieldKey, availableHeaders) {
+  const field = FIELD_BY_KEY[fieldKey];
+  if (!field) return "";
+
+  const headerByNormalizedValue = new Map(
+    (Array.isArray(availableHeaders) ? availableHeaders : [])
+      .map((header) => [normalizeImportHeader(header), String(header || "").trim()])
+      .filter(([normalizedHeader, header]) => normalizedHeader && header),
+  );
+  const candidates = [field.header, ...(IMPORT_HEADER_ALIASES[fieldKey] || [])];
+  for (const candidate of candidates) {
+    const matchedHeader = headerByNormalizedValue.get(normalizeImportHeader(candidate));
+    if (matchedHeader) return matchedHeader;
+  }
+  return "";
+}
+
 const INDIVIDUAL_PROFILE_FIELD_KEYS = ["title", "gender", "ethnicity", "birthDate", "suffix"];
 const NAME_FORMAT_FIELD_KEYS = ["addressee", "salutation"];
 const EMAIL_FIELD_KEYS = ["email", "email2"];
@@ -445,6 +489,7 @@ function getDetectedHeaders(headerSet, fieldKeys) {
 const DEFAULT_ACTIVE_FIELDS = {
   blackbaudConstituentId: false,
   lookupId: false,
+  externalConstituentId: false,
   firstName: false,
   lastName: false,
   preferredName: false,
@@ -608,6 +653,8 @@ function makeTemplateRows(fields) {
         return "";
       case "lookupId":
         return "123456";
+      case "externalConstituentId":
+        return "SIS-100001";
       case "firstName":
         return "Jane";
       case "lastName":
@@ -714,6 +761,8 @@ function makeTemplateRows(fields) {
         return "";
       case "lookupId":
         return "234567";
+      case "externalConstituentId":
+        return "SIS-100002";
       case "firstName":
         return "Sam";
       case "lastName":
@@ -3347,6 +3396,7 @@ function getImportRowLabel(row) {
     row?.match?.name ||
     row?.input?.lookupId ||
     row?.input?.blackbaudConstituentId ||
+    row?.input?.externalConstituentId ||
     "this constituent"
   );
 }
@@ -3474,22 +3524,28 @@ export default function ConstituencyImportPage() {
     () => IMPORT_FIELDS.filter((field) => activeFields[field.key]),
     [activeFields],
   );
-  const expectedHeaders = selectedFields.map((field) => field.header);
-  const uploadedHeaderSet = useMemo(() => new Set(headers), [headers]);
+  const uploadedHeadersByField = useMemo(
+    () =>
+      IMPORT_FIELDS.reduce((acc, field) => {
+        acc[field.key] = getUploadedHeaderForField(field.key, headers);
+        return acc;
+      }, {}),
+    [headers],
+  );
+  const expectedHeaders = selectedFields.map(
+    (field) => uploadedHeadersByField[field.key] || field.header,
+  );
   const mappings = useMemo(
     () =>
       selectedFields.reduce((acc, field) => {
-        acc[field.key] = field.header;
+        acc[field.key] = uploadedHeadersByField[field.key] || field.header;
         return acc;
       }, {}),
-    [selectedFields],
+    [selectedFields, uploadedHeadersByField],
   );
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
   const extraHeaders = headers.filter((header) => !expectedHeaders.includes(header));
-  const hasUploadedHeader = (key) => {
-    const header = FIELD_BY_KEY[key]?.header;
-    return Boolean(activeFields[key] && header && uploadedHeaderSet.has(header));
-  };
+  const hasUploadedHeader = (key) => Boolean(activeFields[key] && uploadedHeadersByField[key]);
   const educationRelationshipFieldsActive = Boolean(
     activeFields.educationInstitution ||
       activeFields.educationDegree ||
@@ -3764,9 +3820,8 @@ export default function ConstituencyImportPage() {
     const detectedPhoneHeaders = getDetectedHeaders(parsedHeaderSet, PHONE_FIELD_KEYS);
     const detectedAddressHeaders = getDetectedHeaders(parsedHeaderSet, ADDRESS_FIELD_KEYS);
     const hasDirectNxtIdentifier = Boolean(
-      FIELD_BY_KEY.blackbaudConstituentId &&
-        parsedHeaderSet.has(FIELD_BY_KEY.blackbaudConstituentId.header),
-    ) || Boolean(FIELD_BY_KEY.lookupId && parsedHeaderSet.has(FIELD_BY_KEY.lookupId.header));
+      getUploadedHeaderForField("blackbaudConstituentId", parsed.headers),
+    ) || Boolean(getUploadedHeaderForField("lookupId", parsed.headers));
     const detectedOperations = [];
     setRows(parsed.rows);
     setHeaders(parsed.headers);
@@ -3774,7 +3829,7 @@ export default function ConstituencyImportPage() {
       let changed = false;
       const next = { ...current };
       IMPORT_FIELDS.forEach((field) => {
-        if (parsedHeaderSet.has(field.header) && !next[field.key]) {
+        if (getUploadedHeaderForField(field.key, parsed.headers) && !next[field.key]) {
           next[field.key] = true;
           changed = true;
         }
@@ -5598,8 +5653,16 @@ export default function ConstituencyImportPage() {
     if (!runId || !row?.id || creatingRowId) return;
 
     const displayName = row.input?.constituentName || "this individual";
+    const externalSourceId = String(row.input?.externalConstituentId || "").trim();
+    const targetConstituency = String(row.input?.targetConstituency || "").trim();
+    const externalIdNote = externalSourceId
+      ? ` The external source ID ${externalSourceId} will be retained in this import audit only; it will not be sent to NXT.`
+      : "";
+    const constituencyNote = targetConstituency
+      ? ` The spreadsheet constituency ${targetConstituency} will remain staged for your normal review and send step after the record is created.`
+      : "";
     const approved = window.confirm(
-      `Create a new individual NXT record for ${displayName}? This is a one-record action. JUMGOGPT will run one final duplicate check before creating the constituent. Contact, constituency, education, and relationship changes will remain staged until you separately apply them.`,
+      `Create a new individual NXT record for ${displayName}? This is a one-record action. JUMGOGPT will run one final duplicate check before creating the constituent. Contact, constituency, education, and relationship changes will remain staged until you separately apply them.${externalIdNote}${constituencyNote}`,
     );
     if (!approved) return;
 
@@ -6371,8 +6434,10 @@ export default function ConstituencyImportPage() {
             }}
           >
             <strong>How matching works:</strong> NXT System ID and Lookup ID are the only
-            automatic update matches. Name, email, and address results are shown for human
-            review. If identifiers disagree, the row must be resolved before any NXT update.
+            automatic update matches. External Constituent ID is an audit-only source reference;
+            it never blocks a new-record workflow and is not sent to NXT. Name, email, and
+            address results are shown for human review. If NXT identifiers disagree, the row must
+            be resolved before any NXT update.
           </div>
         </section>
 
@@ -8312,7 +8377,7 @@ export default function ConstituencyImportPage() {
                 const isFocusedRow = String(row.id) === String(focusedReviewRow?.id);
                 const isEditingThisRow =
                   !preview?.savedRun && Number(editingPreviewRowNumber) === Number(row.rowNumber);
-                const editableFields = selectedFields.filter((field) => headers.includes(field.header));
+                const editableFields = selectedFields.filter((field) => hasUploadedHeader(field.key));
                 const nxtProfileUrl = getImportRowConstituentProfileUrl(row);
                 const canOpenMatchedConstituent = Boolean(
                   nxtProfileUrl &&
@@ -8361,6 +8426,7 @@ export default function ConstituencyImportPage() {
                           {row.input?.constituentName ||
                             row.input?.lookupId ||
                             row.input?.blackbaudConstituentId ||
+                            row.input?.externalConstituentId ||
                             "Unnamed row"}
                         </h3>
                         <p style={{ margin: "6px 0 0", color: "#6B7280" }}>
@@ -8373,6 +8439,11 @@ export default function ConstituencyImportPage() {
                               ? "No likely NXT match found"
                               : "No NXT match selected"}
                         </p>
+                        {row.input?.externalConstituentId ? (
+                          <p style={{ margin: "4px 0 0", color: "#6B7280", fontSize: "13px" }}>
+                            External source ID: {row.input.externalConstituentId}
+                          </p>
+                        ) : null}
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <span
