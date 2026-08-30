@@ -129,7 +129,7 @@ function collectValueOption({ categoryById, categoryByName, categoryName, record
   }
 }
 
-export function normalizeCustomFieldValueOptions(payload, categories = []) {
+export function normalizeCustomFieldValueOptions(payload, categories = [], selectedCategoryName = "") {
   const categoryById = new Map();
   const categoryByName = new Map();
   for (const category of Array.isArray(categories) ? categories : []) {
@@ -140,18 +140,29 @@ export function normalizeCustomFieldValueOptions(payload, categories = []) {
   }
 
   const values = new Map();
+  const selectedCategory = normalizeText(selectedCategoryName);
   for (const record of asCollection(payload)) {
+    if (typeof record === "string" || typeof record === "number") {
+      const value = normalizeText(record);
+      if (selectedCategory && value) {
+        values.set(`${normalizeKey(selectedCategory)}|${normalizeKey(value)}`, {
+          category: selectedCategory,
+          value,
+        });
+      }
+      continue;
+    }
     if (!record || typeof record !== "object") continue;
 
+    const nestedValues = getNestedValueRecords(record);
     const categoryName = firstText(record, [
       "category",
       "category_name",
       "categoryName",
       "custom_field_category",
       "customFieldCategory",
-      "name",
-    ]);
-    const nestedValues = getNestedValueRecords(record);
+    ]) ||
+      (nestedValues.length ? firstText(record, ["name", "description", "label"]) : selectedCategory);
 
     if (nestedValues.length) {
       nestedValues.forEach((value) =>
@@ -160,7 +171,7 @@ export function normalizeCustomFieldValueOptions(payload, categories = []) {
       continue;
     }
 
-    collectValueOption({ categoryById, categoryByName, categoryName: "", record, values });
+    collectValueOption({ categoryById, categoryByName, categoryName, record, values });
   }
 
   return [...values.values()].sort(sortByCategoryThenValue);
@@ -224,6 +235,7 @@ export function createCustomFieldCatalogSnapshot({
   categoryPayload,
   configuredRecords,
   valuePayload,
+  valueCategoryName,
 } = {}) {
   const configuredCatalog = createConfiguredCustomFieldCatalog(configuredRecords);
   const categories = mergeCategories(
@@ -231,17 +243,38 @@ export function createCustomFieldCatalogSnapshot({
     configuredCatalog.categories,
   );
   const values = mergeValues(
-    normalizeCustomFieldValueOptions(valuePayload, categories),
+    normalizeCustomFieldValueOptions(valuePayload, categories, valueCategoryName),
     configuredCatalog.values,
   );
 
-  return { categories, values };
+  return {
+    categories,
+    values,
+    loadedCategories:
+      valuePayload === undefined || !normalizeText(valueCategoryName) ? [] : [normalizeText(valueCategoryName)],
+  };
+}
+
+function mergeLoadedCategories(...catalogs) {
+  const merged = new Map();
+  for (const catalog of catalogs) {
+    for (const category of Array.isArray(catalog) ? catalog : []) {
+      const name = normalizeText(category);
+      if (!name) continue;
+      const key = normalizeKey(name);
+      if (!merged.has(key)) merged.set(key, name);
+    }
+  }
+  return [...merged.values()].sort((first, second) =>
+    first.localeCompare(second, "en-US", { sensitivity: "base" }),
+  );
 }
 
 export function mergeCustomFieldCatalogs(...catalogs) {
   return {
     categories: mergeCategories(...catalogs.map((catalog) => catalog?.categories)),
     values: mergeValues(...catalogs.map((catalog) => catalog?.values)),
+    loadedCategories: mergeLoadedCategories(...catalogs.map((catalog) => catalog?.loadedCategories)),
   };
 }
 

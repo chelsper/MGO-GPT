@@ -214,9 +214,14 @@ function formatCatalogUpdatedAt(value) {
   return Number.isFinite(date.getTime()) ? date.toLocaleString() : "";
 }
 
-async function fetchCustomFieldCatalog({ refresh = false, signal } = {}) {
+async function fetchCustomFieldCatalog({ refresh = false, category = "", signal } = {}) {
+  const params = new URLSearchParams();
+  if (refresh) params.set("refresh", "1");
+  const selectedCategory = String(category || "").trim();
+  if (selectedCategory) params.set("category", selectedCategory);
+  const query = params.toString();
   const response = await fetch(
-    `/api/reports/custom-field-options${refresh ? "?refresh=1" : ""}`,
+    `/api/reports/custom-field-options${query ? `?${query}` : ""}`,
     { cache: "no-store", signal },
   );
   const payload = await response.json().catch(() => null);
@@ -224,6 +229,17 @@ async function fetchCustomFieldCatalog({ refresh = false, signal } = {}) {
     throw new Error(payload?.error || "Could not load NXT custom-field options.");
   }
   return payload || {};
+}
+
+function toCustomFieldCatalogState(payload = {}) {
+  return {
+    categories: Array.isArray(payload.categories) ? payload.categories : [],
+    values: Array.isArray(payload.values) ? payload.values : [],
+    loadedCategories: Array.isArray(payload.loadedCategories) ? payload.loadedCategories : [],
+    notice: String(payload.notice || ""),
+    source: String(payload.source || ""),
+    updatedAt: payload.updatedAt || null,
+  };
 }
 
 export default function ReportConfigurationsPage() {
@@ -245,6 +261,7 @@ export default function ReportConfigurationsPage() {
   const [customFieldCatalog, setCustomFieldCatalog] = useState({
     categories: [],
     values: [],
+    loadedCategories: [],
     notice: "",
     source: "",
     updatedAt: null,
@@ -328,13 +345,7 @@ export default function ReportConfigurationsPage() {
       try {
         const payload = await fetchCustomFieldCatalog({ signal: controller.signal });
         if (!active) return;
-        setCustomFieldCatalog({
-          categories: Array.isArray(payload.categories) ? payload.categories : [],
-          values: Array.isArray(payload.values) ? payload.values : [],
-          notice: String(payload.notice || ""),
-          source: String(payload.source || ""),
-          updatedAt: payload.updatedAt || null,
-        });
+        setCustomFieldCatalog(toCustomFieldCatalogState(payload));
       } catch (catalogError) {
         if (!active || catalogError?.name === "AbortError") return;
         setCustomFieldCatalog((current) => ({
@@ -362,14 +373,11 @@ export default function ReportConfigurationsPage() {
   async function refreshCustomFieldCatalog() {
     setLoadingCustomFieldCatalog(true);
     try {
-      const payload = await fetchCustomFieldCatalog({ refresh: true });
-      setCustomFieldCatalog({
-        categories: Array.isArray(payload.categories) ? payload.categories : [],
-        values: Array.isArray(payload.values) ? payload.values : [],
-        notice: String(payload.notice || ""),
-        source: String(payload.source || ""),
-        updatedAt: payload.updatedAt || null,
+      const payload = await fetchCustomFieldCatalog({
+        refresh: true,
+        category: customFieldDraft.fieldCategory,
       });
+      setCustomFieldCatalog(toCustomFieldCatalogState(payload));
       setCustomFieldCatalogLoaded(true);
     } catch (catalogError) {
       setCustomFieldCatalog((current) => ({
@@ -383,6 +391,64 @@ export default function ReportConfigurationsPage() {
       setLoadingCustomFieldCatalog(false);
     }
   }
+
+  useEffect(() => {
+    if (
+      !user ||
+      !canManage ||
+      activeReportType !== REPORT_TYPES.CUSTOM_FIELD ||
+      !customFieldCatalogLoaded
+    ) {
+      return undefined;
+    }
+
+    const requestedCategory = String(customFieldDraft.fieldCategory || "").trim();
+    const selectedCategory = customFieldCatalog.categories.find(
+      (category) => normalizeCatalogText(category?.name) === normalizeCatalogText(requestedCategory),
+    )?.name;
+    const alreadyLoaded = customFieldCatalog.loadedCategories.some(
+      (category) => normalizeCatalogText(category) === normalizeCatalogText(selectedCategory),
+    );
+    if (!selectedCategory || alreadyLoaded) return undefined;
+
+    let active = true;
+    const controller = new AbortController();
+    async function loadSelectedCategoryValues() {
+      setLoadingCustomFieldCatalog(true);
+      try {
+        const payload = await fetchCustomFieldCatalog({
+          category: selectedCategory,
+          signal: controller.signal,
+        });
+        if (active) setCustomFieldCatalog(toCustomFieldCatalogState(payload));
+      } catch (catalogError) {
+        if (!active || catalogError?.name === "AbortError") return;
+        setCustomFieldCatalog((current) => ({
+          ...current,
+          notice:
+            catalogError instanceof Error
+              ? `${catalogError.message} You can still enter the exact description manually.`
+              : "NXT custom-field descriptions could not be loaded. You can still enter the exact description manually.",
+        }));
+      } finally {
+        if (active) setLoadingCustomFieldCatalog(false);
+      }
+    }
+
+    loadSelectedCategoryValues();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    activeReportType,
+    canManage,
+    customFieldCatalog.categories,
+    customFieldCatalog.loadedCategories,
+    customFieldCatalogLoaded,
+    customFieldDraft.fieldCategory,
+    user,
+  ]);
 
   function updateDraft(reportKey, update) {
     setDrafts((current) => ({

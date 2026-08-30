@@ -12,6 +12,7 @@ import {
   createCustomFieldCatalogSnapshot,
   isCustomFieldCatalogFresh,
   mergeCustomFieldCatalogs,
+  normalizeCustomFieldValueOptions,
 } from "@/app/api/utils/customFieldOptions";
 import {
   getCachedReportSnapshotWithMetadata,
@@ -23,10 +24,47 @@ function createResponse({ catalog, notice = "", source, updatedAt }) {
   return Response.json({
     categories: Array.isArray(catalog?.categories) ? catalog.categories : [],
     values: Array.isArray(catalog?.values) ? catalog.values : [],
+    loadedCategories: Array.isArray(catalog?.loadedCategories) ? catalog.loadedCategories : [],
     notice,
     source,
     updatedAt: updatedAt || null,
   });
+}
+
+function normalizeText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeKey(value) {
+  return normalizeText(value).toLocaleLowerCase("en-US");
+}
+
+function findCatalogCategory(catalog, requestedCategory) {
+  const target = normalizeKey(requestedCategory);
+  if (!target) return "";
+  return (
+    (Array.isArray(catalog?.categories) ? catalog.categories : []).find(
+      (category) => normalizeKey(category?.name || category?.category) === target,
+    )?.name || ""
+  );
+}
+
+function hasLoadedCategory(catalog, categoryName) {
+  const target = normalizeKey(categoryName);
+  return (Array.isArray(catalog?.loadedCategories) ? catalog.loadedCategories : []).some(
+    (category) => normalizeKey(category) === target,
+  );
+}
+
+function replaceCategoryValues(catalog, categoryName, values) {
+  const target = normalizeKey(categoryName);
+  const retainedValues = (Array.isArray(catalog?.values) ? catalog.values : []).filter(
+    (option) => normalizeKey(option?.category) !== target,
+  );
+  return mergeCustomFieldCatalogs(
+    { ...catalog, values: retainedValues },
+    { categories: [], values, loadedCategories: [categoryName] },
+  );
 }
 
 async function getConfiguredCustomFieldRecords() {
@@ -55,59 +93,98 @@ export async function GET(request) {
       );
     }
 
-    const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+    const requestUrl = new URL(request.url);
+    const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
+    const requestedCategory = normalizeText(requestUrl.searchParams.get("category"));
     const [configuredRecords, cachedSnapshot] = await Promise.all([
       getConfiguredCustomFieldRecords(),
       getCachedReportSnapshotWithMetadata(CUSTOM_FIELD_CATALOG_CACHE_KEY),
     ]);
     const configuredCatalog = createConfiguredCustomFieldCatalog(configuredRecords);
-    const cachedCatalog = mergeCustomFieldCatalogs(cachedSnapshot?.payload, configuredCatalog);
-
-    if (!forceRefresh && cachedSnapshot && isCustomFieldCatalogFresh(cachedSnapshot.updatedAt)) {
-      return createResponse({
-        catalog: cachedCatalog,
-        source: "shared-cache",
-        updatedAt: cachedSnapshot.updatedAt,
-      });
-    }
+    let catalog = mergeCustomFieldCatalogs(cachedSnapshot?.payload, configuredCatalog);
+    const cacheIsFresh = Boolean(
+      cachedSnapshot && isCustomFieldCatalogFresh(cachedSnapshot.updatedAt),
+    );
+    let refreshedCategories = false;
+    let updatedAt = cachedSnapshot?.updatedAt || null;
 
     try {
       const origin = new URL(request.url).origin;
-      // Load two small configuration collections sequentially so opening this
-      // admin screen does not create a burst of Blackbaud calls.
-      const categoryPayload = await listBlackbaudConstituentCustomFieldCategories({
-        userId: user.id,
-        authUserId: user.id,
-        origin,
-        timeoutMs: 8000,
-        maxRetries: 0,
-      });
+      if (forceRefresh || !cacheIsFresh || !catalog.categories.length) {
+        const categoryPayload = await listBlackbaudConstituentCustomFieldCategories({
+          userId: user.id,
+          authUserId: user.id,
+          origin,
+          timeoutMs: 8000,
+          maxRetries: 0,
+        });
+        catalog = mergeCustomFieldCatalogs(
+          catalog,
+          createCustomFieldCatalogSnapshot({ categoryPayload, configuredRecords }),
+        );
+        refreshedCategories = true;
+        updatedAt = new Date().toISOString();
+      }
+
+      if (!requestedCategory) {
+        if (refreshedCategories) {
+          await saveReportSnapshot(CUSTOM_FIELD_CATALOG_CACHE_KEY, catalog);
+        }
+        return createResponse({
+          catalog,
+          source: refreshedCategories ? "nxt" : "shared-cache",
+          updatedAt,
+        });
+      }
+
+      const selectedCategory = findCatalogCategory(catalog, requestedCategory);
+      if (!selectedCategory) {
+        if (refreshedCategories) {
+          await saveReportSnapshot(CUSTOM_FIELD_CATALOG_CACHE_KEY, catalog);
+        }
+        return createResponse({
+          catalog,
+          source: refreshedCategories ? "nxt" : "shared-cache",
+          updatedAt,
+          notice:
+            "That category is not in the shared NXT catalog. You can still enter the exact category and description manually.",
+        });
+      }
+
+      if (!forceRefresh && cacheIsFresh && hasLoadedCategory(catalog, selectedCategory)) {
+        return createResponse({
+          catalog,
+          source: "shared-cache",
+          updatedAt,
+        });
+      }
+
+      // The NXT values endpoint requires exactly one category_name. Loading
+      // only the selected category keeps this setup screen quota-safe.
       const valuePayload = await listBlackbaudConstituentCustomFieldCategoryValues({
         userId: user.id,
         authUserId: user.id,
         origin,
+        categoryName: selectedCategory,
         timeoutMs: 8000,
         maxRetries: 0,
       });
-      const catalog = createCustomFieldCatalogSnapshot({
-        categoryPayload,
-        configuredRecords,
-        valuePayload,
-      });
+      catalog = replaceCategoryValues(
+        catalog,
+        selectedCategory,
+        normalizeCustomFieldValueOptions(valuePayload, catalog.categories, selectedCategory),
+      );
+      updatedAt = new Date().toISOString();
       await saveReportSnapshot(CUSTOM_FIELD_CATALOG_CACHE_KEY, catalog);
 
-      return createResponse({
-        catalog,
-        source: "nxt",
-        updatedAt: new Date().toISOString(),
-      });
+      return createResponse({ catalog, source: "nxt", updatedAt });
     } catch (catalogError) {
       console.warn("Custom field option catalog refresh failed:", catalogError);
-      const hasFallback = cachedCatalog.categories.length || cachedCatalog.values.length;
+      const hasFallback = catalog.categories.length || catalog.values.length;
       return createResponse({
-        catalog: cachedCatalog,
+        catalog,
         source: hasFallback ? "saved-options" : "manual-entry",
-        updatedAt: cachedSnapshot?.updatedAt || null,
+        updatedAt,
         notice: hasFallback
           ? "NXT custom-field options could not be refreshed. Showing the last saved options and configured report values; you can still enter exact text manually."
           : "NXT custom-field options are temporarily unavailable. You can still enter the exact category and description manually.",

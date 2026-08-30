@@ -39,6 +39,19 @@ describe("Custom field option catalog", () => {
     ]);
   });
 
+  it("maps a flat category value response to the selected category", () => {
+    expect(
+      normalizeCustomFieldValueOptions(
+        { value: ["Future. Made. Phase II", "Future. Made. Phase III"] },
+        [{ id: "24", name: "Prospect Research", dataType: "CodeTable" }],
+        "Prospect Research",
+      ),
+    ).toEqual([
+      { category: "Prospect Research", value: "Future. Made. Phase II" },
+      { category: "Prospect Research", value: "Future. Made. Phase III" },
+    ]);
+  });
+
   it("keeps configured report values available when NXT only provides category metadata", () => {
     const catalog = createCustomFieldCatalogSnapshot({
       categoryPayload: [{ category_id: 24, category: "Prospect Research" }],
@@ -54,6 +67,7 @@ describe("Custom field option catalog", () => {
     expect(catalog).toEqual({
       categories: [{ id: "24", name: "Prospect Research", dataType: "" }],
       values: [{ category: "Prospect Research", value: "Future. Made. Phase II" }],
+      loadedCategories: [],
     });
     expect(createConfiguredCustomFieldCatalog([])).toEqual({ categories: [], values: [] });
   });

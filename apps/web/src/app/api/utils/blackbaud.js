@@ -1241,15 +1241,22 @@ export async function listBlackbaudConstituentCustomFieldCategoryValues({
   userId,
   authUserId,
   origin,
+  categoryName,
   timeoutMs = 8000,
   maxRetries = 0,
 }) {
+  const normalizedCategoryName = String(categoryName || "").trim();
+  if (!normalizedCategoryName) {
+    throw new Error("A Blackbaud custom-field category name is required to list category values");
+  }
+
   const payload = await blackbaudApiFetch(
     BLACKBAUD_CONSTITUENT_CUSTOM_FIELD_CATEGORY_VALUES_URL,
     {
       userId,
       authUserId,
       origin,
+      searchParams: { category_name: normalizedCategoryName },
       timeoutMs,
       maxRetries,
     },
