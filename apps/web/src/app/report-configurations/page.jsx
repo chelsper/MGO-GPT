@@ -205,6 +205,27 @@ function getAudienceDescriptions(configuration) {
   };
 }
 
+function normalizeCatalogText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+function formatCatalogUpdatedAt(value) {
+  const date = new Date(value || "");
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "";
+}
+
+async function fetchCustomFieldCatalog({ refresh = false, signal } = {}) {
+  const response = await fetch(
+    `/api/reports/custom-field-options${refresh ? "?refresh=1" : ""}`,
+    { cache: "no-store", signal },
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || "Could not load NXT custom-field options.");
+  }
+  return payload || {};
+}
+
 export default function ReportConfigurationsPage() {
   const { data: user, loading: loadingUser } = useUser();
   const [loading, setLoading] = useState(true);
@@ -221,6 +242,15 @@ export default function ReportConfigurationsPage() {
   const [editingCustomFieldSlug, setEditingCustomFieldSlug] = useState("");
   const [savingCustomField, setSavingCustomField] = useState(false);
   const [customFieldStatus, setCustomFieldStatus] = useState("");
+  const [customFieldCatalog, setCustomFieldCatalog] = useState({
+    categories: [],
+    values: [],
+    notice: "",
+    source: "",
+    updatedAt: null,
+  });
+  const [customFieldCatalogLoaded, setCustomFieldCatalogLoaded] = useState(false);
+  const [loadingCustomFieldCatalog, setLoadingCustomFieldCatalog] = useState(false);
 
   useEffect(() => {
     if (!loadingUser && !user) {
@@ -280,6 +310,79 @@ export default function ReportConfigurationsPage() {
       active = false;
     };
   }, [user]);
+
+  useEffect(() => {
+    if (
+      !user ||
+      !canManage ||
+      activeReportType !== REPORT_TYPES.CUSTOM_FIELD ||
+      customFieldCatalogLoaded
+    ) {
+      return undefined;
+    }
+
+    let active = true;
+    const controller = new AbortController();
+    async function loadCatalog() {
+      setLoadingCustomFieldCatalog(true);
+      try {
+        const payload = await fetchCustomFieldCatalog({ signal: controller.signal });
+        if (!active) return;
+        setCustomFieldCatalog({
+          categories: Array.isArray(payload.categories) ? payload.categories : [],
+          values: Array.isArray(payload.values) ? payload.values : [],
+          notice: String(payload.notice || ""),
+          source: String(payload.source || ""),
+          updatedAt: payload.updatedAt || null,
+        });
+      } catch (catalogError) {
+        if (!active || catalogError?.name === "AbortError") return;
+        setCustomFieldCatalog((current) => ({
+          ...current,
+          notice:
+            catalogError instanceof Error
+              ? `${catalogError.message} You can still enter the exact category and description manually.`
+              : "NXT custom-field options could not be loaded. You can still enter the exact category and description manually.",
+        }));
+      } finally {
+        if (active) {
+          setCustomFieldCatalogLoaded(true);
+          setLoadingCustomFieldCatalog(false);
+        }
+      }
+    }
+
+    loadCatalog();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [activeReportType, canManage, customFieldCatalogLoaded, user]);
+
+  async function refreshCustomFieldCatalog() {
+    setLoadingCustomFieldCatalog(true);
+    try {
+      const payload = await fetchCustomFieldCatalog({ refresh: true });
+      setCustomFieldCatalog({
+        categories: Array.isArray(payload.categories) ? payload.categories : [],
+        values: Array.isArray(payload.values) ? payload.values : [],
+        notice: String(payload.notice || ""),
+        source: String(payload.source || ""),
+        updatedAt: payload.updatedAt || null,
+      });
+      setCustomFieldCatalogLoaded(true);
+    } catch (catalogError) {
+      setCustomFieldCatalog((current) => ({
+        ...current,
+        notice:
+          catalogError instanceof Error
+            ? `${catalogError.message} You can still enter the exact category and description manually.`
+            : "NXT custom-field options could not be refreshed. You can still enter the exact category and description manually.",
+      }));
+    } finally {
+      setLoadingCustomFieldCatalog(false);
+    }
+  }
 
   function updateDraft(reportKey, update) {
     setDrafts((current) => ({
@@ -552,6 +655,11 @@ export default function ReportConfigurationsPage() {
     Boolean(customFieldDraft.fieldDescription.trim()) &&
     /^\d+$/.test(customFieldDraft.sourceQueryId.trim()) &&
     (!customFieldDraft.active || selectedCustomUsers > 0);
+  const selectedCustomFieldCategory = normalizeCatalogText(customFieldDraft.fieldCategory);
+  const customFieldDescriptionOptions = customFieldCatalog.values.filter(
+    (option) => normalizeCatalogText(option.category) === selectedCustomFieldCategory,
+  );
+  const customFieldCatalogUpdatedAt = formatCatalogUpdatedAt(customFieldCatalog.updatedAt);
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
@@ -1156,12 +1264,86 @@ export default function ReportConfigurationsPage() {
               </div>
 
               <section
+                aria-live="polite"
+                style={{
+                  marginTop: "20px",
+                  padding: "16px",
+                  borderRadius: "13px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "#EFF6FF",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: "14px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: "#1E3A8A" }}>NXT custom-field choices</strong>
+                    <p style={{ margin: "5px 0 0", color: "#475569", lineHeight: 1.45, fontSize: "14px" }}>
+                      Select a category below to see its existing list-based descriptions. The shared NXT catalog is
+                      cached for 24 hours; free-text custom fields can still be entered manually.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={refreshCustomFieldCatalog}
+                    disabled={loadingCustomFieldCatalog}
+                    style={{
+                      minHeight: "38px",
+                      border: "1px solid #60A5FA",
+                      borderRadius: "9px",
+                      backgroundColor: "white",
+                      color: "#1D4ED8",
+                      padding: "0 12px",
+                      fontWeight: 800,
+                      cursor: loadingCustomFieldCatalog ? "wait" : "pointer",
+                    }}
+                  >
+                    {loadingCustomFieldCatalog ? "Loading NXT fields..." : "Refresh NXT field choices"}
+                  </button>
+                </div>
+                {customFieldCatalog.notice ? (
+                  <p style={{ margin: "11px 0 0", color: "#9A3412", fontWeight: 700, lineHeight: 1.45 }}>
+                    {customFieldCatalog.notice}
+                  </p>
+                ) : customFieldCatalogLoaded ? (
+                  <p style={{ margin: "11px 0 0", color: "#475569", fontSize: "13px" }}>
+                    {customFieldCatalog.categories.length} categories available
+                    {customFieldCatalogUpdatedAt ? ` · Last refreshed ${customFieldCatalogUpdatedAt}` : ""}.
+                  </p>
+                ) : (
+                  <p style={{ margin: "11px 0 0", color: "#64748B", fontSize: "13px" }}>
+                    NXT field choices will load when this section opens.
+                  </p>
+                )}
+              </section>
+
+              <section
                 aria-label={editingCustomFieldSlug ? "Edit Custom Field Report" : "Create Custom Field Report"}
                 style={{ marginTop: "20px" }}
               >
                 <h3 style={{ color: "#334155", fontSize: "16px", margin: 0 }}>
                   {editingCustomFieldSlug ? "Edit Custom Field Report" : "Add Custom Field Report"}
                 </h3>
+                <datalist id="nxt-custom-field-categories">
+                  {customFieldCatalog.categories.map((category) => (
+                    <option
+                      key={category.id || category.name}
+                      value={category.name}
+                      label={category.dataType ? `${category.name} (${category.dataType})` : category.name}
+                    />
+                  ))}
+                </datalist>
+                <datalist id="nxt-custom-field-descriptions">
+                  {customFieldDescriptionOptions.map((option) => (
+                    <option key={`${option.category}:${option.value}`} value={option.value} />
+                  ))}
+                </datalist>
                 <div
                   style={{
                     display: "grid",
@@ -1197,11 +1379,12 @@ export default function ReportConfigurationsPage() {
                     />
                   </label>
                   <label style={fieldLabelStyle}>
-                    <span>Exact NXT custom-field category</span>
+                    <span>NXT custom-field category</span>
                     <input
                       style={fieldStyle}
                       type="text"
                       value={customFieldDraft.fieldCategory}
+                      list="nxt-custom-field-categories"
                       placeholder="Example: Prospect Research"
                       maxLength={200}
                       onChange={(event) =>
@@ -1210,11 +1393,12 @@ export default function ReportConfigurationsPage() {
                     />
                   </label>
                   <label style={fieldLabelStyle}>
-                    <span>Exact NXT custom-field description</span>
+                    <span>NXT custom-field description</span>
                     <input
                       style={fieldStyle}
                       type="text"
                       value={customFieldDraft.fieldDescription}
+                      list={customFieldDescriptionOptions.length ? "nxt-custom-field-descriptions" : undefined}
                       placeholder="Example: Future. Made. Phase II"
                       maxLength={200}
                       onChange={(event) =>

@@ -23,7 +23,7 @@ export function getReportCacheHeaders(cacheStatus = "miss") {
   };
 }
 
-export async function getCachedReportSnapshot(reportKey) {
+export async function getCachedReportSnapshotWithMetadata(reportKey) {
   const normalizedKey = String(reportKey || "").trim();
   if (!normalizedKey) return null;
 
@@ -39,7 +39,15 @@ export async function getCachedReportSnapshot(reportKey) {
     return null;
   }
 
-  return row.payload;
+  return {
+    payload: row.payload,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+  };
+}
+
+export async function getCachedReportSnapshot(reportKey) {
+  const snapshot = await getCachedReportSnapshotWithMetadata(reportKey);
+  return snapshot?.payload || null;
 }
 
 export async function saveReportSnapshot(reportKey, payload) {

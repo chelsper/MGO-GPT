@@ -19,6 +19,10 @@ const BLACKBAUD_OPPORTUNITIES_URL =
   "https://api.sky.blackbaud.com/opportunity/v1/opportunities";
 const BLACKBAUD_CONSTITUENT_BASE_URL =
   "https://api.sky.blackbaud.com/constituent/v1/constituents";
+const BLACKBAUD_CONSTITUENT_CUSTOM_FIELD_CATEGORY_DETAILS_URL =
+  `${BLACKBAUD_CONSTITUENT_BASE_URL}/customfields/categories/details`;
+const BLACKBAUD_CONSTITUENT_CUSTOM_FIELD_CATEGORY_VALUES_URL =
+  `${BLACKBAUD_CONSTITUENT_BASE_URL}/customfields/categories/values`;
 const BLACKBAUD_GIFTS_URL = "https://api.sky.blackbaud.com/gift/v1/gifts";
 const BLACKBAUD_GIFT_V2_URL = "https://api.sky.blackbaud.com/gft-gifts/v2/gifts";
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
@@ -1207,6 +1211,51 @@ export async function listBlackbaudConstituentCustomFields({
   );
 
   return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+}
+
+// These are configuration metadata endpoints, not constituent searches. They
+// keep report setup to a small, shared NXT request rather than scanning
+// constituent custom-field values across the database.
+export async function listBlackbaudConstituentCustomFieldCategories({
+  userId,
+  authUserId,
+  origin,
+  timeoutMs = 8000,
+  maxRetries = 0,
+}) {
+  const payload = await blackbaudApiFetch(
+    BLACKBAUD_CONSTITUENT_CUSTOM_FIELD_CATEGORY_DETAILS_URL,
+    {
+      userId,
+      authUserId,
+      origin,
+      timeoutMs,
+      maxRetries,
+    },
+  );
+
+  return getBlackbaudCollection(payload);
+}
+
+export async function listBlackbaudConstituentCustomFieldCategoryValues({
+  userId,
+  authUserId,
+  origin,
+  timeoutMs = 8000,
+  maxRetries = 0,
+}) {
+  const payload = await blackbaudApiFetch(
+    BLACKBAUD_CONSTITUENT_CUSTOM_FIELD_CATEGORY_VALUES_URL,
+    {
+      userId,
+      authUserId,
+      origin,
+      timeoutMs,
+      maxRetries,
+    },
+  );
+
+  return getBlackbaudCollection(payload);
 }
 
 export async function createBlackbaudConstituentCustomField({
