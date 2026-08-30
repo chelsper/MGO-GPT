@@ -5,6 +5,7 @@ import {
   canUseMgoWorkspaceRole,
   canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
+  getWorkspaceRoleLabels,
   isMgoRole,
   normalizeWorkspaceRole,
   normalizeWorkspaceRoles,
@@ -50,5 +51,25 @@ describe("workspace roles", () => {
     ]);
     expect(normalizeWorkspaceRole("executive, mgo")).toBe("executive");
     expect(getWorkspaceRoleLabel("executive,mgo")).toBe("Executive, MGO");
+  });
+
+  it("uses institution terminology only for displayed role labels", () => {
+    const terminology = {
+      mgo: "Gift Officer",
+      advancementServices: "Data Services",
+      executive: "Leadership",
+    };
+
+    expect(getWorkspaceRoleLabels(terminology)).toMatchObject({
+      admin: "Admin",
+      advancement_services: "Data Services",
+      executive: "Leadership",
+      mgo: "Gift Officer",
+    });
+    expect(getWorkspaceRoleLabel("executive,mgo", terminology)).toBe(
+      "Leadership, Gift Officer",
+    );
+    expect(canUseMgoWorkspaceRole("executive,mgo")).toBe(true);
+    expect(canManageWorkspaceRole("advancement_services")).toBe(true);
   });
 });

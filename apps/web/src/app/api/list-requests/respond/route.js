@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
 
 export async function POST(request) {
   try {
@@ -64,7 +65,30 @@ export async function POST(request) {
       LEFT JOIN users reviewer_user ON updated.reviewed_by = reviewer_user.id
     `;
 
-    return Response.json(result[0]);
+    const listRequest = result[0];
+    await sendAdvancementServicesNotification({
+      title: "List request clarification answered",
+      text: [
+        "A user answered an Advancement Services clarification request.",
+        `Requested by: ${user.name || "Workspace user"}${
+          user.email ? ` <${user.email}>` : ""
+        }`,
+        `Request ID: ${listRequest?.id || id}`,
+        listRequest?.reviewer_name
+          ? `Advancement Services reviewer: ${listRequest.reviewer_name}`
+          : null,
+        `Response: ${responseText}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch((notificationError) => {
+      console.error(
+        "Could not send Advancement Services list-request clarification notification:",
+        notificationError,
+      );
+    });
+
+    return Response.json(listRequest);
   } catch (error) {
     console.error("Error responding to list request:", error);
     return Response.json(

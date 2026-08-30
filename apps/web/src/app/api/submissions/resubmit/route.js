@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
 
 export async function POST(request) {
   try {
@@ -55,7 +56,27 @@ export async function POST(request) {
       RETURNING *
     `;
 
-    return Response.json(result[0]);
+    const submission = result[0];
+    await sendAdvancementServicesNotification({
+      title: "Submission clarification answered",
+      text: [
+        "A user answered an Advancement Services clarification request.",
+        `Requested by: ${user.name || "Workspace user"}${
+          user.email ? ` <${user.email}>` : ""
+        }`,
+        `Submission ID: ${submission?.id || id}`,
+        `Response: ${responseText}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch((notificationError) => {
+      console.error(
+        "Could not send Advancement Services submission clarification notification:",
+        notificationError,
+      );
+    });
+
+    return Response.json(submission);
   } catch (error) {
     console.error("Error resubmitting submission:", error);
     return Response.json(

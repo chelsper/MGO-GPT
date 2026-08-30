@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getOrCreateUserMock = vi.fn();
+const sendAdvancementServicesNotificationMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -29,6 +30,10 @@ vi.mock("@/app/api/utils/sql", () => ({
   default: sqlTag,
 }));
 
+vi.mock("@/app/api/utils/sendSubmissionEmail", () => ({
+  sendAdvancementServicesNotification: sendAdvancementServicesNotificationMock,
+}));
+
 describe("list request response route", () => {
   beforeEach(() => {
     sqlQueue.length = 0;
@@ -36,9 +41,11 @@ describe("list request response route", () => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();
     getOrCreateUserMock.mockReset();
+    sendAdvancementServicesNotificationMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
+    sendAdvancementServicesNotificationMock.mockResolvedValue({ status: "sent" });
     getOrCreateUserMock.mockResolvedValue({
       id: 44,
       name: "MGO User",
@@ -82,6 +89,9 @@ describe("list request response route", () => {
     expect(sqlMockImpl.mock.calls[1][1]).toEqual("Please include FY25 and FY26 donors.");
     expect(sqlMockImpl.mock.calls[1][2]).toEqual(12);
     expect(sqlMockImpl.mock.calls[1][3]).toEqual(44);
+    expect(sendAdvancementServicesNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "List request clarification answered" }),
+    );
   });
 
   it("rejects a blank clarification response", async () => {

@@ -150,9 +150,9 @@ const ADMIN_ACTIONS = [
     description: "Invite JU users and manage workspace roles.",
   },
   {
-    title: "Organization Configurations",
+    title: "Organization Settings",
     href: "/organization-configurations",
-    description: "Configure giving societies and portable organization rules.",
+    description: "Configure organization profile, email notifications, and giving societies.",
   },
   {
     title: "Report Access",
@@ -202,10 +202,10 @@ const ADMIN_WORKSPACE_ITEMS = [
     description: "Manage workspace users, roles, invitations, and access.",
   },
   {
-    label: "Giving Societies",
+    label: "Organization Settings",
     href: "/organization-configurations",
     section: "Admin & Workspace",
-    description: "Manage annual and lifetime giving society definitions.",
+    description: "Manage organization profile, email notifications, and giving society definitions.",
   },
   {
     label: "Report Access",

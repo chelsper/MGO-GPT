@@ -90,7 +90,9 @@ export async function upsertOpenDataRequest({
       WHERE id = ${existing[0].id}
       RETURNING *
     `;
-    return updated[0] || null;
+    return updated[0]
+      ? { ...updated[0], notification_event: "updated" }
+      : null;
   }
 
   const created = await sql`
@@ -129,5 +131,7 @@ export async function upsertOpenDataRequest({
     RETURNING *
   `;
 
-  return created[0] || null;
+  return created[0]
+    ? { ...created[0], notification_event: "created" }
+    : null;
 }

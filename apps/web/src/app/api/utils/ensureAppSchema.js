@@ -2117,6 +2117,83 @@ export default async function ensureAppSchema() {
       WHERE role IN ('reviewer', 'advancement_admin', 'executive_admin')
     `;
 
+    // This singleton stores the institution-specific defaults that are
+    // currently implicit in the application. The initial seed deliberately
+    // mirrors today's Jacksonville University behavior; consumers will opt in
+    // to these settings in later configuration work.
+    await sql`
+      CREATE TABLE IF NOT EXISTS organization_settings (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        institution_name TEXT NOT NULL,
+        short_name TEXT NOT NULL,
+        application_name TEXT NOT NULL,
+        advancement_services_notification_email TEXT NOT NULL DEFAULT 'devdata@ju.edu',
+        notification_sender_name TEXT NOT NULL DEFAULT 'JUMGOGPT',
+        time_zone TEXT NOT NULL DEFAULT 'America/New_York',
+        currency_code TEXT NOT NULL DEFAULT 'USD',
+        date_format TEXT NOT NULL DEFAULT 'MM/DD/YYYY',
+        fiscal_year_start_month INTEGER NOT NULL DEFAULT 7,
+        allowed_email_domains JSONB NOT NULL DEFAULT '[]'::jsonb,
+        terminology JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      ALTER TABLE organization_settings
+      ADD COLUMN IF NOT EXISTS advancement_services_notification_email TEXT
+    `;
+    await sql`
+      ALTER TABLE organization_settings
+      ADD COLUMN IF NOT EXISTS notification_sender_name TEXT
+    `;
+    await sql`
+      UPDATE organization_settings
+      SET
+        advancement_services_notification_email = COALESCE(
+          NULLIF(BTRIM(advancement_services_notification_email), ''),
+          'devdata@ju.edu'
+        ),
+        notification_sender_name = COALESCE(
+          NULLIF(BTRIM(notification_sender_name), ''),
+          'JUMGOGPT'
+        )
+      WHERE id = 1
+    `;
+    await sql`
+      INSERT INTO organization_settings (
+        id,
+        institution_name,
+        short_name,
+        application_name,
+        advancement_services_notification_email,
+        notification_sender_name,
+        time_zone,
+        currency_code,
+        date_format,
+        fiscal_year_start_month,
+        allowed_email_domains,
+        terminology
+      )
+      VALUES (
+        1,
+        'Jacksonville University',
+        'JU',
+        'JUMGOGPT',
+        'devdata@ju.edu',
+        'JUMGOGPT',
+        'America/New_York',
+        'USD',
+        'MM/DD/YYYY',
+        7,
+        '["ju.edu"]'::jsonb,
+        '{"mgo":"MGO","advancementServices":"Advancement Services","executive":"Executive"}'::jsonb
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+
     await sql`
       CREATE TABLE IF NOT EXISTS report_configurations (
         id BIGSERIAL PRIMARY KEY,

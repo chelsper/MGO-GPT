@@ -5,12 +5,40 @@ export const WORKSPACE_ROLES = Object.freeze({
   MGO: "mgo",
 });
 
-const ROLE_LABELS = Object.freeze({
+const DEFAULT_ROLE_LABELS = Object.freeze({
   [WORKSPACE_ROLES.ADMIN]: "Admin",
   [WORKSPACE_ROLES.ADVANCEMENT_SERVICES]: "Advancement Services",
   [WORKSPACE_ROLES.EXECUTIVE]: "Executive",
   [WORKSPACE_ROLES.MGO]: "MGO",
 });
+
+function getTerminologyLabel(terminology, key, fallback) {
+  const value = terminology?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+// Role IDs remain stable application permissions. Institutions can rename the
+// visible labels without changing stored values or access-control behavior.
+export function getWorkspaceRoleLabels(terminology) {
+  return {
+    ...DEFAULT_ROLE_LABELS,
+    [WORKSPACE_ROLES.ADVANCEMENT_SERVICES]: getTerminologyLabel(
+      terminology,
+      "advancementServices",
+      DEFAULT_ROLE_LABELS[WORKSPACE_ROLES.ADVANCEMENT_SERVICES],
+    ),
+    [WORKSPACE_ROLES.EXECUTIVE]: getTerminologyLabel(
+      terminology,
+      "executive",
+      DEFAULT_ROLE_LABELS[WORKSPACE_ROLES.EXECUTIVE],
+    ),
+    [WORKSPACE_ROLES.MGO]: getTerminologyLabel(
+      terminology,
+      "mgo",
+      DEFAULT_ROLE_LABELS[WORKSPACE_ROLES.MGO],
+    ),
+  };
+}
 
 function normalizeSingleWorkspaceRole(role) {
   switch (String(role || "").trim().toLowerCase()) {
@@ -124,8 +152,9 @@ export function isAssignableRole(role) {
         .filter(Boolean).length);
 }
 
-export function getWorkspaceRoleLabel(role) {
+export function getWorkspaceRoleLabel(role, terminology) {
   const roles = normalizeWorkspaceRoles(role);
   if (!roles.length) return role || "User";
-  return roles.map((value) => ROLE_LABELS[value] || value).join(", ");
+  const labels = getWorkspaceRoleLabels(terminology);
+  return roles.map((value) => labels[value] || value).join(", ");
 }

@@ -20,6 +20,18 @@ const MONTH_OPTIONS = [
   ["12", "December"],
 ];
 
+const TIME_ZONE_OPTIONS = [
+  ["America/New_York", "Eastern Time (America/New_York)"],
+  ["America/Chicago", "Central Time (America/Chicago)"],
+  ["America/Denver", "Mountain Time (America/Denver)"],
+  ["America/Phoenix", "Arizona Time (America/Phoenix)"],
+  ["America/Los_Angeles", "Pacific Time (America/Los_Angeles)"],
+  ["Pacific/Honolulu", "Hawaii Time (Pacific/Honolulu)"],
+  ["UTC", "UTC"],
+];
+
+const DATE_FORMAT_OPTIONS = ["MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD"];
+
 const pageStyle = {
   minHeight: "100vh",
   background: "#F9FAFB",
@@ -103,6 +115,30 @@ function formatMoneyInput(value) {
   return Number.isFinite(amount) ? String(amount) : "";
 }
 
+function normalizeInstitutionSettingsForForm(settings) {
+  return {
+    institutionName: settings?.institutionName || "",
+    shortName: settings?.shortName || "",
+    applicationName: settings?.applicationName || "",
+    advancementServicesNotificationEmail:
+      settings?.advancementServicesNotificationEmail || "devdata@ju.edu",
+    notificationSenderName: settings?.notificationSenderName || "JUMGOGPT",
+    timeZone: settings?.timeZone || "America/New_York",
+    currencyCode: settings?.currencyCode || "USD",
+    dateFormat: settings?.dateFormat || "MM/DD/YYYY",
+    fiscalYearStartMonth: Number(settings?.fiscalYearStartMonth || 7),
+    allowedEmailDomains: Array.isArray(settings?.allowedEmailDomains)
+      ? settings.allowedEmailDomains
+      : [],
+    terminology: {
+      mgo: settings?.terminology?.mgo || "MGO",
+      advancementServices:
+        settings?.terminology?.advancementServices || "Advancement Services",
+      executive: settings?.terminology?.executive || "Executive",
+    },
+  };
+}
+
 function SaveFeedback({ error, statusMessage }) {
   const message = error || statusMessage;
   if (!message) return null;
@@ -135,20 +171,25 @@ function SaveFeedback({ error, statusMessage }) {
 export default function OrganizationConfigurationsPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
+  const [institutionSettings, setInstitutionSettings] = useState(null);
   const [societies, setSocieties] = useState([]);
   const [countSourceOptions, setCountSourceOptions] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [institutionSettingsSaving, setInstitutionSettingsSaving] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [institutionSettingsError, setInstitutionSettingsError] = useState("");
+  const [institutionSettingsStatus, setInstitutionSettingsStatus] = useState("");
   const [draggedSocietyKey, setDraggedSocietyKey] = useState("");
   const [recentlyAddedSocietyKey, setRecentlyAddedSocietyKey] = useState("");
   const societyRefs = useRef({});
 
   async function loadConfigurations() {
-    const [profileResponse, configResponse] = await Promise.all([
+    const [profileResponse, configResponse, institutionSettingsResponse] = await Promise.all([
       fetch("/api/users/profile"),
       fetch("/api/admin/giving-societies"),
+      fetch("/api/admin/organization-settings"),
     ]);
 
     const profileData = await profileResponse.json().catch(() => null);
@@ -163,9 +204,21 @@ export default function OrganizationConfigurationsPage() {
       );
     }
 
+    const institutionSettingsData = await institutionSettingsResponse
+      .json()
+      .catch(() => null);
+    if (!institutionSettingsResponse.ok) {
+      throw new Error(
+        institutionSettingsData?.error || "Failed to load institution profile",
+      );
+    }
+
     setProfile(profileData.user || null);
     setSocieties((configData.societies || []).map(normalizeSocietyForForm));
     setCountSourceOptions(configData.countSourceOptions || []);
+    setInstitutionSettings(
+      normalizeInstitutionSettingsForForm(institutionSettingsData?.settings),
+    );
   }
 
   useEffect(() => {
@@ -432,6 +485,58 @@ export default function OrganizationConfigurationsPage() {
     }
   }
 
+  function updateInstitutionSettings(updates) {
+    setInstitutionSettings((current) => ({
+      ...normalizeInstitutionSettingsForForm(current),
+      ...updates,
+    }));
+  }
+
+  function updateInstitutionTerminology(key, value) {
+    setInstitutionSettings((current) => {
+      const normalized = normalizeInstitutionSettingsForForm(current);
+      return {
+        ...normalized,
+        terminology: {
+          ...normalized.terminology,
+          [key]: value,
+        },
+      };
+    });
+  }
+
+  async function saveInstitutionSettings() {
+    if (!institutionSettings) return;
+
+    setInstitutionSettingsSaving(true);
+    setInstitutionSettingsError("");
+    setInstitutionSettingsStatus("");
+
+    try {
+      const response = await fetch("/api/admin/organization-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: institutionSettings }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to save institution profile");
+      }
+
+      setInstitutionSettings(
+        normalizeInstitutionSettingsForForm(data?.settings),
+      );
+      setInstitutionSettingsStatus("Institution profile saved.");
+    } catch (err) {
+      console.error(err);
+      setInstitutionSettingsError(
+        err instanceof Error ? err.message : "Failed to save institution profile",
+      );
+    } finally {
+      setInstitutionSettingsSaving(false);
+    }
+  }
+
   if (loading || pageLoading) {
     return (
       <main style={pageStyle}>
@@ -474,7 +579,7 @@ export default function OrganizationConfigurationsPage() {
               Organization Configurations
             </h1>
             <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "18px" }}>
-              Configure portable rules for giving societies and organizational recognition.
+              Configure institutional defaults, giving societies, and organizational recognition.
             </p>
           </div>
         </header>
@@ -525,6 +630,319 @@ export default function OrganizationConfigurationsPage() {
             <div style={{ fontSize: "36px", fontWeight: 950 }}>
               {activeLifetimeCount}
             </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...cardStyle,
+            padding: "28px",
+            marginBottom: "24px",
+            background: "linear-gradient(135deg, #FFFFFF 0%, #F5F7FF 100%)",
+          }}
+        >
+          <div style={{ marginBottom: "22px" }}>
+            <h2 style={{ margin: 0, fontSize: "28px" }}>Institution Profile</h2>
+            <p style={{ margin: "8px 0 0", color: "#4B5563", fontSize: "16px" }}>
+              Manage institutional defaults and where users' app requests are
+              delivered for Advancement Services review.
+            </p>
+            <p
+              style={{
+                margin: "10px 0 0",
+                color: "#1D4ED8",
+                fontSize: "14px",
+                lineHeight: 1.45,
+                fontWeight: 750,
+              }}
+            >
+              These settings do not change sign-in rules, fiscal-year calculations,
+              or direct NXT write behavior.
+            </p>
+          </div>
+
+          <div
+            style={{
+              marginTop: "20px",
+              border: "1px solid #C7D2FE",
+              borderRadius: "16px",
+              background: "#EEF2FF",
+              padding: "18px",
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: "19px" }}>Notification Delivery</h3>
+            <p style={{ margin: "8px 0 16px", color: "#4B5563", lineHeight: 1.45 }}>
+              JUMGOGPT sends this inbox an email whenever a user submits a request
+              or update for Advancement Services. Successful direct NXT writes do
+              not send a notification.
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: "16px",
+              }}
+            >
+              <label>
+                <span style={labelStyle}>Advancement Services Notification Email</span>
+                <input
+                  type="email"
+                  value={institutionSettings?.advancementServicesNotificationEmail || ""}
+                  onChange={(event) =>
+                    updateInstitutionSettings({
+                      advancementServicesNotificationEmail: event.target.value,
+                    })
+                  }
+                  style={inputStyle}
+                />
+              </label>
+              <label>
+                <span style={labelStyle}>Sender Display Name</span>
+                <input
+                  value={institutionSettings?.notificationSenderName || "JUMGOGPT"}
+                  onChange={(event) =>
+                    updateInstitutionSettings({ notificationSenderName: event.target.value })
+                  }
+                  style={inputStyle}
+                />
+              </label>
+            </div>
+            <p style={{ margin: "14px 0 0", color: "#4B5563", fontSize: "13px", lineHeight: 1.45 }}>
+              The sending address remains the verified Resend address configured in
+              Vercel. This setting safely changes only the sender name recipients see.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <label>
+              <span style={labelStyle}>Institution Name</span>
+              <input
+                value={institutionSettings?.institutionName || ""}
+                onChange={(event) =>
+                  updateInstitutionSettings({ institutionName: event.target.value })
+                }
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>Short Name</span>
+              <input
+                value={institutionSettings?.shortName || ""}
+                onChange={(event) =>
+                  updateInstitutionSettings({ shortName: event.target.value })
+                }
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>Application Name</span>
+              <input
+                value={institutionSettings?.applicationName || ""}
+                onChange={(event) =>
+                  updateInstitutionSettings({ applicationName: event.target.value })
+                }
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>Time Zone</span>
+              <select
+                value={institutionSettings?.timeZone || "America/New_York"}
+                onChange={(event) =>
+                  updateInstitutionSettings({ timeZone: event.target.value })
+                }
+                style={inputStyle}
+              >
+                {TIME_ZONE_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span style={labelStyle}>Currency Code</span>
+              <input
+                value={institutionSettings?.currencyCode || "USD"}
+                maxLength={3}
+                onChange={(event) =>
+                  updateInstitutionSettings({
+                    currencyCode: event.target.value.toUpperCase(),
+                  })
+                }
+                style={inputStyle}
+              />
+            </label>
+            <label>
+              <span style={labelStyle}>Date Format</span>
+              <select
+                value={institutionSettings?.dateFormat || "MM/DD/YYYY"}
+                onChange={(event) =>
+                  updateInstitutionSettings({ dateFormat: event.target.value })
+                }
+                style={inputStyle}
+              >
+                {DATE_FORMAT_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span style={labelStyle}>Fiscal Year Starts</span>
+              <select
+                value={String(institutionSettings?.fiscalYearStartMonth || 7)}
+                onChange={(event) =>
+                  updateInstitutionSettings({
+                    fiscalYearStartMonth: Number(event.target.value),
+                  })
+                }
+                style={inputStyle}
+              >
+                {MONTH_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
+              gap: "16px",
+              marginTop: "18px",
+            }}
+          >
+            <label>
+              <span style={labelStyle}>Institution Email Domains</span>
+              <textarea
+                value={(institutionSettings?.allowedEmailDomains || []).join("\n")}
+                onChange={(event) =>
+                  updateInstitutionSettings({
+                    allowedEmailDomains: event.target.value
+                      .split(/[\n,;]+/)
+                      .map((domain) => domain.trim())
+                      .filter(Boolean),
+                  })
+                }
+                rows={4}
+                placeholder="ju.edu"
+                style={{ ...inputStyle, minHeight: "108px", resize: "vertical" }}
+              />
+              <span
+                style={{
+                  display: "block",
+                  marginTop: "7px",
+                  color: "#6B7280",
+                  fontSize: "13px",
+                  lineHeight: 1.4,
+                }}
+              >
+                One domain per line. This is currently documented configuration
+                only; access remains governed by the existing sign-in setup.
+              </span>
+            </label>
+
+            <div
+              style={{
+                border: "1px solid #C7D2FE",
+                borderRadius: "16px",
+                background: "#EEF2FF",
+                padding: "16px",
+              }}
+            >
+              <div style={labelStyle}>Workspace Terminology</div>
+              <div style={{ display: "grid", gap: "12px" }}>
+                <label>
+                  <span style={{ color: "#4B5563", fontWeight: 800, fontSize: "13px" }}>
+                    MGO Label
+                  </span>
+                  <input
+                    value={institutionSettings?.terminology?.mgo || "MGO"}
+                    onChange={(event) =>
+                      updateInstitutionTerminology("mgo", event.target.value)
+                    }
+                    style={{ ...inputStyle, marginTop: "6px" }}
+                  />
+                </label>
+                <label>
+                  <span style={{ color: "#4B5563", fontWeight: 800, fontSize: "13px" }}>
+                    Advancement Services Label
+                  </span>
+                  <input
+                    value={
+                      institutionSettings?.terminology?.advancementServices ||
+                      "Advancement Services"
+                    }
+                    onChange={(event) =>
+                      updateInstitutionTerminology(
+                        "advancementServices",
+                        event.target.value,
+                      )
+                    }
+                    style={{ ...inputStyle, marginTop: "6px" }}
+                  />
+                </label>
+                <label>
+                  <span style={{ color: "#4B5563", fontWeight: 800, fontSize: "13px" }}>
+                    Executive Label
+                  </span>
+                  <input
+                    value={institutionSettings?.terminology?.executive || "Executive"}
+                    onChange={(event) =>
+                      updateInstitutionTerminology("executive", event.target.value)
+                    }
+                    style={{ ...inputStyle, marginTop: "6px" }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              alignItems: "center",
+              gap: "16px",
+              flexWrap: "wrap",
+              marginTop: "24px",
+            }}
+          >
+            <SaveFeedback
+              error={institutionSettingsError}
+              statusMessage={institutionSettingsStatus}
+            />
+            <button
+              type="button"
+              onClick={saveInstitutionSettings}
+              disabled={institutionSettingsSaving || !institutionSettings}
+              style={{
+                border: 0,
+                borderRadius: "999px",
+                background: "#4338CA",
+                color: "white",
+                padding: "14px 24px",
+                fontWeight: 950,
+                fontSize: "16px",
+                cursor: institutionSettingsSaving ? "wait" : "pointer",
+                opacity: institutionSettingsSaving || !institutionSettings ? 0.7 : 1,
+              }}
+            >
+              {institutionSettingsSaving
+                ? "Saving..."
+                : "Save Organization Settings"}
+            </button>
           </div>
         </section>
 

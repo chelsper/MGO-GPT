@@ -1,16 +1,113 @@
 /**
- * Sends an email notification to advancement services when a submission is created.
- * Includes a CSV of the submission data and any image attachments as PNGs.
- *
- * Uses the Resend API (https://resend.com/docs/api-reference/emails/send-email)
+ * Sends email notifications for work that requires Advancement Services review.
+ * Direct writes that finish in Blackbaud NXT intentionally do not use this helper.
  */
 import sql from "@/app/api/utils/sql";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import { getOrganizationSettings } from "@/app/api/utils/organizationSettings";
 
-const RECIPIENT_EMAIL =
-  process.env.SUBMISSIONS_RECIPIENT_EMAIL || "csantor@ju.edu";
-const FROM_EMAIL =
-  process.env.RESEND_FROM_EMAIL || "MGO VoiceLog <onboarding@resend.dev>";
+const DEFAULT_RECIPIENT_EMAIL = "devdata@ju.edu";
+const DEFAULT_SENDER_NAME = "JUMGOGPT";
+const DEFAULT_FROM_ADDRESS = "onboarding@resend.dev";
+
+function cleanDisplayName(value) {
+  return (
+    String(value || "")
+      .replace(/[<>\r\n]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120) || DEFAULT_SENDER_NAME
+  );
+}
+
+function getConfiguredFromAddress(value) {
+  const configured = String(value || "").trim();
+  const bracketedAddress = configured.match(/<([^>]+)>/);
+  return (bracketedAddress?.[1] || configured || DEFAULT_FROM_ADDRESS).trim();
+}
+
+export function buildResendFromAddress(
+  senderName,
+  configuredFrom = process.env.RESEND_FROM_EMAIL,
+) {
+  return `${cleanDisplayName(senderName)} <${getConfiguredFromAddress(configuredFrom)}>`;
+}
+
+async function getNotificationRouting() {
+  const settings = await getOrganizationSettings();
+  const recipient =
+    String(settings?.advancementServicesNotificationEmail || "").trim() ||
+    DEFAULT_RECIPIENT_EMAIL;
+  const applicationName =
+    String(settings?.applicationName || "").trim() || DEFAULT_SENDER_NAME;
+
+  return {
+    applicationName,
+    recipient,
+    from: buildResendFromAddress(
+      settings?.notificationSenderName || DEFAULT_SENDER_NAME,
+    ),
+  };
+}
+
+async function sendWithResend({ apiKey, from, recipient, subject, text, attachments }) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [recipient],
+      subject,
+      text,
+      ...(attachments?.length ? { attachments } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: (await response.text()) || `Resend returned ${response.status}`,
+    };
+  }
+
+  return {
+    ok: true,
+    result: await response.json().catch(() => ({})),
+  };
+}
+
+export async function sendAdvancementServicesNotification({ title, text }) {
+  await ensureAppSchema();
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error("RESEND_API_KEY is not set - skipping Advancement Services notification");
+    return { status: "skipped", error: "RESEND_API_KEY is not set" };
+  }
+
+  const routing = await getNotificationRouting();
+  const result = await sendWithResend({
+    apiKey,
+    from: routing.from,
+    recipient: routing.recipient,
+    subject: `${routing.applicationName}: ${String(title || "Advancement Services request")}`,
+    text: String(text || "A user sent an update for Advancement Services review."),
+  });
+
+  if (!result.ok) {
+    console.error("Resend API error:", result.error);
+    return { status: "failed", error: result.error };
+  }
+
+  return {
+    status: "sent",
+    messageId: result.result?.id || null,
+    recipient: routing.recipient,
+  };
+}
 
 async function updateEmailStatus(submissionId, status, extra = {}) {
   await ensureAppSchema();
@@ -35,9 +132,6 @@ async function updateEmailStatus(submissionId, status, extra = {}) {
   `;
 }
 
-/**
- * Convert a submission record into CSV content (header row + data row).
- */
 function buildCsvContent(submission, submissionType) {
   const fieldMap = {
     donor_update: [
@@ -84,79 +178,54 @@ function buildCsvContent(submission, submissionType) {
   };
 
   const fields = fieldMap[submissionType] || fieldMap.donor_update;
-
-  const escapeCsvValue = (val) => {
-    if (val === null || val === undefined) return "";
-    const str = String(val);
-    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-      return '"' + str.replace(/"/g, '""') + '"';
-    }
-    return str;
+  const escapeCsvValue = (value) => {
+    if (value === null || value === undefined) return "";
+    const text = String(value);
+    return text.includes(",") || text.includes('"') || text.includes("\n")
+      ? `"${text.replace(/"/g, '""')}"`
+      : text;
   };
 
-  const headerRow = fields.map((f) => f.header).join(",");
-  const dataRow = fields
-    .map((f) => escapeCsvValue(submission[f.key]))
-    .join(",");
-
-  return headerRow + "\n" + dataRow + "\n";
+  return `${fields.map((field) => field.header).join(",")}\n${fields
+    .map((field) => escapeCsvValue(submission[field.key]))
+    .join(",")}\n`;
 }
 
-/**
- * Fetch an image from a URL and return it as a base64 string.
- */
 async function fetchImageAsBase64(imageUrl) {
   try {
     const response = await fetch(imageUrl);
     if (!response.ok) {
-      console.error(
-        `Failed to fetch image from ${imageUrl}: ${response.status}`,
-      );
+      console.error(`Failed to fetch image from ${imageUrl}: ${response.status}`);
       return null;
     }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    return buffer.toString("base64");
+    return Buffer.from(await response.arrayBuffer()).toString("base64");
   } catch (error) {
     console.error(`Error fetching image from ${imageUrl}:`, error);
     return null;
   }
 }
 
-/**
- * Build a friendly subject line based on submission type.
- */
-function getSubjectLine(submission, submissionType) {
-  const typeLabels = {
+function getSubmissionLabel(submissionType) {
+  return {
     donor_update: "Donor Update",
     opportunity_update: "Opportunity Update",
     constituent_suggestion: "New Constituent Suggestion",
-  };
-  const label = typeLabels[submissionType] || "Submission";
-  const name =
-    submission.donor_name || submission.constituent_name || "Unknown";
-  return `MGO VoiceLog: ${label} – ${name}`;
+  }[submissionType] || "Submission";
 }
 
-/**
- * Build a plain-text email body summarizing the submission.
- */
-function getEmailBody(submission, submissionType) {
-  const typeLabels = {
-    donor_update: "Donor Update",
-    opportunity_update: "Opportunity Update",
-    constituent_suggestion: "New Constituent Suggestion",
-  };
-  const label = typeLabels[submissionType] || "Submission";
+function getSubjectLine(submission, submissionType, applicationName) {
+  const name = submission.donor_name || submission.constituent_name || "Unknown";
+  return `${applicationName}: ${getSubmissionLabel(submissionType)} - ${name}`;
+}
 
-  let body = `A new ${label} has been submitted in MGO VoiceLog.\n\n`;
+function getEmailBody(submission, submissionType, applicationName) {
+  let body = `A new ${getSubmissionLabel(submissionType)} has been submitted in ${applicationName}.\n\n`;
   body += `Officer: ${submission.officer_name || "N/A"}\n`;
 
   if (submissionType === "donor_update") {
     body += `Donor: ${submission.donor_name || "N/A"}\n`;
     body += `Interaction Type: ${submission.interaction_type || "N/A"}\n`;
-    body += `Estimated Ask Amount: ${submission.estimated_ask_amount ? "$" + submission.estimated_ask_amount : "N/A"}\n`;
+    body += `Estimated Ask Amount: ${submission.estimated_ask_amount ? `$${submission.estimated_ask_amount}` : "N/A"}\n`;
     body += `Next Step: ${submission.next_step || "N/A"}\n`;
   } else if (submissionType === "opportunity_update") {
     body += `Donor: ${submission.donor_name || "N/A"}\n`;
@@ -164,7 +233,7 @@ function getEmailBody(submission, submissionType) {
     body += `Status: ${submission.opportunity_stage || "N/A"}\n`;
     body += `Ask Date: ${submission.ask_date || "N/A"}\n`;
     body += `Date Expected: ${submission.expected_date || "N/A"}\n`;
-    body += `Ask Amount: ${submission.estimated_amount ? "$" + submission.estimated_amount : "N/A"}\n`;
+    body += `Ask Amount: ${submission.estimated_amount ? `$${submission.estimated_amount}` : "N/A"}\n`;
   } else if (submissionType === "constituent_suggestion") {
     body += `Constituent: ${submission.constituent_name || "N/A"}\n`;
     body += `Organization: ${submission.organization || "N/A"}\n`;
@@ -174,30 +243,21 @@ function getEmailBody(submission, submissionType) {
   }
 
   body += `\nNotes:\n${submission.notes || "None"}\n`;
-
-  if (submission.transcript) {
-    body += `\nTranscript:\n${submission.transcript}\n`;
-  }
-
+  if (submission.transcript) body += `\nTranscript:\n${submission.transcript}\n`;
   body += `\nStatus: ${submission.status}\n`;
   body += `Submitted: ${submission.date_submitted || submission.created_at || "N/A"}\n`;
-  body += `\nA CSV file with the full data is attached.\n`;
-
-  return body;
+  return `${body}\nA CSV file with the full data is attached.\n`;
 }
 
-/**
- * Send the submission notification email.
- *
- * @param {Object} submission - The full submission row from the database (from RETURNING *)
- * @param {string} submissionType - One of: 'donor_update', 'opportunity_update', 'constituent_suggestion'
- */
 export async function sendSubmissionEmail(submission, submissionType) {
+  await ensureAppSchema();
+  const routing = await getNotificationRouting();
   const apiKey = process.env.RESEND_API_KEY;
+
   if (!apiKey) {
-    console.error("RESEND_API_KEY is not set — skipping email notification");
+    console.error("RESEND_API_KEY is not set - skipping email notification");
     await updateEmailStatus(submission.id, "skipped", {
-      recipient: RECIPIENT_EMAIL,
+      recipient: routing.recipient,
       error: "RESEND_API_KEY is not set",
     });
     return;
@@ -205,22 +265,17 @@ export async function sendSubmissionEmail(submission, submissionType) {
 
   try {
     await updateEmailStatus(submission.id, "processing", {
-      recipient: RECIPIENT_EMAIL,
+      recipient: routing.recipient,
     });
-
-    // Build CSV attachment
-    const csvContent = buildCsvContent(submission, submissionType);
-    const csvBase64 = Buffer.from(csvContent, "utf-8").toString("base64");
 
     const attachments = [
       {
         filename: `submission_${submission.id}_${submissionType}.csv`,
-        content: csvBase64,
+        content: Buffer.from(buildCsvContent(submission, submissionType), "utf-8").toString("base64"),
         type: "text/csv",
       },
     ];
 
-    // Parse the attachments from the submission to find images
     let submissionAttachments = [];
     if (submission.attachments) {
       try {
@@ -228,12 +283,11 @@ export async function sendSubmissionEmail(submission, submissionType) {
           typeof submission.attachments === "string"
             ? JSON.parse(submission.attachments)
             : submission.attachments;
-      } catch (e) {
-        console.error("Failed to parse submission attachments:", e);
+      } catch (error) {
+        console.error("Failed to parse submission attachments:", error);
       }
     }
 
-    // Also check for business card URL (constituent suggestions)
     if (submission.business_card_url) {
       submissionAttachments.push({
         url: submission.business_card_url,
@@ -242,69 +296,54 @@ export async function sendSubmissionEmail(submission, submissionType) {
       });
     }
 
-    // Download each image attachment and add as PNG
     let imageIndex = 0;
-    for (const att of submissionAttachments) {
-      if (!att.url) continue;
-
-      // Check if it's an image type or has an image-like URL
+    for (const attachment of submissionAttachments) {
+      if (!attachment?.url) continue;
       const isImage =
-        att.type === "image" ||
-        /\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(att.url) ||
-        att.url.includes("ucarecdn.com");
+        attachment.type === "image" ||
+        /\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(attachment.url) ||
+        attachment.url.includes("ucarecdn.com");
+      if (!isImage) continue;
 
-      if (isImage) {
-        imageIndex++;
-        const base64Data = await fetchImageAsBase64(att.url);
-        if (base64Data) {
-          const imageName = att.name || `attachment_${imageIndex}`;
-          attachments.push({
-            filename: `${imageName}.png`,
-            content: base64Data,
-            type: "image/png",
-          });
-        }
+      imageIndex += 1;
+      const content = await fetchImageAsBase64(attachment.url);
+      if (content) {
+        attachments.push({
+          filename: `${attachment.name || `attachment_${imageIndex}`}.png`,
+          content,
+          type: "image/png",
+        });
       }
     }
 
-    // Send via Resend API
-    const emailPayload = {
-      from: FROM_EMAIL,
-      to: [RECIPIENT_EMAIL],
-      subject: getSubjectLine(submission, submissionType),
-      text: getEmailBody(submission, submissionType),
-      attachments: attachments,
-    };
-
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(emailPayload),
+    const result = await sendWithResend({
+      apiKey,
+      from: routing.from,
+      recipient: routing.recipient,
+      subject: getSubjectLine(submission, submissionType, routing.applicationName),
+      text: getEmailBody(submission, submissionType, routing.applicationName),
+      attachments,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Resend API error:", response.status, errorText);
+    if (!result.ok) {
+      console.error("Resend API error:", result.error);
       await updateEmailStatus(submission.id, "failed", {
-        recipient: RECIPIENT_EMAIL,
-        error: errorText || `Resend returned ${response.status}`,
+        recipient: routing.recipient,
+        error: result.error,
       });
-    } else {
-      const result = await response.json();
-      console.log("Submission email sent successfully, id:", result.id);
-      await updateEmailStatus(submission.id, "sent", {
-        recipient: RECIPIENT_EMAIL,
-        messageId: result.id || null,
-        sentAt: new Date(),
-      });
+      return;
     }
+
+    console.log("Submission email sent successfully, id:", result.result?.id);
+    await updateEmailStatus(submission.id, "sent", {
+      recipient: routing.recipient,
+      messageId: result.result?.id || null,
+      sentAt: new Date(),
+    });
   } catch (error) {
     console.error("Failed to send submission email:", error);
     await updateEmailStatus(submission.id, "failed", {
-      recipient: RECIPIENT_EMAIL,
+      recipient: routing.recipient,
       error: error instanceof Error ? error.message : String(error),
     });
   }

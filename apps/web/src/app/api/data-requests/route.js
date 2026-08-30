@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   normalizeDataRequestType,
@@ -10,6 +11,36 @@ import {
 
 function cleanText(value) {
   return String(value || "").trim();
+}
+
+function formatRequester(user) {
+  const name = cleanText(user?.name) || "Workspace user";
+  const email = cleanText(user?.email);
+  return email ? `${name} <${email}>` : name;
+}
+
+async function notifyAdvancementServices({ dataRequest, requester }) {
+  if (!dataRequest) return;
+
+  const isUpdate = dataRequest.notification_event === "updated";
+  await sendAdvancementServicesNotification({
+    title: isUpdate ? "Data request updated" : "New data request",
+    text: [
+      `A user ${isUpdate ? "updated" : "sent"} a data request for Advancement Services review.`,
+      `Requested by: ${formatRequester(requester)}`,
+      `Request type: ${dataRequest.request_type || "Record update"}`,
+      `Constituent: ${dataRequest.constituent_name || "Unknown constituent"}`,
+      dataRequest.blackbaud_constituent_id
+        ? `NXT constituent ID: ${dataRequest.blackbaud_constituent_id}`
+        : null,
+      dataRequest.request_note ? `Request: ${dataRequest.request_note}` : null,
+      dataRequest.source_context ? `Source: ${dataRequest.source_context}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  }).catch((notificationError) => {
+    console.error("Could not send Advancement Services data-request notification:", notificationError);
+  });
 }
 
 async function resolveProspectContext({ userId, prospectId }) {
@@ -142,7 +173,13 @@ export async function POST(request) {
       sourceContext: cleanText(body?.sourceContext) || "app",
     });
 
-    return Response.json(result, { status: 201 });
+    await notifyAdvancementServices({
+      dataRequest: result,
+      requester: sessionUser || user,
+    });
+
+    const { notification_event: _notificationEvent, ...response } = result || {};
+    return Response.json(result ? response : null, { status: 201 });
   } catch (error) {
     console.error("Error creating data request:", error);
     return Response.json(

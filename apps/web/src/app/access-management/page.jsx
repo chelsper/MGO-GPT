@@ -8,15 +8,23 @@ import {
   canUseMgoWorkspaceRole,
   canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
+  getWorkspaceRoleLabels,
   normalizeWorkspaceRoles,
 } from "@/utils/workspaceRoles";
+import {
+  DEFAULT_ORGANIZATION_SETTINGS,
+  normalizeOrganizationSettings,
+} from "@/utils/organizationSettings";
 
-const ROLE_OPTIONS = [
-  { value: "mgo", label: "MGO" },
-  { value: "executive", label: "Executive" },
-  { value: "advancement_services", label: "Advancement Services" },
-  { value: "admin", label: "Admin" },
-];
+function getRoleOptions(terminology) {
+  const labels = getWorkspaceRoleLabels(terminology);
+  return [
+    { value: "mgo", label: labels.mgo },
+    { value: "executive", label: labels.executive },
+    { value: "advancement_services", label: labels.advancement_services },
+    { value: "admin", label: labels.admin },
+  ];
+}
 
 const cardStyle = {
   backgroundColor: "white",
@@ -41,7 +49,7 @@ function toggleRoleSelection(currentRoles, nextRole, checked) {
     return normalized.includes(nextRole) ? normalized : [...normalized, nextRole];
   }
   const filtered = normalized.filter((role) => role !== nextRole);
-  return filtered.length ? filtered : [ROLE_OPTIONS[0].value];
+  return filtered.length ? filtered : ["mgo"];
 }
 
 function normalizeFundraiserAliasIdsInput(value) {
@@ -67,12 +75,18 @@ function formatFundraiserAliasIdsForInput(value) {
   return normalizeFundraiserAliasIdsInput(value).join("\n");
 }
 
-function WorkspaceRoleCheckboxGroup({ disabled = false, roles, onChange }) {
+function WorkspaceRoleCheckboxGroup({
+  disabled = false,
+  roles,
+  onChange,
+  roleOptions,
+}) {
   const normalizedRoles = normalizeWorkspaceRoles(roles);
+  const options = roleOptions || getRoleOptions();
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px" }}>
-      {ROLE_OPTIONS.map((option) => {
+      {options.map((option) => {
         const checked = normalizedRoles.includes(option.value);
         return (
           <label
@@ -238,6 +252,9 @@ export default function AccessManagementPage() {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [workspaceUser, setWorkspaceUser] = useState(null);
+  const [organizationSettings, setOrganizationSettings] = useState(
+    DEFAULT_ORGANIZATION_SETTINGS,
+  );
   const [profileLoading, setProfileLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [invitations, setInvitations] = useState([]);
@@ -269,6 +286,8 @@ export default function AccessManagementPage() {
   const [fyGivingDiagnostic, setFyGivingDiagnostic] = useState(null);
   const [loadingFyGivingDiagnostic, setLoadingFyGivingDiagnostic] = useState(false);
   const [fyGivingDiagnosticError, setFyGivingDiagnosticError] = useState("");
+  const roleLabels = getWorkspaceRoleLabels(organizationSettings.terminology);
+  const roleOptions = getRoleOptions(organizationSettings.terminology);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -277,9 +296,13 @@ export default function AccessManagementPage() {
   }, [toast]);
 
   async function loadAccessState() {
-    const [profileResponse, accessResponse] = await Promise.all([
+    const organizationSettingsRequest = fetch("/api/organization-settings")
+      .then(async (response) => (response.ok ? response.json().catch(() => null) : null))
+      .catch(() => null);
+    const [profileResponse, accessResponse, organizationSettingsData] = await Promise.all([
       fetch("/api/users/profile"),
       fetch("/api/admin/access"),
+      organizationSettingsRequest,
     ]);
 
     const profileData = await profileResponse.json().catch(() => null);
@@ -303,6 +326,9 @@ export default function AccessManagementPage() {
         : accessData.bootstrapAdminEmail
           ? [accessData.bootstrapAdminEmail]
           : [],
+    );
+    setOrganizationSettings(
+      normalizeOrganizationSettings(organizationSettingsData?.settings),
     );
   }
 
@@ -556,7 +582,7 @@ export default function AccessManagementPage() {
       setSelectedBlackbaudMatch(null);
       setStatusMessage(
         data?.mode === "workspace-created"
-          ? "MGO workspace created. You can now build out their portfolio before sending an invite."
+          ? `${roleLabels.mgo} workspace created. You can now build out their portfolio before sending an invite.`
           : data?.mode === "user-updated"
           ? "Existing user role updated."
           : "Invitation saved. The invited user can now sign in with this email to claim access.",
@@ -565,7 +591,7 @@ export default function AccessManagementPage() {
         tone: "success",
         message:
           data?.mode === "workspace-created"
-            ? "MGO workspace created."
+            ? `${roleLabels.mgo} workspace created.`
             : data?.mode === "user-updated"
               ? "Existing user updated."
               : "Invitation saved.",
@@ -633,7 +659,7 @@ export default function AccessManagementPage() {
     if (record?.name) return record.name;
     if (record?.blackbaud_name) return record.blackbaud_name;
     const emailValue = String(record?.email || "").trim();
-    if (!emailValue.includes("@")) return emailValue || "New MGO";
+    if (!emailValue.includes("@")) return emailValue || `New ${roleLabels.mgo}`;
     const local = emailValue.split("@")[0];
     return local
       .split(/[._-]+/)
@@ -1020,7 +1046,7 @@ export default function AccessManagementPage() {
             Access Management
           </h1>
           <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.6 }}>
-            Invite JU users into the app as MGOs, Executives, Advancement Services team members, or Admins. The bootstrap admin account is
+            Invite {organizationSettings.shortName} users into the app as {roleLabels.mgo}s, {roleLabels.executive}s, {roleLabels.advancement_services} team members, or Admins. The bootstrap admin account is
             controlled by the environment and can always regain access.
           </p>
           {bootstrapAdminEmails.length > 0 || bootstrapAdminEmail ? (
@@ -1109,10 +1135,10 @@ export default function AccessManagementPage() {
           >
             <div>
               <h2 style={{ margin: 0, fontSize: "18px", color: "#111827" }}>
-                MGO readiness
+                {roleLabels.mgo} readiness
               </h2>
               <p style={{ margin: "6px 0 0", color: "#6B7280", fontSize: "14px", lineHeight: 1.5 }}>
-                Confirm each active MGO has app access, a linked NXT record, their own Blackbaud connection, required scopes, and a clean portfolio sync state.
+                Confirm each active {roleLabels.mgo} has app access, a linked NXT record, their own Blackbaud connection, required scopes, and a clean portfolio sync state.
               </p>
             </div>
             <button
@@ -1141,7 +1167,7 @@ export default function AccessManagementPage() {
             }}
           >
             {[
-              ["Active MGOs", readinessCounts.total],
+              [`Active ${roleLabels.mgo}s`, readinessCounts.total],
               ["Ready", readinessCounts.ready],
               ["Pending sync", readinessCounts.pending],
               ["Needs attention", readinessCounts.needsAttention],
@@ -1167,7 +1193,7 @@ export default function AccessManagementPage() {
 
           {mgoReadiness.length === 0 ? (
             <div style={{ color: "#6B7280", fontSize: "14px" }}>
-              No MGO users yet.
+              No {roleLabels.mgo} users yet.
             </div>
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
@@ -1450,7 +1476,11 @@ export default function AccessManagementPage() {
               <label htmlFor="access-management-role" style={{ display: "block", fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#374151" }}>
                 Role
               </label>
-              <WorkspaceRoleCheckboxGroup roles={selectedRoles} onChange={setSelectedRoles} />
+              <WorkspaceRoleCheckboxGroup
+                roles={selectedRoles}
+                onChange={setSelectedRoles}
+                roleOptions={roleOptions}
+              />
             </div>
           </div>
           {canUseMgoWorkspaceRole(selectedRoles) ? (
@@ -1471,7 +1501,7 @@ export default function AccessManagementPage() {
                 style={inputStyle}
               />
               <div style={{ marginTop: "8px", fontSize: "12px", color: "#6B7280" }}>
-                Link the invited MGO or Executive to their Raiser's Edge NXT record so their MGO workspace uses the right user.
+                Link the invited {roleLabels.mgo} or {roleLabels.executive} to their Raiser's Edge NXT record so their {roleLabels.mgo} workspace uses the right user.
               </div>
               {searchingBlackbaud ? (
                 <div style={{ marginTop: "10px", fontSize: "13px", color: "#6B7280" }}>
@@ -1701,6 +1731,7 @@ export default function AccessManagementPage() {
                             roles={user.role}
                             disabled={updatingUserId === user.id}
                             onChange={(nextRoles) => handleRoleChange(user.id, nextRoles)}
+                            roleOptions={roleOptions}
                           />
                         </div>
                       )}
@@ -1816,7 +1847,7 @@ export default function AccessManagementPage() {
                           }}
                         >
                           <div style={{ fontSize: "13px", color: "#4338CA", lineHeight: 1.5 }}>
-                            Link this person's NXT identity and prepare their MGO workspace before they sign in.
+                            Link this person's NXT identity and prepare their {roleLabels.mgo} workspace before they sign in.
                           </div>
                           {canViewWorkspaceAsRole(profile?.role, user.role) ? (<button
                             type="button"
@@ -2035,7 +2066,10 @@ export default function AccessManagementPage() {
                       </div>
                       <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>{invitation.email}</div>
                       <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px" }}>
-                        Role: {getWorkspaceRoleLabel(invitation.role)}
+                        Role: {getWorkspaceRoleLabel(
+                          invitation.role,
+                          organizationSettings.terminology,
+                        )}
                       </div>
                       <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "6px" }}>
                         {blackbaudLink.detail}

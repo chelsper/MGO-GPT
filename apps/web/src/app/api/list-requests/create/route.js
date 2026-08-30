@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
+import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
 
 export async function POST(request) {
   try {
@@ -133,12 +134,34 @@ export async function POST(request) {
         'Pending',
         NOW()
       )
-      RETURNING id
+      RETURNING *
     `;
+
+    const listRequest = result[0];
+    await sendAdvancementServicesNotification({
+      title: "New list request",
+      text: [
+        "A user sent a list request for Advancement Services review.",
+        `Requested by: ${requesterName || user.name || "Workspace user"}${
+          user.email ? ` <${user.email}>` : ""
+        }`,
+        `Request ID: ${listRequest?.id || "Unknown"}`,
+        dateNeeded ? `Date needed: ${dateNeeded}` : null,
+        purpose ? `Purpose: ${purpose}` : null,
+        purposeOther ? `Purpose details: ${purposeOther}` : null,
+        priorityLevel ? `Priority: ${priorityLevel}` : null,
+        assignedMgo ? `Assigned MGO: ${assignedMgo}` : null,
+        specialInstructions ? `Instructions: ${specialInstructions}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }).catch((notificationError) => {
+      console.error("Could not send Advancement Services list-request notification:", notificationError);
+    });
 
     return Response.json({
       success: true,
-      requestId: result[0].id,
+      requestId: listRequest.id,
     });
   } catch (error) {
     console.error("List request error:", error);

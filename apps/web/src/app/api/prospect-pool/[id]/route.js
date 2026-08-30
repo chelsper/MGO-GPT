@@ -19,6 +19,7 @@ import {
   DATA_REQUEST_TYPE_CONTACT_INFO,
   upsertOpenDataRequest,
 } from "@/app/api/utils/dataRequests";
+import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import {
   applyAssignmentStateToProspectPool,
@@ -1163,6 +1164,32 @@ export async function PATCH(request, { params }) {
           contactInfoRequestNote ||
           "Please verify or update this constituent's contact information.",
         sourceContext: "prospect_pool",
+      });
+
+      await sendAdvancementServicesNotification({
+        title:
+          dataRequest?.notification_event === "updated"
+            ? "Contact information request updated"
+            : "New contact information request",
+        text: [
+          "A user sent a contact-information request for Advancement Services review.",
+          `Requested by: ${currentUser.name || "Workspace user"}${
+            currentUser.email ? ` <${currentUser.email}>` : ""
+          }`,
+          `Constituent: ${entry.prospect_name || "Unknown constituent"}`,
+          linkedBlackbaudConstituentId
+            ? `NXT constituent ID: ${linkedBlackbaudConstituentId}`
+            : null,
+          dataRequest?.request_note ? `Request: ${dataRequest.request_note}` : null,
+          "Source: prospect pool",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch((notificationError) => {
+        console.error(
+          "Could not send Advancement Services contact-information notification:",
+          notificationError,
+        );
       });
     }
 

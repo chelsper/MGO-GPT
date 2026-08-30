@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
+const sendAdvancementServicesNotificationMock = vi.fn();
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -29,6 +30,10 @@ vi.mock("@/app/api/utils/sql", () => ({
   default: sqlTag,
 }));
 
+vi.mock("@/app/api/utils/sendSubmissionEmail", () => ({
+  sendAdvancementServicesNotification: sendAdvancementServicesNotificationMock,
+}));
+
 describe("data requests route", () => {
   beforeEach(() => {
     sqlQueue.length = 0;
@@ -36,9 +41,11 @@ describe("data requests route", () => {
     authMock.mockReset();
     ensureAppSchemaMock.mockReset();
     getWorkspaceUserMock.mockReset();
+    sendAdvancementServicesNotificationMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
+    sendAdvancementServicesNotificationMock.mockResolvedValue({ status: "sent" });
     getWorkspaceUserMock.mockResolvedValue({
       sessionUser: {
         id: 44,
@@ -91,6 +98,9 @@ describe("data requests route", () => {
     expect(response.status).toBe(201);
     expect(payload.status).toBe("Open");
     expect(payload.constituent_name).toBe("Megan Piggott");
+    expect(sendAdvancementServicesNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "New data request" }),
+    );
   });
 
   it("creates a research request from a constituent record", async () => {
