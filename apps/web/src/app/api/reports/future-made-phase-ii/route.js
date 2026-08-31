@@ -86,6 +86,35 @@ function isBlackbaudNotFoundError(error) {
   return /(?:404|not found|resource not found)/i.test(message);
 }
 
+function getFutureMadeRefreshWarning(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const traceId = message.match(/\(trace\s+([^)]+)\)/i)?.[1] || null;
+
+  if (isBlackbaudNotFoundError(error)) {
+    return [
+      "Blackbaud could not refresh the saved Future. Made. Phase II query because its upstream resource was not found.",
+      "The saved list was not changed.",
+      traceId ? `Blackbaud trace: ${traceId}.` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return message || "Could not refresh the Future. Made. Phase II report.";
+}
+
+function getStaleFutureMadeSnapshotResponse(payload, error) {
+  return Response.json(
+    {
+      ...payload,
+      refreshWarning: `${getFutureMadeRefreshWarning(
+        error,
+      )} Showing the last successful snapshot instead.`,
+    },
+    { headers: getReportCacheHeaders("stale") },
+  );
+}
+
 function normalizeText(value) {
   return String(value || "")
     .trim()
@@ -645,6 +674,7 @@ async function getCurrentUser(request) {
 
 export async function GET(request) {
   let forceRefresh = false;
+  let presentedCachedPayload = null;
   try {
     const user = await getCurrentUser(request);
     if (!user) {
@@ -667,11 +697,11 @@ export async function GET(request) {
     let query = null;
     let jobStartedThisRequest = false;
     let resolvedStaleConfiguredId = false;
+    presentedCachedPayload = await getCachedReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY);
 
     if (!jobId && !forceRefresh) {
-      const cachedPayload = await getCachedReportSnapshot(FUTURE_MADE_PHASE_TWO_CACHE_KEY);
-      if (cachedPayload) {
-        return Response.json(cachedPayload, {
+      if (presentedCachedPayload) {
+        return Response.json(presentedCachedPayload, {
           headers: getReportCacheHeaders("hit"),
         });
       }
@@ -689,10 +719,7 @@ export async function GET(request) {
     const origin = new URL(request.url).origin;
     const configurationIssues = getBlackbaudConfigIssues(origin);
     if (configurationIssues.length) {
-      return Response.json(
-        { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
-        { status: 500 },
-      );
+      throw new Error(`Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}`);
     }
 
     if (!jobId) {
@@ -706,6 +733,13 @@ export async function GET(request) {
       resolvedStaleConfiguredId = result.resolvedStaleConfiguredId;
 
       if (!query) {
+        const refreshError = new Error(
+          `Saved NXT query \"${queryConfig.queryName}\" was not found in Blackbaud Query v1.`,
+        );
+        if (presentedCachedPayload) {
+          return getStaleFutureMadeSnapshotResponse(presentedCachedPayload, refreshError);
+        }
+
         const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
           user,
           origin,
@@ -721,6 +755,13 @@ export async function GET(request) {
         const configuredLabel = queryConfig.queryId
           ? `Configured query ID ${queryConfig.queryId}`
           : `Saved NXT query \"${query.name || queryConfig.queryName}\"`;
+        const refreshError = new Error(
+          `${configuredLabel} could not be executed in Blackbaud Query v1.`,
+        );
+        if (presentedCachedPayload) {
+          return getStaleFutureMadeSnapshotResponse(presentedCachedPayload, refreshError);
+        }
+
         const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
           user,
           origin,
@@ -759,6 +800,10 @@ export async function GET(request) {
         );
       }
       if (isBlackbaudNotFoundError(error)) {
+        if (presentedCachedPayload) {
+          return getStaleFutureMadeSnapshotResponse(presentedCachedPayload, error);
+        }
+
         const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
           user,
           origin,
@@ -775,10 +820,7 @@ export async function GET(request) {
     const resultUrl = getQueryResultUrl(job);
     if (!resultUrl) {
       if (isFailedQueryJob(status)) {
-        return Response.json(
-          { error: `The NXT query job ${status || "failed"}.`, jobId },
-          { status: 502 },
-        );
+        throw new Error(`The NXT query job ${status || "failed"}.`);
       }
       return Response.json(
         {
@@ -796,6 +838,10 @@ export async function GET(request) {
       content = await downloadBlackbaudQueryResult(resultUrl);
     } catch (error) {
       if (isBlackbaudNotFoundError(error)) {
+        if (presentedCachedPayload) {
+          return getStaleFutureMadeSnapshotResponse(presentedCachedPayload, error);
+        }
+
         const fallbackPayload = await buildFutureMadePhaseTwoFallbackReport({
           user,
           origin,
@@ -832,6 +878,10 @@ export async function GET(request) {
     });
   } catch (error) {
     console.error("Future. Made. Phase II report error:", error);
+    if (presentedCachedPayload) {
+      return getStaleFutureMadeSnapshotResponse(presentedCachedPayload, error);
+    }
+
     if (isBlackbaudNotFoundError(error)) {
       const user = await getCurrentUser(request);
       if (user) {

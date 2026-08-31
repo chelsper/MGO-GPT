@@ -124,6 +124,28 @@ describe("Future. Made. Phase II report route", () => {
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
+  it("keeps the last successful snapshot when a manual refresh cannot find the saved query", async () => {
+    getCachedReportSnapshotMock.mockResolvedValue({
+      status: "complete",
+      totalRows: 1,
+      rows: [{ id: "cached-row", name: "Cached constituent" }],
+    });
+    findBlackbaudQueryByNameMock.mockResolvedValue(null);
+
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "complete",
+      totalRows: 1,
+      rows: [{ id: "cached-row", name: "Cached constituent" }],
+      refreshWarning: expect.stringContaining("saved Future. Made. Phase II query"),
+    });
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+
   it("does not start a Blackbaud query without a saved snapshot unless explicitly refreshed", async () => {
     const { GET } = await import("./route.js");
     const response = await GET(createRequest());

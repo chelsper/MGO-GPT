@@ -192,4 +192,41 @@ describe("custom field report route", () => {
     expect(createBlackbaudAdHocQueryJobMock).not.toHaveBeenCalled();
     expect(getBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
+
+  it("keeps the last successful direct report snapshot when custom-field metadata returns 404", async () => {
+    shouldBypassReportCacheMock.mockReturnValue(true);
+    getCustomFieldReportAccessForUserMock.mockResolvedValue({
+      record: directRecord,
+      canView: true,
+    });
+    getCachedReportSnapshotMock.mockResolvedValue({
+      status: "complete",
+      resultMode: "count_only",
+      totalRows: 12,
+      rows: [],
+      columns: [],
+    });
+    getDirectCustomFieldQueryDefinitionMock.mockRejectedValue(
+      new Error(
+        "Blackbaud 404 Not Found: The requested resource could not be found. (trace custom-field-trace)",
+      ),
+    );
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request(
+        "https://www.jumgogpt.app/api/reports/custom-field/innovation-center-prospects?refresh=1",
+      ),
+      { params: { slug: "innovation-center-prospects" } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "complete",
+      resultMode: "count_only",
+      totalRows: 12,
+      refreshWarning: expect.stringContaining("custom-field-trace"),
+    });
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
 });

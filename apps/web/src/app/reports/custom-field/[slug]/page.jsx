@@ -204,6 +204,23 @@ export default function CustomFieldReportPage() {
           </section>
         ) : null}
 
+        {report?.refreshWarning ? (
+          <section
+            role="status"
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #FDE68A",
+              borderRadius: "16px",
+              padding: "18px",
+              color: "#92400E",
+              backgroundColor: "#FFFBEB",
+            }}
+          >
+            <strong>Showing the last successful snapshot</strong>
+            <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>{report.refreshWarning}</p>
+          </section>
+        ) : null}
+
         {isLoading ? (
           <section
             style={{

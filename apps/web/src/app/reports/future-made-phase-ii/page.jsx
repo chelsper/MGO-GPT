@@ -347,6 +347,23 @@ export default function FutureMadePhaseTwoReportPage() {
           </section>
         ) : null}
 
+        {report?.refreshWarning ? (
+          <section
+            role="status"
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #FDE68A",
+              borderRadius: "18px",
+              padding: "18px",
+              color: "#92400E",
+              backgroundColor: "#FFFBEB",
+            }}
+          >
+            <strong>Showing the last successful snapshot</strong>
+            <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>{report.refreshWarning}</p>
+          </section>
+        ) : null}
+
         {refreshRequired ? (
           <section
             style={{

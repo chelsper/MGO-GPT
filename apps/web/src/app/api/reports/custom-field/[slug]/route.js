@@ -179,7 +179,32 @@ function getReportPayload(record) {
   return serializeCustomFieldReport(record, true);
 }
 
+function getBlackbaudTraceId(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.match(/\(trace\s+([^)]+)\)/i)?.[1] || null;
+}
+
+function getCustomFieldRefreshFailureMessage(error, isDirectReport) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const traceId = getBlackbaudTraceId(error);
+
+  if (isDirectReport && /(?:404|not found|resource could not be found)/i.test(message)) {
+    return [
+      "Blackbaud could not refresh this report's custom-field metadata.",
+      "The report configuration was not changed.",
+      traceId ? `Blackbaud trace: ${traceId}.` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return message || "Could not load this Custom Field Report.";
+}
+
 export async function GET(request, { params }) {
+  let presentedCachedPayload = null;
+  let directCustomFieldReport = false;
+
   try {
     const user = await getCurrentUser(request);
     if (!user) {
@@ -210,11 +235,14 @@ export async function GET(request, { params }) {
     const { searchParams } = new URL(request.url);
     const forceRefresh = shouldBypassReportCache(request);
     let jobId = searchParams.get("jobId")?.trim() || "";
+    directCustomFieldReport = isDirectCustomFieldReport(report);
+
+    const cachedPayload = await getCachedReportSnapshot(cacheKey);
+    presentedCachedPayload = cachedPayload ? { ...cachedPayload, report } : null;
 
     if (!jobId && !forceRefresh) {
-      const cachedPayload = await getCachedReportSnapshot(cacheKey);
-      if (cachedPayload) {
-        return Response.json(cachedPayload, { headers: getReportCacheHeaders("hit") });
+      if (presentedCachedPayload) {
+        return Response.json(presentedCachedPayload, { headers: getReportCacheHeaders("hit") });
       }
 
       return Response.json(
@@ -230,15 +258,11 @@ export async function GET(request, { params }) {
     const origin = new URL(request.url).origin;
     const configurationIssues = getBlackbaudConfigIssues(origin);
     if (configurationIssues.length) {
-      return Response.json(
-        { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
-        { status: 500 },
-      );
+      throw new Error(`Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}`);
     }
 
-    const usesDirectCustomFieldQuery = isDirectCustomFieldReport(report);
     if (!jobId) {
-      const createdJob = usesDirectCustomFieldQuery
+      const createdJob = directCustomFieldReport
         ? await createBlackbaudAdHocQueryJob({
             userId: user.id,
             authUserId: user.id,
@@ -271,12 +295,9 @@ export async function GET(request, { params }) {
     });
     const jobStatus = getQueryJobStatus(job);
 
-    if (usesDirectCustomFieldQuery) {
+    if (directCustomFieldReport) {
       if (isFailedQueryJob(jobStatus)) {
-        return Response.json(
-          { error: `The NXT custom-field query ${jobStatus || "failed"}.`, jobId },
-          { status: 502 },
-        );
+        throw new Error(`The NXT custom-field query ${jobStatus || "failed"}.`);
       }
 
       if (!isCompletedQueryJob(jobStatus)) {
@@ -322,10 +343,7 @@ export async function GET(request, { params }) {
     const resultUrl = getQueryResultUrl(job);
     if (!resultUrl) {
       if (isFailedQueryJob(jobStatus)) {
-        return Response.json(
-          { error: `The configured NXT query ${jobStatus || "failed"}.`, jobId },
-          { status: 502 },
-        );
+        throw new Error(`The configured NXT query ${jobStatus || "failed"}.`);
       }
       return Response.json(
         {
@@ -357,9 +375,22 @@ export async function GET(request, { params }) {
     });
   } catch (error) {
     console.error("Custom Field Report error:", error);
+    if (presentedCachedPayload) {
+      return Response.json(
+        {
+          ...presentedCachedPayload,
+          refreshWarning: `${getCustomFieldRefreshFailureMessage(
+            error,
+            directCustomFieldReport,
+          )} Showing the last successful snapshot instead.`,
+        },
+        { headers: getReportCacheHeaders("stale") },
+      );
+    }
+
     return Response.json(
-      { error: error instanceof Error ? error.message : "Could not load this Custom Field Report." },
-      { status: 500 },
+      { error: getCustomFieldRefreshFailureMessage(error, directCustomFieldReport) },
+      { status: 503 },
     );
   }
 }
