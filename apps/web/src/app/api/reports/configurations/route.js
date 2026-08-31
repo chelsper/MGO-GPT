@@ -11,8 +11,8 @@ import {
   parseReportSpecificUserIds,
 } from "@/app/api/utils/reportAccess";
 import {
-  normalizeAlumniDonorConfiguration,
-  validateAlumniDonorConfiguration,
+  normalizeAlumniFamilyEngagementDashboard,
+  validateAlumniFamilyEngagementDashboard,
 } from "@/app/api/utils/alumniDonorConfiguration";
 import {
   getReportDefinition,
@@ -45,7 +45,7 @@ function serializeConfiguration(definition, record, currentUser) {
     sourceQueryName: "",
     dataConfiguration:
       metadata.supportsDataConfiguration
-        ? normalizeAlumniDonorConfiguration(record?.data_configuration)
+        ? normalizeAlumniFamilyEngagementDashboard(record?.data_configuration)
         : null,
     canView,
   };
@@ -180,10 +180,10 @@ export async function PATCH(request) {
     const shouldUpdateDataConfiguration =
       supportsReportDataConfiguration(definition) && hasDataConfigurationUpdate;
     const dataConfiguration = shouldUpdateDataConfiguration
-      ? normalizeAlumniDonorConfiguration(body?.dataConfiguration)
+      ? normalizeAlumniFamilyEngagementDashboard(body?.dataConfiguration)
       : null;
     const dataConfigurationError = shouldUpdateDataConfiguration
-      ? validateAlumniDonorConfiguration(dataConfiguration)
+      ? validateAlumniFamilyEngagementDashboard(dataConfiguration)
       : "";
     if (dataConfigurationError) {
       return Response.json({ error: dataConfigurationError }, { status: 400 });

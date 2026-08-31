@@ -116,9 +116,21 @@ export default function AlumniFamilyEngagementPage() {
 
   const isRefreshRequired = report?.status === "refresh_required";
   const totals = Array.isArray(report?.totals) ? report.totals : [];
+  const dashboardPanels = Array.isArray(report?.dashboard?.panels)
+    ? report.dashboard.panels
+    : totals.length
+      ? [
+          {
+            key: "alumni-donor-count-by-fiscal-year",
+            type: "alumni_donor_count",
+            title: "Alumni Donor Count by Fiscal Year",
+            totals,
+          },
+        ]
+      : [];
   const reportTitle = String(report?.report?.title || "Alumni & Family Engagement");
   const reportDescription = String(
-    report?.report?.description || "Distinct alumni donor totals from configured NXT Query API criteria.",
+    report?.report?.description || "Configured dashboard panels backed by saved NXT query snapshots.",
   );
 
   return (
@@ -238,7 +250,7 @@ export default function AlumniFamilyEngagementPage() {
           >
             <strong>No saved {reportTitle} snapshot is available.</strong>
             <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
-              Select Refresh data once. The configured donor totals will then remain available until the next
+              Select Refresh data once. The configured dashboard panels will then remain available until the next
               scheduled refresh or another manual refresh. Rows marked Frozen snapshot remain available without
               another NXT request after their first successful total is saved.
             </p>
@@ -252,16 +264,66 @@ export default function AlumniFamilyEngagementPage() {
                 Last refreshed: {new Date(report.generatedAt).toLocaleString("en-US")}
               </p>
             ) : null}
-            <section style={{ display: "grid", gap: "14px", maxWidth: "560px" }}>
-              {totals.map((total) => (
-                <DonorTotal
-                  key={total.key}
-                  label={total.label}
-                  value={total.total}
-                  refreshPolicy={total.refreshPolicy}
-                  frozenAt={total.frozenAt}
-                />
-              ))}
+            <section style={{ display: "grid", gap: "18px" }}>
+              {dashboardPanels.map((panel) => {
+                const panelTotals = Array.isArray(panel?.totals) ? panel.totals : [];
+
+                return (
+                  <section
+                    key={panel.key}
+                    style={{
+                      border: "1px solid #BFDBFE",
+                      borderRadius: "18px",
+                      padding: "20px",
+                      backgroundColor: "#EFF6FF",
+                    }}
+                  >
+                    <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "21px" }}>{panel.title}</h2>
+                    <p style={{ margin: "7px 0 0", color: "#475569", lineHeight: 1.5 }}>
+                      Each total is the count returned by its configured saved NXT query.
+                    </p>
+
+                    {panelTotals.length ? (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "14px",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                          marginTop: "16px",
+                        }}
+                      >
+                        {panelTotals.map((total) => (
+                          <DonorTotal
+                            key={`${panel.key}:${total.key}`}
+                            label={total.label}
+                            value={total.total}
+                            refreshPolicy={total.refreshPolicy}
+                            frozenAt={total.frozenAt}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ margin: "16px 0 0", color: "#64748B", fontWeight: 700 }}>
+                        No count rows are configured in this panel.
+                      </p>
+                    )}
+                  </section>
+                );
+              })}
+
+              {!dashboardPanels.length ? (
+                <section
+                  style={{
+                    border: "1px solid #CBD5E1",
+                    borderRadius: "16px",
+                    padding: "20px",
+                    color: "#475569",
+                    backgroundColor: "white",
+                  }}
+                >
+                  No dashboard panels have been configured yet.
+                </section>
+              ) : null}
             </section>
           </>
         ) : null}

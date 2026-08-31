@@ -12,7 +12,7 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import {
-  createBlackbaudAdHocQueryJob,
+  createBlackbaudQueryJob,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
@@ -21,13 +21,12 @@ import {
   getReportAccessForUser,
 } from "@/app/api/utils/reportAccess";
 import {
-  buildAlumniDonorQueryDefinition,
-  DEFAULT_ALUMNI_DONOR_CONFIGURATION,
-  getAlumniDonorConfigurationFingerprint,
-  getAlumniDonorConstituencyOptions,
+  DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD,
+  getAlumniFamilyEngagementDashboardFingerprint,
+  getAlumniDonorCountPanels,
   getAlumniDonorCountRows,
   getAlumniDonorCountRowFingerprint,
-  normalizeAlumniDonorConfiguration,
+  normalizeAlumniFamilyEngagementDashboard,
 } from "@/app/api/utils/alumniDonorConfiguration";
 
 export const maxDuration = 300;
@@ -35,57 +34,34 @@ export const maxDuration = 300;
 export const ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY = "report:alumni-family-engagement";
 // The old export name is kept so any internal reference remains compatible.
 export const ALUMNI_DONOR_TOTAL_QUERIES = getAlumniDonorCountRows(
-  DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+  DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD,
 );
 
 const DEFAULT_REPORT_TITLE = "Alumni & Family Engagement";
 const DEFAULT_REPORT_DESCRIPTION =
-  "Distinct donor totals from configured NXT constituency and gift-credit criteria.";
+  "Configured dashboard panels backed by saved NXT query snapshots.";
 const QUERY_POLL_INTERVAL_MS = 1500;
 const QUERY_MAX_WAIT_MS = 90000;
 
-function getReportPresentation(access, donorConfiguration) {
+function getReportPresentation(access) {
   return {
     title: String(access?.title || "").trim() || DEFAULT_REPORT_TITLE,
     description:
       String(access?.description || "").trim() || DEFAULT_REPORT_DESCRIPTION,
-    sourceKey: donorConfiguration.sourceKey,
-    sourceLabel: donorConfiguration.sourceLabel,
   };
 }
 
-function getPublicDonorDefinition(donorConfiguration) {
-  const constituencyOptions = getAlumniDonorConstituencyOptions(donorConfiguration);
-  return {
-    sourceKey: donorConfiguration.sourceKey,
-    sourceLabel: donorConfiguration.sourceLabel,
-    countMethod: "Distinct constituents returned by an NXT Query API job",
-    constituencies: constituencyOptions.map((option) => option.label),
-    includeSoftCreditedDonors: donorConfiguration.includeSoftCreditedDonors,
-    includeMatchingGiftCredits: donorConfiguration.includeMatchingGiftCredits,
-    includeInactiveConstituents: donorConfiguration.includeInactiveConstituents,
-    includeDeceasedConstituents: donorConfiguration.includeDeceasedConstituents,
-    includeConstituentsWithNoValidAddress:
-      donorConfiguration.includeConstituentsWithNoValidAddress,
-    rows: getAlumniDonorCountRows(donorConfiguration).map((row) => ({
-      key: row.key,
-      label: row.label,
-      fiscalYearStart: row.fiscalYearStart,
-      fiscalYearEnd: row.fiscalYearEnd,
-      refreshPolicy: row.refreshPolicy,
-    })),
-  };
-}
-
-function getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row }) {
+function getCompatibleCachedTotal({ cachedPayload, dashboard, row }) {
   if (!cachedPayload || !row?.key) return null;
   const cachedTotals = Array.isArray(cachedPayload?.totals) ? cachedPayload.totals : [];
   const cachedTotal = cachedTotals.find(
-    (total) => String(total?.key || "").trim() === String(row.key || "").trim(),
+    (total) =>
+      String(total?.key || "").trim() === String(row.key || "").trim() &&
+      String(total?.panelKey || "").trim() === String(row.panelKey || "").trim(),
   );
   if (!cachedTotal) return null;
 
-  const rowFingerprint = getAlumniDonorCountRowFingerprint(donorConfiguration, row);
+  const rowFingerprint = getAlumniDonorCountRowFingerprint(dashboard, row);
   const cachedRowFingerprint = String(cachedTotal?.definitionFingerprint || "").trim();
   if (cachedRowFingerprint) {
     return cachedRowFingerprint === rowFingerprint ? cachedTotal : null;
@@ -93,32 +69,60 @@ function getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row }) {
 
   // Snapshots saved before per-row fingerprints were introduced remain valid
   // only when the complete prior configuration is an exact match.
-  return cachedPayload.configurationFingerprint === getAlumniDonorConfigurationFingerprint(donorConfiguration)
+  return cachedPayload.configurationFingerprint === getAlumniFamilyEngagementDashboardFingerprint(dashboard)
     ? cachedTotal
     : null;
 }
 
-function getCompatibleCachedTotals({ cachedPayload, donorConfiguration, countRows }) {
+function getCompatibleCachedTotals({ cachedPayload, dashboard, countRows }) {
   const totals = countRows.map((row) =>
-    getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row }),
+    getCompatibleCachedTotal({ cachedPayload, dashboard, row }),
   );
   return totals.every(Boolean) ? totals : null;
 }
 
-function needsNxtRefresh({ cachedPayload, donorConfiguration, countRows }) {
+function needsNxtRefresh({ cachedPayload, dashboard, countRows }) {
   return countRows.some((row) => {
     if (row.refreshPolicy !== "frozen") return true;
-    return !getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row });
+    return !getCompatibleCachedTotal({ cachedPayload, dashboard, row });
   });
 }
 
-function attachReportPresentation({ cachedPayload, donorConfiguration, presentation, countRows }) {
+function buildDashboardPanels({ dashboard, totals }) {
+  const totalsByRow = new Map(
+    (Array.isArray(totals) ? totals : []).map((total) => [
+      `${total?.panelKey || ""}:${total?.key || ""}`,
+      total,
+    ]),
+  );
+
+  return getAlumniDonorCountPanels(dashboard).map((panel) => ({
+    key: panel.key,
+    type: panel.type,
+    title: panel.title,
+    totals: panel.rows.map((row) => {
+      const countRow = {
+        ...row,
+        panelKey: panel.key,
+        panelTitle: panel.title,
+        panelType: panel.type,
+      };
+      return {
+        ...totalsByRow.get(`${panel.key}:${row.key}`),
+        ...countRow,
+        definitionFingerprint: getAlumniDonorCountRowFingerprint(dashboard, countRow),
+      };
+    }),
+  }));
+}
+
+function attachReportPresentation({ cachedPayload, dashboard, presentation, countRows }) {
   if (!cachedPayload) return null;
 
-  const configurationFingerprint = getAlumniDonorConfigurationFingerprint(donorConfiguration);
+  const configurationFingerprint = getAlumniFamilyEngagementDashboardFingerprint(dashboard);
   const compatibleTotals = getCompatibleCachedTotals({
     cachedPayload,
-    donorConfiguration,
+    dashboard,
     countRows,
   });
   if (!compatibleTotals) return null;
@@ -127,17 +131,15 @@ function attachReportPresentation({ cachedPayload, donorConfiguration, presentat
   return {
     ...publicPayload,
     report: presentation,
-    donorDefinition: getPublicDonorDefinition(donorConfiguration),
+    dashboard: {
+      panels: buildDashboardPanels({ dashboard, totals: compatibleTotals }),
+    },
     configurationFingerprint,
     totalRows: compatibleTotals.reduce((sum, total) => sum + Number(total.total || 0), 0),
     totals: countRows.map((row, index) => ({
       ...compatibleTotals[index],
-      key: row.key,
-      label: row.label,
-      fiscalYearStart: row.fiscalYearStart,
-      fiscalYearEnd: row.fiscalYearEnd,
-      refreshPolicy: row.refreshPolicy,
-      definitionFingerprint: getAlumniDonorCountRowFingerprint(donorConfiguration, row),
+      ...row,
+      definitionFingerprint: getAlumniDonorCountRowFingerprint(dashboard, row),
     })),
   };
 }
@@ -204,8 +206,8 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
   );
 }
 
-async function buildQueryApiDonorTotals({ user, origin, donorConfiguration, cachedPayload }) {
-  const countRows = getAlumniDonorCountRows(donorConfiguration);
+async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload }) {
+  const countRows = getAlumniDonorCountRows(dashboard);
   const totals = [];
   let queryJobPolls = 0;
   let queryJobs = 0;
@@ -213,13 +215,13 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration, cach
   const refreshedAt = new Date().toISOString();
 
   // A small sequential job queue avoids burst throttling while keeping this
-  // report to a handful of requests instead of one request per donor. Frozen
-  // rows reuse their compatible saved total and intentionally skip this queue.
+  // report to a handful of saved-query jobs. Frozen rows reuse their
+  // compatible saved total and intentionally skip this queue.
   for (const row of countRows) {
-    const definitionFingerprint = getAlumniDonorCountRowFingerprint(donorConfiguration, row);
+    const definitionFingerprint = getAlumniDonorCountRowFingerprint(dashboard, row);
     const cachedTotal = getCompatibleCachedTotal({
       cachedPayload,
-      donorConfiguration,
+      dashboard,
       row,
     });
 
@@ -227,24 +229,24 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration, cach
       frozenSnapshotsReused += 1;
       totals.push({
         ...cachedTotal,
-        key: row.key,
-        label: row.label,
-        fiscalYearStart: row.fiscalYearStart,
-        fiscalYearEnd: row.fiscalYearEnd,
-        refreshPolicy: row.refreshPolicy,
+        ...row,
         definitionFingerprint,
         frozenAt: cachedTotal.frozenAt || cachedPayload?.generatedAt || refreshedAt,
       });
       continue;
     }
 
-    const query = buildAlumniDonorQueryDefinition(donorConfiguration, row);
-    const createdJob = await createBlackbaudAdHocQueryJob({
+    if (!row.queryId) {
+      throw new Error(
+        `Add a saved NXT query system record ID for ${row.label} before refreshing.`,
+      );
+    }
+
+    const createdJob = await createBlackbaudQueryJob({
       userId: user.id,
       authUserId: user.id,
       origin,
-      query,
-      resultsFileName: `alumni-donor-count-${row.key}.csv`,
+      queryId: row.queryId,
     });
     const jobId = getQueryJobId(createdJob);
     if (!jobId) {
@@ -260,10 +262,7 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration, cach
     });
     queryJobPolls += polls;
     totals.push({
-      key: row.key,
-      label: row.label,
-      fiscalYearStart: row.fiscalYearStart,
-      fiscalYearEnd: row.fiscalYearEnd,
+      ...row,
       total,
       refreshPolicy: row.refreshPolicy,
       definitionFingerprint,
@@ -276,7 +275,7 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration, cach
     totalRows: totals.reduce((sum, total) => sum + total.total, 0),
     warnings: [],
     refreshMetrics: {
-      source: "blackbaud-query-api",
+      source: "blackbaud-saved-query-api",
       queryJobs,
       queryJobPolls,
       frozenSnapshotsReused,
@@ -310,14 +309,14 @@ export async function GET(request) {
       );
     }
 
-    const donorConfiguration = normalizeAlumniDonorConfiguration(access.dataConfiguration);
-    const countRows = getAlumniDonorCountRows(donorConfiguration);
-    const presentation = getReportPresentation(access, donorConfiguration);
+    const dashboard = normalizeAlumniFamilyEngagementDashboard(access.dataConfiguration);
+    const countRows = getAlumniDonorCountRows(dashboard);
+    const presentation = getReportPresentation(access);
     const forceRefresh = shouldBypassReportCache(request);
     const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
     presentedCachedPayload = attachReportPresentation({
       cachedPayload,
-      donorConfiguration,
+      dashboard,
       presentation,
       countRows,
     });
@@ -331,10 +330,11 @@ export async function GET(request) {
         {
           status: "refresh_required",
           report: presentation,
-          donorDefinition: getPublicDonorDefinition(donorConfiguration),
-          configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
-          message:
-            "No saved Alumni & Family Engagement snapshot matches this donor definition yet. Select Refresh data to create one.",
+          dashboard: { panels: buildDashboardPanels({ dashboard, totals: [] }) },
+          configurationFingerprint: getAlumniFamilyEngagementDashboardFingerprint(dashboard),
+          message: countRows.length
+            ? "No saved Alumni & Family Engagement snapshot matches this dashboard configuration yet. Select Refresh data to create one."
+            : "No Alumni & Family Engagement dashboard panels are configured yet.",
         },
         { headers: getReportCacheHeaders("empty") },
       );
@@ -342,7 +342,7 @@ export async function GET(request) {
 
     const shouldCallNxt = needsNxtRefresh({
       cachedPayload,
-      donorConfiguration,
+      dashboard,
       countRows,
     });
     const origin = new URL(request.url).origin;
@@ -359,7 +359,7 @@ export async function GET(request) {
     const queryTotals = await buildQueryApiDonorTotals({
       user,
       origin,
-      donorConfiguration,
+      dashboard,
       cachedPayload,
     });
     if (queryTotals.refreshMetrics.queryJobs === 0 && presentedCachedPayload) {
@@ -378,15 +378,15 @@ export async function GET(request) {
       status: "complete",
       generatedAt: new Date().toISOString(),
       report: presentation,
-      donorDefinition: getPublicDonorDefinition(donorConfiguration),
-      configurationFingerprint: getAlumniDonorConfigurationFingerprint(donorConfiguration),
+      dashboard: { panels: buildDashboardPanels({ dashboard, totals: queryTotals.totals }) },
+      configurationFingerprint: getAlumniFamilyEngagementDashboardFingerprint(dashboard),
       ...queryTotals,
     };
     await saveReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY, payload);
 
     const publicPayload = attachReportPresentation({
       cachedPayload: payload,
-      donorConfiguration,
+      dashboard,
       presentation,
       countRows,
     });

@@ -6,6 +6,7 @@ import useUser from "@/utils/useUser";
 import { getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 import {
   ALUMNI_DONOR_ROW_REFRESH_POLICIES,
+  ALUMNI_FAMILY_DASHBOARD_PANEL_TYPES,
   AVAILABLE_CONSTITUENCY_CODES,
 } from "@/app/api/utils/alumniDonorConfiguration";
 import {
@@ -54,6 +55,12 @@ function cloneDataConfiguration(value) {
     constituencies: Array.isArray(value.constituencies) ? [...value.constituencies] : [],
     giftTypes: Array.isArray(value.giftTypes) ? [...value.giftTypes] : [],
     rows: Array.isArray(value.rows) ? value.rows.map((row) => ({ ...row })) : [],
+    panels: Array.isArray(value.panels)
+      ? value.panels.map((panel) => ({
+          ...panel,
+          rows: Array.isArray(panel.rows) ? panel.rows.map((row) => ({ ...row })) : [],
+        }))
+      : [],
   };
 }
 
@@ -158,6 +165,311 @@ function ConfigurationCheckbox({ checked, description, label, onChange }) {
         ) : null}
       </span>
     </label>
+  );
+}
+
+function AlumniFamilyDashboardEditor({
+  configuration,
+  dashboard,
+  onAddDonorCountPanel,
+  onAddDonorRow,
+  onRemovePanel,
+  onRemoveRow,
+  onUpdatePanel,
+  onUpdateRow,
+}) {
+  const panels = Array.isArray(dashboard?.panels) ? dashboard.panels : [];
+
+  return (
+    <section
+      style={{
+        marginTop: "20px",
+        border: "1px solid #BFDBFE",
+        backgroundColor: "#EFF6FF",
+        borderRadius: "14px",
+        padding: "18px",
+      }}
+    >
+      <h3 style={{ margin: 0, color: "#1E3A8A", fontSize: "16px" }}>
+        Alumni &amp; Family Engagement dashboard
+      </h3>
+      <p style={{ margin: "7px 0 0", color: "#334155", lineHeight: 1.5 }}>
+        Build the dashboard from saved NXT query panels. Each row returns only the saved query&apos;s
+        result count; this configuration never changes query criteria in NXT.
+      </p>
+
+      <div style={{ marginTop: "18px", display: "grid", gap: "14px" }}>
+        {panels.map((panel, panelIndex) => {
+          const panelType = ALUMNI_FAMILY_DASHBOARD_PANEL_TYPES.find(
+            (item) => item.key === panel.type,
+          );
+          const rows = Array.isArray(panel.rows) ? panel.rows : [];
+
+          return (
+            <article
+              key={panel.key}
+              style={{
+                border: "1px solid #BFDBFE",
+                borderRadius: "12px",
+                padding: "15px",
+                backgroundColor: "rgba(255, 255, 255, 0.78)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <strong style={{ display: "block", color: "#1E3A8A" }}>
+                    Dashboard panel {panelIndex + 1}
+                  </strong>
+                  <span style={{ display: "block", marginTop: "4px", color: "#64748B", fontSize: "13px" }}>
+                    {panelType?.description || "Configure this dashboard panel."}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemovePanel(configuration.key, panel.key)}
+                  style={{
+                    border: "1px solid #CBD5E1",
+                    backgroundColor: "white",
+                    color: "#334155",
+                    borderRadius: "8px",
+                    padding: "7px 10px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Remove panel
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: "14px",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                <label style={fieldLabelStyle}>
+                  <span>Panel title</span>
+                  <input
+                    style={fieldStyle}
+                    type="text"
+                    value={String(panel.title || "")}
+                    maxLength={160}
+                    onChange={(event) =>
+                      onUpdatePanel(configuration.key, panel.key, { title: event.target.value })
+                    }
+                  />
+                </label>
+                <div style={fieldLabelStyle}>
+                  <span>Panel type</span>
+                  <div
+                    style={{
+                      ...fieldStyle,
+                      minHeight: "42px",
+                      backgroundColor: "#F8FAFC",
+                      color: "#334155",
+                    }}
+                  >
+                    {panelType?.label || String(panel.type || "Unsupported panel")}
+                  </div>
+                </div>
+              </div>
+
+              <section
+                style={{
+                  marginTop: "16px",
+                  borderTop: "1px solid #BFDBFE",
+                  paddingTop: "14px",
+                }}
+              >
+                <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>
+                  Alumni donor count by fiscal year
+                </h4>
+                <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
+                  Each row runs a saved NXT query by system record ID. The saved query owns its criteria,
+                  fiscal-year range, gift-credit rules, and soft-credit settings.
+                </p>
+
+                <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+                  {rows.map((row, rowIndex) => {
+                    const selectedPolicy = ALUMNI_DONOR_ROW_REFRESH_POLICIES.find(
+                      (policy) => policy.key === (row.refreshPolicy || "refreshable"),
+                    );
+                    return (
+                      <article
+                        key={row.key}
+                        style={{
+                          border: "1px solid #BFDBFE",
+                          borderRadius: "10px",
+                          padding: "13px",
+                          backgroundColor: "white",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            marginBottom: "12px",
+                          }}
+                        >
+                          <strong style={{ color: "#1E3A8A" }}>Count row {rowIndex + 1}</strong>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveRow(configuration.key, panel.key, row.key)}
+                            style={{
+                              border: "1px solid #CBD5E1",
+                              backgroundColor: "white",
+                              color: "#334155",
+                              borderRadius: "8px",
+                              padding: "7px 10px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Remove row
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                            gap: "12px",
+                          }}
+                        >
+                          <label style={fieldLabelStyle}>
+                            <span>Custom label</span>
+                            <input
+                              style={fieldStyle}
+                              type="text"
+                              value={String(row.label || "")}
+                              maxLength={120}
+                              onChange={(event) =>
+                                onUpdateRow(configuration.key, panel.key, row.key, {
+                                  label: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <label style={fieldLabelStyle}>
+                            <span>Saved NXT query system record ID</span>
+                            <input
+                              style={fieldStyle}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={String(row.queryId || "")}
+                              maxLength={40}
+                              onChange={(event) =>
+                                onUpdateRow(configuration.key, panel.key, row.key, {
+                                  queryId: event.target.value.replace(/\D/g, ""),
+                                })
+                              }
+                            />
+                          </label>
+                          <label style={fieldLabelStyle}>
+                            <span>Saved NXT query name (optional)</span>
+                            <input
+                              style={fieldStyle}
+                              type="text"
+                              value={String(row.queryName || "")}
+                              maxLength={200}
+                              onChange={(event) =>
+                                onUpdateRow(configuration.key, panel.key, row.key, {
+                                  queryName: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <label style={fieldLabelStyle}>
+                            <span>Snapshot policy</span>
+                            <select
+                              style={fieldStyle}
+                              value={row.refreshPolicy || "refreshable"}
+                              onChange={(event) =>
+                                onUpdateRow(configuration.key, panel.key, row.key, {
+                                  refreshPolicy: event.target.value,
+                                })
+                              }
+                            >
+                              {ALUMNI_DONOR_ROW_REFRESH_POLICIES.map((policy) => (
+                                <option key={policy.key} value={policy.key}>
+                                  {policy.label}
+                                </option>
+                              ))}
+                            </select>
+                            <span
+                              style={{
+                                color: "#64748B",
+                                fontSize: "12px",
+                                fontWeight: 500,
+                                lineHeight: 1.4,
+                              }}
+                            >
+                              {selectedPolicy?.description}
+                            </span>
+                          </label>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={rows.length >= 12}
+                  onClick={() => onAddDonorRow(configuration.key, panel.key)}
+                  style={{
+                    marginTop: "13px",
+                    width: "fit-content",
+                    border: "1px solid #4F46E5",
+                    backgroundColor: "white",
+                    color: "#4338CA",
+                    borderRadius: "9px",
+                    padding: "9px 12px",
+                    fontWeight: 800,
+                    cursor: rows.length >= 12 ? "not-allowed" : "pointer",
+                    opacity: rows.length >= 12 ? 0.55 : 1,
+                  }}
+                >
+                  Add donor-count row
+                </button>
+              </section>
+            </article>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        disabled={panels.length >= 8}
+        onClick={() => onAddDonorCountPanel(configuration.key)}
+        style={{
+          marginTop: "15px",
+          width: "fit-content",
+          border: "1px solid #4F46E5",
+          backgroundColor: "white",
+          color: "#4338CA",
+          borderRadius: "9px",
+          padding: "9px 12px",
+          fontWeight: 800,
+          cursor: panels.length >= 8 ? "not-allowed" : "pointer",
+          opacity: panels.length >= 8 ? 0.55 : 1,
+        }}
+      >
+        Add Alumni Donor Count by Fiscal Year panel
+      </button>
+    </section>
   );
 }
 
@@ -457,6 +769,117 @@ export default function ReportConfigurationsPage() {
     }));
   }
 
+  function updateDashboardConfiguration(reportKey, update) {
+    setDrafts((current) => {
+      const draft = current[reportKey];
+      const currentConfiguration = cloneDataConfiguration(draft?.dataConfiguration);
+      if (!currentConfiguration) return current;
+
+      const nextConfiguration =
+        typeof update === "function" ? update(currentConfiguration) : { ...currentConfiguration, ...update };
+      return {
+        ...current,
+        [reportKey]: {
+          ...draft,
+          dataConfiguration: cloneDataConfiguration(nextConfiguration),
+        },
+      };
+    });
+  }
+
+  function updateDashboardPanel(reportKey, panelKey, update) {
+    updateDashboardConfiguration(reportKey, (configuration) => ({
+      ...configuration,
+      panels: (configuration.panels || []).map((panel) => {
+        if (panel.key !== panelKey) return panel;
+        return typeof update === "function" ? update(panel) : { ...panel, ...update };
+      }),
+    }));
+  }
+
+  function updateDashboardDonorRow(reportKey, panelKey, rowKey, update) {
+    updateDashboardPanel(reportKey, panelKey, (panel) => ({
+      ...panel,
+      rows: (panel.rows || []).map((row) =>
+        row.key === rowKey ? { ...row, ...update } : row,
+      ),
+    }));
+  }
+
+  function addDonorCountPanel(reportKey) {
+    updateDashboardConfiguration(reportKey, (configuration) => {
+      const panels = Array.isArray(configuration.panels) ? configuration.panels : [];
+      if (panels.length >= 8) return configuration;
+
+      let panelNumber = panels.length + 1;
+      let key = `alumni-donor-count-${panelNumber}`;
+      const existingKeys = new Set(panels.map((panel) => panel.key));
+      while (existingKeys.has(key)) {
+        panelNumber += 1;
+        key = `alumni-donor-count-${panelNumber}`;
+      }
+
+      return {
+        ...configuration,
+        panels: [
+          ...panels,
+          {
+            key,
+            type: "alumni_donor_count",
+            title: `Alumni Donor Count by Fiscal Year ${panelNumber}`,
+            rows: [],
+          },
+        ],
+      };
+    });
+  }
+
+  function removeDashboardPanel(reportKey, panelKey) {
+    updateDashboardConfiguration(reportKey, (configuration) => ({
+      ...configuration,
+      panels: (configuration.panels || []).filter((panel) => panel.key !== panelKey),
+    }));
+  }
+
+  function addDashboardDonorRow(reportKey, panelKey) {
+    updateDashboardPanel(reportKey, panelKey, (panel) => {
+      const rows = Array.isArray(panel.rows) ? panel.rows : [];
+      if (rows.length >= 12) return panel;
+
+      let rowNumber = rows.length + 1;
+      let key = `donor-count-${rowNumber}`;
+      const existingKeys = new Set(rows.map((row) => row.key));
+      while (existingKeys.has(key)) {
+        rowNumber += 1;
+        key = `donor-count-${rowNumber}`;
+      }
+
+      return {
+        ...panel,
+        rows: [
+          ...rows,
+          {
+            key,
+            label: `Donor count ${rowNumber}`,
+            queryId: "",
+            queryName: "",
+            refreshPolicy: "refreshable",
+          },
+        ],
+      };
+    });
+  }
+
+  function removeDashboardDonorRow(reportKey, panelKey, rowKey) {
+    updateDashboardPanel(reportKey, panelKey, (panel) => ({
+      ...panel,
+      rows: (panel.rows || []).filter((row) => row.key !== rowKey),
+    }));
+  }
+
+  // Retain the legacy editor only for configurations saved before the
+  // dashboard migration. Current Alumni & Family Engagement configurations
+  // use the saved-query dashboard helpers above.
   function updateDonorConfiguration(reportKey, update) {
     setDrafts((current) => {
       const draft = current[reportKey];
@@ -659,9 +1082,7 @@ export default function ReportConfigurationsPage() {
                   isSpecificUsersVisibility ? draft.specificUserIds : [],
               }
             : {}),
-          ...(capabilities.dataConfiguration === "alumni_donor_count"
-            ? { dataConfiguration: draft.dataConfiguration }
-            : {}),
+          ...(capabilities.dataConfiguration ? { dataConfiguration: draft.dataConfiguration } : {}),
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -822,6 +1243,7 @@ export default function ReportConfigurationsPage() {
             {visibleStandardConfigurations.length ? (
               visibleStandardConfigurations.map((configuration) => {
               const draft = drafts[configuration.key] || createDraft(configuration);
+              const dashboardConfiguration = draft.dataConfiguration;
               const donorConfiguration = draft.dataConfiguration;
               const descriptions = getAudienceDescriptions(configuration);
               const capabilities = getConfigurationCapabilities(configuration);
@@ -891,6 +1313,19 @@ export default function ReportConfigurationsPage() {
                         </label>
                       ) : null}
                     </section>
+                  ) : null}
+
+                  {capabilities.dataConfiguration === "alumni_family_dashboard" && dashboardConfiguration ? (
+                    <AlumniFamilyDashboardEditor
+                      configuration={configuration}
+                      dashboard={dashboardConfiguration}
+                      onAddDonorCountPanel={addDonorCountPanel}
+                      onAddDonorRow={addDashboardDonorRow}
+                      onRemovePanel={removeDashboardPanel}
+                      onRemoveRow={removeDashboardDonorRow}
+                      onUpdatePanel={updateDashboardPanel}
+                      onUpdateRow={updateDashboardDonorRow}
+                    />
                   ) : null}
 
                   {capabilities.dataConfiguration === "alumni_donor_count" && donorConfiguration ? (

@@ -1,103 +1,78 @@
-export const DONORS_BY_CONSTITUENCY_SOURCE_KEY = "donors-by-constituency";
-
-// These IDs came from the working NXT "Alumni Donors FY27" definition. The
-// Query API requires table-entry IDs, not the display labels used in NXT.
-export const ALUMNI_CONSTITUENCY_CODE_OPTIONS = [
-  { id: "13", label: "Alumni" },
-  { id: "12366", label: "Alumni - Honorary Doctorate" },
-  { id: "9799", label: "Alumni - Non-Graduate" },
-  { id: "14061", label: "Alumni - Spouse" },
-  { id: "9721", label: "Alumni - Surviving Spouse" },
-  { id: "10296", label: "Alumni Associate's Degree" },
-  { id: "8818", label: "Alumni Bachelor's Degree" },
-  { id: "8897", label: "Alumni Graduate Degree" },
-  { id: "9384", label: "Alumni Orthodontic Program" },
-];
-
-// Kept as labels for the configuration UI and existing saved configurations.
-export const AVAILABLE_CONSTITUENCY_CODES = ALUMNI_CONSTITUENCY_CODE_OPTIONS.map(
-  (option) => option.label,
-);
-
-// Legacy direct-Gift settings are retained while existing configurations are
-// migrated. The Query API definition below intentionally does not use them.
-export const GIFT_TYPE_OPTIONS = [
-  { key: "donation", label: "Donation / cash received" },
-  { key: "pledge", label: "Pledge" },
-  { key: "pledge-payment", label: "Pledge payment" },
-  { key: "recurring-gift-payment", label: "Recurring gift payment" },
-  { key: "matching-gift-payment", label: "Matching gift payment" },
-  { key: "gift-in-kind", label: "Gift-in-kind" },
-  { key: "stock-property", label: "Stock or property" },
-  { key: "other", label: "Other / unclassified gift type" },
-];
-
-const GIFT_TYPE_KEYS = new Set(GIFT_TYPE_OPTIONS.map((option) => option.key));
-const CODE_OPTION_BY_LABEL = new Map(
-  ALUMNI_CONSTITUENCY_CODE_OPTIONS.map((option) => [
-    normalizeComparableText(option.label),
-    option,
-  ]),
-);
-
-export const ALUMNI_DONOR_QUERY_FIELDS = {
-  constituencyCode: 2217,
-  giftDate: 8471,
-};
-
-// These identifiers mirror the working NXT "Alumni Donors FY27" query
-// supplied by Advancement Services. Category does not create or change a
-// saved query; it keeps the ad-hoc definition in the same supported shape.
-export const ALUMNI_DONOR_QUERY_TYPE_ID = 18;
-export const ALUMNI_DONOR_QUERY_CATEGORY_ID = 81;
-
 export const ALUMNI_DONOR_ROW_REFRESH_POLICIES = [
   {
     key: "refreshable",
     label: "Refresh with report",
-    description: "Runs again when an administrator or the scheduled report refresh requests new data.",
+    description:
+      "Runs the saved NXT query again when an administrator or the scheduled report refresh requests new data.",
   },
   {
     key: "frozen",
     label: "Frozen snapshot",
     description:
-      "Keeps its last successful total and makes no further NXT calls until the row definition changes or it is changed back to refreshable.",
+      "Keeps its last successful total and makes no further NXT calls until the saved query ID changes or it is made refreshable again.",
   },
 ];
 
-const ALUMNI_DONOR_ROW_REFRESH_POLICY_KEYS = new Set(
+export const ALUMNI_FAMILY_DASHBOARD_PANEL_TYPES = [
+  {
+    key: "alumni_donor_count",
+    label: "Alumni Donor Count by Fiscal Year",
+    description: "Display saved NXT query totals in a fiscal-year or period-based panel.",
+  },
+];
+
+// The active editor now uses saved NXT query rows. Keep this empty legacy
+// export temporarily so an older, hidden editor branch cannot break a build
+// while persisted dashboard configurations are migrated.
+export const AVAILABLE_CONSTITUENCY_CODES = [];
+
+const REFRESH_POLICY_KEYS = new Set(
   ALUMNI_DONOR_ROW_REFRESH_POLICIES.map((policy) => policy.key),
 );
+const PANEL_TYPE_KEYS = new Set(
+  ALUMNI_FAMILY_DASHBOARD_PANEL_TYPES.map((panel) => panel.key),
+);
 
-export const DEFAULT_ALUMNI_DONOR_CONFIGURATION = {
-  sourceKey: DONORS_BY_CONSTITUENCY_SOURCE_KEY,
-  sourceLabel: "Donors by Constituency",
-  constituencies: AVAILABLE_CONSTITUENCY_CODES,
-  // Existing values stay intact in saved configurations, but the new
-  // Query-API count does not pretend to support an unverified Gift Type field.
-  giftTypes: GIFT_TYPE_OPTIONS.map((option) => option.key),
-  includeSoftCreditedDonors: true,
-  includeMatchingGiftCredits: true,
-  includeInactiveConstituents: true,
-  includeDeceasedConstituents: true,
-  includeConstituentsWithNoValidAddress: true,
-  rows: [
+const DEFAULT_PANEL_KEY = "alumni-donor-count-by-fiscal-year";
+const DEFAULT_PANEL_TITLE = "Alumni Donor Count by Fiscal Year";
+
+export const DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD = {
+  dashboardVersion: 2,
+  panels: [
     {
-      key: "fy27-alumni-giving",
-      label: "FY27 Alumni Giving",
-      fiscalYearStart: "2026-07-01",
-      fiscalYearEnd: "2027-06-30",
-      refreshPolicy: "refreshable",
-    },
-    {
-      key: "fy26-alumni-giving",
-      label: "FY26 Alumni Giving",
-      fiscalYearStart: "2025-07-01",
-      fiscalYearEnd: "2026-06-30",
-      refreshPolicy: "frozen",
+      key: DEFAULT_PANEL_KEY,
+      type: "alumni_donor_count",
+      title: DEFAULT_PANEL_TITLE,
+      rows: [
+        {
+          key: "fy27-alumni-giving",
+          label: "FY27 Alumni Giving",
+          queryId: "30976",
+          queryName: "Alumni Donors FY27",
+          refreshPolicy: "refreshable",
+        },
+        {
+          key: "fy26-alumni-giving",
+          label: "FY26 Alumni Giving",
+          queryId: "30679",
+          queryName: "Alumni Donors FY26",
+          refreshPolicy: "frozen",
+        },
+      ],
     },
   ],
 };
+
+// Existing installations stored the same report as a direct, generated NXT
+// query. Preserve the familiar export name so callers can migrate safely.
+export const DEFAULT_ALUMNI_DONOR_CONFIGURATION = DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD;
+
+const LEGACY_SAVED_QUERY_IDS = new Map([
+  ["fy27-alumni-giving", { id: "30976", name: "Alumni Donors FY27" }],
+  ["fy26-alumni-giving", { id: "30679", name: "Alumni Donors FY26" }],
+  ["2026-07-01:2027-06-30", { id: "30976", name: "Alumni Donors FY27" }],
+  ["2025-07-01:2026-06-30", { id: "30679", name: "Alumni Donors FY26" }],
+]);
 
 function parseConfiguration(value) {
   if (!value || typeof value !== "object") {
@@ -117,30 +92,18 @@ function normalizeText(value, fallback = "") {
   return text || fallback;
 }
 
-function normalizeComparableText(value) {
-  return normalizeText(value)
-    .toLocaleLowerCase("en-US")
-    .replace(/\s+/g, " ");
-}
-
-function normalizeBoolean(value, fallback) {
-  if (typeof value === "boolean") return value;
-  return fallback;
-}
-
 function normalizeRefreshPolicy(value, fallback = "refreshable") {
   const policy = normalizeText(value).toLocaleLowerCase("en-US");
-  if (ALUMNI_DONOR_ROW_REFRESH_POLICY_KEYS.has(policy)) return policy;
-  return fallback;
+  return REFRESH_POLICY_KEYS.has(policy) ? policy : fallback;
 }
 
-function createRowKey(value, index, usedKeys) {
+function createKey(value, index, usedKeys, fallbackPrefix) {
   const base = normalizeText(value)
     .toLocaleLowerCase("en-US")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
-  const preferredKey = base || `donor-count-${index + 1}`;
+  const preferredKey = base || `${fallbackPrefix}-${index + 1}`;
   let key = preferredKey;
   let suffix = 2;
   while (usedKeys.has(key)) {
@@ -151,269 +114,179 @@ function createRowKey(value, index, usedKeys) {
   return key;
 }
 
-function normalizeRows(value) {
-  const candidateRows = Array.isArray(value)
-    ? value.slice(0, 12)
-    : DEFAULT_ALUMNI_DONOR_CONFIGURATION.rows;
+function getLegacySavedQuery(row) {
+  const key = normalizeText(row?.key);
+  const dateKey = `${normalizeText(row?.fiscalYearStart)}:${normalizeText(row?.fiscalYearEnd)}`;
+  return LEGACY_SAVED_QUERY_IDS.get(key) || LEGACY_SAVED_QUERY_IDS.get(dateKey) || null;
+}
+
+function normalizeSavedQueryId(value) {
+  return normalizeText(value).slice(0, 40);
+}
+
+function normalizeRows(value, { fallbackRows = [] } = {}) {
+  const candidateRows = Array.isArray(value) ? value.slice(0, 12) : fallbackRows;
   const usedKeys = new Set();
 
   return candidateRows.map((row, index) => {
-    const defaultRow = DEFAULT_ALUMNI_DONOR_CONFIGURATION.rows[index] || {};
-    const label = normalizeText(row?.label, defaultRow.label || `Donor count ${index + 1}`);
+    const fallback = fallbackRows[index] || {};
+    const legacyQuery = getLegacySavedQuery(row);
+    const queryId = normalizeSavedQueryId(row?.queryId || legacyQuery?.id || fallback.queryId);
+    const queryName = normalizeText(
+      row?.queryName || legacyQuery?.name || fallback.queryName,
+    ).slice(0, 200);
+    const label = normalizeText(row?.label, fallback.label || `Donor count ${index + 1}`).slice(0, 120);
+
     return {
-      key: createRowKey(row?.key || label, index, usedKeys),
+      key: createKey(row?.key || label, index, usedKeys, "donor-count"),
       label,
-      fiscalYearStart: normalizeText(row?.fiscalYearStart, defaultRow.fiscalYearStart || ""),
-      fiscalYearEnd: normalizeText(row?.fiscalYearEnd, defaultRow.fiscalYearEnd || ""),
-      refreshPolicy: normalizeRefreshPolicy(row?.refreshPolicy, defaultRow.refreshPolicy),
+      queryId,
+      queryName,
+      refreshPolicy: normalizeRefreshPolicy(row?.refreshPolicy, fallback.refreshPolicy || "refreshable"),
     };
   });
 }
 
-function entryToConstituencyText(entry) {
-  if (entry && typeof entry === "object") {
-    const id = normalizeText(entry.id || entry.value || entry.code);
-    const label = normalizeText(entry.label || entry.name || entry.description);
-    if (id && label) return `${id} | ${label}`;
-    return label || id;
-  }
-  return normalizeText(entry);
+function normalizePanelType(value) {
+  const type = normalizeText(value);
+  return PANEL_TYPE_KEYS.has(type) ? type : "alumni_donor_count";
 }
 
-function normalizeConstituencies(value) {
-  if (!Array.isArray(value)) return [...AVAILABLE_CONSTITUENCY_CODES];
-  const unique = [];
-  const seen = new Set();
-  value.forEach((entry) => {
-    const code = entryToConstituencyText(entry);
-    const normalizedCode = normalizeComparableText(code);
-    if (!code || seen.has(normalizedCode) || unique.length >= 60) return;
-    seen.add(normalizedCode);
-    unique.push(code);
+function normalizePanels(value, { fallbackPanels = [] } = {}) {
+  const candidatePanels = Array.isArray(value) ? value.slice(0, 8) : fallbackPanels;
+  const usedKeys = new Set();
+
+  return candidatePanels.map((panel, index) => {
+    const fallback = fallbackPanels[index] || {};
+    const type = normalizePanelType(panel?.type || fallback.type);
+    const title = normalizeText(panel?.title, fallback.title || DEFAULT_PANEL_TITLE).slice(0, 160);
+    const fallbackRows = Array.isArray(fallback.rows) ? fallback.rows : [];
+
+    return {
+      key: createKey(panel?.key || title, index, usedKeys, "dashboard-panel"),
+      type,
+      title,
+      rows: normalizeRows(panel?.rows, { fallbackRows }),
+    };
   });
-  return unique;
 }
 
-function normalizeGiftTypes(value) {
-  if (!Array.isArray(value)) return GIFT_TYPE_OPTIONS.map((option) => option.key);
-  const unique = [];
-  const seen = new Set();
-  value.forEach((entry) => {
-    const giftType = normalizeText(entry).toLocaleLowerCase("en-US");
-    if (!GIFT_TYPE_KEYS.has(giftType) || seen.has(giftType)) return;
-    seen.add(giftType);
-    unique.push(giftType);
-  });
-  return unique;
+function hasLegacyDonorConfiguration(value) {
+  return Array.isArray(value?.rows) || Object.hasOwn(value || {}, "constituencies");
 }
 
-function getConfiguredConstituencyOption(value) {
-  const text = entryToConstituencyText(value);
-  const known = CODE_OPTION_BY_LABEL.get(normalizeComparableText(text));
-  if (known) return { ...known };
-
-  // Additional codes can be entered as "12345 | Display label". The ID is
-  // the only portion sent to NXT; the label is retained for administrators.
-  const match = text.match(/^\s*(\d+)\s*(?:[|:-]\s*(.+))?$/);
-  if (!match) return { id: "", label: text };
-  return {
-    id: match[1],
-    label: normalizeText(match[2], `NXT code ${match[1]}`),
-  };
+function getLegacyPanels(configuration) {
+  const defaultPanel = DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels[0];
+  return [
+    {
+      key: DEFAULT_PANEL_KEY,
+      type: "alumni_donor_count",
+      title: DEFAULT_PANEL_TITLE,
+      rows: normalizeRows(configuration.rows, { fallbackRows: defaultPanel.rows }),
+    },
+  ];
 }
 
-export function getAlumniDonorConstituencyOptions(value) {
-  const configuration = normalizeAlumniDonorConfiguration(value);
-  return configuration.constituencies.map(getConfiguredConstituencyOption);
-}
-
-export function normalizeAlumniDonorConfiguration(value) {
+export function normalizeAlumniFamilyEngagementDashboard(value) {
   const configuration = parseConfiguration(value);
+  const hasExplicitPanels = Array.isArray(configuration.panels);
+  const fallbackPanels = hasLegacyDonorConfiguration(configuration)
+    ? getLegacyPanels(configuration)
+    : DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels;
+
   return {
-    sourceKey: DONORS_BY_CONSTITUENCY_SOURCE_KEY,
-    sourceLabel: DEFAULT_ALUMNI_DONOR_CONFIGURATION.sourceLabel,
-    constituencies: normalizeConstituencies(configuration.constituencies),
-    giftTypes: normalizeGiftTypes(configuration.giftTypes),
-    includeSoftCreditedDonors: normalizeBoolean(
-      configuration.includeSoftCreditedDonors,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeSoftCreditedDonors,
+    dashboardVersion: 2,
+    panels: normalizePanels(
+      hasExplicitPanels ? configuration.panels : fallbackPanels,
+      // Empty explicitly configured panels must remain empty. That lets an
+      // administrator build a dashboard incrementally without creating calls.
+      { fallbackPanels: hasExplicitPanels ? [] : fallbackPanels },
     ),
-    includeMatchingGiftCredits: normalizeBoolean(
-      configuration.includeMatchingGiftCredits,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeMatchingGiftCredits,
-    ),
-    includeInactiveConstituents: normalizeBoolean(
-      configuration.includeInactiveConstituents,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeInactiveConstituents,
-    ),
-    includeDeceasedConstituents: normalizeBoolean(
-      configuration.includeDeceasedConstituents,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeDeceasedConstituents,
-    ),
-    includeConstituentsWithNoValidAddress: normalizeBoolean(
-      configuration.includeConstituentsWithNoValidAddress,
-      DEFAULT_ALUMNI_DONOR_CONFIGURATION.includeConstituentsWithNoValidAddress,
-    ),
-    rows: normalizeRows(configuration.rows),
   };
+}
+
+export const normalizeAlumniDonorConfiguration = normalizeAlumniFamilyEngagementDashboard;
+
+export function getAlumniDonorCountPanels(value) {
+  return normalizeAlumniFamilyEngagementDashboard(value).panels
+    .filter((panel) => panel.type === "alumni_donor_count")
+    .map((panel) => ({ ...panel, rows: panel.rows.map((row) => ({ ...row })) }));
 }
 
 export function getAlumniDonorCountRows(value) {
-  return normalizeAlumniDonorConfiguration(value).rows.map((row) => ({ ...row }));
+  return getAlumniDonorCountPanels(value).flatMap((panel) =>
+    panel.rows.map((row) => ({
+      ...row,
+      panelKey: panel.key,
+      panelTitle: panel.title,
+      panelType: panel.type,
+    })),
+  );
 }
 
-// Preserves a small compatibility surface for callers that were written
-// before Alumni donor totals stopped depending on saved NXT queries.
 export const getAlumniDonorQueryRows = getAlumniDonorCountRows;
 
-export function getAlumniDonorConfigurationFingerprint(value) {
-  const configuration = normalizeAlumniDonorConfiguration(value);
+export function getAlumniFamilyEngagementDashboardFingerprint(value) {
+  const dashboard = normalizeAlumniFamilyEngagementDashboard(value);
   return JSON.stringify({
-    queryDefinitionVersion: 1,
-    constituencies: getAlumniDonorConstituencyOptions(configuration),
-    includeSoftCreditedDonors: configuration.includeSoftCreditedDonors,
-    includeMatchingGiftCredits: configuration.includeMatchingGiftCredits,
-    includeInactiveConstituents: configuration.includeInactiveConstituents,
-    includeDeceasedConstituents: configuration.includeDeceasedConstituents,
-    includeConstituentsWithNoValidAddress:
-      configuration.includeConstituentsWithNoValidAddress,
-    rows: configuration.rows.map((row) => ({
-      key: row.key,
-      label: row.label,
-      fiscalYearStart: row.fiscalYearStart,
-      fiscalYearEnd: row.fiscalYearEnd,
+    dashboardVersion: 2,
+    panels: dashboard.panels.map((panel) => ({
+      key: panel.key,
+      type: panel.type,
+      rows: panel.rows.map((row) => ({
+        key: row.key,
+        queryId: row.queryId,
+      })),
     })),
   });
 }
 
-// A row policy controls when a total is refreshed, not what the total means.
-// Keep it out of the data fingerprint so an administrator can freeze or unfreeze
-// an already compatible result without invalidating the saved value itself.
+export const getAlumniDonorConfigurationFingerprint = getAlumniFamilyEngagementDashboardFingerprint;
+
+// A row policy controls when a total is refreshed, not what it means. Labels
+// and query names can likewise be edited without invalidating a compatible
+// saved total. Changing the saved NXT query ID always invalidates it.
 export function getAlumniDonorCountRowFingerprint(value, countRow) {
-  const configuration = normalizeAlumniDonorConfiguration(value);
-  const row = countRow || configuration.rows[0] || {};
+  const dashboard = normalizeAlumniFamilyEngagementDashboard(value);
+  const row = countRow || getAlumniDonorCountRows(dashboard)[0] || {};
 
   return JSON.stringify({
-    queryDefinitionVersion: 1,
-    constituencies: getAlumniDonorConstituencyOptions(configuration),
-    includeSoftCreditedDonors: configuration.includeSoftCreditedDonors,
-    includeMatchingGiftCredits: configuration.includeMatchingGiftCredits,
-    includeInactiveConstituents: configuration.includeInactiveConstituents,
-    includeDeceasedConstituents: configuration.includeDeceasedConstituents,
-    includeConstituentsWithNoValidAddress:
-      configuration.includeConstituentsWithNoValidAddress,
-    fiscalYearStart: normalizeText(row.fiscalYearStart),
-    fiscalYearEnd: normalizeText(row.fiscalYearEnd),
+    dashboardVersion: 2,
+    panelKey: row.panelKey || dashboard.panels[0]?.key || "",
+    panelType: row.panelType || dashboard.panels[0]?.type || "",
+    key: row.key || "",
+    queryId: row.queryId || "",
   });
 }
 
-function formatQueryDate(value) {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return "";
-  return `${Number(match[2])}/${Number(match[3])}/${match[1]}`;
-}
+export function validateAlumniFamilyEngagementDashboard(value) {
+  const dashboard = normalizeAlumniFamilyEngagementDashboard(value);
+  const panelKeys = new Set();
 
-export function buildAlumniDonorQueryDefinition(value, countRow) {
-  const configuration = normalizeAlumniDonorConfiguration(value);
-  const row = countRow || configuration.rows[0];
-  const constituencyIds = getAlumniDonorConstituencyOptions(configuration)
-    .map((option) => option.id)
-    .filter(Boolean);
-  const startDate = formatQueryDate(row?.fiscalYearStart);
-  const endDate = formatQueryDate(row?.fiscalYearEnd);
+  for (const panel of dashboard.panels) {
+    if (panelKeys.has(panel.key)) return "Each dashboard panel needs a unique key.";
+    panelKeys.add(panel.key);
+    if (!panel.title) return "Each dashboard panel needs a title.";
+    if (!PANEL_TYPE_KEYS.has(panel.type)) return "Select a supported dashboard panel type.";
 
-  if (!constituencyIds.length) {
-    throw new Error("Select at least one NXT constituency code before refreshing this donor count.");
-  }
-  if (!startDate || !endDate) {
-    throw new Error(`Use valid fiscal-year dates for ${row?.label || "this donor count"}.`);
-  }
-
-  return {
-    type_id: ALUMNI_DONOR_QUERY_TYPE_ID,
-    category_id: ALUMNI_DONOR_QUERY_CATEGORY_ID,
-    format: "Dynamic",
-    sql_generation_mode: "Query",
-    result_layout: "MultiRow",
-    // Count constituents, not gift rows. A couple who each receive a soft
-    // credit remains two rows because they are two distinct constituents.
-    suppress_duplicates: true,
-    advanced_processing_options: {
-      use_alternate_sql_code_table_fields: false,
-      use_alternate_sql_multiple_attributes: false,
-    },
-    constituent_filters: {
-      include_deceased: configuration.includeDeceasedConstituents,
-      include_inactive: configuration.includeInactiveConstituents,
-      include_no_valid_addresses: configuration.includeConstituentsWithNoValidAddress,
-    },
-    gift_processing_options: {
-      matching_gift_credit_option: configuration.includeMatchingGiftCredits ? "Both" : "Donor",
-      soft_credit_option: configuration.includeSoftCreditedDonors ? "Both" : "Donor",
-      ...(configuration.includeSoftCreditedDonors
-        ? { soft_credit_sub_option: "FullAmountToAll" }
-        : {}),
-      use_gross_amount_for_covenants: false,
-    },
-    filter_fields: [
-      {
-        compare_type: "None",
-        filter_values: constituencyIds,
-        left_parenthesis: false,
-        operator: "OneOf",
-        query_field_id: ALUMNI_DONOR_QUERY_FIELDS.constituencyCode,
-        right_parenthesis: false,
-      },
-      {
-        compare_type: "And",
-        filter_values: [startDate, endDate],
-        left_parenthesis: false,
-        operator: "Between",
-        query_field_id: ALUMNI_DONOR_QUERY_FIELDS.giftDate,
-        right_parenthesis: false,
-      },
-    ],
-    // Query jobs only need the row count. Avoid sending names, emails, or
-    // constituent IDs through this report path.
-    select_fields: [],
-  };
-}
-
-function isIsoDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
-}
-
-export function validateAlumniDonorConfiguration(value) {
-  const configuration = normalizeAlumniDonorConfiguration(value);
-  if (!configuration.constituencies.length) {
-    return "Select at least one constituency code for this donor count configuration.";
-  }
-
-  const invalidConstituency = getAlumniDonorConstituencyOptions(configuration).find(
-    (option) => !option.id,
-  );
-  if (invalidConstituency) {
-    return `Add the NXT code ID for ${invalidConstituency.label || "each additional constituency"} using "12345 | Display label".`;
-  }
-  if (!configuration.rows.length) {
-    return "Add at least one fiscal-year donor count.";
-  }
-
-  const labels = new Set();
-  for (const row of configuration.rows) {
-    if (!row.label) return "Each donor count needs a label.";
-    const normalizedLabel = row.label.toLocaleLowerCase("en-US");
-    if (labels.has(normalizedLabel)) {
-      return `Use a different label for each donor count; ${row.label} is repeated.`;
-    }
-    labels.add(normalizedLabel);
-    if (!isIsoDate(row.fiscalYearStart) || !isIsoDate(row.fiscalYearEnd)) {
-      return `Use YYYY-MM-DD start and end dates for ${row.label}.`;
-    }
-    if (row.fiscalYearStart > row.fiscalYearEnd) {
-      return `${row.label} has an end date before its start date.`;
+    const rowKeys = new Set();
+    const labels = new Set();
+    for (const row of panel.rows) {
+      if (rowKeys.has(row.key)) return `Each row in ${panel.title} needs a unique key.`;
+      rowKeys.add(row.key);
+      if (!row.label) return "Each donor count row needs a label.";
+      const normalizedLabel = row.label.toLocaleLowerCase("en-US");
+      if (labels.has(normalizedLabel)) {
+        return `Use a different label for each donor count; ${row.label} is repeated.`;
+      }
+      labels.add(normalizedLabel);
+      if (!/^\d{1,40}$/.test(row.queryId)) {
+        return `Enter the numeric saved NXT query system record ID for ${row.label}.`;
+      }
     }
   }
 
   return "";
 }
+
+export const validateAlumniDonorConfiguration = validateAlumniFamilyEngagementDashboard;

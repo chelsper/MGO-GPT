@@ -22,7 +22,7 @@ describe("report registry", () => {
 
     expect(alumni).toMatchObject({
       reportType: REPORT_TYPES.QUERY_BASED,
-      adapterKey: "alumni-donor-count",
+      adapterKey: "alumni-family-dashboard",
       href: "/reports/alumni-family-engagement",
     });
     expect(supportsReportDataConfiguration(alumni)).toBe(true);
@@ -65,7 +65,7 @@ describe("report registry", () => {
         adminRoleBypass: true,
       },
     });
-    expect(alumniCapabilities.dataConfiguration).toBe("alumni_donor_count");
+    expect(alumniCapabilities.dataConfiguration).toBe("alumni_family_dashboard");
     expect(isReportVisibilitySupported(portfolio, "specific_users")).toBe(true);
     expect(isReportVisibilitySupported(portfolio, "disabled")).toBe(false);
     expect(validateReportConfigurationPayload(portfolio, { visibility: "disabled" })).toMatch(

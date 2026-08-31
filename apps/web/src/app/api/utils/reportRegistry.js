@@ -36,9 +36,9 @@ const CUSTOM_FIELD_REPORT_CONFIGURATION_CAPABILITIES = Object.freeze({
   dataConfiguration: null,
 });
 
-const ALUMNI_DONOR_COUNT_CONFIGURATION_CAPABILITIES = Object.freeze({
+const ALUMNI_FAMILY_DASHBOARD_CONFIGURATION_CAPABILITIES = Object.freeze({
   ...STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
-  dataConfiguration: "alumni_donor_count",
+  dataConfiguration: "alumni_family_dashboard",
 });
 
 export const PORTFOLIO_GIVING_REPORT_KEY = "portfolio-fy-giving";
@@ -127,18 +127,18 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
   Object.freeze({
     key: ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
     reportType: REPORT_TYPES.QUERY_BASED,
-    adapterKey: "alumni-donor-count",
-    configurationSchema: "alumni-donor-count-v1",
-    configurationSchemaVersion: 1,
+    adapterKey: "alumni-family-dashboard",
+    configurationSchema: "alumni-family-dashboard-v1",
+    configurationSchemaVersion: 2,
     href: "/reports/alumni-family-engagement",
     title: "Alumni & Family Engagement",
     description:
-      "Count distinct donors from configured NXT constituency and credit criteria.",
+      "View configurable Alumni & Family Engagement dashboard panels backed by saved NXT queries.",
     audienceMode: "shared_snapshot",
-    dataConfigurationType: "alumni_donor_count",
-    configurationCapabilities: ALUMNI_DONOR_COUNT_CONFIGURATION_CAPABILITIES,
+    dataConfigurationType: "alumni_family_dashboard",
+    configurationCapabilities: ALUMNI_FAMILY_DASHBOARD_CONFIGURATION_CAPABILITIES,
     presentationNote:
-      "This report uses shared donor snapshots. Standard report visits do not make a new NXT request.",
+      "This dashboard uses saved NXT query snapshots. Standard report visits do not make a new NXT request.",
     presentationNoteTone: "info",
   }),
 ]);
@@ -160,7 +160,7 @@ export function getReportDefinition(reportKey) {
 }
 
 export function supportsReportDataConfiguration(definition) {
-  return getReportConfigurationCapabilities(definition).dataConfiguration === "alumni_donor_count";
+  return Boolean(getReportConfigurationCapabilities(definition).dataConfiguration);
 }
 
 export function getReportConfigurationCapabilities(definition) {
