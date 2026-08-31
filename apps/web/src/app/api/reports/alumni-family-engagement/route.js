@@ -13,6 +13,7 @@ import {
 } from "@/app/api/utils/reportRefresh";
 import {
   createBlackbaudQueryJob,
+  downloadBlackbaudQueryResult,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
@@ -42,6 +43,7 @@ const DEFAULT_REPORT_DESCRIPTION =
   "Configured dashboard panels backed by saved NXT query snapshots.";
 const QUERY_POLL_INTERVAL_MS = 1500;
 const QUERY_MAX_WAIT_MS = 90000;
+const QUERY_RESULT_COUNT_SOURCE = "result-csv-v1";
 
 function getReportPresentation(access) {
   return {
@@ -61,17 +63,19 @@ function getCompatibleCachedTotal({ cachedPayload, dashboard, row }) {
   );
   if (!cachedTotal) return null;
 
+  // Query job metadata has proven inconsistent with the visible NXT result
+  // count. Only reuse totals derived from the downloaded CSV result file.
+  if (String(cachedTotal?.countSource || "").trim() !== QUERY_RESULT_COUNT_SOURCE) {
+    return null;
+  }
+
   const rowFingerprint = getAlumniDonorCountRowFingerprint(dashboard, row);
   const cachedRowFingerprint = String(cachedTotal?.definitionFingerprint || "").trim();
   if (cachedRowFingerprint) {
     return cachedRowFingerprint === rowFingerprint ? cachedTotal : null;
   }
 
-  // Snapshots saved before per-row fingerprints were introduced remain valid
-  // only when the complete prior configuration is an exact match.
-  return cachedPayload.configurationFingerprint === getAlumniFamilyEngagementDashboardFingerprint(dashboard)
-    ? cachedTotal
-    : null;
+  return null;
 }
 
 function getCompatibleCachedTotals({ cachedPayload, dashboard, countRows }) {
@@ -152,9 +156,71 @@ function getQueryJobStatus(job) {
   return String(job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "").trim();
 }
 
-function getQueryJobRowCount(job) {
-  const rowCount = Number(job?.row_count ?? job?.rowCount ?? job?.result?.row_count);
-  return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
+function getQueryResultUrl(job) {
+  const candidates = [
+    job?.sas_uri,
+    job?.sasUri,
+    job?.read_url,
+    job?.readUrl,
+    job?.result_url,
+    job?.resultUrl,
+    job?.result_uri,
+    job?.resultUri,
+    job?.result_file_url,
+    job?.resultFileUrl,
+    job?.download_url,
+    job?.downloadUrl,
+    job?.result?.sas_uri,
+    job?.result?.sasUri,
+    job?.result?.read_url,
+    job?.result?.readUrl,
+    job?.result?.result_url,
+    job?.result?.resultUrl,
+    job?.result?.result_uri,
+    job?.result?.resultUri,
+    job?.result?.download_url,
+    job?.result?.downloadUrl,
+  ];
+  return String(candidates.find((candidate) => String(candidate || "").trim()) || "").trim();
+}
+
+function parseCsvRecords(content) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (character === '"') {
+      if (quoted && content[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      row.push(value);
+      value = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && content[index + 1] === "\n") index += 1;
+      row.push(value);
+      if (row.some((cell) => cell !== "")) rows.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+
+  row.push(value);
+  if (row.some((cell) => cell !== "")) rows.push(row);
+  return rows;
+}
+
+export function countBlackbaudQueryResultRows(content) {
+  const records = parseCsvRecords(String(content || ""));
+  return Math.max(records.length - 1, 0);
 }
 
 function isCompletedQueryJob(status) {
@@ -185,12 +251,15 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
     lastStatus = getQueryJobStatus(job) || lastStatus;
 
     if (isCompletedQueryJob(lastStatus)) {
-      const total = getQueryJobRowCount(job);
-      if (total === null) {
+      const resultUrl = getQueryResultUrl(job);
+      if (!resultUrl) {
         throw new Error(
-          `NXT completed ${label}, but did not return a row count. The report was not updated.`,
+          `NXT completed ${label}, but did not return a downloadable result file. The report was not updated.`,
         );
       }
+      const total = countBlackbaudQueryResultRows(
+        await downloadBlackbaudQueryResult(resultUrl),
+      );
       return { total, polls };
     }
 
@@ -264,6 +333,7 @@ async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload
     totals.push({
       ...row,
       total,
+      countSource: QUERY_RESULT_COUNT_SOURCE,
       refreshPolicy: row.refreshPolicy,
       definitionFingerprint,
       frozenAt: row.refreshPolicy === "frozen" ? refreshedAt : null,

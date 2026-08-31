@@ -10,6 +10,7 @@ import {
 const {
   authMock,
   createBlackbaudQueryJobMock,
+  downloadBlackbaudQueryResultMock,
   ensureAppSchemaMock,
   getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJobMock,
@@ -24,6 +25,7 @@ const {
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
+  downloadBlackbaudQueryResultMock: vi.fn(),
   ensureAppSchemaMock: vi.fn(),
   getBlackbaudConfigIssuesMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
@@ -58,6 +60,7 @@ vi.mock("@/app/api/utils/reportCache", () => ({
 }));
 vi.mock("@/app/api/utils/blackbaud", () => ({
   createBlackbaudQueryJob: createBlackbaudQueryJobMock,
+  downloadBlackbaudQueryResult: downloadBlackbaudQueryResultMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJob: getBlackbaudQueryJobMock,
 }));
@@ -71,6 +74,7 @@ function createCachedSnapshot(dashboard = DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHB
   const totals = getAlumniDonorCountRows(dashboard).map((row, index) => ({
     ...row,
     total: index === 0 ? 3 : 2,
+    countSource: "result-csv-v1",
     definitionFingerprint: getAlumniDonorCountRowFingerprint(dashboard, row),
     frozenAt: row.refreshPolicy === "frozen" ? generatedAt : null,
   }));
@@ -92,8 +96,15 @@ function mockCompletedDefaultCountJobs() {
   getBlackbaudQueryJobMock.mockImplementation(async ({ jobId }) => ({
     id: jobId,
     status: "Completed",
-    row_count: jobId === "query-30976" ? 3 : 2,
+    // The API job's row_count is not the result-set count in this workflow.
+    row_count: 1,
+    sas_uri: `https://download.example.test/${jobId}.csv`,
   }));
+  downloadBlackbaudQueryResultMock.mockImplementation(async (url) =>
+    String(url).includes("query-30976")
+      ? 'Constituent name,Note\r\nAda Lovelace,"first row"\r\nGrace Hopper,"second row"\r\nKatherine Johnson,"third row"\r\n'
+      : 'Constituent name,Note\r\nBarbara Liskov,"first row"\r\nRadia Perlman,"second row"\r\n',
+  );
 }
 
 describe("Alumni & Family Engagement report route", () => {
@@ -174,6 +185,7 @@ describe("Alumni & Family Engagement report route", () => {
       },
     });
     expect(createBlackbaudQueryJobMock).toHaveBeenCalledTimes(2);
+    expect(downloadBlackbaudQueryResultMock).toHaveBeenCalledTimes(2);
     expect(createBlackbaudQueryJobMock).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ queryId: "30976" }),
@@ -189,6 +201,29 @@ describe("Alumni & Family Engagement report route", () => {
         refreshMetrics: expect.objectContaining({ source: "blackbaud-saved-query-api" }),
       }),
     );
+  });
+
+  it("counts actual CSV result rows instead of the query job metadata", async () => {
+    const { countBlackbaudQueryResultRows } = await import("./route.js");
+
+    expect(
+      countBlackbaudQueryResultRows(
+        'Name,Note\r\nAda Lovelace,"quoted\nvalue"\r\nGrace Hopper,plain\r\n',
+      ),
+    ).toBe(2);
+  });
+
+  it("does not serve an older snapshot that was counted from job metadata", async () => {
+    const snapshot = createCachedSnapshot();
+    snapshot.totals.forEach((total) => delete total.countSource);
+    getCachedReportSnapshotMock.mockResolvedValueOnce(snapshot);
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ status: "refresh_required" });
+    expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
   });
 
   it("reuses a frozen row during a manual refresh", async () => {
