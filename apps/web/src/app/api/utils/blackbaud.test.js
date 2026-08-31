@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BlackbaudQuotaExceededError,
+  buildBlackbaudQueryAvailableFieldsUrl,
   buildBlackbaudActionMetadataPayload,
   buildBlackbaudActionPayload,
   buildBlackbaudOpportunityPayload,
@@ -10,6 +11,15 @@ import {
 } from "./blackbaud";
 
 describe("blackbaud action payload helpers", () => {
+  it("uses the dedicated root metadata endpoint instead of a synthetic node zero", () => {
+    expect(buildBlackbaudQueryAvailableFieldsUrl({ queryTypeId: 18 })).toBe(
+      "https://api.sky.blackbaud.com/query/v2/querytypes/18/availablefields",
+    );
+    expect(buildBlackbaudQueryAvailableFieldsUrl({ queryTypeId: 18, nodeId: 4123 })).toBe(
+      "https://api.sky.blackbaud.com/query/v2/querytypes/18/nodes/4123/availablefields",
+    );
+  });
+
   it("identifies a call-volume quota error without treating it as a retryable request", () => {
     const quotaError = new BlackbaudQuotaExceededError({
       message: "Blackbaud call-volume quota is temporarily unavailable.",

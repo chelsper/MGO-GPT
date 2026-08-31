@@ -31,6 +31,7 @@ const BLACKBAUD_QUERY_URL = "https://api.sky.blackbaud.com/query";
 // Query metadata V2 fixes tree-navigation failures in the legacy metadata
 // routes while preserving the existing query execution endpoints.
 const BLACKBAUD_QUERY_METADATA_V2_URL = `${BLACKBAUD_QUERY_URL}/v2/querytypes`;
+const BLACKBAUD_QUERY_METADATA_LEGACY_URL = `${BLACKBAUD_QUERY_URL}/querytypes`;
 const BLACKBAUD_QUERY_LIST_URL = `${BLACKBAUD_QUERY_URL}/queries`;
 const BLACKBAUD_QUERY_EXECUTE_URL = `${BLACKBAUD_QUERY_LIST_URL}/execute`;
 const BLACKBAUD_QUERY_EXECUTE_BY_ID_URL = `${BLACKBAUD_QUERY_LIST_URL}/executebyid`;
@@ -671,6 +672,32 @@ export async function createBlackbaudQueryJob({ userId, authUserId, origin, quer
   );
 }
 
+export function buildBlackbaudQueryAvailableFieldsUrl({
+  queryTypeId,
+  nodeId = null,
+  baseUrl = BLACKBAUD_QUERY_METADATA_V2_URL,
+}) {
+  const normalizedQueryTypeId = Number(queryTypeId);
+  const hasNodeId =
+    nodeId !== null && nodeId !== undefined && String(nodeId).trim() !== "";
+  const normalizedNodeId = hasNodeId ? Number(nodeId) : null;
+
+  if (!Number.isInteger(normalizedQueryTypeId) || normalizedQueryTypeId <= 0) {
+    throw new Error("A valid Blackbaud query type ID is required");
+  }
+  if (
+    normalizedNodeId !== null &&
+    (!Number.isInteger(normalizedNodeId) || normalizedNodeId < 0)
+  ) {
+    throw new Error("A valid Blackbaud query node ID is required");
+  }
+
+  const queryTypeUrl = `${baseUrl}/${encodeURIComponent(String(normalizedQueryTypeId))}`;
+  return normalizedNodeId === null
+    ? `${queryTypeUrl}/availablefields`
+    : `${queryTypeUrl}/nodes/${encodeURIComponent(String(normalizedNodeId))}/availablefields`;
+}
+
 // The Query API exposes the available-field tree separately from saved
 // queries. This lets configurable reports build a narrowly-scoped ad-hoc
 // query without requiring a user-managed saved query in NXT.
@@ -679,36 +706,36 @@ export async function getBlackbaudQueryAvailableFields({
   authUserId,
   origin,
   queryTypeId,
-  nodeId,
+  nodeId = null,
   fieldContext = "Filter",
   resultLayout = "MultiRow",
 }) {
-  const normalizedQueryTypeId = Number(queryTypeId);
-  const normalizedNodeId = Number(nodeId);
-
-  if (!Number.isInteger(normalizedQueryTypeId) || normalizedQueryTypeId <= 0) {
-    throw new Error("A valid Blackbaud query type ID is required");
-  }
-  if (!Number.isInteger(normalizedNodeId) || normalizedNodeId < 0) {
-    throw new Error("A valid Blackbaud query node ID is required");
-  }
-
-  return blackbaudApiFetch(
-    `${BLACKBAUD_QUERY_METADATA_V2_URL}/${encodeURIComponent(String(normalizedQueryTypeId))}/nodes/${encodeURIComponent(String(normalizedNodeId))}/availablefields`,
-    {
-      userId,
-      authUserId,
-      origin,
-      searchParams: {
-        product: BLACKBAUD_QUERY_PRODUCT,
-        module: BLACKBAUD_QUERY_MODULE,
-        field_context: fieldContext,
-        result_layout: resultLayout,
+  const fetchAvailableFields = (baseUrl) =>
+    blackbaudApiFetch(
+      buildBlackbaudQueryAvailableFieldsUrl({ queryTypeId, nodeId, baseUrl }),
+      {
+        userId,
+        authUserId,
+        origin,
+        searchParams: {
+          product: BLACKBAUD_QUERY_PRODUCT,
+          module: BLACKBAUD_QUERY_MODULE,
+          field_context: fieldContext,
+          result_layout: resultLayout,
+        },
+        timeoutMs: 10_000,
+        maxRetries: 1,
       },
-      timeoutMs: 10_000,
-      maxRetries: 1,
-    },
-  );
+    );
+
+  try {
+    return await fetchAvailableFields(BLACKBAUD_QUERY_METADATA_V2_URL);
+  } catch (error) {
+    // Query metadata V2 is the preferred endpoint. A small number of tenants
+    // can still expose only the equivalent legacy metadata route.
+    if (!/Blackbaud\s+404\b/i.test(String(error?.message || ""))) throw error;
+    return fetchAvailableFields(BLACKBAUD_QUERY_METADATA_LEGACY_URL);
+  }
 }
 
 // Executes an app-defined query without relying on a saved-query system ID.

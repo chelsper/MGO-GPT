@@ -23,7 +23,7 @@ describe("direct custom-field query definitions", () => {
     vi.clearAllMocks();
     getCachedReportSnapshotWithMetadataMock.mockResolvedValue(null);
     getBlackbaudQueryAvailableFieldsMock.mockImplementation(({ nodeId }) => {
-      if (nodeId === 0) {
+      if (nodeId === null) {
         return Promise.resolve({
           fields: [],
           nodes: [
@@ -92,13 +92,13 @@ describe("direct custom-field query definitions", () => {
       ],
     });
     expect(saveReportSnapshotMock).toHaveBeenCalledWith(
-      "metadata:query-api:custom-field-filter-fields:v3:prospect%20research",
+      "metadata:query-api:custom-field-filter-fields:v4:prospect%20research",
       expect.objectContaining({
         fields: [expect.objectContaining({ id: 4123 })],
       }),
     );
     expect(getBlackbaudQueryAvailableFieldsMock.mock.calls.map(([args]) => args.nodeId)).toEqual([
-      0,
+      null,
       20,
       21,
       22,
@@ -134,7 +134,7 @@ describe("direct custom-field query definitions", () => {
     expect(query.filter_fields[0].query_field_id).toBe(4123);
     expect(getBlackbaudQueryAvailableFieldsMock).not.toHaveBeenCalled();
     expect(getCachedReportSnapshotWithMetadataMock).toHaveBeenCalledWith(
-      "metadata:query-api:custom-field-filter-fields:v3:prospect%20research",
+      "metadata:query-api:custom-field-filter-fields:v4:prospect%20research",
     );
   });
 });

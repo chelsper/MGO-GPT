@@ -5,7 +5,7 @@ import {
 } from "@/app/api/utils/reportCache";
 
 const CUSTOM_FIELD_QUERY_METADATA_CACHE_KEY =
-  "metadata:query-api:custom-field-filter-fields:v3";
+  "metadata:query-api:custom-field-filter-fields:v4";
 const CUSTOM_FIELD_QUERY_METADATA_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CONSTITUENT_QUERY_TYPE_ID = 18;
 const DIRECT_QUERY_CATEGORY_ID = 81;
@@ -36,6 +36,7 @@ function getArray(value, keys) {
 
 function getNodeId(node) {
   const value = node?.id ?? node?.node_id ?? node?.nodeId;
+  if (value === null || value === undefined || String(value).trim() === "") return null;
   const id = Number(value);
   return Number.isInteger(id) && id >= 0 ? id : null;
 }
@@ -131,7 +132,9 @@ async function discoverCustomFieldFilterFields({
   fieldCategory,
 }) {
   const seenNodeIds = new Set();
-  const queue = [{ nodeId: 0, depth: 0, ancestorNames: [] }];
+  // The Query API root is not a numeric node. Request it without a node ID,
+  // then traverse only the selected custom-field branch below it.
+  const queue = [{ nodeId: null, depth: 0, ancestorNames: [] }];
   const candidates = [];
 
   while (queue.length && seenNodeIds.size < MAX_DISCOVERY_NODES) {
@@ -165,8 +168,8 @@ async function discoverCustomFieldFilterFields({
 
       // The available-fields tree is broad. A direct custom-field refresh only
       // needs the custom-field branch and the selected category beneath it.
-      if (current.nodeId === 0 && !withinCustomFieldBranch) return;
-      if (current.nodeId !== 0 && !withinCustomFieldBranch) return;
+      if (current.nodeId === null && !withinCustomFieldBranch) return;
+      if (current.nodeId !== null && !withinCustomFieldBranch) return;
       if (withinCustomFieldBranch && !isCategoryBranch && current.depth > 1) {
         return;
       }
