@@ -7,6 +7,7 @@ import {
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
   buildAlumniDonorQueryDefinition,
   getAlumniDonorConfigurationFingerprint,
+  getAlumniDonorCountRowFingerprint,
   getAlumniDonorCountRows,
   normalizeAlumniDonorConfiguration,
   validateAlumniDonorConfiguration,
@@ -21,12 +22,14 @@ describe("alumni donor configuration", () => {
           label: "FY27 Alumni Giving",
           fiscalYearStart: "2026-07-01",
           fiscalYearEnd: "2027-06-30",
+          refreshPolicy: "refreshable",
         }),
         expect.objectContaining({
           key: "fy26-alumni-giving",
           label: "FY26 Alumni Giving",
           fiscalYearStart: "2025-07-01",
           fiscalYearEnd: "2026-06-30",
+          refreshPolicy: "frozen",
         }),
       ]),
     );
@@ -120,6 +123,29 @@ describe("alumni donor configuration", () => {
     });
 
     expect(withoutSoftCredits).not.toBe(baseline);
+  });
+
+  it("keeps a row data fingerprint stable when only its snapshot policy changes", () => {
+    const baselineRow = DEFAULT_ALUMNI_DONOR_CONFIGURATION.rows[1];
+    const baseline = getAlumniDonorCountRowFingerprint(
+      DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+      baselineRow,
+    );
+    const refreshableRow = { ...baselineRow, refreshPolicy: "refreshable" };
+    const refreshable = getAlumniDonorCountRowFingerprint(
+      {
+        ...DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+        rows: [DEFAULT_ALUMNI_DONOR_CONFIGURATION.rows[0], refreshableRow],
+      },
+      refreshableRow,
+    );
+    const changedDates = getAlumniDonorCountRowFingerprint(
+      DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+      { ...baselineRow, fiscalYearStart: "2024-07-01" },
+    );
+
+    expect(refreshable).toBe(baseline);
+    expect(changedDates).not.toBe(baseline);
   });
 
   it("rejects invalid custom codes and fiscal-year rows", () => {

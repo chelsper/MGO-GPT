@@ -6,19 +6,10 @@ import {
   canManageWorkspaceRole,
 } from "@/utils/workspaceRoles";
 import {
-  canUserViewCustomFieldReport,
   canUserViewReport,
   normalizeReportVisibility,
   parseReportSpecificUserIds,
 } from "@/app/api/utils/reportAccess";
-import {
-  createCustomFieldReportSlug,
-  customFieldReportCacheKey,
-  normalizeCustomFieldReportInput,
-  serializeCustomFieldReport,
-  validateCustomFieldReportInput,
-} from "@/app/api/utils/customFieldReports";
-import { invalidateReportSnapshot } from "@/app/api/utils/reportCache";
 import {
   normalizeAlumniDonorConfiguration,
   validateAlumniDonorConfiguration,
@@ -60,113 +51,6 @@ function serializeConfiguration(definition, record, currentUser) {
   };
 }
 
-function serializeCustomFieldConfiguration(record, currentUser) {
-  const specificUserIds = parseReportSpecificUserIds(record?.specific_user_ids);
-  return serializeCustomFieldReport(
-    record,
-    canUserViewCustomFieldReport({
-      user: currentUser,
-      active: record?.active,
-      specificUserIds,
-    }),
-  );
-}
-
-function createRequestError(message, status = 400) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
-}
-
-async function getActiveSelectedUserIds(requestedUserIds) {
-  const normalizedIds = parseReportSpecificUserIds(requestedUserIds);
-  if (!normalizedIds.length) return [];
-
-  const activeUsers = await sql`
-    SELECT id
-    FROM users
-    WHERE active = TRUE
-      AND id = ANY(${normalizedIds})
-  `;
-  const activeUserIds = activeUsers.map((activeUser) => Number(activeUser.id));
-  if (activeUserIds.length !== normalizedIds.length) {
-    throw createRequestError("One or more selected report users are inactive or no longer exist.");
-  }
-  return activeUserIds;
-}
-
-async function saveCustomFieldReport({ body, currentUser, existingRecord = null }) {
-  const input = normalizeCustomFieldReportInput(body);
-  const validationError = validateCustomFieldReportInput(input);
-  if (validationError) throw createRequestError(validationError);
-
-  // Existing reports can continue using a saved NXT query. New reports are direct custom-field reports.
-  const legacySourceQueryId = String(existingRecord?.source_query_id || "").trim() || null;
-  const legacySourceQueryName = String(existingRecord?.source_query_name || "").trim() || null;
-
-  const activeUserIds = await getActiveSelectedUserIds(input.specificUserIds);
-  if (input.active && activeUserIds.length === 0) {
-    throw createRequestError("Select at least one active user before enabling this report.");
-  }
-
-  const slug = existingRecord?.slug || createCustomFieldReportSlug(
-    input.title,
-    `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-  );
-  const rows = existingRecord
-    ? await sql`
-        UPDATE custom_field_reports
-        SET
-          title = ${input.title},
-          description = ${input.description || null},
-          field_category = ${input.fieldCategory},
-          field_description = ${input.fieldDescription},
-          source_query_id = ${legacySourceQueryId},
-          source_query_name = ${legacySourceQueryName},
-          specific_user_ids = ${JSON.stringify(activeUserIds)}::jsonb,
-          active = ${input.active},
-          updated_by = ${currentUser.id},
-          updated_at = NOW()
-        WHERE slug = ${slug}
-        RETURNING *
-      `
-    : await sql`
-        INSERT INTO custom_field_reports (
-          slug,
-          title,
-          description,
-          field_category,
-          field_description,
-          source_query_id,
-          source_query_name,
-          specific_user_ids,
-          active,
-          created_by,
-          updated_by
-        )
-        VALUES (
-          ${slug},
-          ${input.title},
-          ${input.description || null},
-          ${input.fieldCategory},
-          ${input.fieldDescription},
-          ${null},
-          ${null},
-          ${JSON.stringify(activeUserIds)}::jsonb,
-          ${input.active},
-          ${currentUser.id},
-          ${currentUser.id}
-        )
-        RETURNING *
-      `;
-
-  const saved = rows[0];
-  if (!saved) throw new Error("Could not save the Custom Field Report.");
-
-  await invalidateReportSnapshot(customFieldReportCacheKey(saved.slug));
-  return serializeCustomFieldConfiguration(saved, currentUser);
-}
-
 async function requireSessionUser() {
   await ensureAppSchema();
   const session = await auth();
@@ -196,45 +80,6 @@ export async function GET() {
     `;
     const canManage = canManageWorkspaceRole(user.role);
     const recordsByKey = new Map(records.map((record) => [record.report_key, record]));
-    const customFieldRecords = canManage
-      ? await sql`
-          SELECT
-            id,
-            slug,
-            title,
-            description,
-            field_category,
-            field_description,
-            source_query_id,
-            source_query_name,
-            specific_user_ids,
-            active,
-            created_at,
-            updated_at
-          FROM custom_field_reports
-          ORDER BY LOWER(title) ASC, id ASC
-        `
-      : await sql`
-          SELECT
-            id,
-            slug,
-            title,
-            description,
-            field_category,
-            field_description,
-            source_query_id,
-            source_query_name,
-            specific_user_ids,
-            active,
-            created_at,
-            updated_at
-          FROM custom_field_reports
-          WHERE active = TRUE
-          ORDER BY LOWER(title) ASC, id ASC
-        `;
-    const serializedCustomFieldReports = customFieldRecords.map((record) =>
-      serializeCustomFieldConfiguration(record, user),
-    );
     const users = canManage
       ? await sql`
           SELECT id, name, email, role
@@ -246,13 +91,9 @@ export async function GET() {
 
     return Response.json({
       canManage,
-      configurations: [
-        ...STANDARD_REPORT_DEFINITIONS.map((definition) =>
-          serializeConfiguration(definition, recordsByKey.get(definition.key), user),
-        ),
-        ...serializedCustomFieldReports.filter((report) => report.canView),
-      ],
-      customFieldReports: canManage ? serializedCustomFieldReports : [],
+      configurations: STANDARD_REPORT_DEFINITIONS.map((definition) =>
+        serializeConfiguration(definition, recordsByKey.get(definition.key), user),
+      ),
       users,
     });
   } catch (error) {
@@ -276,30 +117,11 @@ export async function PATCH(request) {
     }
 
     const body = await request.json();
-    const customFieldReportSlug = String(body?.customFieldReportSlug || "").trim();
-    if (customFieldReportSlug) {
-      const existingRecords = await sql`
-        SELECT *
-        FROM custom_field_reports
-        WHERE slug = ${customFieldReportSlug}
-        LIMIT 1
-      `;
-      const existingRecord = existingRecords[0];
-      if (!existingRecord) {
-        return Response.json({ error: "Custom Field Report not found." }, { status: 404 });
-      }
-
-      const configuration = await saveCustomFieldReport({
-        body,
-        currentUser: user,
-        existingRecord,
-      });
-      return Response.json({
-        configuration,
-        message: configuration.active
-          ? "Custom Field Report saved and available only to its selected users."
-          : "Custom Field Report saved but remains hidden until enabled.",
-      });
+    if (String(body?.customFieldReportSlug || "").trim()) {
+      return Response.json(
+        { error: "Custom Field Reports are retired. Configure an approved Query-Based Report instead." },
+        { status: 410 },
+      );
     }
 
     const definition = getReportDefinition(body?.reportKey);
@@ -453,70 +275,16 @@ export async function PATCH(request) {
   }
 }
 
-export async function POST(request) {
-  try {
-    const { user, error } = await requireSessionUser();
-    if (error) return error;
-    if (!canManageWorkspaceRole(user.role)) {
-      return Response.json(
-        { error: "Only Admin and Advancement Services users can configure Custom Field Reports." },
-        { status: 403 },
-      );
-    }
-
-    const body = await request.json();
-    const configuration = await saveCustomFieldReport({ body, currentUser: user });
-    return Response.json(
-      {
-        configuration,
-        message: configuration.active
-          ? "Custom Field Report created and available only to its selected users."
-          : "Custom Field Report created but remains hidden until enabled.",
-      },
-      { status: 201 },
-    );
-  } catch (error) {
-    console.error("Custom Field Report POST error:", error);
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Could not create Custom Field Report." },
-      { status: Number(error?.status) || 500 },
-    );
-  }
+export async function POST() {
+  return Response.json(
+    { error: "Custom Field Reports are retired. Configure an approved Query-Based Report instead." },
+    { status: 410 },
+  );
 }
 
-export async function DELETE(request) {
-  try {
-    const { user, error } = await requireSessionUser();
-    if (error) return error;
-    if (!canManageWorkspaceRole(user.role)) {
-      return Response.json(
-        { error: "Only Admin and Advancement Services users can delete Custom Field Reports." },
-        { status: 403 },
-      );
-    }
-
-    const body = await request.json().catch(() => null);
-    const slug = String(body?.customFieldReportSlug || "").trim();
-    if (!slug) {
-      return Response.json({ error: "Choose a Custom Field Report to delete." }, { status: 400 });
-    }
-
-    const deleted = await sql`
-      DELETE FROM custom_field_reports
-      WHERE slug = ${slug}
-      RETURNING slug
-    `;
-    if (!deleted[0]) {
-      return Response.json({ error: "Custom Field Report not found." }, { status: 404 });
-    }
-
-    await invalidateReportSnapshot(customFieldReportCacheKey(slug));
-    return Response.json({ message: "Custom Field Report deleted." });
-  } catch (error) {
-    console.error("Custom Field Report DELETE error:", error);
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Could not delete Custom Field Report." },
-      { status: 500 },
-    );
-  }
+export async function DELETE() {
+  return Response.json(
+    { error: "Custom Field Reports are retired. Configure an approved Query-Based Report instead." },
+    { status: 410 },
+  );
 }

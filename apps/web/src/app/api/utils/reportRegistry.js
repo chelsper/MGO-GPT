@@ -67,6 +67,13 @@ export const REPORT_TYPE_DEFINITIONS = Object.freeze({
   }),
 });
 
+// Legacy custom-field reports remain readable for audit purposes, but new report
+// configuration is intentionally limited to supported query-backed and built-in reports.
+const CONFIGURABLE_REPORT_TYPE_KEYS = Object.freeze([
+  REPORT_TYPES.QUERY_BASED,
+  REPORT_TYPES.MGO_GPT,
+]);
+
 export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
   Object.freeze({
     key: PORTFOLIO_GIVING_REPORT_KEY,
@@ -85,19 +92,19 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     key: FUTURE_MADE_PHASE_TWO_REPORT_KEY,
-    reportType: REPORT_TYPES.CUSTOM_FIELD,
+    reportType: REPORT_TYPES.QUERY_BASED,
     adapterKey: "future-made-phase-ii",
     configurationSchema: "standard-report-v1",
     configurationSchemaVersion: 1,
     href: "/reports/future-made-phase-ii",
     title: "Future. Made. Phase II",
     description:
-      "View every constituent marked with the Future. Made. Phase II custom field.",
-    audienceMode: "global_custom_field",
+      "View every constituent returned by the saved Future. Made. Phase II NXT query.",
+    audienceMode: "shared_snapshot",
     dataConfigurationType: null,
     configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
     presentationNote:
-      "This report displays the shared Future. Made. Phase II custom-field list, not an MGO portfolio.",
+      "This report uses the saved Future. Made. Phase II NXT query and a shared snapshot. Standard report visits do not make a new NXT request.",
     presentationNoteTone: "info",
   }),
   Object.freeze({
@@ -141,7 +148,7 @@ const STANDARD_REPORTS_BY_KEY = new Map(
 );
 
 export function getReportTypeDefinitions() {
-  return Object.values(REPORT_TYPE_DEFINITIONS);
+  return CONFIGURABLE_REPORT_TYPE_KEYS.map((key) => REPORT_TYPE_DEFINITIONS[key]);
 }
 
 export function getReportTypeDefinition(reportType) {

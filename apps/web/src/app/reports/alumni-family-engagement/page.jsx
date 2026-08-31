@@ -9,7 +9,9 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
 
-function DonorTotal({ label, value }) {
+function DonorTotal({ label, value, refreshPolicy, frozenAt }) {
+  const isFrozen = refreshPolicy === "frozen";
+
   return (
     <article
       style={{
@@ -32,6 +34,11 @@ function DonorTotal({ label, value }) {
       <strong style={{ display: "block", marginTop: "9px", color: "#166534", fontSize: "42px" }}>
         {formatNumber(value)}
       </strong>
+      {isFrozen ? (
+        <p style={{ margin: "8px 0 0", color: "#64748B", fontSize: "12px", fontWeight: 700 }}>
+          Frozen snapshot{frozenAt ? ` from ${new Date(frozenAt).toLocaleDateString("en-US")}` : ""}
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -73,7 +80,7 @@ export default function AlumniFamilyEngagementPage() {
       setError("");
       setStatusText(
         refreshVersion > 0
-          ? "Running the configured NXT donor-count query jobs..."
+          ? "Refreshing configured donor-count rows..."
           : "Loading the saved report snapshot...",
       );
       try {
@@ -182,6 +189,23 @@ export default function AlumniFamilyEngagementPage() {
           </section>
         ) : null}
 
+        {report?.refreshNotice ? (
+          <section
+            role="status"
+            style={{
+              marginBottom: "20px",
+              border: "1px solid #BFDBFE",
+              borderRadius: "14px",
+              padding: "18px",
+              color: "#1E3A8A",
+              backgroundColor: "#EFF6FF",
+              fontWeight: 700,
+            }}
+          >
+            {report.refreshNotice}
+          </section>
+        ) : null}
+
         {isLoading ? (
           <section
             style={{
@@ -196,7 +220,7 @@ export default function AlumniFamilyEngagementPage() {
             <strong>{statusText || "Loading the cached report..."}</strong>
             <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
               Normal visits use the last successful snapshot and do not make another NXT request. A refresh runs
-              the configured NXT donor-count query jobs, then replaces that saved snapshot.
+              only rows marked Refresh with report; frozen rows retain their compatible saved total.
             </p>
           </section>
         ) : null}
@@ -215,7 +239,8 @@ export default function AlumniFamilyEngagementPage() {
             <strong>No saved {reportTitle} snapshot is available.</strong>
             <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
               Select Refresh data once. The configured donor totals will then remain available until the next
-              scheduled refresh or another manual refresh.
+              scheduled refresh or another manual refresh. Rows marked Frozen snapshot remain available without
+              another NXT request after their first successful total is saved.
             </p>
           </section>
         ) : null}
@@ -229,7 +254,13 @@ export default function AlumniFamilyEngagementPage() {
             ) : null}
             <section style={{ display: "grid", gap: "14px", maxWidth: "560px" }}>
               {totals.map((total) => (
-                <DonorTotal key={total.key} label={total.label} value={total.total} />
+                <DonorTotal
+                  key={total.key}
+                  label={total.label}
+                  value={total.total}
+                  refreshPolicy={total.refreshPolicy}
+                  frozenAt={total.frozenAt}
+                />
               ))}
             </section>
           </>

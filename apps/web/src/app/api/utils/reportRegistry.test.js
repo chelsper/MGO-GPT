@@ -6,6 +6,7 @@ import {
   getReportConfigurationCapabilities,
   getReportDefinition,
   getReportHref,
+  getReportTypeDefinitions,
   isReportVisibilitySupported,
   PORTFOLIO_GIVING_REPORT_KEY,
   REPORT_TYPES,
@@ -26,10 +27,14 @@ describe("report registry", () => {
     });
     expect(supportsReportDataConfiguration(alumni)).toBe(true);
     expect(futureMade).toMatchObject({
-      reportType: REPORT_TYPES.CUSTOM_FIELD,
+      reportType: REPORT_TYPES.QUERY_BASED,
       href: "/reports/future-made-phase-ii",
     });
     expect(portfolio).toMatchObject({ reportType: REPORT_TYPES.MGO_GPT, href: "/reports" });
+    expect(getReportTypeDefinitions().map((definition) => definition.key)).toEqual([
+      REPORT_TYPES.QUERY_BASED,
+      REPORT_TYPES.MGO_GPT,
+    ]);
   });
 
   it("does not allow an arbitrary report route or unsupported data configuration", () => {

@@ -5,6 +5,7 @@ import { ArrowLeft, Save } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 import {
+  ALUMNI_DONOR_ROW_REFRESH_POLICIES,
   AVAILABLE_CONSTITUENCY_CODES,
 } from "@/app/api/utils/alumniDonorConfiguration";
 import {
@@ -250,7 +251,7 @@ export default function ReportConfigurationsPage() {
   const [configurations, setConfigurations] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [users, setUsers] = useState([]);
-  const [activeReportType, setActiveReportType] = useState(REPORT_TYPES.MGO_GPT);
+  const [activeReportType, setActiveReportType] = useState(REPORT_TYPES.QUERY_BASED);
   const [customFieldReports, setCustomFieldReports] = useState([]);
   const [customFieldDraft, setCustomFieldDraft] = useState(() => createCustomFieldDraft());
   const [editingCustomFieldSlug, setEditingCustomFieldSlug] = useState("");
@@ -301,9 +302,6 @@ export default function ReportConfigurationsPage() {
             Object.fromEntries(
               nextConfigurations.map((configuration) => [configuration.key, createDraft(configuration)]),
             ),
-          );
-          setCustomFieldReports(
-            Array.isArray(payload?.customFieldReports) ? payload.customFieldReports : [],
           );
           setUsers(Array.isArray(payload?.users) ? payload.users : []);
         }
@@ -522,6 +520,7 @@ export default function ReportConfigurationsPage() {
             label: `Donor count ${rowNumber}`,
             fiscalYearStart: "",
             fiscalYearEnd: "",
+            refreshPolicy: "refreshable",
           },
         ],
       };
@@ -745,9 +744,9 @@ export default function ReportConfigurationsPage() {
             <ArrowLeft size={20} />
           </a>
           <div>
-            <h1 style={{ margin: 0, color: "#0F172A", fontSize: "30px" }}>Report Configuration</h1>
+            <h1 style={{ margin: 0, color: "#0F172A", fontSize: "30px" }}>Report Access &amp; Configurations</h1>
             <p style={{ margin: "6px 0 0", color: "#64748B" }}>
-              Configure report names, data sources, and access. Blackbaud data access remains tied to each user&apos;s connection.
+              Manage report access, presentation, and supported data settings. Blackbaud data access remains tied to each user&apos;s connection.
             </p>
           </div>
         </div>
@@ -771,21 +770,21 @@ export default function ReportConfigurationsPage() {
 
         {!canManage ? (
           <section style={panelStyle}>
-            <h2 style={{ margin: 0, color: "#0F172A" }}>Report configuration is managed by Advancement Services</h2>
+            <h2 style={{ margin: 0, color: "#0F172A" }}>Report access and configurations are managed by Advancement Services</h2>
             <p style={{ margin: "9px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-              Admins and Advancement Services users can choose who is able to view shared reports.
+              Admins and Advancement Services users can configure shared report access and supported settings.
             </p>
           </section>
         ) : (
           <div style={{ display: "grid", gap: "20px" }}>
-            <section style={{ ...panelStyle, padding: "18px" }} aria-label="Report configuration categories">
+            <section style={{ ...panelStyle, padding: "18px" }} aria-label="Report access and configuration categories">
               <p style={{ margin: 0, color: "#475569", lineHeight: 1.5 }}>
-                Organize existing report configurations by source. This catalog does not change report refreshes,
-                NXT requests, caching, or report URLs.
+                Manage approved report configurations by source. Changes here preserve each report&apos;s route,
+                access policy, and snapshot behavior.
               </p>
               <div
                 role="tablist"
-                aria-label="Report configuration categories"
+                aria-label="Report access and configuration categories"
                 style={{ display: "flex", gap: "9px", flexWrap: "wrap", marginTop: "16px" }}
               >
                 {REPORT_TYPE_OPTIONS.map((reportType) => {
@@ -1067,10 +1066,12 @@ export default function ReportConfigurationsPage() {
 
                       <div style={{ marginTop: "22px", display: "grid", gap: "12px" }}>
                         <div>
-                          <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>FY donor counts</h4>
+                          <h4 style={{ margin: 0, color: "#1E3A8A", fontSize: "15px" }}>Donor-count rows</h4>
                           <p style={{ margin: "5px 0 0", color: "#475569", fontSize: "13px", lineHeight: 1.45 }}>
-                            Each row runs one count-only NXT query job for its fiscal-year dates. The completed job's
-                            row count is saved as the report total; no donor list is downloaded.
+                            Each row uses the configured donor definition with its own dates. A refreshable row runs
+                            one count-only NXT query job; a frozen row keeps its last successful total and makes no
+                            further NXT calls until its definition changes or it is made refreshable again. No donor
+                            list is downloaded.
                           </p>
                         </div>
 
@@ -1161,6 +1162,39 @@ export default function ReportConfigurationsPage() {
                                     })
                                   }
                                 />
+                              </label>
+                              <label style={fieldLabelStyle}>
+                                <span>Snapshot policy</span>
+                                <select
+                                  style={fieldStyle}
+                                  value={row.refreshPolicy || "refreshable"}
+                                  onChange={(event) =>
+                                    updateDonorRow(configuration.key, row.key, {
+                                      refreshPolicy: event.target.value,
+                                    })
+                                  }
+                                >
+                                  {ALUMNI_DONOR_ROW_REFRESH_POLICIES.map((policy) => (
+                                    <option key={policy.key} value={policy.key}>
+                                      {policy.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span
+                                  style={{
+                                    color: "#64748B",
+                                    fontSize: "12px",
+                                    fontWeight: 500,
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  {
+                                    ALUMNI_DONOR_ROW_REFRESH_POLICIES.find(
+                                      (policy) =>
+                                        policy.key === (row.refreshPolicy || "refreshable"),
+                                    )?.description
+                                  }
+                                </span>
                               </label>
                             </div>
                           </article>

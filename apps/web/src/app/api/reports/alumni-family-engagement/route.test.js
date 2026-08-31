@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_ALUMNI_DONOR_CONFIGURATION,
   getAlumniDonorConfigurationFingerprint,
+  getAlumniDonorCountRowFingerprint,
 } from "@/app/api/utils/alumniDonorConfiguration";
 
 const {
@@ -196,6 +197,94 @@ describe("Alumni & Family Engagement report route", () => {
         refreshMetrics: expect.objectContaining({ source: "blackbaud-query-api" }),
       }),
     );
+  });
+
+  it("does not rerun a compatible frozen count row during a manual refresh", async () => {
+    getCachedReportSnapshotMock.mockResolvedValueOnce(createCachedSnapshot());
+    const { GET } = await import("./route.js");
+
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "complete",
+      totalRows: 5,
+      totals: [
+        { key: "fy27-alumni-giving", total: 3, refreshPolicy: "refreshable" },
+        { key: "fy26-alumni-giving", total: 2, refreshPolicy: "frozen" },
+      ],
+      refreshMetrics: {
+        source: "blackbaud-query-api",
+        queryJobs: 1,
+        queryJobPolls: 1,
+        frozenSnapshotsReused: 1,
+      },
+    });
+    expect(createBlackbaudAdHocQueryJobMock).toHaveBeenCalledTimes(1);
+    expect(getBlackbaudQueryJobMock).toHaveBeenCalledTimes(1);
+    expect(createBlackbaudAdHocQueryJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({
+          filter_fields: expect.arrayContaining([
+            expect.objectContaining({ filter_values: ["7/1/2026", "6/30/2027"] }),
+          ]),
+        }),
+      }),
+    );
+    expect(saveReportSnapshotMock).toHaveBeenCalledWith(
+      "report:alumni-family-engagement",
+      expect.objectContaining({
+        refreshMetrics: expect.objectContaining({
+          queryJobs: 1,
+          frozenSnapshotsReused: 1,
+        }),
+      }),
+    );
+  });
+
+  it("returns compatible frozen rows without another NXT request", async () => {
+    const frozenConfiguration = {
+      ...DEFAULT_ALUMNI_DONOR_CONFIGURATION,
+      rows: DEFAULT_ALUMNI_DONOR_CONFIGURATION.rows.map((row) => ({
+        ...row,
+        refreshPolicy: "frozen",
+      })),
+    };
+    getReportAccessForUserMock.mockResolvedValue({
+      canView: true,
+      dataConfiguration: frozenConfiguration,
+    });
+    getCachedReportSnapshotMock.mockResolvedValueOnce(
+      createCachedSnapshot({
+        totals: frozenConfiguration.rows.map((row, index) => ({
+          key: row.key,
+          total: index + 2,
+          definitionFingerprint: getAlumniDonorCountRowFingerprint(frozenConfiguration, row),
+        })),
+      }),
+    );
+    const { GET } = await import("./route.js");
+
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-MGOGPT-Report-Cache")).toBe("frozen");
+    expect(payload).toMatchObject({
+      status: "complete",
+      totalRows: 5,
+      refreshNotice: expect.stringContaining("frozen snapshots"),
+      refreshMetrics: {
+        source: "blackbaud-query-api",
+        queryJobs: 0,
+        queryJobPolls: 0,
+        frozenSnapshotsReused: 2,
+      },
+    });
+    expect(createBlackbaudAdHocQueryJobMock).not.toHaveBeenCalled();
+    expect(getBlackbaudQueryJobMock).not.toHaveBeenCalled();
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 
   it("uses a custom selected constituency code in the generated query", async () => {

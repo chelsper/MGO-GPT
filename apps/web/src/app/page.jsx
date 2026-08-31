@@ -155,9 +155,9 @@ const ADMIN_ACTIONS = [
     description: "Configure organization profile, email notifications, and giving societies.",
   },
   {
-    title: "Report Access",
+    title: "Report Access & Configurations",
     href: "/report-configurations",
-    description: "Choose who can view shared reports and select specific users.",
+    description: "Manage shared report access, presentation, and supported data settings.",
   },
 ];
 
@@ -208,10 +208,10 @@ const ADMIN_WORKSPACE_ITEMS = [
     description: "Manage organization profile, email notifications, and giving society definitions.",
   },
   {
-    label: "Report Access",
+    label: "Report Access & Configurations",
     href: "/report-configurations",
     section: "Admin & Workspace",
-    description: "Choose who can view shared reports and select specific users.",
+    description: "Manage shared report access, presentation, and supported data settings.",
   },
   {
     label: "Knowledge Base Admin",

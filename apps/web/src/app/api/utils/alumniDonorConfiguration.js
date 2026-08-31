@@ -51,6 +51,24 @@ export const ALUMNI_DONOR_QUERY_FIELDS = {
 export const ALUMNI_DONOR_QUERY_TYPE_ID = 18;
 export const ALUMNI_DONOR_QUERY_CATEGORY_ID = 81;
 
+export const ALUMNI_DONOR_ROW_REFRESH_POLICIES = [
+  {
+    key: "refreshable",
+    label: "Refresh with report",
+    description: "Runs again when an administrator or the scheduled report refresh requests new data.",
+  },
+  {
+    key: "frozen",
+    label: "Frozen snapshot",
+    description:
+      "Keeps its last successful total and makes no further NXT calls until the row definition changes or it is changed back to refreshable.",
+  },
+];
+
+const ALUMNI_DONOR_ROW_REFRESH_POLICY_KEYS = new Set(
+  ALUMNI_DONOR_ROW_REFRESH_POLICIES.map((policy) => policy.key),
+);
+
 export const DEFAULT_ALUMNI_DONOR_CONFIGURATION = {
   sourceKey: DONORS_BY_CONSTITUENCY_SOURCE_KEY,
   sourceLabel: "Donors by Constituency",
@@ -69,12 +87,14 @@ export const DEFAULT_ALUMNI_DONOR_CONFIGURATION = {
       label: "FY27 Alumni Giving",
       fiscalYearStart: "2026-07-01",
       fiscalYearEnd: "2027-06-30",
+      refreshPolicy: "refreshable",
     },
     {
       key: "fy26-alumni-giving",
       label: "FY26 Alumni Giving",
       fiscalYearStart: "2025-07-01",
       fiscalYearEnd: "2026-06-30",
+      refreshPolicy: "frozen",
     },
   ],
 };
@@ -105,6 +125,12 @@ function normalizeComparableText(value) {
 
 function normalizeBoolean(value, fallback) {
   if (typeof value === "boolean") return value;
+  return fallback;
+}
+
+function normalizeRefreshPolicy(value, fallback = "refreshable") {
+  const policy = normalizeText(value).toLocaleLowerCase("en-US");
+  if (ALUMNI_DONOR_ROW_REFRESH_POLICY_KEYS.has(policy)) return policy;
   return fallback;
 }
 
@@ -139,6 +165,7 @@ function normalizeRows(value) {
       label,
       fiscalYearStart: normalizeText(row?.fiscalYearStart, defaultRow.fiscalYearStart || ""),
       fiscalYearEnd: normalizeText(row?.fiscalYearEnd, defaultRow.fiscalYearEnd || ""),
+      refreshPolicy: normalizeRefreshPolicy(row?.refreshPolicy, defaultRow.refreshPolicy),
     };
   });
 }
@@ -256,6 +283,27 @@ export function getAlumniDonorConfigurationFingerprint(value) {
       fiscalYearStart: row.fiscalYearStart,
       fiscalYearEnd: row.fiscalYearEnd,
     })),
+  });
+}
+
+// A row policy controls when a total is refreshed, not what the total means.
+// Keep it out of the data fingerprint so an administrator can freeze or unfreeze
+// an already compatible result without invalidating the saved value itself.
+export function getAlumniDonorCountRowFingerprint(value, countRow) {
+  const configuration = normalizeAlumniDonorConfiguration(value);
+  const row = countRow || configuration.rows[0] || {};
+
+  return JSON.stringify({
+    queryDefinitionVersion: 1,
+    constituencies: getAlumniDonorConstituencyOptions(configuration),
+    includeSoftCreditedDonors: configuration.includeSoftCreditedDonors,
+    includeMatchingGiftCredits: configuration.includeMatchingGiftCredits,
+    includeInactiveConstituents: configuration.includeInactiveConstituents,
+    includeDeceasedConstituents: configuration.includeDeceasedConstituents,
+    includeConstituentsWithNoValidAddress:
+      configuration.includeConstituentsWithNoValidAddress,
+    fiscalYearStart: normalizeText(row.fiscalYearStart),
+    fiscalYearEnd: normalizeText(row.fiscalYearEnd),
   });
 }
 

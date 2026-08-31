@@ -26,6 +26,7 @@ import {
   getAlumniDonorConfigurationFingerprint,
   getAlumniDonorConstituencyOptions,
   getAlumniDonorCountRows,
+  getAlumniDonorCountRowFingerprint,
   normalizeAlumniDonorConfiguration,
 } from "@/app/api/utils/alumniDonorConfiguration";
 
@@ -66,22 +67,61 @@ function getPublicDonorDefinition(donorConfiguration) {
     includeDeceasedConstituents: donorConfiguration.includeDeceasedConstituents,
     includeConstituentsWithNoValidAddress:
       donorConfiguration.includeConstituentsWithNoValidAddress,
+    rows: getAlumniDonorCountRows(donorConfiguration).map((row) => ({
+      key: row.key,
+      label: row.label,
+      fiscalYearStart: row.fiscalYearStart,
+      fiscalYearEnd: row.fiscalYearEnd,
+      refreshPolicy: row.refreshPolicy,
+    })),
   };
+}
+
+function getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row }) {
+  if (!cachedPayload || !row?.key) return null;
+  const cachedTotals = Array.isArray(cachedPayload?.totals) ? cachedPayload.totals : [];
+  const cachedTotal = cachedTotals.find(
+    (total) => String(total?.key || "").trim() === String(row.key || "").trim(),
+  );
+  if (!cachedTotal) return null;
+
+  const rowFingerprint = getAlumniDonorCountRowFingerprint(donorConfiguration, row);
+  const cachedRowFingerprint = String(cachedTotal?.definitionFingerprint || "").trim();
+  if (cachedRowFingerprint) {
+    return cachedRowFingerprint === rowFingerprint ? cachedTotal : null;
+  }
+
+  // Snapshots saved before per-row fingerprints were introduced remain valid
+  // only when the complete prior configuration is an exact match.
+  return cachedPayload.configurationFingerprint === getAlumniDonorConfigurationFingerprint(donorConfiguration)
+    ? cachedTotal
+    : null;
+}
+
+function getCompatibleCachedTotals({ cachedPayload, donorConfiguration, countRows }) {
+  const totals = countRows.map((row) =>
+    getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row }),
+  );
+  return totals.every(Boolean) ? totals : null;
+}
+
+function needsNxtRefresh({ cachedPayload, donorConfiguration, countRows }) {
+  return countRows.some((row) => {
+    if (row.refreshPolicy !== "frozen") return true;
+    return !getCompatibleCachedTotal({ cachedPayload, donorConfiguration, row });
+  });
 }
 
 function attachReportPresentation({ cachedPayload, donorConfiguration, presentation, countRows }) {
   if (!cachedPayload) return null;
 
   const configurationFingerprint = getAlumniDonorConfigurationFingerprint(donorConfiguration);
-  if (cachedPayload.configurationFingerprint !== configurationFingerprint) return null;
-
-  const cachedTotals = Array.isArray(cachedPayload?.totals) ? cachedPayload.totals : [];
-  if (cachedTotals.length !== countRows.length) return null;
-
-  const totalsByKey = new Map(
-    cachedTotals.map((total) => [String(total?.key || "").trim(), total]),
-  );
-  if (countRows.some((row) => !totalsByKey.has(row.key))) return null;
+  const compatibleTotals = getCompatibleCachedTotals({
+    cachedPayload,
+    donorConfiguration,
+    countRows,
+  });
+  if (!compatibleTotals) return null;
 
   const { constituencyMembershipCache: ignoredMembershipCache, ...publicPayload } = cachedPayload;
   return {
@@ -89,12 +129,15 @@ function attachReportPresentation({ cachedPayload, donorConfiguration, presentat
     report: presentation,
     donorDefinition: getPublicDonorDefinition(donorConfiguration),
     configurationFingerprint,
-    totals: countRows.map((row) => ({
-      ...totalsByKey.get(row.key),
+    totalRows: compatibleTotals.reduce((sum, total) => sum + Number(total.total || 0), 0),
+    totals: countRows.map((row, index) => ({
+      ...compatibleTotals[index],
       key: row.key,
       label: row.label,
       fiscalYearStart: row.fiscalYearStart,
       fiscalYearEnd: row.fiscalYearEnd,
+      refreshPolicy: row.refreshPolicy,
+      definitionFingerprint: getAlumniDonorCountRowFingerprint(donorConfiguration, row),
     })),
   };
 }
@@ -161,14 +204,40 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
   );
 }
 
-async function buildQueryApiDonorTotals({ user, origin, donorConfiguration }) {
+async function buildQueryApiDonorTotals({ user, origin, donorConfiguration, cachedPayload }) {
   const countRows = getAlumniDonorCountRows(donorConfiguration);
   const totals = [];
   let queryJobPolls = 0;
+  let queryJobs = 0;
+  let frozenSnapshotsReused = 0;
+  const refreshedAt = new Date().toISOString();
 
   // A small sequential job queue avoids burst throttling while keeping this
-  // report to a handful of requests instead of one request per donor.
+  // report to a handful of requests instead of one request per donor. Frozen
+  // rows reuse their compatible saved total and intentionally skip this queue.
   for (const row of countRows) {
+    const definitionFingerprint = getAlumniDonorCountRowFingerprint(donorConfiguration, row);
+    const cachedTotal = getCompatibleCachedTotal({
+      cachedPayload,
+      donorConfiguration,
+      row,
+    });
+
+    if (row.refreshPolicy === "frozen" && cachedTotal) {
+      frozenSnapshotsReused += 1;
+      totals.push({
+        ...cachedTotal,
+        key: row.key,
+        label: row.label,
+        fiscalYearStart: row.fiscalYearStart,
+        fiscalYearEnd: row.fiscalYearEnd,
+        refreshPolicy: row.refreshPolicy,
+        definitionFingerprint,
+        frozenAt: cachedTotal.frozenAt || cachedPayload?.generatedAt || refreshedAt,
+      });
+      continue;
+    }
+
     const query = buildAlumniDonorQueryDefinition(donorConfiguration, row);
     const createdJob = await createBlackbaudAdHocQueryJob({
       userId: user.id,
@@ -181,6 +250,7 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration }) {
     if (!jobId) {
       throw new Error(`NXT did not return a query job ID for ${row.label}.`);
     }
+    queryJobs += 1;
 
     const { total, polls } = await waitForBlackbaudQueryJob({
       user,
@@ -195,6 +265,9 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration }) {
       fiscalYearStart: row.fiscalYearStart,
       fiscalYearEnd: row.fiscalYearEnd,
       total,
+      refreshPolicy: row.refreshPolicy,
+      definitionFingerprint,
+      frozenAt: row.refreshPolicy === "frozen" ? refreshedAt : null,
     });
   }
 
@@ -204,8 +277,9 @@ async function buildQueryApiDonorTotals({ user, origin, donorConfiguration }) {
     warnings: [],
     refreshMetrics: {
       source: "blackbaud-query-api",
-      queryJobs: totals.length,
+      queryJobs,
       queryJobPolls,
+      frozenSnapshotsReused,
     },
   };
 }
@@ -266,20 +340,40 @@ export async function GET(request) {
       );
     }
 
+    const shouldCallNxt = needsNxtRefresh({
+      cachedPayload,
+      donorConfiguration,
+      countRows,
+    });
     const origin = new URL(request.url).origin;
-    const configurationIssues = getBlackbaudConfigIssues(origin);
-    if (configurationIssues.length) {
-      return Response.json(
-        { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
-        { status: 500 },
-      );
+    if (shouldCallNxt) {
+      const configurationIssues = getBlackbaudConfigIssues(origin);
+      if (configurationIssues.length) {
+        return Response.json(
+          { error: `Blackbaud configuration is incomplete: ${configurationIssues.join(", ")}` },
+          { status: 500 },
+        );
+      }
     }
 
     const queryTotals = await buildQueryApiDonorTotals({
       user,
       origin,
       donorConfiguration,
+      cachedPayload,
     });
+    if (queryTotals.refreshMetrics.queryJobs === 0 && presentedCachedPayload) {
+      return Response.json(
+        {
+          ...presentedCachedPayload,
+          refreshMetrics: queryTotals.refreshMetrics,
+          refreshNotice:
+            "All configured rows are frozen snapshots. The saved report was returned without another NXT request.",
+        },
+        { headers: getReportCacheHeaders("frozen") },
+      );
+    }
+
     const payload = {
       status: "complete",
       generatedAt: new Date().toISOString(),

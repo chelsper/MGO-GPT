@@ -865,7 +865,7 @@ export default function ReportsPage() {
           >
             <h1 style={{ margin: 0, color: "#0F172A" }}>My Reports is not shared with you</h1>
             <p style={{ color: "#64748B", lineHeight: 1.55 }}>
-              An Advancement Services user can change this report&apos;s audience in Report Access.
+              An Advancement Services user can change this report&apos;s audience in Report Access &amp; Configurations.
             </p>
             {canManageReports ? (
               <a href="/report-configurations" style={{ color: "#1D4ED8", fontWeight: 800 }}>
