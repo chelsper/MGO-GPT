@@ -28,7 +28,9 @@ const BLACKBAUD_GIFT_V2_URL = "https://api.sky.blackbaud.com/gft-gifts/v2/gifts"
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
 const BLACKBAUD_QUERY_URL = "https://api.sky.blackbaud.com/query";
-const BLACKBAUD_QUERY_TYPES_URL = `${BLACKBAUD_QUERY_URL}/querytypes`;
+// Query metadata V2 fixes tree-navigation failures in the legacy metadata
+// routes while preserving the existing query execution endpoints.
+const BLACKBAUD_QUERY_METADATA_V2_URL = `${BLACKBAUD_QUERY_URL}/v2/querytypes`;
 const BLACKBAUD_QUERY_LIST_URL = `${BLACKBAUD_QUERY_URL}/queries`;
 const BLACKBAUD_QUERY_EXECUTE_URL = `${BLACKBAUD_QUERY_LIST_URL}/execute`;
 const BLACKBAUD_QUERY_EXECUTE_BY_ID_URL = `${BLACKBAUD_QUERY_LIST_URL}/executebyid`;
@@ -692,7 +694,7 @@ export async function getBlackbaudQueryAvailableFields({
   }
 
   return blackbaudApiFetch(
-    `${BLACKBAUD_QUERY_TYPES_URL}/${encodeURIComponent(String(normalizedQueryTypeId))}/nodes/${encodeURIComponent(String(normalizedNodeId))}/availablefields`,
+    `${BLACKBAUD_QUERY_METADATA_V2_URL}/${encodeURIComponent(String(normalizedQueryTypeId))}/nodes/${encodeURIComponent(String(normalizedNodeId))}/availablefields`,
     {
       userId,
       authUserId,

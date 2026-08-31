@@ -5,7 +5,7 @@ import {
 } from "@/app/api/utils/reportCache";
 
 const CUSTOM_FIELD_QUERY_METADATA_CACHE_KEY =
-  "metadata:query-api:custom-field-filter-fields:v2";
+  "metadata:query-api:custom-field-filter-fields:v3";
 const CUSTOM_FIELD_QUERY_METADATA_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CONSTITUENT_QUERY_TYPE_ID = 18;
 const DIRECT_QUERY_CATEGORY_ID = 81;

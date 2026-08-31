@@ -92,7 +92,7 @@ describe("direct custom-field query definitions", () => {
       ],
     });
     expect(saveReportSnapshotMock).toHaveBeenCalledWith(
-      "metadata:query-api:custom-field-filter-fields:v2:prospect%20research",
+      "metadata:query-api:custom-field-filter-fields:v3:prospect%20research",
       expect.objectContaining({
         fields: [expect.objectContaining({ id: 4123 })],
       }),
@@ -134,7 +134,7 @@ describe("direct custom-field query definitions", () => {
     expect(query.filter_fields[0].query_field_id).toBe(4123);
     expect(getBlackbaudQueryAvailableFieldsMock).not.toHaveBeenCalled();
     expect(getCachedReportSnapshotWithMetadataMock).toHaveBeenCalledWith(
-      "metadata:query-api:custom-field-filter-fields:v2:prospect%20research",
+      "metadata:query-api:custom-field-filter-fields:v3:prospect%20research",
     );
   });
 });
