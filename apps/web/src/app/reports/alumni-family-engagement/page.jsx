@@ -16,29 +16,35 @@ function DonorTotal({ label, value, refreshPolicy, frozenAt }) {
     <article
       style={{
         border: "1px solid #BFDBFE",
-        borderRadius: "18px",
+        borderRadius: "12px",
         backgroundColor: "white",
-        padding: "22px 24px",
+        padding: "15px 16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "16px",
       }}
     >
-      <p
-        style={{
-          margin: 0,
-          color: "#1E3A8A",
-          fontSize: "15px",
-          fontWeight: 800,
-        }}
-      >
-        {label}
-      </p>
-      <strong style={{ display: "block", marginTop: "9px", color: "#166534", fontSize: "42px" }}>
+      <div style={{ minWidth: 0 }}>
+        <p
+          style={{
+            margin: 0,
+            color: "#1E3A8A",
+            fontSize: "15px",
+            fontWeight: 800,
+          }}
+        >
+          {label}
+        </p>
+        {isFrozen ? (
+          <p style={{ margin: "5px 0 0", color: "#64748B", fontSize: "12px", fontWeight: 700 }}>
+            Frozen snapshot{frozenAt ? ` from ${new Date(frozenAt).toLocaleDateString("en-US")}` : ""}
+          </p>
+        ) : null}
+      </div>
+      <strong style={{ color: "#166534", fontSize: "32px", lineHeight: 1, flexShrink: 0 }}>
         {formatNumber(value)}
       </strong>
-      {isFrozen ? (
-        <p style={{ margin: "8px 0 0", color: "#64748B", fontSize: "12px", fontWeight: 700 }}>
-          Frozen snapshot{frozenAt ? ` from ${new Date(frozenAt).toLocaleDateString("en-US")}` : ""}
-        </p>
-      ) : null}
     </article>
   );
 }
@@ -264,7 +270,15 @@ export default function AlumniFamilyEngagementPage() {
                 Last refreshed: {new Date(report.generatedAt).toLocaleString("en-US")}
               </p>
             ) : null}
-            <section style={{ display: "grid", gap: "18px" }}>
+            <section
+              style={{
+                display: "grid",
+                gap: "18px",
+                // Leave an open half-width cell for the next panel on wide screens.
+                gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 500px), 1fr))",
+                alignItems: "start",
+              }}
+            >
               {dashboardPanels.map((panel) => {
                 const panelTotals = Array.isArray(panel?.totals) ? panel.totals : [];
 
@@ -276,6 +290,7 @@ export default function AlumniFamilyEngagementPage() {
                       borderRadius: "18px",
                       padding: "20px",
                       backgroundColor: "#EFF6FF",
+                      minWidth: 0,
                     }}
                   >
                     <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "21px" }}>{panel.title}</h2>
@@ -287,8 +302,8 @@ export default function AlumniFamilyEngagementPage() {
                       <div
                         style={{
                           display: "grid",
-                          gap: "14px",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                          gap: "10px",
+                          gridTemplateColumns: "minmax(0, 1fr)",
                           marginTop: "16px",
                         }}
                       >
