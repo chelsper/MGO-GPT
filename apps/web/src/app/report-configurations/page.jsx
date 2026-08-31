@@ -97,8 +97,6 @@ function createCustomFieldDraft(configuration = null) {
     description: String(configuration?.description || ""),
     fieldCategory: String(configuration?.fieldCategory || ""),
     fieldDescription: String(configuration?.fieldDescription || ""),
-    sourceQueryId: String(configuration?.sourceQueryId || ""),
-    sourceQueryName: String(configuration?.sourceQueryName || ""),
     specificUserIds: Array.isArray(configuration?.specificUserIds)
       ? configuration.specificUserIds.map((id) => Number(id)).filter(Number.isInteger)
       : [],
@@ -166,11 +164,11 @@ function getAudienceDescriptions(configuration) {
   if (configuration.audienceMode === "global_custom_field") {
     return {
       allUsers:
-        "Every active user can run this saved query globally. Results do not depend on a selected MGO workspace.",
+        "Every active user can run this custom-field report globally. Results do not depend on a selected MGO workspace.",
       executives:
-        "Executives can run this saved query globally. MGO users do not gain access.",
+        "Executives can run this custom-field report globally. MGO users do not gain access.",
       specificUsers:
-        "Choose individual active users who should be able to run this saved query globally.",
+        "Choose individual active users who should be able to run this custom-field report globally.",
     };
   }
 
@@ -719,7 +717,6 @@ export default function ReportConfigurationsPage() {
     Boolean(customFieldDraft.title.trim()) &&
     Boolean(customFieldDraft.fieldCategory.trim()) &&
     Boolean(customFieldDraft.fieldDescription.trim()) &&
-    /^\d+$/.test(customFieldDraft.sourceQueryId.trim()) &&
     (!customFieldDraft.active || selectedCustomUsers > 0);
   const selectedCustomFieldCategory = normalizeCatalogText(customFieldDraft.fieldCategory);
   const customFieldDescriptionOptions = customFieldCatalog.values.filter(
@@ -1320,8 +1317,9 @@ export default function ReportConfigurationsPage() {
               <div style={{ borderBottom: "1px solid #E2E8F0", paddingBottom: "18px" }}>
                 <h2 style={{ margin: 0, color: "#0F172A", fontSize: "21px" }}>Custom Field Reports</h2>
                 <p style={{ margin: "7px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                  Create a report from a saved NXT query whose criteria match an exact custom-field category and
-                  description. The saved query remains the source of truth for the results.
+                  Create a report directly from an exact NXT custom-field category and description. The app runs an
+                  NXT query only when this report is refreshed; it does not require, create, or change a saved NXT
+                  query.
                 </p>
                 <p style={{ margin: "10px 0 0", color: "#9A3412", lineHeight: 1.5, fontWeight: 800 }}>
                   A custom report is hidden until it is enabled and at least one active user is selected. Administrator
@@ -1432,19 +1430,6 @@ export default function ReportConfigurationsPage() {
                     />
                   </label>
                   <label style={fieldLabelStyle}>
-                    <span>Saved NXT query system record ID</span>
-                    <input
-                      style={fieldStyle}
-                      type="text"
-                      inputMode="numeric"
-                      value={customFieldDraft.sourceQueryId}
-                      placeholder="Numbers only"
-                      onChange={(event) =>
-                        setCustomFieldDraft((current) => ({ ...current, sourceQueryId: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <label style={fieldLabelStyle}>
                     <span>NXT custom-field category</span>
                     <input
                       style={fieldStyle}
@@ -1469,18 +1454,6 @@ export default function ReportConfigurationsPage() {
                       maxLength={200}
                       onChange={(event) =>
                         setCustomFieldDraft((current) => ({ ...current, fieldDescription: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <label style={fieldLabelStyle}>
-                    <span>Saved NXT query name (optional)</span>
-                    <input
-                      style={fieldStyle}
-                      type="text"
-                      value={customFieldDraft.sourceQueryName}
-                      maxLength={200}
-                      onChange={(event) =>
-                        setCustomFieldDraft((current) => ({ ...current, sourceQueryName: event.target.value }))
                       }
                     />
                   </label>
@@ -1646,7 +1619,9 @@ export default function ReportConfigurationsPage() {
                             <div>
                               <strong style={{ color: "#0F172A", fontSize: "17px" }}>{configuration.title}</strong>
                               <p style={{ margin: "5px 0 0", color: "#64748B", lineHeight: 1.45 }}>
-                                {configuration.fieldCategory}: {configuration.fieldDescription} · Query {configuration.sourceQueryId}
+                                {configuration.fieldCategory}: {configuration.fieldDescription} · {configuration.dataSource === "legacy_saved_query"
+                                  ? `Legacy saved NXT query ${configuration.sourceQueryId}`
+                                  : "Direct NXT custom-field source"}
                               </p>
                             </div>
                             <span

@@ -2316,7 +2316,7 @@ export default async function ensureAppSchema() {
         description TEXT,
         field_category TEXT NOT NULL,
         field_description TEXT NOT NULL,
-        source_query_id TEXT NOT NULL,
+        source_query_id TEXT,
         source_query_name TEXT,
         specific_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
         active BOOLEAN NOT NULL DEFAULT FALSE,
@@ -2325,7 +2325,14 @@ export default async function ensureAppSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
-    `;
+      `;
+
+      // New reports build an ad-hoc NXT query from the exact custom field.
+      // A saved query ID remains optional metadata for existing reports.
+      await sql`
+        ALTER TABLE custom_field_reports
+        ALTER COLUMN source_query_id DROP NOT NULL
+      `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_custom_field_reports_active
       ON custom_field_reports (active, updated_at DESC)

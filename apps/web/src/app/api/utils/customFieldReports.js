@@ -3,7 +3,6 @@ import { getCustomFieldReportMetadata } from "@/app/api/utils/reportRegistry";
 const MAX_TITLE_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 1000;
 const MAX_FIELD_VALUE_LENGTH = 200;
-const MAX_QUERY_ID_LENGTH = 40;
 
 function normalizeText(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
@@ -65,11 +64,11 @@ export function validateCustomFieldReportInput(value) {
   if (!input.fieldDescription || input.fieldDescription.length > MAX_FIELD_VALUE_LENGTH) {
     return "Enter the exact NXT custom field description (200 characters or fewer).";
   }
-  if (!/^\d{1,40}$/.test(input.sourceQueryId)) {
-    return "Enter a numeric saved NXT query system record ID.";
+  if (input.sourceQueryId && !/^\d{1,40}$/.test(input.sourceQueryId)) {
+    return "A legacy saved NXT query system record ID must be numeric when provided.";
   }
   if (input.sourceQueryName.length > MAX_FIELD_VALUE_LENGTH) {
-    return "The saved NXT query name must be 200 characters or fewer.";
+    return "The legacy saved NXT query name must be 200 characters or fewer.";
   }
   if (input.active && input.specificUserIds.length === 0) {
     return "Select at least one active user before enabling this report.";
@@ -95,6 +94,7 @@ export function createCustomFieldReportSlug(title, suffix = "") {
 export function serializeCustomFieldReport(record, canView = false) {
   const slug = String(record?.slug || "").trim();
   const metadata = getCustomFieldReportMetadata(slug);
+  const sourceQueryId = String(record?.source_query_id || "").trim();
   return {
     ...metadata,
     id: Number(record?.id || 0),
@@ -105,7 +105,11 @@ export function serializeCustomFieldReport(record, canView = false) {
     description: String(record?.description || "").trim(),
     fieldCategory: String(record?.field_category || "").trim(),
     fieldDescription: String(record?.field_description || "").trim(),
-    sourceQueryId: String(record?.source_query_id || "").trim(),
+    // New reports run an app-defined query at refresh time. Existing reports
+    // retain their saved-query metadata so their historic configuration works.
+    dataSource: sourceQueryId ? "legacy_saved_query" : "direct_custom_field",
+    resultMode: sourceQueryId ? "rows" : "count_only",
+    sourceQueryId,
     sourceQueryName: String(record?.source_query_name || "").trim(),
     specificUserIds: parseSpecificUserIds(record?.specific_user_ids),
     active: Boolean(record?.active),

@@ -7,7 +7,7 @@ import {
 
 export const maxDuration = 300;
 
-// Custom reports refresh after the core dashboards. Staggering one saved query
+// Custom reports refresh after the core dashboards. Staggering one NXT query
 // per hour keeps the refresh queue predictable and prevents a configuration
 // change from producing a burst of NXT calls.
 const CUSTOM_REPORT_REFRESH_HOURS = new Set([18, 19, 20, 21, 22, 23]);
@@ -115,7 +115,7 @@ async function refreshCustomReport({ origin, slug, authorization }) {
     };
   }
 
-  throw new Error("The saved NXT query did not finish before the custom report refresh window closed.");
+  throw new Error("The NXT custom-field query did not finish before the custom report refresh window closed.");
 }
 
 export async function GET(request) {

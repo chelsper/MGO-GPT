@@ -12,6 +12,7 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import {
+  createBlackbaudAdHocQueryJob,
   createBlackbaudQueryJob,
   downloadBlackbaudQueryResult,
   getBlackbaudConfigIssues,
@@ -21,6 +22,7 @@ import {
   customFieldReportCacheKey,
   serializeCustomFieldReport,
 } from "@/app/api/utils/customFieldReports";
+import { getDirectCustomFieldQueryDefinition } from "@/app/api/utils/directCustomFieldQuery";
 import { getCustomFieldReportAccessForUser } from "@/app/api/utils/reportAccess";
 
 const MAX_QUERY_ROWS = 10000;
@@ -53,6 +55,40 @@ function getQueryResultUrl(job) {
 
 function isFailedQueryJob(status) {
   return /(?:fail|cancel|error)/i.test(status);
+}
+
+function isCompletedQueryJob(status) {
+  return /^(?:completed|complete|succeeded|success)$/i.test(String(status || "").trim());
+}
+
+function getQueryJobRowCount(job) {
+  const rowCount = Number(
+    job?.row_count ??
+      job?.rowCount ??
+      job?.total_rows ??
+      job?.totalRows ??
+      job?.record_count ??
+      job?.recordCount ??
+      job?.result?.row_count ??
+      job?.result?.rowCount ??
+      job?.result?.total_rows ??
+      job?.result?.totalRows ??
+      job?.result?.record_count ??
+      job?.result?.recordCount,
+  );
+  return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
+}
+
+function isDirectCustomFieldReport(report) {
+  return !String(report?.sourceQueryId || "").trim();
+}
+
+function getDirectQueryPresentation(report) {
+  return {
+    mode: "direct-custom-field",
+    category: report.fieldCategory,
+    description: report.fieldDescription,
+  };
 }
 
 function parseCsv(content) {
@@ -200,20 +236,89 @@ export async function GET(request, { params }) {
       );
     }
 
+    const usesDirectCustomFieldQuery = isDirectCustomFieldReport(report);
     if (!jobId) {
-      const createdJob = await createBlackbaudQueryJob({
-        userId: user.id,
-        origin,
-        queryId: report.sourceQueryId,
-      });
+      const createdJob = usesDirectCustomFieldQuery
+        ? await createBlackbaudAdHocQueryJob({
+            userId: user.id,
+            authUserId: user.id,
+            origin,
+            query: await getDirectCustomFieldQueryDefinition({
+              userId: user.id,
+              authUserId: user.id,
+              origin,
+              fieldCategory: report.fieldCategory,
+              fieldDescription: report.fieldDescription,
+            }),
+            resultsFileName: `custom-field-count-${report.slug}.csv`,
+          })
+        : await createBlackbaudQueryJob({
+            userId: user.id,
+            origin,
+            queryId: report.sourceQueryId,
+          });
       jobId = getQueryJobId(createdJob);
       if (!jobId) {
-        throw new Error("Blackbaud did not return a query job ID.");
+        throw new Error("Blackbaud did not return a custom-field query job ID.");
       }
     }
 
-    const job = await getBlackbaudQueryJob({ userId: user.id, origin, jobId });
+    const job = await getBlackbaudQueryJob({
+      userId: user.id,
+      authUserId: user.id,
+      origin,
+      jobId,
+    });
     const jobStatus = getQueryJobStatus(job);
+
+    if (usesDirectCustomFieldQuery) {
+      if (isFailedQueryJob(jobStatus)) {
+        return Response.json(
+          { error: `The NXT custom-field query ${jobStatus || "failed"}.`, jobId },
+          { status: 502 },
+        );
+      }
+
+      if (!isCompletedQueryJob(jobStatus)) {
+        return Response.json(
+          {
+            status: "running",
+            report,
+            jobId,
+            query: getDirectQueryPresentation(report),
+            jobStatus: jobStatus || "Queued",
+            poll: { jobId },
+          },
+          { status: 202, headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
+
+      const totalRows = getQueryJobRowCount(job);
+      if (totalRows === null) {
+        throw new Error(
+          "NXT completed the custom-field report refresh but did not return a matching-constituent count.",
+        );
+      }
+
+      const payload = {
+        status: "complete",
+        report,
+        jobId,
+        query: getDirectQueryPresentation(report),
+        resultMode: "count_only",
+        generatedAt: new Date().toISOString(),
+        columns: [],
+        rows: [],
+        totalRows,
+        truncated: false,
+      };
+      await saveReportSnapshot(cacheKey, payload);
+
+      return Response.json(payload, {
+        headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
+      });
+    }
+
     const resultUrl = getQueryResultUrl(job);
     if (!resultUrl) {
       if (isFailedQueryJob(jobStatus)) {

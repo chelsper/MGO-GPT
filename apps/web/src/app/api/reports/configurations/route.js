@@ -100,6 +100,10 @@ async function saveCustomFieldReport({ body, currentUser, existingRecord = null 
   const validationError = validateCustomFieldReportInput(input);
   if (validationError) throw createRequestError(validationError);
 
+  // Existing reports can continue using a saved NXT query. New reports are direct custom-field reports.
+  const legacySourceQueryId = String(existingRecord?.source_query_id || "").trim() || null;
+  const legacySourceQueryName = String(existingRecord?.source_query_name || "").trim() || null;
+
   const activeUserIds = await getActiveSelectedUserIds(input.specificUserIds);
   if (input.active && activeUserIds.length === 0) {
     throw createRequestError("Select at least one active user before enabling this report.");
@@ -117,8 +121,8 @@ async function saveCustomFieldReport({ body, currentUser, existingRecord = null 
           description = ${input.description || null},
           field_category = ${input.fieldCategory},
           field_description = ${input.fieldDescription},
-          source_query_id = ${input.sourceQueryId},
-          source_query_name = ${input.sourceQueryName || null},
+          source_query_id = ${legacySourceQueryId},
+          source_query_name = ${legacySourceQueryName},
           specific_user_ids = ${JSON.stringify(activeUserIds)}::jsonb,
           active = ${input.active},
           updated_by = ${currentUser.id},
@@ -146,8 +150,8 @@ async function saveCustomFieldReport({ body, currentUser, existingRecord = null 
           ${input.description || null},
           ${input.fieldCategory},
           ${input.fieldDescription},
-          ${input.sourceQueryId},
-          ${input.sourceQueryName || null},
+          ${null},
+          ${null},
           ${JSON.stringify(activeUserIds)}::jsonb,
           ${input.active},
           ${currentUser.id},

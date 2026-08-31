@@ -77,7 +77,7 @@ export default function CustomFieldReportPage() {
       setError("");
       setStatusText(
         refreshVersion > 0
-          ? "Starting the configured NXT saved query..."
+          ? "Starting the NXT custom-field report refresh..."
           : "Loading the last successful report snapshot...",
       );
       try {
@@ -88,10 +88,10 @@ export default function CustomFieldReportPage() {
 
         for (let attempt = 0; response.status === 202 && attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
           if (!active) return;
-          setStatusText("Waiting for NXT to finish the configured saved query...");
+          setStatusText("Waiting for NXT to finish the custom-field report refresh...");
           const jobId = String(payload?.poll?.jobId || payload?.jobId || "").trim();
           if (!jobId) {
-            throw new Error("NXT did not return a saved-query job to monitor.");
+            throw new Error("NXT did not return a custom-field job to monitor.");
           }
           await wait(POLL_INTERVAL_MS);
           if (!active) return;
@@ -101,7 +101,9 @@ export default function CustomFieldReportPage() {
         }
 
         if (response.status === 202) {
-          throw new Error("The saved NXT query is taking longer than expected. Please try refreshing this report again.");
+          throw new Error(
+            "The NXT custom-field report is taking longer than expected. Please try refreshing this report again.",
+          );
         }
         if (!active) return;
         setReport(payload);
@@ -135,8 +137,9 @@ export default function CustomFieldReportPage() {
   const title = String(definition.title || "Custom Field Report");
   const description = String(
     definition.description ||
-      "Constituents returned by the configured Blackbaud custom-field saved query.",
+      "Count of constituents with the configured exact Blackbaud custom-field category and description.",
   );
+  const isCountOnly = report?.resultMode === "count_only";
   const columns = Array.isArray(report?.columns) ? report.columns : [];
   const rows = Array.isArray(report?.rows) ? report.rows : [];
   const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
@@ -253,101 +256,125 @@ export default function CustomFieldReportPage() {
             >
               <div style={{ color: "#475569", lineHeight: 1.5 }}>
                 <strong style={{ display: "block", color: "#0F172A", fontSize: "18px" }}>
-                  {Number(report?.totalRows || 0).toLocaleString("en-US")} results
+                  {Number(report?.totalRows || 0).toLocaleString("en-US")} {isCountOnly ? "matching constituents" : "results"}
                 </strong>
                 <span>
                   Last refreshed {formatRefreshTime(report?.generatedAt)} · {definition.fieldCategory}: {definition.fieldDescription}
                 </span>
               </div>
-              <label
-                style={{
-                  minWidth: "260px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  border: "1px solid #CBD5E1",
-                  borderRadius: "10px",
-                  backgroundColor: "white",
-                  padding: "0 12px",
-                }}
-              >
-                <Search size={17} color="#64748B" />
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search results"
+              {!isCountOnly ? (
+                <label
                   style={{
-                    minHeight: "42px",
-                    width: "100%",
-                    border: 0,
-                    outline: 0,
-                    color: "#0F172A",
-                    font: "inherit",
+                    minWidth: "260px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    border: "1px solid #CBD5E1",
+                    borderRadius: "10px",
+                    backgroundColor: "white",
+                    padding: "0 12px",
                   }}
-                />
-              </label>
-            </section>
-
-            <section
-              style={{
-                overflowX: "auto",
-                border: "1px solid #E2E8F0",
-                borderRadius: "16px",
-                backgroundColor: "white",
-              }}
-            >
-              <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ backgroundColor: "#F8FAFC", textAlign: "left" }}>
-                    {columns.map((column) => (
-                      <th
-                        key={column}
-                        style={{
-                          borderBottom: "1px solid #E2E8F0",
-                          color: "#475569",
-                          fontSize: "12px",
-                          letterSpacing: "0.03em",
-                          padding: "13px 16px",
-                          textTransform: "uppercase",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {column}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.map((row) => (
-                    <tr key={row.id}>
-                      {columns.map((column) => (
-                        <td
-                          key={column}
-                          style={{
-                            borderBottom: "1px solid #F1F5F9",
-                            color: "#1E293B",
-                            padding: "13px 16px",
-                            verticalAlign: "top",
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          {formatValue(row?.values?.[column])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!filteredRows.length ? (
-                <p style={{ margin: 0, padding: "22px", color: "#64748B" }}>No report rows match this search.</p>
+                >
+                  <Search size={17} color="#64748B" />
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search results"
+                    style={{
+                      minHeight: "42px",
+                      width: "100%",
+                      border: 0,
+                      outline: 0,
+                      color: "#0F172A",
+                      font: "inherit",
+                    }}
+                  />
+                </label>
               ) : null}
             </section>
-            {report?.truncated ? (
-              <p style={{ margin: "12px 0 0", color: "#B45309", fontWeight: 700 }}>
-                Showing the first {rows.length.toLocaleString("en-US")} of {Number(report.totalRows || 0).toLocaleString("en-US")} returned rows.
-              </p>
-            ) : null}
+
+            {isCountOnly ? (
+              <section
+                style={{
+                  border: "1px solid #BFDBFE",
+                  borderRadius: "16px",
+                  padding: "20px",
+                  backgroundColor: "#EFF6FF",
+                  color: "#1E3A8A",
+                }}
+              >
+                <strong>Count-only snapshot</strong>
+                <p style={{ margin: "8px 0 0", color: "#475569", lineHeight: 1.5 }}>
+                  The app retains only the matching constituent count. It does not download, store, or display the
+                  individual NXT records for this report.
+                </p>
+              </section>
+            ) : (
+              <>
+                <section
+                  style={{
+                    overflowX: "auto",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "16px",
+                    backgroundColor: "white",
+                  }}
+                >
+                  <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ backgroundColor: "#F8FAFC", textAlign: "left" }}>
+                        {columns.map((column) => (
+                          <th
+                            key={column}
+                            style={{
+                              borderBottom: "1px solid #E2E8F0",
+                              color: "#475569",
+                              fontSize: "12px",
+                              letterSpacing: "0.03em",
+                              padding: "13px 16px",
+                              textTransform: "uppercase",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map((row) => (
+                        <tr key={row.id}>
+                          {columns.map((column) => (
+                            <td
+                              key={column}
+                              style={{
+                                borderBottom: "1px solid #F1F5F9",
+                                color: "#1E293B",
+                                padding: "13px 16px",
+                                verticalAlign: "top",
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              {formatValue(row?.values?.[column])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {!filteredRows.length ? (
+                    <p style={{ margin: 0, padding: "22px", color: "#64748B" }}>
+                      No report rows match this search.
+                    </p>
+                  ) : null}
+                </section>
+                {report?.truncated ? (
+                  <p style={{ margin: "12px 0 0", color: "#B45309", fontWeight: 700 }}>
+                    Showing the first {rows.length.toLocaleString("en-US")} of {Number(report.totalRows || 0).toLocaleString("en-US")} returned rows.
+                  </p>
+                ) : null}
+              </>
+            )}
           </>
         ) : null}
       </div>

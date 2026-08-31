@@ -28,6 +28,7 @@ const BLACKBAUD_GIFT_V2_URL = "https://api.sky.blackbaud.com/gft-gifts/v2/gifts"
 const BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL =
   "https://api.sky.blackbaud.com/fundraising/v1/fundraisers";
 const BLACKBAUD_QUERY_URL = "https://api.sky.blackbaud.com/query";
+const BLACKBAUD_QUERY_TYPES_URL = `${BLACKBAUD_QUERY_URL}/querytypes`;
 const BLACKBAUD_QUERY_LIST_URL = `${BLACKBAUD_QUERY_URL}/queries`;
 const BLACKBAUD_QUERY_EXECUTE_URL = `${BLACKBAUD_QUERY_LIST_URL}/execute`;
 const BLACKBAUD_QUERY_EXECUTE_BY_ID_URL = `${BLACKBAUD_QUERY_LIST_URL}/executebyid`;
@@ -664,6 +665,46 @@ export async function createBlackbaudQueryJob({ userId, authUserId, origin, quer
         formatting_mode: "UI",
         sql_generation_mode: "Query",
       },
+    },
+  );
+}
+
+// The Query API exposes the available-field tree separately from saved
+// queries. This lets configurable reports build a narrowly-scoped ad-hoc
+// query without requiring a user-managed saved query in NXT.
+export async function getBlackbaudQueryAvailableFields({
+  userId,
+  authUserId,
+  origin,
+  queryTypeId,
+  nodeId,
+  fieldContext = "Filter",
+  resultLayout = "MultiRow",
+}) {
+  const normalizedQueryTypeId = Number(queryTypeId);
+  const normalizedNodeId = Number(nodeId);
+
+  if (!Number.isInteger(normalizedQueryTypeId) || normalizedQueryTypeId <= 0) {
+    throw new Error("A valid Blackbaud query type ID is required");
+  }
+  if (!Number.isInteger(normalizedNodeId) || normalizedNodeId < 0) {
+    throw new Error("A valid Blackbaud query node ID is required");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_QUERY_TYPES_URL}/${encodeURIComponent(String(normalizedQueryTypeId))}/nodes/${encodeURIComponent(String(normalizedNodeId))}/availablefields`,
+    {
+      userId,
+      authUserId,
+      origin,
+      searchParams: {
+        product: BLACKBAUD_QUERY_PRODUCT,
+        module: BLACKBAUD_QUERY_MODULE,
+        field_context: fieldContext,
+        result_layout: resultLayout,
+      },
+      timeoutMs: 10_000,
+      maxRetries: 1,
     },
   );
 }
