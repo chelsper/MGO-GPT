@@ -326,11 +326,19 @@ async function parseBlackbaudResponse(response) {
       response.statusText ||
       "Blackbaud request failed";
     const traceId = String(payload?.trace_id || payload?.traceId || "").trim();
-    throw new Error(
+    const error = new Error(
       `Blackbaud ${response.status} ${response.statusText}: ${detail}${
         traceId ? ` (trace ${traceId})` : ""
       }`,
     );
+    // Keep non-sensitive transport metadata available to diagnostic-only
+    // callers without changing the error text used by existing API routes.
+    error.httpStatus = response.status;
+    error.topLevelFieldNames =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? Object.keys(payload).sort()
+        : [];
+    throw error;
   }
 
   return payload;
@@ -491,6 +499,7 @@ export async function blackbaudApiFetch(
     body,
     timeoutMs = BLACKBAUD_REQUEST_TIMEOUT_MS,
     maxRetries = BLACKBAUD_MAX_RETRIES,
+    includeResponseMetadata = false,
   } = {},
 ) {
   const config = getBlackbaudConfig(origin);
@@ -563,7 +572,14 @@ export async function blackbaudApiFetch(
       }
 
       clearTimeout(timeoutId);
-      return parseBlackbaudResponse(response);
+      const payload = await parseBlackbaudResponse(response);
+      return includeResponseMetadata
+        ? {
+            httpStatus: response.status,
+            statusText: response.statusText || null,
+            payload,
+          }
+        : payload;
     } catch (error) {
       clearTimeout(timeoutId);
       const timedOut =
@@ -695,7 +711,13 @@ export async function getBlackbaudSavedQueryById({
   );
 }
 
-export async function createBlackbaudQueryJob({ userId, authUserId, origin, queryId }) {
+export async function createBlackbaudQueryJob({
+  userId,
+  authUserId,
+  origin,
+  queryId,
+  includeResponseMetadata = false,
+}) {
   if (!queryId) throw new Error("A Blackbaud query ID is required");
 
   return blackbaudApiFetch(
@@ -717,6 +739,7 @@ export async function createBlackbaudQueryJob({ userId, authUserId, origin, quer
         formatting_mode: "UI",
         sql_generation_mode: "Query",
       },
+      includeResponseMetadata,
     },
   );
 }
@@ -823,7 +846,13 @@ export async function createBlackbaudAdHocQueryJob({
   );
 }
 
-export async function getBlackbaudQueryJob({ userId, authUserId, origin, jobId }) {
+export async function getBlackbaudQueryJob({
+  userId,
+  authUserId,
+  origin,
+  jobId,
+  includeResponseMetadata = false,
+}) {
   if (!jobId) throw new Error("A Blackbaud query job ID is required");
 
   return blackbaudApiFetch(
@@ -837,6 +866,7 @@ export async function getBlackbaudQueryJob({ userId, authUserId, origin, jobId }
         module: BLACKBAUD_QUERY_MODULE,
         include_read_url: "OnceCompleted",
       },
+      includeResponseMetadata,
     },
   );
 }
@@ -901,6 +931,92 @@ export async function downloadBlackbaudQueryResult(
       );
     }
     return content;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Blackbaud query result download timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// This is intentionally separate from downloadBlackbaudQueryResult. It is
+// used by an administrator-only diagnostic to inspect the response shape
+// without altering normal query-result parsing or report snapshots.
+export async function downloadBlackbaudQueryResultWithMetadata(
+  resultUrl,
+  {
+    userId,
+    authUserId,
+    origin,
+    timeoutMs = BLACKBAUD_REQUEST_TIMEOUT_MS,
+  } = {},
+) {
+  const url = new URL(String(resultUrl || ""));
+  if (url.protocol !== "https:") {
+    throw new Error("The Blackbaud query result URL must use HTTPS");
+  }
+
+  const isBlackbaudApiUrl =
+    url.hostname.toLowerCase() === "api.sky.blackbaud.com";
+  const headers = {
+    Accept:
+      "text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,text/html,text/plain",
+  };
+
+  if (isBlackbaudApiUrl) {
+    const config = getBlackbaudConfig(origin);
+    await ensureAppSchema();
+    await assertBlackbaudQuotaAvailable();
+    const connection = await getValidBlackbaudConnection(
+      authUserId || userId,
+      origin,
+    );
+    if (!connection?.access_token) {
+      throw new Error("Blackbaud is not connected for this user");
+    }
+    headers.Authorization = `Bearer ${connection.access_token}`;
+    headers["Bb-Api-Subscription-Key"] = config.subscriptionKey;
+  }
+
+  const requestTimeoutMs = Math.max(
+    1000,
+    Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS,
+  );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    });
+    const body = new Uint8Array(await response.arrayBuffer());
+
+    if (!response.ok) {
+      const responseText = new TextDecoder().decode(body);
+      if (isBlackbaudApiUrl && isQuotaExceededResponse(response, responseText)) {
+        throw await recordBlackbaudQuotaExceeded({
+          responseText,
+          retryAfterMs: parseRetryAfterMs(response, responseText),
+        });
+      }
+
+      const error = new Error(
+        `Blackbaud query result download failed: ${response.status} ${response.statusText}`,
+      );
+      error.httpStatus = response.status;
+      throw error;
+    }
+
+    return {
+      httpStatus: response.status,
+      statusText: response.statusText || null,
+      contentType: response.headers.get("content-type") || null,
+      contentLength: response.headers.get("content-length") || null,
+      body,
+    };
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error("Blackbaud query result download timed out");
