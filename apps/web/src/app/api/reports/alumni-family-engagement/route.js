@@ -43,7 +43,7 @@ const DEFAULT_REPORT_DESCRIPTION =
   "Configured dashboard panels backed by saved NXT query snapshots.";
 const QUERY_POLL_INTERVAL_MS = 1500;
 const QUERY_MAX_WAIT_MS = 90000;
-const QUERY_RESULT_CSV_ROW_COUNT_SOURCE = "query-result-csv-row-count-v2";
+const QUERY_RESULT_CSV_ROW_COUNT_SOURCE = "query-result-csv-row-count-v3";
 
 function getReportPresentation(access) {
   return {
@@ -189,14 +189,18 @@ function getQueryJobMetadataRowCount(job) {
   return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
 }
 
-function getQueryResultUrl(job) {
-  const candidates = [
+function getFirstQueryResultUrl(candidates) {
+  return String(
+    candidates.find((candidate) => String(candidate || "").trim()) || "",
+  ).trim();
+}
+
+function getQueryResultFileUrl(job) {
+  return getFirstQueryResultUrl([
     job?.sas_uri,
     job?.sasUri,
     job?.result_uri,
     job?.resultUri,
-    job?.read_url,
-    job?.readUrl,
     job?.result_url,
     job?.resultUrl,
     job?.resultFileUrl,
@@ -204,17 +208,23 @@ function getQueryResultUrl(job) {
     job?.downloadUrl,
     job?.result?.sas_uri,
     job?.result?.sasUri,
-    job?.result?.read_url,
-    job?.result?.readUrl,
+    job?.result?.result_uri,
+    job?.result?.resultUri,
     job?.result?.result_url,
     job?.result?.resultUrl,
+    job?.result?.resultFileUrl,
     job?.result?.download_url,
     job?.result?.downloadUrl,
-  ];
+  ]);
+}
 
-  return String(
-    candidates.find((candidate) => String(candidate || "").trim()) || "",
-  ).trim();
+function getQueryResultReadUrl(job) {
+  return getFirstQueryResultUrl([
+    job?.read_url,
+    job?.readUrl,
+    job?.result?.read_url,
+    job?.result?.readUrl,
+  ]);
 }
 
 function parseCsv(content) {
@@ -261,8 +271,23 @@ function parseCsv(content) {
   return records;
 }
 
-function countQueryResultRows(content) {
-  const records = parseCsv(content);
+function countQueryResultRows(content, label) {
+  const resultCsv = String(content || "").replace(/^\uFEFF/, "");
+  const leadingContent = resultCsv.trimStart();
+
+  if (!leadingContent) {
+    throw new Error(
+      `NXT returned an empty result file for ${label}. The report was not updated.`,
+    );
+  }
+
+  if (/^(?:[\[{]|<!doctype\b|<html\b)/i.test(leadingContent)) {
+    throw new Error(
+      `NXT returned query-job metadata instead of the completed CSV result for ${label}. The report was not updated.`,
+    );
+  }
+
+  const records = parseCsv(resultCsv);
   if (!records.length) return 0;
 
   // Query jobs return a CSV header followed by the actual saved-query rows.
@@ -289,15 +314,19 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
     lastStatus = getQueryJobStatus(job) || lastStatus;
 
     if (isCompletedQueryJob(lastStatus)) {
-      const resultUrl = getQueryResultUrl(job);
+      const resultUrl = getQueryResultFileUrl(job) || getQueryResultReadUrl(job);
       if (!resultUrl) {
         throw new Error(
           `NXT completed ${label}, but did not provide its result file. The report was not updated.`,
         );
       }
-      const resultCsv = await downloadBlackbaudQueryResult(resultUrl);
+      const resultCsv = await downloadBlackbaudQueryResult(resultUrl, {
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+      });
       return {
-        total: countQueryResultRows(resultCsv),
+        total: countQueryResultRows(resultCsv, label),
         polls,
         queryJobRowCount: getQueryJobMetadataRowCount(job),
       };

@@ -80,7 +80,7 @@ function createCachedSnapshot(dashboard = DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHB
   const totals = getAlumniDonorCountRows(dashboard).map((row) => ({
     ...row,
     total: SAVED_QUERY_COUNTS[row.queryId] ?? 0,
-    countSource: "query-result-csv-row-count-v2",
+    countSource: "query-result-csv-row-count-v3",
     definitionFingerprint: getAlumniDonorCountRowFingerprint(dashboard, row),
     frozenAt: row.refreshPolicy === "frozen" ? generatedAt : null,
   }));
@@ -104,7 +104,7 @@ function mockCompletedDefaultCountJobs() {
     status: "Completed",
     // This field is deliberately not trusted as the result count.
     row_count: 1,
-    read_url: `https://query-results.example/${String(jobId).replace("query-", "")}.csv`,
+    sas_uri: `https://query-results.example/${String(jobId).replace("query-", "")}.csv`,
   }));
   downloadBlackbaudQueryResultMock.mockImplementation(async (resultUrl) => {
     const queryId = String(resultUrl).match(/\/(\d+)\.csv$/)?.[1];
@@ -234,7 +234,7 @@ describe("Alumni & Family Engagement report route", () => {
       // Job metadata can say 1 even when the downloaded result has hundreds
       // or thousands of rows.
       row_count: 1,
-      read_url: `https://query-results.example/${String(jobId).replace("query-", "")}.csv`,
+      sas_uri: `https://query-results.example/${String(jobId).replace("query-", "")}.csv`,
     }));
     const { GET } = await import("./route.js");
     const response = await GET(createRequest("?refresh=1"));
@@ -244,9 +244,24 @@ describe("Alumni & Family Engagement report route", () => {
     expect(payload.dashboard.panels[0].totals[0]).toMatchObject({
       key: "fy27-alumni-giving",
       total: 133,
-      countSource: "query-result-csv-row-count-v2",
+      countSource: "query-result-csv-row-count-v3",
     });
     expect(downloadBlackbaudQueryResultMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not save query-job metadata as a CSV result", async () => {
+    downloadBlackbaudQueryResultMock.mockResolvedValueOnce(
+      JSON.stringify({ id: "query-30976", status: "Completed" }),
+    );
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload.error).toMatch(
+      /metadata instead of the completed CSV result/i,
+    );
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 
   it("reuses a frozen row during a manual refresh", async () => {

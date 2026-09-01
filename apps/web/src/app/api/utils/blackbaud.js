@@ -841,25 +841,74 @@ export async function getBlackbaudQueryJob({ userId, authUserId, origin, jobId }
   );
 }
 
-export async function downloadBlackbaudQueryResult(resultUrl) {
+export async function downloadBlackbaudQueryResult(
+  resultUrl,
+  {
+    userId,
+    authUserId,
+    origin,
+    timeoutMs = BLACKBAUD_REQUEST_TIMEOUT_MS,
+  } = {},
+) {
   const url = new URL(String(resultUrl || ""));
   if (url.protocol !== "https:") {
     throw new Error("The Blackbaud query result URL must use HTTPS");
   }
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: "text/csv,text/plain,application/json",
-    },
-  });
-  const content = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `Blackbaud query result download failed: ${response.status} ${response.statusText}`,
+  const isBlackbaudApiUrl =
+    url.hostname.toLowerCase() === "api.sky.blackbaud.com";
+  const headers = {
+    Accept: "text/csv,text/plain",
+  };
+
+  if (isBlackbaudApiUrl) {
+    const config = getBlackbaudConfig(origin);
+    await ensureAppSchema();
+    await assertBlackbaudQuotaAvailable();
+    const connection = await getValidBlackbaudConnection(
+      authUserId || userId,
+      origin,
     );
+    if (!connection?.access_token) {
+      throw new Error("Blackbaud is not connected for this user");
+    }
+    headers.Authorization = `Bearer ${connection.access_token}`;
+    headers["Bb-Api-Subscription-Key"] = config.subscriptionKey;
   }
 
-  return content;
+  const requestTimeoutMs = Math.max(
+    1000,
+    Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS,
+  );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    });
+    const content = await response.text();
+    if (!response.ok) {
+      if (isBlackbaudApiUrl && isQuotaExceededResponse(response, content)) {
+        throw await recordBlackbaudQuotaExceeded({
+          responseText: content,
+          retryAfterMs: parseRetryAfterMs(response, content),
+        });
+      }
+      throw new Error(
+        `Blackbaud query result download failed: ${response.status} ${response.statusText}`,
+      );
+    }
+    return content;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Blackbaud query result download timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function searchBlackbaudConstituents({
