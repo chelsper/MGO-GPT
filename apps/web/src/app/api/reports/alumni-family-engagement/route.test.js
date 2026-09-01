@@ -13,7 +13,6 @@ const {
   ensureAppSchemaMock,
   getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJobMock,
-  getBlackbaudSavedQueryByIdMock,
   getCachedReportSnapshotMock,
   getOrCreateUserMock,
   getReportAccessForUserMock,
@@ -28,7 +27,6 @@ const {
   ensureAppSchemaMock: vi.fn(),
   getBlackbaudConfigIssuesMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
-  getBlackbaudSavedQueryByIdMock: vi.fn(),
   getCachedReportSnapshotMock: vi.fn(),
   getOrCreateUserMock: vi.fn(),
   getReportAccessForUserMock: vi.fn(),
@@ -62,11 +60,6 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   createBlackbaudQueryJob: createBlackbaudQueryJobMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJob: getBlackbaudQueryJobMock,
-  getBlackbaudSavedQueryById: getBlackbaudSavedQueryByIdMock,
-  getBlackbaudSavedQueryRecordCount: (query) => {
-    const count = Number(query?.num_records);
-    return Number.isSafeInteger(count) && count >= 0 ? count : null;
-  },
 }));
 
 const SAVED_QUERY_COUNTS = {
@@ -84,7 +77,7 @@ function createCachedSnapshot(dashboard = DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHB
   const totals = getAlumniDonorCountRows(dashboard).map((row) => ({
     ...row,
     total: SAVED_QUERY_COUNTS[row.queryId] ?? 0,
-    countSource: "saved-query-record-count-v1",
+    countSource: "query-job-row-count-v1",
     definitionFingerprint: getAlumniDonorCountRowFingerprint(dashboard, row),
     frozenAt: row.refreshPolicy === "frozen" ? generatedAt : null,
   }));
@@ -106,10 +99,7 @@ function mockCompletedDefaultCountJobs() {
   getBlackbaudQueryJobMock.mockImplementation(async ({ jobId }) => ({
     id: jobId,
     status: "Completed",
-  }));
-  getBlackbaudSavedQueryByIdMock.mockImplementation(async ({ queryId }) => ({
-    id: Number(queryId),
-    num_records: SAVED_QUERY_COUNTS[queryId] ?? 0,
+    row_count: SAVED_QUERY_COUNTS[String(jobId).replace("query-", "")] ?? 0,
   }));
 }
 
@@ -185,26 +175,18 @@ describe("Alumni & Family Engagement report route", () => {
         ],
       },
       refreshMetrics: {
-        source: "blackbaud-saved-query-api",
+        source: "blackbaud-query-job-row-count",
         queryJobs: 2,
         queryJobPolls: 2,
       },
     });
     expect(createBlackbaudQueryJobMock).toHaveBeenCalledTimes(2);
-    expect(getBlackbaudSavedQueryByIdMock).toHaveBeenCalledTimes(2);
+    expect(getBlackbaudQueryJobMock).toHaveBeenCalledTimes(2);
     expect(createBlackbaudQueryJobMock).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ queryId: "30976" }),
     );
     expect(createBlackbaudQueryJobMock).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ queryId: "30679" }),
-    );
-    expect(getBlackbaudSavedQueryByIdMock).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ queryId: "30976" }),
-    );
-    expect(getBlackbaudSavedQueryByIdMock).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ queryId: "30679" }),
     );
@@ -212,15 +194,15 @@ describe("Alumni & Family Engagement report route", () => {
       "report:alumni-family-engagement",
       expect.objectContaining({
         status: "complete",
-        refreshMetrics: expect.objectContaining({ source: "blackbaud-saved-query-api" }),
+        refreshMetrics: expect.objectContaining({ source: "blackbaud-query-job-row-count" }),
       }),
     );
   });
 
-  it("does not serve a legacy snapshot that counted CSV result rows", async () => {
+  it("does not serve a legacy snapshot that used saved-query metadata", async () => {
     const snapshot = createCachedSnapshot();
     snapshot.totals.forEach((total) => {
-      total.countSource = "result-csv-v1";
+      total.countSource = "saved-query-record-count-v1";
     });
     getCachedReportSnapshotMock.mockResolvedValueOnce(snapshot);
     const { GET } = await import("./route.js");
@@ -230,6 +212,27 @@ describe("Alumni & Family Engagement report route", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ status: "refresh_required" });
     expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the completed query job row count instead of saved-query metadata", async () => {
+    getBlackbaudQueryJobMock.mockImplementation(async ({ jobId }) => ({
+      id: jobId,
+      status: "Completed",
+      // Saved-query metadata can say 1 while the completed job contains the
+      // real number of returned constituents. The job value must win.
+      row_count: jobId === "query-30976" ? 133 : 1412,
+      query: { num_records: 1 },
+    }));
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.dashboard.panels[0].totals[0]).toMatchObject({
+      key: "fy27-alumni-giving",
+      total: 133,
+      countSource: "query-job-row-count-v1",
+    });
   });
 
   it("reuses a frozen row during a manual refresh", async () => {

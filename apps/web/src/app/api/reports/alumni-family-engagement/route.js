@@ -15,8 +15,6 @@ import {
   createBlackbaudQueryJob,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
-  getBlackbaudSavedQueryById,
-  getBlackbaudSavedQueryRecordCount,
 } from "@/app/api/utils/blackbaud";
 import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
@@ -44,7 +42,7 @@ const DEFAULT_REPORT_DESCRIPTION =
   "Configured dashboard panels backed by saved NXT query snapshots.";
 const QUERY_POLL_INTERVAL_MS = 1500;
 const QUERY_MAX_WAIT_MS = 90000;
-const SAVED_QUERY_RECORD_COUNT_SOURCE = "saved-query-record-count-v1";
+const QUERY_JOB_ROW_COUNT_SOURCE = "query-job-row-count-v1";
 
 function getReportPresentation(access) {
   return {
@@ -64,11 +62,12 @@ function getCompatibleCachedTotal({ cachedPayload, dashboard, row }) {
   );
   if (!cachedTotal) return null;
 
-  // Saved-query metadata contains NXT's actual result total. Older snapshots
-  // counted CSV export rows, which can be a single aggregate result row.
+  // A completed Query API job reports the actual number of returned records.
+  // Saved-query metadata can represent a stale or aggregate result and must
+  // never be used as the dashboard total.
   if (
     String(cachedTotal?.countSource || "").trim() !==
-    SAVED_QUERY_RECORD_COUNT_SOURCE
+    QUERY_JOB_ROW_COUNT_SOURCE
   ) {
     return null;
   }
@@ -168,11 +167,33 @@ function isFailedQueryJob(status) {
   return /(?:fail|cancel|error|declin)/i.test(String(status || ""));
 }
 
+function getQueryJobRowCount(job) {
+  const candidates = [
+    job?.row_count,
+    job?.rowCount,
+    job?.total_rows,
+    job?.totalRows,
+    job?.record_count,
+    job?.recordCount,
+    job?.result?.row_count,
+    job?.result?.rowCount,
+    job?.result?.total_rows,
+    job?.result?.totalRows,
+    job?.result?.record_count,
+    job?.result?.recordCount,
+  ];
+  const value = candidates.find(
+    (candidate) => candidate !== undefined && candidate !== null && String(candidate).trim(),
+  );
+  const rowCount = Number(value);
+  return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForBlackbaudQueryJob({ user, origin, jobId, queryId, label }) {
+async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
   const startedAt = Date.now();
   let polls = 0;
   let lastStatus = "Queued";
@@ -188,16 +209,10 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, queryId, label })
     lastStatus = getQueryJobStatus(job) || lastStatus;
 
     if (isCompletedQueryJob(lastStatus)) {
-      const query = await getBlackbaudSavedQueryById({
-        userId: user.id,
-        authUserId: user.id,
-        origin,
-        queryId,
-      });
-      const total = getBlackbaudSavedQueryRecordCount(query);
+      const total = getQueryJobRowCount(job);
       if (total === null) {
         throw new Error(
-          `NXT completed ${label}, but did not return its saved-query record count. The report was not updated.`,
+          `NXT completed ${label}, but did not return its query-result row count. The report was not updated.`,
         );
       }
       return { total, polls };
@@ -267,14 +282,13 @@ async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload
       user,
       origin,
       jobId,
-      queryId: row.queryId,
       label: row.label,
     });
     queryJobPolls += polls;
     totals.push({
       ...row,
       total,
-      countSource: SAVED_QUERY_RECORD_COUNT_SOURCE,
+      countSource: QUERY_JOB_ROW_COUNT_SOURCE,
       refreshPolicy: row.refreshPolicy,
       definitionFingerprint,
       frozenAt: row.refreshPolicy === "frozen" ? refreshedAt : null,
@@ -286,7 +300,7 @@ async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload
     totalRows: totals.reduce((sum, total) => sum + total.total, 0),
     warnings: [],
     refreshMetrics: {
-      source: "blackbaud-saved-query-api",
+      source: "blackbaud-query-job-row-count",
       queryJobs,
       queryJobPolls,
       frozenSnapshotsReused,
