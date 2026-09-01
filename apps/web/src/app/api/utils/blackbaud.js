@@ -646,6 +646,55 @@ export async function findBlackbaudQueryByName({
   return null;
 }
 
+export function getBlackbaudSavedQueryRecordCount(query) {
+  const payload =
+    query?.query && typeof query.query === "object"
+      ? query.query
+      : query;
+
+  const count = Number(
+    payload?.num_records ??
+      payload?.numRecords ??
+      payload?.record_count ??
+      payload?.recordCount ??
+      payload?.result?.num_records ??
+      payload?.result?.numRecords ??
+      payload?.result?.record_count ??
+      payload?.result?.recordCount ??
+      payload?.statistics?.num_records ??
+      payload?.statistics?.numRecords ??
+      payload?.statistics?.record_count ??
+      payload?.statistics?.recordCount,
+  );
+
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
+export async function getBlackbaudSavedQueryById({
+  userId,
+  authUserId,
+  origin,
+  queryId,
+}) {
+  const normalizedQueryId = String(queryId || "").trim();
+  if (!/^\d+$/.test(normalizedQueryId)) {
+    throw new Error("A valid Blackbaud saved query ID is required");
+  }
+
+  return blackbaudApiFetch(
+    `${BLACKBAUD_QUERY_LIST_URL}/${encodeURIComponent(normalizedQueryId)}`,
+    {
+      userId,
+      authUserId,
+      origin,
+      searchParams: {
+        product: BLACKBAUD_QUERY_PRODUCT,
+        module: BLACKBAUD_QUERY_MODULE,
+      },
+    },
+  );
+}
+
 export async function createBlackbaudQueryJob({ userId, authUserId, origin, queryId }) {
   if (!queryId) throw new Error("A Blackbaud query ID is required");
 

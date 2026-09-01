@@ -13,9 +13,10 @@ import {
 } from "@/app/api/utils/reportRefresh";
 import {
   createBlackbaudQueryJob,
-  downloadBlackbaudQueryResult,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
+  getBlackbaudSavedQueryById,
+  getBlackbaudSavedQueryRecordCount,
 } from "@/app/api/utils/blackbaud";
 import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
@@ -43,7 +44,7 @@ const DEFAULT_REPORT_DESCRIPTION =
   "Configured dashboard panels backed by saved NXT query snapshots.";
 const QUERY_POLL_INTERVAL_MS = 1500;
 const QUERY_MAX_WAIT_MS = 90000;
-const QUERY_RESULT_COUNT_SOURCE = "result-csv-v1";
+const SAVED_QUERY_RECORD_COUNT_SOURCE = "saved-query-record-count-v1";
 
 function getReportPresentation(access) {
   return {
@@ -63,9 +64,12 @@ function getCompatibleCachedTotal({ cachedPayload, dashboard, row }) {
   );
   if (!cachedTotal) return null;
 
-  // Query job metadata has proven inconsistent with the visible NXT result
-  // count. Only reuse totals derived from the downloaded CSV result file.
-  if (String(cachedTotal?.countSource || "").trim() !== QUERY_RESULT_COUNT_SOURCE) {
+  // Saved-query metadata contains NXT's actual result total. Older snapshots
+  // counted CSV export rows, which can be a single aggregate result row.
+  if (
+    String(cachedTotal?.countSource || "").trim() !==
+    SAVED_QUERY_RECORD_COUNT_SOURCE
+  ) {
     return null;
   }
 
@@ -156,73 +160,6 @@ function getQueryJobStatus(job) {
   return String(job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "").trim();
 }
 
-function getQueryResultUrl(job) {
-  const candidates = [
-    job?.sas_uri,
-    job?.sasUri,
-    job?.read_url,
-    job?.readUrl,
-    job?.result_url,
-    job?.resultUrl,
-    job?.result_uri,
-    job?.resultUri,
-    job?.result_file_url,
-    job?.resultFileUrl,
-    job?.download_url,
-    job?.downloadUrl,
-    job?.result?.sas_uri,
-    job?.result?.sasUri,
-    job?.result?.read_url,
-    job?.result?.readUrl,
-    job?.result?.result_url,
-    job?.result?.resultUrl,
-    job?.result?.result_uri,
-    job?.result?.resultUri,
-    job?.result?.download_url,
-    job?.result?.downloadUrl,
-  ];
-  return String(candidates.find((candidate) => String(candidate || "").trim()) || "").trim();
-}
-
-function parseCsvRecords(content) {
-  const rows = [];
-  let row = [];
-  let value = "";
-  let quoted = false;
-
-  for (let index = 0; index < content.length; index += 1) {
-    const character = content[index];
-    if (character === '"') {
-      if (quoted && content[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === "," && !quoted) {
-      row.push(value);
-      value = "";
-    } else if ((character === "\n" || character === "\r") && !quoted) {
-      if (character === "\r" && content[index + 1] === "\n") index += 1;
-      row.push(value);
-      if (row.some((cell) => cell !== "")) rows.push(row);
-      row = [];
-      value = "";
-    } else {
-      value += character;
-    }
-  }
-
-  row.push(value);
-  if (row.some((cell) => cell !== "")) rows.push(row);
-  return rows;
-}
-
-export function countBlackbaudQueryResultRows(content) {
-  const records = parseCsvRecords(String(content || ""));
-  return Math.max(records.length - 1, 0);
-}
-
 function isCompletedQueryJob(status) {
   return /^(?:completed|complete|succeeded|success)$/i.test(String(status || "").trim());
 }
@@ -235,7 +172,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
+async function waitForBlackbaudQueryJob({ user, origin, jobId, queryId, label }) {
   const startedAt = Date.now();
   let polls = 0;
   let lastStatus = "Queued";
@@ -251,15 +188,18 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
     lastStatus = getQueryJobStatus(job) || lastStatus;
 
     if (isCompletedQueryJob(lastStatus)) {
-      const resultUrl = getQueryResultUrl(job);
-      if (!resultUrl) {
+      const query = await getBlackbaudSavedQueryById({
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+        queryId,
+      });
+      const total = getBlackbaudSavedQueryRecordCount(query);
+      if (total === null) {
         throw new Error(
-          `NXT completed ${label}, but did not return a downloadable result file. The report was not updated.`,
+          `NXT completed ${label}, but did not return its saved-query record count. The report was not updated.`,
         );
       }
-      const total = countBlackbaudQueryResultRows(
-        await downloadBlackbaudQueryResult(resultUrl),
-      );
       return { total, polls };
     }
 
@@ -327,13 +267,14 @@ async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload
       user,
       origin,
       jobId,
+      queryId: row.queryId,
       label: row.label,
     });
     queryJobPolls += polls;
     totals.push({
       ...row,
       total,
-      countSource: QUERY_RESULT_COUNT_SOURCE,
+      countSource: SAVED_QUERY_RECORD_COUNT_SOURCE,
       refreshPolicy: row.refreshPolicy,
       definitionFingerprint,
       frozenAt: row.refreshPolicy === "frozen" ? refreshedAt : null,

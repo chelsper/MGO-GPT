@@ -198,7 +198,53 @@ function AlumniFamilyDashboardEditor({
         result count; this configuration never changes query criteria in NXT.
       </p>
 
-      <div style={{ marginTop: "18px", display: "grid", gap: "14px" }}>
+      <div
+        style={{
+          marginTop: "18px",
+          border: "1px solid #BFDBFE",
+          borderRadius: "12px",
+          backgroundColor: "#FFFFFF",
+          padding: "14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <strong style={{ display: "block", color: "#1E3A8A" }}>Add panel</strong>
+          <span
+            style={{
+              display: "block",
+              marginTop: "4px",
+              color: "#64748B",
+              fontSize: "13px",
+              lineHeight: 1.45,
+            }}
+          >
+            Alumni Donor Count by Fiscal Year is the only panel type currently available.
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={panels.length >= 8}
+          onClick={() => onAddDonorCountPanel(configuration.key)}
+          style={{
+            border: "1px solid #1D4ED8",
+            borderRadius: "8px",
+            padding: "9px 12px",
+            background: panels.length >= 8 ? "#DBEAFE" : "#1D4ED8",
+            color: panels.length >= 8 ? "#64748B" : "#FFFFFF",
+            fontWeight: 700,
+            cursor: panels.length >= 8 ? "not-allowed" : "pointer",
+          }}
+        >
+          Add Alumni Donor Count panel
+        </button>
+      </div>
+
+      <div style={{ marginTop: "14px", display: "grid", gap: "14px" }}>
         {panels.map((panel, panelIndex) => {
           const panelType = ALUMNI_FAMILY_DASHBOARD_PANEL_TYPES.find(
             (item) => item.key === panel.type,
@@ -450,25 +496,6 @@ function AlumniFamilyDashboardEditor({
         })}
       </div>
 
-      <button
-        type="button"
-        disabled={panels.length >= 8}
-        onClick={() => onAddDonorCountPanel(configuration.key)}
-        style={{
-          marginTop: "15px",
-          width: "fit-content",
-          border: "1px solid #4F46E5",
-          backgroundColor: "white",
-          color: "#4338CA",
-          borderRadius: "9px",
-          padding: "9px 12px",
-          fontWeight: 800,
-          cursor: panels.length >= 8 ? "not-allowed" : "pointer",
-          opacity: panels.length >= 8 ? 0.55 : 1,
-        }}
-      >
-        Add Alumni Donor Count by Fiscal Year panel
-      </button>
     </section>
   );
 }
