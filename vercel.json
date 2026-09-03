@@ -12,6 +12,10 @@
     {
       "path": "/api/internal/custom-field-report-cache-refresh",
       "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/internal/portfolio-refresh",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

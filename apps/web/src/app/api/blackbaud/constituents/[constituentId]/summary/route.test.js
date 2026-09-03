@@ -24,7 +24,17 @@ vi.mock("@/app/api/utils/sql", () => ({
 vi.mock("@/app/api/utils/blackbaud", () => ({
   blackbaudApiFetch: vi.fn(),
   getBlackbaudConfigIssues: vi.fn(() => []),
+  isBlackbaudQuotaExceededError: vi.fn(() => false),
   listBlackbaudGifts: vi.fn(),
+  withBlackbaudRequestMetrics: vi.fn(async (callback) =>
+    callback({
+      callCount: 0,
+      totalDurationMs: 0,
+      lastEndpoint: null,
+      lastHttpStatus: null,
+      retryAfterMs: null,
+    }),
+  ),
 }));
 
 const baseArgs = {
@@ -316,5 +326,41 @@ describe("Blackbaud constituent summary identity language", () => {
         constituentCodes: "Constituent codes unavailable",
       },
     });
+  });
+
+  it("serves the workspace-level last-good portfolio snapshot without new NXT calls", async () => {
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({
+      workspaceUser: { id: 42 },
+      sessionUser: { id: 42 },
+      isActing: false,
+    });
+    const snapshot = {
+      constituentId: "5044931",
+      mapped: {
+        constituent: { id: "5044931", name: "Cached Prospect" },
+        prospectSummaryNarrative: "Last complete summary.",
+      },
+      warnings: {},
+    };
+    sql.mockImplementation(async (strings) =>
+      String(strings).includes("portfolio_constituent_snapshots")
+        ? [{ summary_payload: snapshot }]
+        : [],
+    );
+
+    const { GET } = await import("./route.js");
+    const response = await GET(
+      new Request("https://jumgogpt.app/api/blackbaud/constituents/5044931/summary"),
+      { params: { constituentId: "5044931" } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-mgogpt-nxt-summary-cache")).toBe(
+      "portfolio-snapshot",
+    );
+    await expect(response.json()).resolves.toEqual(snapshot);
+    expect(blackbaudApiFetch).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,10 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
+import {
+  getReportRefreshUser,
+  isAuthorizedReportRefreshRequest,
+} from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import {
   findBlackbaudConstituentByLookupId,
@@ -12,14 +16,16 @@ import {
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 
-const PORTFOLIO_CACHE_TTL_MS = 15 * 60 * 1000;
-const PORTFOLIO_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PORTFOLIO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PORTFOLIO_STALE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE = 4;
 const PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY = 2;
+const SCHEDULED_IDENTITY_LOOKUP_BATCH_SIZE = 25;
+const SCHEDULED_IDENTITY_LOOKUP_CONCURRENCY = 4;
 const PORTFOLIO_IDENTITY_LOOKUP_RETRY_COOLDOWN_MS = 30 * 1000;
-// v12 excludes deceased assignments and lets failed identity lookups yield to
-// later portfolio cards instead of retrying the same records indefinitely.
-const PORTFOLIO_CACHE_VERSION = "v12";
+// v13 resumes unresolved identities from a saved assignment snapshot instead
+// of treating the first small identity batch as a completed portfolio.
+const PORTFOLIO_CACHE_VERSION = "v13";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -410,6 +416,8 @@ async function getLivePortfolioIdentities({
   authUserId,
   origin,
   entries,
+  batchSize = PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE,
+  concurrency = PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY,
 }) {
   const now = Date.now();
   const unresolvedEntries = entries
@@ -419,7 +427,7 @@ async function getLivePortfolioIdentities({
         !hasResolvedConstituentName(entry.name, entry.constituentId) &&
         new Date(entry?.identityLookupRetryAt || 0).getTime() <= now,
     )
-    .slice(0, PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE);
+    .slice(0, Math.max(1, Number(batchSize) || PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE));
 
   const identities = new Map();
   let nextIndex = 0;
@@ -460,7 +468,7 @@ async function getLivePortfolioIdentities({
     Array.from(
       {
         length: Math.min(
-          PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY,
+          Math.max(1, Number(concurrency) || PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY),
           unresolvedEntries.length,
         ),
       },
@@ -743,6 +751,67 @@ function buildStaleCacheResponse(cachedPortfolio, { reason, diagnostics } = {}) 
   });
 }
 
+async function hydrateCachedPortfolio({
+  cachedPortfolio,
+  workspaceUserId,
+  authUserId,
+  origin,
+  cacheKey,
+  scheduled = false,
+}) {
+  const payload = cachedPortfolio?.payload || {};
+  const source = scheduled
+    ? "scheduled-cache"
+    : cachedPortfolio?.isFresh
+      ? "cache"
+      : "stale-cache";
+  const reason = cachedPortfolio?.isFresh ? undefined : "cached-portfolio-available";
+  const entries = [
+    ...(Array.isArray(payload?.leadSolicitor) ? payload.leadSolicitor : []),
+    ...(Array.isArray(payload?.supportingSolicitor) ? payload.supportingSolicitor : []),
+  ];
+  const beforeMeta = getPortfolioIdentityHydrationMeta(payload);
+
+  if (!beforeMeta.identityHydrationPending) {
+    return buildCachedPortfolioResponse(cachedPortfolio, { source, reason });
+  }
+
+  const identities = await getLivePortfolioIdentities({
+    userId: workspaceUserId,
+    authUserId,
+    origin,
+    entries,
+    batchSize: scheduled
+      ? SCHEDULED_IDENTITY_LOOKUP_BATCH_SIZE
+      : PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE,
+    concurrency: scheduled
+      ? SCHEDULED_IDENTITY_LOOKUP_CONCURRENCY
+      : PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY,
+  });
+  const hydratedPayload = mergePortfolioIdentities(payload, identities);
+  const afterMeta = getPortfolioIdentityHydrationMeta(hydratedPayload);
+  const responsePayload = {
+    ...hydratedPayload,
+    portfolioMeta: {
+      ...(payload?.portfolioMeta || {}),
+      ...afterMeta,
+      identityHydrationDeferred: false,
+      source,
+      reason,
+      cachedAt: new Date().toISOString(),
+      cacheKeyMatch: cachedPortfolio.cacheKeyMatch || "exact",
+    },
+  };
+
+  if (identities.size > 0) {
+    await saveCachedPortfolio(workspaceUserId, cacheKey, responsePayload).catch((error) => {
+      console.warn("Could not persist the next portfolio identity batch:", error);
+    });
+  }
+
+  return responsePayload;
+}
+
 async function buildCachedPortfolioOrLocalFallback({
   cachedPortfolio,
   workspaceUserId,
@@ -773,14 +842,16 @@ async function buildCachedPortfolioOrLocalFallback({
 }
 
 export async function GET(request) {
-  const session = await auth(request);
-  if (!session?.user?.email) {
+  const url = new URL(request.url);
+  const scheduledRefresh = isAuthorizedReportRefreshRequest(request);
+  const session = scheduledRefresh ? null : await auth(request);
+  if (!scheduledRefresh && !session?.user?.email) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   await ensureAppSchema();
 
-  const origin = new URL(request.url).origin;
+  const origin = url.origin;
   const configIssues = getBlackbaudConfigIssues(origin);
   if (configIssues.length > 0) {
     return Response.json(
@@ -793,11 +864,38 @@ export async function GET(request) {
   }
 
   try {
-    await getOrCreateUser(session);
-    const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
+    let sessionUser;
+    let workspaceUser;
+    let isActing;
+
+    if (scheduledRefresh) {
+      sessionUser = await getReportRefreshUser();
+      const workspaceUserId = Number(url.searchParams.get("workspaceUserId") || 0);
+      if (!sessionUser || !Number.isInteger(workspaceUserId) || workspaceUserId <= 0) {
+        return Response.json({ error: "Invalid scheduled portfolio refresh target" }, { status: 400 });
+      }
+      const workspaceUsers = await sql`
+        SELECT *
+        FROM users
+        WHERE id = ${workspaceUserId}
+          AND active = TRUE
+        LIMIT 1
+      `;
+      workspaceUser = workspaceUsers[0] || null;
+      if (!workspaceUser) {
+        return Response.json({ error: "Portfolio refresh target was not found" }, { status: 404 });
+      }
+      isActing = sessionUser.id !== workspaceUser.id;
+    } else {
+      await getOrCreateUser(session);
+      ({ sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request));
+    }
+
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
     const includeDiagnostics =
-      new URL(request.url).searchParams.get("debug") === "1";
+      !scheduledRefresh && url.searchParams.get("debug") === "1";
+    const forceAssignmentRefresh =
+      scheduledRefresh && url.searchParams.get("refreshAssignments") === "1";
 
     // Returning a cached assignment list is preferable to holding the whole
     // portfolio page hostage to a slow NXT request. Compatible older payload
@@ -806,16 +904,27 @@ export async function GET(request) {
     const initialCacheKeys = linkedFundraiserId
       ? [`${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`]
       : null;
-    const initialCachedPortfolio = includeDiagnostics
+    const initialCachedPortfolio = includeDiagnostics || forceAssignmentRefresh
       ? null
       : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true });
 
     if (initialCachedPortfolio) {
+      const cachedPayload = await hydrateCachedPortfolio({
+        cachedPortfolio: initialCachedPortfolio,
+        workspaceUserId: workspaceUser.id,
+        authUserId,
+        origin,
+        cacheKey: `${PORTFOLIO_CACHE_VERSION}:${linkedFundraiserId}`,
+        scheduled: scheduledRefresh,
+      });
       return Response.json(
-        await buildCachedPortfolioOrLocalFallback({
-          cachedPortfolio: initialCachedPortfolio,
-          workspaceUserId: workspaceUser.id,
-        }),
+        getPortfolioCardCount(cachedPayload) > 0 ||
+          cachedPayload?.portfolioMeta?.assignmentDataStatus === "live"
+          ? cachedPayload
+          : await buildCachedPortfolioOrLocalFallback({
+              cachedPortfolio: initialCachedPortfolio,
+              workspaceUserId: workspaceUser.id,
+            }),
       );
     }
     let staleCachedPortfolio = initialCachedPortfolio || null;
@@ -1056,6 +1165,12 @@ export async function GET(request) {
       authUserId,
       origin,
       entries: [...initialLeadSolicitor, ...initialSupportingSolicitor],
+      batchSize: scheduledRefresh
+        ? SCHEDULED_IDENTITY_LOOKUP_BATCH_SIZE
+        : PORTFOLIO_IDENTITY_LOOKUP_BATCH_SIZE,
+      concurrency: scheduledRefresh
+        ? SCHEDULED_IDENTITY_LOOKUP_CONCURRENCY
+        : PORTFOLIO_IDENTITY_LOOKUP_CONCURRENCY,
     });
 
     // Portfolio assignment data is enough to render cards immediately. Full

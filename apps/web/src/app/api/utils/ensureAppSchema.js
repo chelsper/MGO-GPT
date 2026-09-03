@@ -111,6 +111,89 @@ export default async function ensureAppSchema() {
       ON blackbaud_constituent_summary_cache (updated_at)
     `;
 
+    await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_constituent_snapshots (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        constituent_id TEXT NOT NULL,
+        normalized_payload JSONB,
+        summary_payload JSONB,
+        data_complete BOOLEAN NOT NULL DEFAULT FALSE,
+        stale_after TIMESTAMPTZ,
+        source_updated_at TIMESTAMPTZ,
+        last_refreshed_at TIMESTAMPTZ,
+        last_error_stage TEXT,
+        last_error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (workspace_user_id, constituent_id)
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_portfolio_constituent_snapshots_stale
+      ON portfolio_constituent_snapshots (workspace_user_id, stale_after)
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_refresh_jobs (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        auth_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        fundraiser_id TEXT,
+        ordered_constituent_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        total_count INTEGER NOT NULL DEFAULT 0,
+        processed_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        current_cursor INTEGER NOT NULL DEFAULT 0,
+        batch_size INTEGER NOT NULL DEFAULT 10,
+        concurrency INTEGER NOT NULL DEFAULT 2,
+        mode TEXT NOT NULL DEFAULT 'stale',
+        status TEXT NOT NULL DEFAULT 'queued',
+        last_successful_constituent_id TEXT,
+        paused_until TIMESTAMPTZ,
+        cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_portfolio_refresh_jobs_workspace
+      ON portfolio_refresh_jobs (workspace_user_id, created_at DESC)
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_refresh_items (
+        id BIGSERIAL PRIMARY KEY,
+        job_id BIGINT NOT NULL REFERENCES portfolio_refresh_jobs(id) ON DELETE CASCADE,
+        constituent_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        stage TEXT,
+        last_endpoint TEXT,
+        http_status INTEGER,
+        retry_after_ms INTEGER,
+        request_duration_ms INTEGER,
+        api_call_count INTEGER NOT NULL DEFAULT 0,
+        error_class TEXT,
+        error_message TEXT,
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (job_id, constituent_id)
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_portfolio_refresh_items_pending
+      ON portfolio_refresh_items (job_id, status, position)
+    `;
+
     // Import previews often revisit the same stable NXT IDs while a reviewer
     // corrects row-level decisions. Keep identity-only results separate from
     // full constituent snapshots so those retries do not consume more API quota.

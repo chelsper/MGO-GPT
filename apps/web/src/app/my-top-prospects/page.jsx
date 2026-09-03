@@ -62,6 +62,7 @@ const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
 // Keep the portfolio request within that boundary so later assignments are not
 // silently omitted when an MGO has a large portfolio.
 const CURRENT_FY_GIVING_REQUEST_SIZE = 50;
+const ANNUAL_GIVING_REQUEST_SIZE = 50;
 
 const STATUS_COLORS = {
   Active: { bg: "#D1FAE5", text: "#065F46", border: "#A7F3D0" },
@@ -1451,6 +1452,162 @@ function isNeedsFollowUpProspect(prospect) {
   return staleDays >= 21;
 }
 
+function PortfolioRefreshProgress({
+  state,
+  isPending,
+  error,
+  isAdmin,
+  onStart,
+  onResume,
+  onRetryFailures,
+  onCancel,
+}) {
+  const job = state?.job || null;
+  const inventory = state?.inventory || null;
+  const active = ["queued", "processing"].includes(job?.status);
+  const paused = job?.status === "paused";
+  const completed = ["completed", "completed_with_failures"].includes(job?.status);
+  const processed = Number(job?.processedCount || 0);
+  const total = Number(job?.totalCount || 0);
+  const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+
+  return (
+    <div
+      style={{
+        border: "1px solid #BFDBFE",
+        borderRadius: "12px",
+        backgroundColor: "#EFF6FF",
+        padding: "14px",
+        display: "grid",
+        gap: "10px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ color: "#1E3A8A", fontSize: "14px", fontWeight: 800 }}>
+            Cached intelligence refresh
+          </div>
+          <div style={{ marginTop: "3px", color: "#475569", fontSize: "12px" }}>
+            {inventory
+              ? `${inventory.total} prospects · ${inventory.current} current · ${inventory.stale} stale · ${inventory.failed} failed`
+              : "Checking cached portfolio summaries..."}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {!active && !paused ? (
+            <button
+              type="button"
+              onClick={() => onStart("stale")}
+              disabled={isPending || !inventory?.stale}
+              style={{
+                border: "1px solid #2563EB",
+                borderRadius: "9px",
+                backgroundColor: isPending || !inventory?.stale ? "#DBEAFE" : "#2563EB",
+                color: isPending || !inventory?.stale ? "#1D4ED8" : "white",
+                padding: "8px 11px",
+                fontSize: "12px",
+                fontWeight: 800,
+                cursor: isPending || !inventory?.stale ? "not-allowed" : "pointer",
+              }}
+            >
+              {inventory?.stale ? `Refresh ${inventory.stale} stale` : "All summaries current"}
+            </button>
+          ) : null}
+          {paused ? (
+            <button type="button" onClick={onResume} disabled={isPending} style={smallActionButton}>
+              Resume
+            </button>
+          ) : null}
+          {completed && Number(job?.failedCount || 0) > 0 ? (
+            <button type="button" onClick={onRetryFailures} disabled={isPending} style={smallActionButton}>
+              Retry {job.failedCount} failed
+            </button>
+          ) : null}
+          {active || paused ? (
+            <button type="button" onClick={onCancel} disabled={isPending} style={smallActionButton}>
+              Cancel
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {job && total > 0 ? (
+        <>
+          <div style={{ height: "8px", borderRadius: "999px", backgroundColor: "#DBEAFE", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${percent}%`,
+                height: "100%",
+                borderRadius: "999px",
+                backgroundColor: paused ? "#D97706" : "#2563EB",
+                transition: "width 180ms ease",
+              }}
+            />
+          </div>
+          <div style={{ color: "#334155", fontSize: "12px", lineHeight: 1.5 }}>
+            <strong>{processed} / {total} processed.</strong>{" "}
+            {`${Number(job.successCount || 0)} completed · ${Number(job.failedCount || 0)} failed. `}
+            {job.status === "processing" || job.status === "queued"
+              ? `Currently processing in batches of 10 from checkpoint ${Number(job.currentCursor || 0) + 1}.`
+              : paused
+                ? `Paused due to Blackbaud throttling${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
+                : job.status === "cancelled"
+                  ? "Refresh cancelled. Saved summaries were preserved."
+                  : "Refresh pass completed."}
+            {job.lastSuccessfulConstituentId
+              ? ` Last successful constituent: ${job.lastSuccessfulConstituentId}.`
+              : ""}
+          </div>
+        </>
+      ) : null}
+
+      {isAdmin && job?.failedItems?.length ? (
+        <details>
+          <summary style={{ cursor: "pointer", color: "#991B1B", fontSize: "12px", fontWeight: 800 }}>
+            Restricted failure diagnostics ({job.failedItems.length})
+          </summary>
+          <div style={{ marginTop: "8px", display: "grid", gap: "5px", color: "#7F1D1D", fontSize: "11px" }}>
+            {job.failedItems.map((item) => (
+              <div key={`${item.constituentId}-${item.position}`}>
+                {item.constituentId}: {item.stage || "unknown stage"} · {item.endpoint || "endpoint unavailable"}
+                {item.httpStatus ? ` · HTTP ${item.httpStatus}` : ""} · {item.apiCallCount} API calls · retry {item.retryCount}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
+      {isAdmin && !active && !paused ? (
+        <details>
+          <summary style={{ cursor: "pointer", color: "#475569", fontSize: "11px", fontWeight: 700 }}>
+            Administrator options
+          </summary>
+          <button
+            type="button"
+            onClick={() => onStart("full")}
+            disabled={isPending}
+            style={{ ...smallActionButton, marginTop: "8px" }}
+          >
+            Full rebuild
+          </button>
+        </details>
+      ) : null}
+      {error ? <div style={{ color: "#991B1B", fontSize: "12px", fontWeight: 700 }}>{error.message}</div> : null}
+    </div>
+  );
+}
+
+const smallActionButton = {
+  border: "1px solid #93C5FD",
+  borderRadius: "9px",
+  backgroundColor: "white",
+  color: "#1D4ED8",
+  padding: "8px 11px",
+  fontSize: "12px",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
 function PortfolioTier({
   title,
   description,
@@ -1486,17 +1643,7 @@ function PortfolioTier({
     person?.lifetimeGiving?.totalGiving !== undefined &&
     Number.isFinite(Number(person.lifetimeGiving.totalGiving));
 
-  const toggleSummary = async (constituentId) => {
-    const nextExpanded = !expandedSummaries[constituentId];
-    setExpandedSummaries((current) => ({
-      ...current,
-      [constituentId]: nextExpanded,
-    }));
-
-    if (!nextExpanded || summaryStates[constituentId]) {
-      return;
-    }
-
+  const loadSummary = async (constituentId, { refresh = false } = {}) => {
     if (!allowNxtSummary) {
       setSummaryStates((current) => ({
         ...current,
@@ -1514,8 +1661,11 @@ function PortfolioTier({
     }));
 
     try {
+      const params = new URLSearchParams();
+      if (refresh) params.set("refresh", "1");
+      const query = params.toString();
       const response = await fetch(
-        `/api/blackbaud/constituents/${constituentId}/summary`,
+        `/api/blackbaud/constituents/${constituentId}/summary${query ? `?${query}` : ""}`,
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1534,6 +1684,18 @@ function PortfolioTier({
           error: error instanceof Error ? error.message : "Failed to load NXT summary",
         },
       }));
+    }
+  };
+
+  const toggleSummary = (constituentId) => {
+    const nextExpanded = !expandedSummaries[constituentId];
+    setExpandedSummaries((current) => ({
+      ...current,
+      [constituentId]: nextExpanded,
+    }));
+
+    if (nextExpanded && !summaryStates[constituentId]) {
+      void loadSummary(constituentId);
     }
   };
 
@@ -1804,6 +1966,15 @@ function PortfolioTier({
                         No concise NXT summary is available for this constituent yet.
                       </div>
                     )}
+                    {allowNxtSummary && summaryState?.status !== "loading" ? (
+                      <button
+                        type="button"
+                        onClick={() => loadSummary(person.constituentId, { refresh: true })}
+                        style={{ ...smallActionButton, marginTop: "8px" }}
+                      >
+                        Refresh this summary
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -8606,6 +8777,82 @@ export default function MyTopProspectsPage() {
   const isLocalPortfolioFallback =
     blackbaudPortfolio?.portfolioMeta?.source === "local-prospect-snapshot";
 
+  const portfolioRefreshQueryKey = [
+    "portfolio-refresh-job",
+    activeWorkspaceUserId,
+  ];
+  const { data: portfolioRefreshState } = useQuery({
+    queryKey: portfolioRefreshQueryKey,
+    queryFn: async () => {
+      const response = await fetch("/api/blackbaud/portfolio-refresh", {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load portfolio refresh progress");
+      }
+      return payload || { job: null, inventory: null };
+    },
+    enabled:
+      !!user &&
+      !!activeWorkspaceUserId &&
+      activeWorkspaceTab === "portfolio" &&
+      !isExecutiveReadOnly,
+    staleTime: 0,
+    refetchInterval: (query) =>
+      ["queued", "processing"].includes(query.state.data?.job?.status)
+        ? 3000
+        : false,
+    refetchOnWindowFocus: false,
+  });
+  const portfolioRefreshMutation = useMutation({
+    mutationFn: async ({ action, mode, jobId } = {}) => {
+      const response = await fetch("/api/blackbaud/portfolio-refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, mode, jobId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Portfolio refresh request failed");
+      }
+      return payload;
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(portfolioRefreshQueryKey, (current) => ({
+        ...(current || {}),
+        ...(payload || {}),
+      }));
+      if (["completed", "completed_with_failures"].includes(payload?.job?.status)) {
+        queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
+      }
+    },
+  });
+  const portfolioRefreshJob = portfolioRefreshState?.job || null;
+  useEffect(() => {
+    if (
+      !portfolioRefreshJob?.jobId ||
+      !["queued", "processing"].includes(portfolioRefreshJob.status) ||
+      portfolioRefreshMutation.isPending ||
+      activeWorkspaceTab !== "portfolio"
+    ) {
+      return undefined;
+    }
+    const timeoutId = window.setTimeout(() => {
+      portfolioRefreshMutation.mutate({
+        action: "process",
+        jobId: portfolioRefreshJob.jobId,
+      });
+    }, 600);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    activeWorkspaceTab,
+    portfolioRefreshJob?.jobId,
+    portfolioRefreshJob?.processedCount,
+    portfolioRefreshJob?.status,
+    portfolioRefreshMutation.isPending,
+  ]);
+
   const portfolioAnnualConstituentIds = useMemo(() => {
     const seen = new Set();
     const ids = [];
@@ -8626,7 +8873,7 @@ export default function MyTopProspectsPage() {
   const portfolioAnnualConstituentIdParam = portfolioAnnualConstituentIds.join(",");
 
   const {
-    data: portfolioAnnualGivingSocietiesByConstituentId = {},
+    data: portfolioAnnualGivingSocietiesResponse,
   } = useQuery({
     queryKey: [
       "portfolio-annual-giving-societies",
@@ -8634,18 +8881,27 @@ export default function MyTopProspectsPage() {
       portfolioAnnualConstituentIdParam,
     ],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      params.set("constituentIds", portfolioAnnualConstituentIdParam);
-      const res = await fetch(
-        `/api/blackbaud/annual-giving-societies?${params.toString()}`,
-      );
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          payload?.error || "Failed to fetch portfolio giving societies",
+      const combined = {};
+      const failedBatches = [];
+      for (const constituentIds of chunkValues(
+        portfolioAnnualConstituentIds,
+        ANNUAL_GIVING_REQUEST_SIZE,
+      )) {
+        const params = new URLSearchParams();
+        params.set("constituentIds", constituentIds.join(","));
+        const res = await fetch(
+          `/api/blackbaud/annual-giving-societies?${params.toString()}`,
         );
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          failedBatches.push({ count: constituentIds.length, status: res.status });
+          // Do not turn a provider pause into hundreds of follow-up calls.
+          if (res.status === 429 || res.status === 503 || payload?.quotaPaused) break;
+          continue;
+        }
+        Object.assign(combined, payload?.byConstituentId || {});
       }
-      return payload?.byConstituentId || {};
+      return { values: combined, failedBatches };
     },
     enabled:
       !!user &&
@@ -8656,6 +8912,8 @@ export default function MyTopProspectsPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+  const portfolioAnnualGivingSocietiesByConstituentId =
+    portfolioAnnualGivingSocietiesResponse?.values || {};
 
   useEffect(() => {
     setShouldLoadPortfolioCurrentFyGiving(false);
@@ -8695,6 +8953,7 @@ export default function MyTopProspectsPage() {
     ],
     queryFn: async () => {
       const payloads = [];
+      const failedBatches = [];
 
       // The API accepts no more than 50 IDs per request. Load one bounded batch
       // at a time so every assigned constituent is included without competing
@@ -8710,9 +8969,9 @@ export default function MyTopProspectsPage() {
         );
         const payload = await res.json().catch(() => null);
         if (!res.ok) {
-          throw new Error(
-            payload?.error || "Failed to fetch current fiscal year giving",
-          );
+          failedBatches.push({ count: constituentIds.length, status: res.status });
+          if (res.status === 429 || res.status === 503 || payload?.quotaPaused) break;
+          continue;
         }
         payloads.push(payload || {});
       }
@@ -8732,7 +8991,7 @@ export default function MyTopProspectsPage() {
             ...(payload?.warnings || {}),
           },
         }),
-        { period: null, byConstituentId: {}, warnings: {} },
+        { period: null, byConstituentId: {}, warnings: {}, failedBatches },
       );
     },
     enabled:
@@ -10069,6 +10328,36 @@ export default function MyTopProspectsPage() {
                 ) : null}
               </div>
             </div>
+
+            {!isExecutiveReadOnly && !isLocalPortfolioFallback ? (
+              <PortfolioRefreshProgress
+                state={portfolioRefreshState}
+                isPending={portfolioRefreshMutation.isPending}
+                error={portfolioRefreshMutation.error}
+                isAdmin={isAdmin}
+                onStart={(mode) =>
+                  portfolioRefreshMutation.mutate({ action: "start", mode })
+                }
+                onResume={() =>
+                  portfolioRefreshMutation.mutate({
+                    action: "resume",
+                    jobId: portfolioRefreshJob?.jobId,
+                  })
+                }
+                onRetryFailures={() =>
+                  portfolioRefreshMutation.mutate({
+                    action: "retry_failed",
+                    jobId: portfolioRefreshJob?.jobId,
+                  })
+                }
+                onCancel={() =>
+                  portfolioRefreshMutation.mutate({
+                    action: "cancel",
+                    jobId: portfolioRefreshJob?.jobId,
+                  })
+                }
+              />
+            ) : null}
 
             {!isBlackbaudPortfolioLoading &&
             !isBlackbaudPortfolioError &&

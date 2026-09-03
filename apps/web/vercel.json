@@ -3,5 +3,19 @@
   "framework": "react-router",
   "regions": ["iad1"],
   "installCommand": "npm ci --no-audit --no-fund",
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "crons": [
+    {
+      "path": "/api/internal/report-cache-refresh",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/internal/custom-field-report-cache-refresh",
+      "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/internal/portfolio-refresh",
+      "schedule": "*/10 * * * *"
+    }
+  ]
 }

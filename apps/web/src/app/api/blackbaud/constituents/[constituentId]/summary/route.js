@@ -1,11 +1,17 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import {
+  getReportRefreshUser,
+  isAuthorizedReportRefreshRequest,
+} from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import {
   blackbaudApiFetch,
   getBlackbaudConfigIssues,
+  isBlackbaudQuotaExceededError,
   listBlackbaudGifts,
+  withBlackbaudRequestMetrics,
 } from "@/app/api/utils/blackbaud";
 import { fetchAnnualGivingSocieties } from "../../../../utils/annualGivingSocieties.js";
 import { getRealizedPlannedGiftIds } from "../../../../utils/plannedGiftRevenue.js";
@@ -14,7 +20,7 @@ import {
   listGivingSocietyConfigurations,
 } from "../../../../utils/givingSocietyConfigurations.js";
 
-const CONSTITUENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
+const CONSTITUENT_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function isFreshSummaryCache(cachedAt) {
   if (!cachedAt) return false;
@@ -99,6 +105,66 @@ async function saveCachedSummary({
   `;
 }
 
+async function getPortfolioSnapshotSummary({ workspaceUserId, constituentId }) {
+  if (!workspaceUserId || !constituentId) return null;
+  const rows = await sql`
+    SELECT summary_payload
+    FROM portfolio_constituent_snapshots
+    WHERE workspace_user_id = ${workspaceUserId}
+      AND constituent_id = ${String(constituentId)}
+      AND summary_payload IS NOT NULL
+    LIMIT 1
+  `;
+  return rows[0]?.summary_payload || null;
+}
+
+function isCompleteSummaryPayload(payload) {
+  return !Object.values(payload?.warnings || {}).some(Boolean);
+}
+
+async function savePortfolioSnapshotSummary({ workspaceUserId, constituentId, payload }) {
+  const mapped = payload?.mapped || {};
+  const { prospectSummaryNarrative: _narrative, ...normalizedMapped } = mapped;
+  await sql`
+    INSERT INTO portfolio_constituent_snapshots (
+      workspace_user_id,
+      constituent_id,
+      normalized_payload,
+      summary_payload,
+      data_complete,
+      stale_after,
+      last_refreshed_at,
+      last_error_stage,
+      last_error_message,
+      updated_at
+    ) VALUES (
+      ${workspaceUserId},
+      ${String(constituentId)},
+      ${JSON.stringify({
+        constituentId: payload?.constituentId || constituentId,
+        mapped: normalizedMapped,
+        warnings: payload?.warnings || {},
+      })}::jsonb,
+      ${JSON.stringify(payload)}::jsonb,
+      TRUE,
+      ${new Date(Date.now() + CONSTITUENT_SUMMARY_CACHE_TTL_MS).toISOString()},
+      NOW(),
+      NULL,
+      NULL,
+      NOW()
+    )
+    ON CONFLICT (workspace_user_id, constituent_id) DO UPDATE SET
+      normalized_payload = EXCLUDED.normalized_payload,
+      summary_payload = EXCLUDED.summary_payload,
+      data_complete = TRUE,
+      stale_after = EXCLUDED.stale_after,
+      last_refreshed_at = NOW(),
+      last_error_stage = NULL,
+      last_error_message = NULL,
+      updated_at = NOW()
+  `;
+}
+
 function summaryResponse(payload, cacheStatus = "miss") {
   return Response.json(payload, {
     headers: {
@@ -127,6 +193,9 @@ async function tryFetchConstituentById({
     );
     return payload || null;
   } catch (error) {
+    if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
+      throw error;
+    }
     return null;
   }
 }
@@ -201,6 +270,9 @@ async function resolveConstituentPayload({
         }
       }
     } catch (error) {
+      if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
+        throw error;
+      }
       continue;
     }
   }
@@ -1202,6 +1274,9 @@ async function loadBlackbaudSection(label, requestFactory) {
     const payload = await requestFactory();
     return { ok: true, payload };
   } catch (error) {
+    if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
+      throw error;
+    }
     return {
       ok: false,
       error:
@@ -1215,6 +1290,9 @@ async function loadOptionalSection(label, requestFactory) {
     const payload = await requestFactory();
     return { ok: true, payload };
   } catch (error) {
+    if (isBlackbaudQuotaExceededError(error) || Number(error?.httpStatus) === 429) {
+      throw error;
+    }
     return {
       ok: false,
       error:
@@ -1223,9 +1301,11 @@ async function loadOptionalSection(label, requestFactory) {
   }
 }
 
-export async function GET(request, { params }) {
-  const session = await auth(request);
-  if (!session?.user?.email) {
+async function handleGet(request, { params }) {
+  const requestUrl = new URL(request.url);
+  const scheduledRefresh = isAuthorizedReportRefreshRequest(request);
+  const session = scheduledRefresh ? null : await auth(request);
+  if (!scheduledRefresh && !session?.user?.email) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -1251,7 +1331,6 @@ export async function GET(request, { params }) {
     );
   }
 
-  const requestUrl = new URL(request.url);
   const includeInactive = requestUrl.searchParams.get("include_inactive") === "true";
   const includeRaw = requestUrl.searchParams.get("raw") === "true";
   const forceRefresh = requestUrl.searchParams.get("refresh") === "1";
@@ -1262,7 +1341,28 @@ export async function GET(request, { params }) {
   const name = requestUrl.searchParams.get("name")?.trim() || "";
 
   try {
-    const { workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request);
+    let workspaceUser;
+    let sessionUser;
+    let isActing;
+    if (scheduledRefresh) {
+      sessionUser = await getReportRefreshUser();
+      const workspaceUserId = Number(requestUrl.searchParams.get("workspaceUserId") || 0);
+      if (!sessionUser || !Number.isInteger(workspaceUserId) || workspaceUserId <= 0) {
+        return Response.json({ error: "Invalid scheduled portfolio summary target" }, { status: 400 });
+      }
+      const workspaceUsers = await sql`
+        SELECT * FROM users
+        WHERE id = ${workspaceUserId} AND active = TRUE
+        LIMIT 1
+      `;
+      workspaceUser = workspaceUsers[0] || null;
+      if (!workspaceUser) {
+        return Response.json({ error: "Portfolio summary target was not found" }, { status: 404 });
+      }
+      isActing = sessionUser.id !== workspaceUser.id;
+    } else {
+      ({ workspaceUser, sessionUser, isActing } = await getWorkspaceUser(session, request));
+    }
     const user = workspaceUser;
     const authUserId = isActing ? sessionUser.id : workspaceUser.id;
     const givingSocietyConfigurations = contactOnly || reportProfile
@@ -1290,6 +1390,15 @@ export async function GET(request, { params }) {
       });
       if (cachedSummary) {
         return summaryResponse(cachedSummary, "hit");
+      }
+      if (!contactOnly && !reportProfile) {
+        const portfolioSnapshot = await getPortfolioSnapshotSummary({
+          workspaceUserId: user.id,
+          constituentId,
+        });
+        if (portfolioSnapshot) {
+          return summaryResponse(portfolioSnapshot, "portfolio-snapshot");
+        }
       }
     }
 
@@ -1553,14 +1662,21 @@ export async function GET(request, { params }) {
         : {}),
     };
 
-    if (!includeRaw) {
-      await saveCachedSummary({
-        workspaceUserId: user.id,
-        authUserId,
-        cacheKey,
-        constituentId: resolvedConstituentId,
-        payload: responsePayload,
-      }).catch((cacheError) => {
+    if (!includeRaw && isCompleteSummaryPayload(responsePayload)) {
+      await Promise.all([
+        saveCachedSummary({
+          workspaceUserId: user.id,
+          authUserId,
+          cacheKey,
+          constituentId: resolvedConstituentId,
+          payload: responsePayload,
+        }),
+        savePortfolioSnapshotSummary({
+          workspaceUserId: user.id,
+          constituentId: resolvedConstituentId,
+          payload: responsePayload,
+        }),
+      ]).catch((cacheError) => {
         console.error("Blackbaud constituent summary cache write error:", cacheError);
       });
     }
@@ -1568,14 +1684,52 @@ export async function GET(request, { params }) {
     return summaryResponse(responsePayload, "miss");
   } catch (error) {
     console.error("Blackbaud constituent summary error:", error);
+    const providerStatus = Number(error?.httpStatus || 0) || null;
+    const quotaPaused = isBlackbaudQuotaExceededError(error);
+    const retryAfterMs = Math.max(0, Number(error?.retryAfterMs || 0)) || null;
     return Response.json(
       {
         error:
           error instanceof Error
             ? error.message
             : "Failed to fetch Blackbaud constituent summary",
+        providerStatus,
+        quotaPaused,
+        retryAfterMs,
       },
-      { status: 500 },
+      {
+        status: quotaPaused ? 503 : providerStatus === 429 ? 429 : 500,
+        headers: retryAfterMs
+          ? { "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))) }
+          : undefined,
+      },
     );
   }
+}
+
+export async function GET(request, context) {
+  return withBlackbaudRequestMetrics(async (metrics) => {
+    const response = await handleGet(request, context);
+    response.headers.set("X-MGOGPT-NXT-API-Calls", String(metrics.callCount));
+    response.headers.set(
+      "X-MGOGPT-NXT-Request-Duration-Ms",
+      String(Math.max(0, Math.round(metrics.totalDurationMs))),
+    );
+    if (metrics.lastEndpoint) {
+      response.headers.set("X-MGOGPT-NXT-Last-Endpoint", metrics.lastEndpoint);
+    }
+    if (metrics.lastHttpStatus) {
+      response.headers.set(
+        "X-MGOGPT-NXT-Last-Status",
+        String(metrics.lastHttpStatus),
+      );
+    }
+    if (metrics.retryAfterMs) {
+      response.headers.set(
+        "X-MGOGPT-NXT-Retry-After-Ms",
+        String(metrics.retryAfterMs),
+      );
+    }
+    return response;
+  });
 }

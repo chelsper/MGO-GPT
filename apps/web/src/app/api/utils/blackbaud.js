@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import sql from "@/app/api/utils/sql";
@@ -63,6 +64,18 @@ let blackbaudQuotaStateCache = {
   message: "",
   updatedAt: null,
 };
+const blackbaudRequestMetricsStorage = new AsyncLocalStorage();
+
+export async function withBlackbaudRequestMetrics(callback) {
+  const metrics = {
+    callCount: 0,
+    totalDurationMs: 0,
+    lastEndpoint: null,
+    lastHttpStatus: null,
+    retryAfterMs: null,
+  };
+  return blackbaudRequestMetricsStorage.run(metrics, () => callback(metrics));
+}
 
 export class BlackbaudQuotaExceededError extends Error {
   constructor({ message, retryAfterMs = 0 } = {}) {
@@ -77,9 +90,14 @@ export function isBlackbaudQuotaExceededError(error) {
 }
 
 function parseRetryAfterMs(response, responseText = "") {
-  const headerValue = Number(response?.headers?.get?.("retry-after"));
-  if (Number.isFinite(headerValue) && headerValue >= 0) {
+  const rawHeaderValue = String(response?.headers?.get?.("retry-after") || "").trim();
+  const headerValue = Number(rawHeaderValue);
+  if (rawHeaderValue && Number.isFinite(headerValue) && headerValue >= 0) {
     return Math.min(headerValue * 1000, 24 * 60 * 60 * 1000);
+  }
+  const retryDate = rawHeaderValue ? new Date(rawHeaderValue).getTime() : Number.NaN;
+  if (Number.isFinite(retryDate)) {
+    return Math.min(Math.max(0, retryDate - Date.now()), 24 * 60 * 60 * 1000);
   }
 
   const durationMatch = String(responseText || "").match(
@@ -334,6 +352,8 @@ async function parseBlackbaudResponse(response) {
     // Keep non-sensitive transport metadata available to diagnostic-only
     // callers without changing the error text used by existing API routes.
     error.httpStatus = response.status;
+    error.retryAfterMs =
+      response.status === 429 ? parseRetryAfterMs(response, responseText) : null;
     error.topLevelFieldNames =
       payload && typeof payload === "object" && !Array.isArray(payload)
         ? Object.keys(payload).sort()
@@ -345,10 +365,8 @@ async function parseBlackbaudResponse(response) {
 }
 
 function getRetryDelayMs(response, attempt) {
-  const retryAfter = response.headers.get("retry-after");
-  const retryAfterSeconds = Number(retryAfter);
-  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
-    return Math.min(retryAfterSeconds * 1000, 10000);
+  if (response.status === 429) {
+    return Math.min(parseRetryAfterMs(response), 10000);
   }
 
   return Math.min(1000 * 2 ** attempt, 5000);
@@ -544,6 +562,13 @@ export async function blackbaudApiFetch(
   for (let attempt = 0; attempt <= requestMaxRetries; attempt += 1) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const requestStartedAt = Date.now();
+    const requestMetrics = blackbaudRequestMetricsStorage.getStore();
+    let requestDurationRecorded = false;
+    if (requestMetrics) {
+      requestMetrics.callCount += 1;
+      requestMetrics.lastEndpoint = url.pathname;
+    }
 
     try {
       const response = await fetch(url, {
@@ -552,6 +577,15 @@ export async function blackbaudApiFetch(
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
+      if (requestMetrics) {
+        requestMetrics.lastHttpStatus = response.status;
+        requestMetrics.totalDurationMs += Date.now() - requestStartedAt;
+        requestDurationRecorded = true;
+        requestMetrics.retryAfterMs =
+          response.status === 429 || response.status === 403
+            ? parseRetryAfterMs(response)
+            : null;
+      }
 
       if (!response.ok) {
         const responseText = await response.clone().text().catch(() => "");
@@ -565,6 +599,14 @@ export async function blackbaudApiFetch(
       }
 
       if (shouldRetryBlackbaudResponse(response) && attempt < requestMaxRetries) {
+        const retryAfterMs =
+          response.status === 429 ? parseRetryAfterMs(response) : 0;
+        // A long Retry-After belongs in the resumable job state, not in one
+        // server request. Parsing now preserves the exact pause duration.
+        if (response.status === 429 && retryAfterMs > 10000) {
+          clearTimeout(timeoutId);
+          return await parseBlackbaudResponse(response);
+        }
         const delayMs = getRetryDelayMs(response, attempt);
         clearTimeout(timeoutId);
         await sleep(delayMs);
@@ -582,6 +624,9 @@ export async function blackbaudApiFetch(
         : payload;
     } catch (error) {
       clearTimeout(timeoutId);
+      if (requestMetrics && !requestDurationRecorded) {
+        requestMetrics.totalDurationMs += Date.now() - requestStartedAt;
+      }
       const timedOut =
         error instanceof Error &&
         (error.name === "AbortError" ||
@@ -1781,7 +1826,7 @@ export async function listBlackbaudFundraiserAssignments({
   fundraiserId,
   searchParams,
   pageLimit = 500,
-  maxPages = 20,
+  maxPages = 100,
 } = {}) {
   if (!fundraiserId) {
     throw new Error("A Blackbaud fundraiser ID is required");
@@ -1795,11 +1840,20 @@ export async function listBlackbaudFundraiserAssignments({
 
   async function fetchAssignmentPages(initialPath, initialSearchParams) {
     const results = [];
+    const visitedPaths = new Set();
     let nextPath = initialPath;
     let nextSearchParams = initialSearchParams;
     let pageCount = 0;
 
     while (nextPath && pageCount < maxPages) {
+      const pageKey = String(nextPath);
+      if (visitedPaths.has(pageKey)) {
+        throw new Error(
+          "Blackbaud returned a repeated fundraiser-assignment page link; the portfolio was not replaced.",
+        );
+      }
+      visitedPaths.add(pageKey);
+
       const payload = await blackbaudApiFetch(nextPath, {
         userId,
         authUserId,
@@ -1817,6 +1871,12 @@ export async function listBlackbaudFundraiserAssignments({
       nextPath = payload?.next_link || null;
       nextSearchParams = undefined;
       pageCount += 1;
+    }
+
+    if (nextPath) {
+      throw new Error(
+        `Blackbaud fundraiser assignments exceeded the ${maxPages}-page safety limit; the portfolio was not replaced.`,
+      );
     }
 
     return results;

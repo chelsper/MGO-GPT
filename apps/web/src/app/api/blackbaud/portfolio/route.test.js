@@ -125,7 +125,9 @@ describe("Blackbaud portfolio route", () => {
           summary: { leadCount: 0, supportingCount: 1 },
         },
         blackbaud_portfolio_cache_key: "v12:800",
-        blackbaud_portfolio_cached_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        blackbaud_portfolio_cached_at: new Date(
+          Date.now() - 2 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
       },
     ]);
     const response = await GET(
@@ -283,7 +285,7 @@ describe("Blackbaud portfolio route", () => {
     );
   });
 
-  it("serves a cached portfolio without retrying unresolved NXT identities", async () => {
+  it("continues unresolved NXT identities from the saved portfolio", async () => {
     const { GET } = await import("./route.js");
     listBlackbaudFundraiserAssignmentsMock.mockResolvedValue(
       Array.from({ length: 5 }, (_, index) => ({
@@ -334,18 +336,21 @@ describe("Blackbaud portfolio route", () => {
     const secondPayload = await secondResponse.json();
 
     expect(secondResponse.status).toBe(200);
-    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledTimes(1);
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
+      expect.objectContaining({ constituentId: "5" }),
+    );
     expect(secondPayload.leadSolicitor).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ constituentId: "5", name: "NXT constituent 5" }),
+        expect.objectContaining({ constituentId: "5", name: "Constituent 5" }),
       ]),
     );
     expect(secondPayload.portfolioMeta).toEqual(
       expect.objectContaining({
         source: "cache",
-        identityHydrationPending: false,
-        identityHydrationDeferred: true,
-        identityHydrationPollIntervalMs: null,
+        identityHydrationPending: true,
+        identityHydrationDeferred: false,
+        unresolvedIdentityCount: 1,
       }),
     );
   });
