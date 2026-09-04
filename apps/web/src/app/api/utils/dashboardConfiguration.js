@@ -95,6 +95,11 @@ export function validateDashboardConfiguration(value) {
           !["text", "number", "currency"].includes(column.format)
         )
           return "Unsupported query column display format.";
+        if (
+          column.visible !== undefined &&
+          typeof column.visible !== "boolean"
+        )
+          return "Query column visibility must be true or false.";
         headers.add(column.header);
       }
       continue;
@@ -208,6 +213,9 @@ export function normalizeDashboardConfiguration(value) {
               header: column.header,
               label: column.label?.trim() || "",
               format: column.format || "text",
+              ...(typeof column.visible === "boolean"
+                ? { visible: column.visible }
+                : {}),
             })),
             rows: [],
             columns: [],

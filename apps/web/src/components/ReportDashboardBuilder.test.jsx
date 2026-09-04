@@ -619,7 +619,7 @@ describe("ReportDashboardBuilder query tables", () => {
     expect(validateDashboardConfiguration(latest)).toBe("");
     expect(
       editor.getByText(
-        /Shared reports expose all returned query columns.*donor information.*selected viewers/,
+        /Shared reports expose displayed query columns.*donor information.*selected viewers/,
       ),
     ).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
@@ -698,6 +698,34 @@ describe("ReportDashboardBuilder query tables", () => {
     expect(
       screen.getByRole("cell", { name: "$1,250.0000" }),
     ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides QRECID in previews by default and saves an explicit visibility override", async () => {
+    fetch.mockResolvedValue(
+      json(
+        previewPayload({
+          headers: ["Name", "Amount", "QRECID"],
+          rows: [["Example Person", "$1,250.0000", "242718"]],
+        }),
+      ),
+    );
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    await screen.findByRole("table");
+    expect(screen.queryByText("242718")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Column display settings (optional)"));
+    const visibility = screen.getByLabelText("Show column QRECID");
+    expect(visibility).not.toBeChecked();
+    fireEvent.click(visibility);
+    expect(latest.panels[0].columnSettings).toContainEqual({
+      header: "QRECID",
+      label: "",
+      format: "text",
+      visible: true,
+    });
+    expect(screen.getByText("242718")).toBeInTheDocument();
+    expect(validateDashboardConfiguration(latest)).toBe("");
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

@@ -8,6 +8,7 @@ import {
   validateDashboardQueryId,
 } from "@/app/api/utils/dashboardConfiguration";
 import QueryResultsTable from "./QueryResultsTable";
+import { isQueryResultColumnVisible } from "./queryResultColumns";
 import styles from "./reportDashboard.module.css";
 
 let keySequence = 0;
@@ -404,9 +405,10 @@ function QueryTableEditor({ panel, onChange, disabled }) {
   return (
     <div className={styles.queryEditor}>
       <p className={styles.warning}>
-        Shared reports expose all returned query columns, including donor
-        information, to the selected viewers. Review the query output and report
-        access before sharing. Display labels and formats do not hide columns.
+        Shared reports expose displayed query columns, including donor
+        information, to the selected viewers. Review the query output, column
+        visibility and report access before sharing. Blackbaud&apos;s technical
+        QRECID column is hidden by default.
       </p>
       <div className={styles.panelFields}>
         <div className={styles.field}>
@@ -472,7 +474,8 @@ function QueryTableEditor({ panel, onChange, disabled }) {
           <p className={styles.help}>
             Settings match exact query headers. Text preserves NXT amounts as
             returned. Choose Number or Currency (USD) explicitly to format
-            amounts; unrecognized values remain text.
+            amounts; unrecognized values remain text. Only columns marked Show
+            column appear in the report.
           </p>
           {headers.map((header) => {
             const setting = columnSettings.find(
@@ -494,6 +497,16 @@ function QueryTableEditor({ panel, onChange, disabled }) {
                   </p>
                 ) : null}
                 <div className={styles.columnFields}>
+                  <label className={styles.field}>
+                    <span>Show column {header}</span>
+                    <input
+                      type="checkbox"
+                      checked={isQueryResultColumnVisible(header, setting)}
+                      onChange={(event) =>
+                        changeColumn(header, { visible: event.target.checked })
+                      }
+                    />
+                  </label>
                   <label className={styles.field}>
                     Display label for {header}
                     <input

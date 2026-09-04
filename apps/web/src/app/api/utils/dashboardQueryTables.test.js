@@ -61,7 +61,7 @@ describe("query results table schema", () => {
     const value = config(
       panel("p", 30971, {
         columnSettings: [
-          { header: "Total Giving FY27", label: "Giving", format: "currency" },
+          { header: "Total Giving FY27", label: "Giving", format: "currency", visible: false },
         ],
       }),
     );
@@ -72,7 +72,7 @@ describe("query results table schema", () => {
       columns: [],
       values: [],
       columnSettings: [
-        { header: "Total Giving FY27", label: "Giving", format: "currency" },
+        { header: "Total Giving FY27", label: "Giving", format: "currency", visible: false },
       ],
     });
   });
@@ -83,6 +83,7 @@ describe("query results table schema", () => {
       { values: [{ key: "c", source: "static", staticValue: 3 }] },
       { columnSettings: [{ header: "Name" }, { header: "Name" }] },
       { columnSettings: [{ header: "Giving", format: "html" }] },
+      { columnSettings: [{ header: "Giving", visible: "no" }] },
     ]) {
       expect(
         validateDashboardConfiguration(config(panel("p", "30971", patch))),

@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { isValidDashboardTableData } from "@/app/api/utils/dashboardConfiguration";
+import { isQueryResultColumnVisible } from "./queryResultColumns";
 import styles from "./reportDashboard.module.css";
 
 const PAGE_SIZE = 25;
@@ -32,14 +33,25 @@ export default function QueryResultsTable({ headers, rows, columnSettings = [], 
   if (!isValidDashboardTableData({ headers, rows })) return <p className={styles.unknown}>Not refreshed</p>;
 
   const settings = new Map(columnSettings.map((column) => [column.header, column]));
-  const columns = headers.map((header) => ({ header, ...settings.get(header) }));
+  const columns = headers
+    .map((header, sourceIndex) => ({
+      header,
+      sourceIndex,
+      ...settings.get(header),
+    }))
+    .filter((column) =>
+      isQueryResultColumnVisible(column.header, settings.get(column.header)),
+    );
   const ordered = rows.map((row, index) => ({ row, index }));
   // Index is a tie-breaker so equivalent values retain their original CSV order.
-  if (sort && columns[sort.column]?.header === sort.header) {
-    const format = columns[sort.column].format || "text";
+  const sortColumn = sort
+    ? columns.find((column) => column.header === sort.header)
+    : null;
+  if (sortColumn) {
+    const format = sortColumn.format || "text";
     ordered.sort((a, b) => {
-      const left = a.row[sort.column];
-      const right = b.row[sort.column];
+      const left = a.row[sortColumn.sourceIndex];
+      const right = b.row[sortColumn.sourceIndex];
       const leftNumber = format === "text" ? null : numericAmount(left);
       const rightNumber = format === "text" ? null : numericAmount(right);
       const comparison = leftNumber !== null && rightNumber !== null
@@ -53,8 +65,22 @@ export default function QueryResultsTable({ headers, rows, columnSettings = [], 
   const visible = ordered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
   function sortBy(column) {
-    setSort({ column, header: headers[column], direction: sort?.column === column && sort.direction === "ascending" ? "descending" : "ascending" });
+    setSort({
+      header: column.header,
+      direction:
+        sort?.header === column.header && sort.direction === "ascending"
+          ? "descending"
+          : "ascending",
+    });
     setPage(0);
+  }
+
+  if (!columns.length) {
+    return (
+      <p className={styles.help} role="status">
+        This query returned rows, but no columns are selected for display.
+      </p>
+    );
   }
 
   return (
@@ -63,9 +89,9 @@ export default function QueryResultsTable({ headers, rows, columnSettings = [], 
       <div className={styles.tableScroll} role="region" aria-label={`${title} table scroll area`} aria-describedby={hintId} tabIndex={0}>
         <table className={`${styles.table} ${styles.queryTable}`} aria-label={title}>
           <thead>
-            <tr>{columns.map((column, index) => (
+            <tr>{columns.map((column) => (
               <th key={column.header} scope="col" aria-sort={sort?.header === column.header ? sort.direction : "none"}>
-                <button type="button" className={styles.sortButton} disabled={disabled} onClick={() => sortBy(index)}>
+                <button type="button" className={styles.sortButton} disabled={disabled} onClick={() => sortBy(column)}>
                   {column.label || column.header}
                   {sort?.header === column.header ? sort.direction === "ascending" ? <ArrowUp aria-hidden="true" size={14} /> : <ArrowDown aria-hidden="true" size={14} /> : null}
                 </button>
@@ -74,7 +100,11 @@ export default function QueryResultsTable({ headers, rows, columnSettings = [], 
           </thead>
           <tbody>
             {visible.map(({ row, index }) => (
-              <tr key={index}>{row.map((cell, column) => <td key={headers[column]}>{displayCell(cell, columns[column].format)}</td>)}</tr>
+              <tr key={index}>{columns.map((column) => (
+                <td key={column.header}>
+                  {displayCell(row[column.sourceIndex], column.format)}
+                </td>
+              ))}</tr>
             ))}
           </tbody>
         </table>
