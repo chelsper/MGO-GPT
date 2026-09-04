@@ -77,6 +77,7 @@ describe("Executive Team Standings report route", () => {
           8,
           {
             actionsThisFY: 11,
+            highValueActionsThisFY: 4,
             actions: [
               {
                 actionId: "bb-action-1",
@@ -170,6 +171,7 @@ describe("Executive Team Standings report route", () => {
         fundedThisFiscalYear: 25000,
         lifetimeGiving: 380000,
         nxtActionsThisFiscalYear: 11,
+        highValueActionsThisFiscalYear: 4,
         prospectsWithNextSteps: 8,
         overdueNextSteps: 2,
         trend: {
@@ -295,5 +297,29 @@ describe("Executive Team Standings report route", () => {
     const response = await GET();
     expect(response.status).toBe(403);
     expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["actions", "giving"])("keeps the prior snapshot when %s cannot refresh", async (source) => {
+    const { GET } = await import("./route.js");
+    if (source === "actions") getNxtActionSummaryByWorkspaceUserMock.mockRejectedValue(new Error("429"));
+    else getClosedFiscalYearSummaryMock.mockRejectedValue(new Error("Gift feed unavailable"));
+    getCachedReportSnapshotMock.mockResolvedValue({ standings: [{ userId: 8, fundedThisFiscalYear: 25000, highValueActionsThisFiscalYear: 4 }] });
+    const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
+    const payload = await response.json();
+    expect(payload.snapshotStatus).toBe("stale");
+    expect(payload.standings[0].highValueActionsThisFiscalYear).toBe(4);
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("stores unavailable scoring fields as null, not zero, without a prior snapshot", async () => {
+    const { GET } = await import("./route.js");
+    getNxtActionSummaryByWorkspaceUserMock.mockRejectedValue(new Error("NXT unavailable"));
+    getClosedFiscalYearSummaryMock.mockRejectedValue(new Error("NXT unavailable"));
+    const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
+    const payload = await response.json();
+    expect(payload.scoringUnavailableUserIds).toEqual([8]);
+    expect(payload.standings[0]).toMatchObject({ fundedThisFiscalYear: null, highValueActionsThisFiscalYear: null, nxtActionsThisFiscalYear: null });
+    expect(payload.snapshotStatus).toBe("partial");
+    expect(getClosedFiscalYearSummaryMock).toHaveBeenCalledWith(expect.objectContaining({ requireComplete: true }));
   });
 });

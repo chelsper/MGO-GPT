@@ -180,4 +180,34 @@ describe("closed FY gift totals", () => {
 
     expect(summary.closedThisFY).toBe(500000);
   });
+
+  it("does not cache a false zero for a failed competitive score refresh", async () => {
+    const { getClosedFiscalYearSummary } = await import("./closedFyGiftTotals.js");
+    listBlackbaudGiftsMock.mockRejectedValue(new Error("NXT throttled"));
+    await expect(getClosedFiscalYearSummary({ workspaceUser: leslie, authUserId: 7, origin: "https://example.org", requireComplete: true })).rejects.toThrow("NXT throttled");
+    expect(sqlMock.mock.calls.some(([strings]) => strings.join("").includes("UPDATE users"))).toBe(false);
+  });
+
+  it("requires fundraiser identity for a ranked score", async () => {
+    const { getClosedFiscalYearSummary } = await import("./closedFyGiftTotals.js");
+    await expect(getClosedFiscalYearSummary({ workspaceUser: { id: 9 }, authUserId: 7, origin: "https://example.org", requireComplete: true })).rejects.toThrow("identity");
+    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+  });
+
+  it("requires a verified cache for rankings and lets other reports reuse it without more API calls", async () => {
+    const { getClosedFiscalYearSummary } = await import("./closedFyGiftTotals.js");
+    const options = { workspaceUser: leslie, authUserId: 7, origin: "https://example.org", now: new Date("2026-09-04T12:00:00Z"), requireComplete: true };
+    await getClosedFiscalYearSummary(options);
+    const saveCall = sqlMock.mock.calls.find(([strings]) => strings.join("").includes("UPDATE users"));
+    const key = saveCall.find((value) => typeof value === "string" && value.startsWith("closed-summary-v4"));
+    expect(key).toBeTruthy();
+    sqlMock.mockResolvedValue([{ blackbaud_summary_cache: { closedThisFY: 1000, closedPriorFY: 0, verifiedComplete: true }, blackbaud_summary_cache_key: key, blackbaud_summary_cached_at: new Date().toISOString() }]);
+    listBlackbaudGiftsMock.mockClear();
+    await expect(getClosedFiscalYearSummary(options)).resolves.toMatchObject({ closedThisFY: 1000 });
+    await expect(getClosedFiscalYearSummary({ ...options, requireComplete: false })).resolves.toMatchObject({ closedThisFY: 1000 });
+    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+    sqlMock.mockResolvedValue([{ blackbaud_summary_cache: { closedThisFY: 0, closedPriorFY: 0 }, blackbaud_summary_cache_key: key, blackbaud_summary_cached_at: new Date().toISOString() }]);
+    await expect(getClosedFiscalYearSummary(options)).resolves.toMatchObject({ closedThisFY: 1000 });
+    expect(listBlackbaudGiftsMock).toHaveBeenCalled();
+  });
 });

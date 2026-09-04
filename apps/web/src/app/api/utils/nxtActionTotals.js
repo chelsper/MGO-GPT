@@ -5,6 +5,7 @@ import {
   listBlackbaudActions,
 } from "@/app/api/utils/blackbaud";
 import { normalizeBlackbaudFundraiserAliasIds } from "@/app/api/utils/closedFyGiftTotals";
+import { getNxtActionCategory, getNxtActionType, isHighValueAction } from "@/utils/highValueActions";
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -108,8 +109,6 @@ function getActionFundraiserCandidates(action) {
   const scalarPaths = [
     "fundraiser_id",
     "fundraiserId",
-    "constituent_id",
-    "constituentId",
     "fundraiser",
     "solicitor",
     "primary_fundraiser",
@@ -200,20 +199,7 @@ function getActionConstituentName(action) {
 }
 
 function getActionCategory(action) {
-  return String(
-    firstDefined(action, [
-      "category",
-      "type.description",
-      "action_category",
-      "actionCategory",
-      "type",
-      "type.name",
-      "type.description",
-      "interaction_type",
-      "interactionType",
-      "status",
-    ]) || "",
-  ).trim();
+  return getNxtActionCategory(action);
 }
 
 function getActionSummary(action) {
@@ -241,6 +227,8 @@ function normalizeActionRecord(action) {
     actionId: getActionId(action),
     date: getActionDate(action),
     category: getActionCategory(action),
+    type: getNxtActionType(action),
+    highValue: isHighValueAction(action),
     summary: getActionSummary(action),
     blackbaudConstituentId: getActionConstituentId(action),
     constituentName: getActionConstituentName(action),
@@ -310,9 +298,7 @@ function isWorkspaceFundraiserMatchByName(fundraiserName, workspaceUser) {
   const fundraiserFull = fundraiserTokens.join(" ");
 
   return (
-    fundraiserFull.includes(workspaceFull) ||
-    workspaceFull.includes(fundraiserFull) ||
-    fundraiserLast === workspaceLast
+    fundraiserFull === workspaceFull
   );
 }
 
@@ -560,7 +546,7 @@ export async function getNxtActionSummaryByWorkspaceUser({
 
   const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
   const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
-  const { actions, connectionUserId } = await listBlackbaudActionsWithFallback({
+  const { actions, connectionUserId, source } = await listBlackbaudActionsWithFallback({
     authUserId,
     normalizedUsers,
     origin,
@@ -569,10 +555,15 @@ export async function getNxtActionSummaryByWorkspaceUser({
     fiscalYearStart,
     fiscalYearEnd,
   });
+  if (source === "none") throw new Error("NXT action totals could not be refreshed");
   const resolvedNameCache = new Map();
 
   const countsByUserId = new Map(
-    normalizedUsers.map((user) => [Number(user.id), { actionsThisFY: 0, actions: [] }]),
+    normalizedUsers.map((user) => [Number(user.id), {
+      actionsThisFY: identitySetsByUserId.get(Number(user.id))?.size ? 0 : null,
+      highValueActionsThisFY: identitySetsByUserId.get(Number(user.id))?.size ? 0 : null,
+      actions: [],
+    }]),
   );
   const seenActionIds = new Set();
 
@@ -621,8 +612,9 @@ export async function getNxtActionSummaryByWorkspaceUser({
         }
       }
       if (!matched) continue;
-      const current = countsByUserId.get(userId) || { actionsThisFY: 0, actions: [] };
+      const current = countsByUserId.get(userId) || { actionsThisFY: 0, highValueActionsThisFY: 0, actions: [] };
       current.actionsThisFY += 1;
+      if (normalizedAction.highValue) current.highValueActionsThisFY += 1;
       current.actions.push(normalizedAction);
       countsByUserId.set(userId, current);
     }

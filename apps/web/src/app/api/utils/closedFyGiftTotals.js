@@ -489,12 +489,14 @@ async function getLiveBlackbaudAttributedGiving({
   fiscalYearStart,
   fiscalYearEnd,
   debug = false,
+  requireComplete = false,
 }) {
   const workspaceFundraiserIds = normalizeWorkspaceFundraiserIds(workspaceUser);
   const fundraiserIdentitySet = new Set(
     workspaceFundraiserIds.map((candidate) => candidate.id),
   );
   if (fundraiserIdentitySet.size === 0) {
+    if (requireComplete) throw new Error("NXT fundraiser identity is unavailable");
     return debug
       ? {
           closedTotal: 0,
@@ -541,7 +543,13 @@ async function getLiveBlackbaudAttributedGiving({
       searchParams,
       pageLimit: 500,
       maxPages: 20,
-    }).catch(() => []);
+    }).catch((error) => {
+      if (requireComplete) throw error;
+      return [];
+    });
+    if (requireComplete && typedGifts.length >= 500 * 20) {
+      throw new Error("NXT gift results reached the pagination limit");
+    }
 
     rawFetchedRows += typedGifts.length;
     paginationByGiftType.push({
@@ -802,9 +810,11 @@ export async function getClosedFiscalYearSummary({
   authUserId,
   origin,
   now,
+  requireComplete = false,
 }) {
   const fiscal = getClosedFiscalYearWindow(now);
   if (!workspaceUser?.id || !origin) {
+    if (requireComplete) throw new Error("NXT gift summary context is unavailable");
     return { ...fiscal, closedThisFY: 0, closedPriorFY: 0 };
   }
 
@@ -815,7 +825,8 @@ export async function getClosedFiscalYearSummary({
     ...getSummaryIdentityCacheParts(workspaceUser),
   ].join("|");
   const cachedSummary = await getCachedBlackbaudSummary(workspaceUser.id, cacheKey);
-  if (cachedSummary && typeof cachedSummary === "object") {
+  // Ranked scores must not reuse older cache entries that may contain fallback zeros.
+  if (cachedSummary && typeof cachedSummary === "object" && (!requireComplete || cachedSummary.verifiedComplete === true)) {
     return {
       ...fiscal,
       closedThisFY: Number(cachedSummary.closedThisFY || 0),
@@ -830,19 +841,28 @@ export async function getClosedFiscalYearSummary({
       origin,
       fiscalYearStart: fiscal.fiscalYearStart,
       fiscalYearEnd: fiscal.fiscalYearEnd,
-    }).catch(() => 0),
+      requireComplete,
+    }).catch((error) => {
+      if (requireComplete) throw error;
+      return 0;
+    }),
     getLiveBlackbaudAttributedGiving({
       workspaceUser,
       authUserId,
       origin,
       fiscalYearStart: fiscal.priorFiscalYearStart,
       fiscalYearEnd: fiscal.priorFiscalYearEnd,
-    }).catch(() => 0),
+      requireComplete,
+    }).catch((error) => {
+      if (requireComplete) throw error;
+      return 0;
+    }),
   ]);
 
   const summary = {
     closedThisFY: Number(closedThisFY || 0),
     closedPriorFY: Number(closedPriorFY || 0),
+    ...(requireComplete ? { verifiedComplete: true } : {}),
   };
   await saveCachedBlackbaudSummary(workspaceUser.id, cacheKey, summary).catch(() => {});
   return { ...fiscal, ...summary };

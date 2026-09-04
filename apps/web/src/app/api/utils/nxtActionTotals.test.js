@@ -8,8 +8,8 @@ const { executeBlackbaudListQueryMock, listBlackbaudActionsMock } = vi.hoisted((
 vi.mock("@/app/api/utils/blackbaud", () => ({
   executeBlackbaudListQuery: executeBlackbaudListQueryMock,
   listBlackbaudActions: listBlackbaudActionsMock,
-  getBlackbaudFundraiserById: vi.fn(),
-  getBlackbaudConstituentById: vi.fn(),
+  getBlackbaudFundraiserById: vi.fn().mockResolvedValue(null),
+  getBlackbaudConstituentById: vi.fn().mockResolvedValue(null),
 }));
 
 import { getNxtActionSummaryByWorkspaceUser } from "./nxtActionTotals";
@@ -76,11 +76,14 @@ describe("getNxtActionSummaryByWorkspaceUser", () => {
 
     expect(results.get(22)).toEqual({
       actionsThisFY: 1,
+      highValueActionsThisFY: 0,
       actions: [
         {
           actionId: "action-1",
           date: "2026-08-14",
-          category: "Visit",
+          category: "",
+          type: "Visit",
+          highValue: false,
           summary: "Leadership meeting",
           blackbaudConstituentId: "186057",
           constituentName: "Leslie M. Redd",
@@ -168,5 +171,57 @@ describe("getNxtActionSummaryByWorkspaceUser", () => {
     expect(results.get(22)?.actions?.[0]?.summary).toBe(
       "FY27 match from second connection",
     );
+  });
+});
+
+describe("high-value NXT action scoring", () => {
+  const workspaceUsers = [
+    { id: 1, name: "Alex Rivera", blackbaud_constituent_id: "101" },
+    { id: 2, name: "Jordan Rivera", blackbaud_constituent_id: "102" },
+  ];
+  const options = { workspaceUsers, authUserId: 1, origin: "https://example.org", fiscalYearStart: "2026-07-01", fiscalYearEnd: "2027-06-30" };
+  const action = (id, fields = {}) => ({ id, action_date: "2026-09-01", fundraisers: [{ constituent_id: "101" }], ...fields });
+  beforeEach(() => {
+    executeBlackbaudListQueryMock.mockReset().mockResolvedValue([]);
+    listBlackbaudActionsMock.mockReset().mockResolvedValue([]);
+  });
+  it("counts Meeting OR Solicitation once, deduplicates action IDs and honors FY boundaries", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValue([
+      action("meeting", { category: " Meeting ", type: "Visit" }),
+      action("ask", { category: "Phone Call", type: { description: "solicitation" } }),
+      action("both", { category: { description: "MEETING" }, "type.description": "Solicitation" }),
+      action("both", { category: "Meeting", type: "Solicitation" }),
+      action("wrong-fields", { category: "Solicitation", type: "Meeting" }),
+      action("not-exact", { category: "Meeting preparation", type: "Pre-Solicitation" }),
+      action("old", { category: "Meeting", action_date: "2026-06-30" }),
+      action("future-fy", { category: "Meeting", action_date: "2027-07-01" }),
+      action("invalid-date", { category: "Meeting", action_date: "invalid" }),
+      action("start", { category: "Meeting", action_date: "2026-07-01" }),
+      action("end", { type: "Solicitation", action_date: "2027-06-30" }),
+    ]);
+    const result = await getNxtActionSummaryByWorkspaceUser(options);
+    expect(result.get(1)).toMatchObject({ actionsThisFY: 7, highValueActionsThisFY: 5 });
+    expect(result.get(1).actions.filter((item) => item.highValue)).toHaveLength(5);
+    expect(result.get(2)).toMatchObject({ actionsThisFY: 0, highValueActionsThisFY: 0 });
+  });
+  it("does not credit the subject constituent or a different fundraiser with the same surname", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValue([
+      action("subject", { constituent_id: "101", fundraisers: [] , category: "Meeting" }),
+      action("shared", { category: "Meeting", fundraisers: [{ constituent_id: "101" }, { constituent_id: "101" }, { constituent_id: "102" }] }),
+      action("wrong-person", { category: "Meeting", fundraisers: [{ id: "103", name: "Taylor Rivera" }] }),
+    ]);
+    const result = await getNxtActionSummaryByWorkspaceUser(options);
+    expect(result.get(1).highValueActionsThisFY).toBe(1);
+    expect(result.get(2).highValueActionsThisFY).toBe(1);
+  });
+  it("distinguishes a confirmed empty feed from missing fundraiser identity", async () => {
+    const result = await getNxtActionSummaryByWorkspaceUser({ ...options, workspaceUsers: [...workspaceUsers, { id: 3, name: "No mapping" }] });
+    expect(result.get(1).highValueActionsThisFY).toBe(0);
+    expect(result.get(3).highValueActionsThisFY).toBeNull();
+  });
+  it("does not turn connection errors into a zero score", async () => {
+    executeBlackbaudListQueryMock.mockRejectedValue(new Error("429"));
+    listBlackbaudActionsMock.mockRejectedValue(new Error("403"));
+    await expect(getNxtActionSummaryByWorkspaceUser(options)).rejects.toThrow("could not be refreshed");
   });
 });

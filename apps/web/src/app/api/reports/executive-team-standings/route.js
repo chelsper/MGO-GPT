@@ -285,7 +285,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
           blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
         };
 
-        let closedThisFY = 0;
+        let closedThisFY = null;
         const lifetimeGiving = asOptionalNumber(
           lifetimeGivingByUser.get(Number(row.user_id)),
         );
@@ -297,8 +297,9 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
             workspaceUser,
             authUserId: authUser.id,
             origin,
+            requireComplete: true,
           });
-          closedThisFY = asNumber(summary.closedThisFY);
+          closedThisFY = asOptionalNumber(summary.closedThisFY);
         } catch {
           // Preserve the rest of the standings when a single MGO's gift summary is unavailable.
         }
@@ -372,12 +373,15 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     email: row.email || "",
     activeProspects: asNumber(row.active_prospects),
     openPipeline: asNumber(row.open_pipeline),
-    fundedThisFiscalYear: asNumber(
+    fundedThisFiscalYear: asOptionalNumber(
       givingTotalsByUser.get(Number(row.user_id))?.closedThisFY,
     ),
     lifetimeGiving: givingTotalsByUser.get(Number(row.user_id))?.lifetimeGiving ?? null,
-    nxtActionsThisFiscalYear: asNumber(
+    nxtActionsThisFiscalYear: asOptionalNumber(
       nxtActionSummaryByUser.get(Number(row.user_id))?.actionsThisFY,
+    ),
+    highValueActionsThisFiscalYear: asOptionalNumber(
+      nxtActionSummaryByUser.get(Number(row.user_id))?.highValueActionsThisFY,
     ),
     prospectsWithNextSteps: asNumber(row.prospects_with_next_steps),
     overdueNextSteps: asNumber(row.overdue_next_steps),
@@ -404,9 +408,13 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     fiscalYear,
     trendWindowDays: TREND_WINDOW_DAYS,
     source:
-      "Raiser's Edge NXT explicit fundraiser attribution for current-fiscal-year closed and lifetime solicitor credit, plus NXT actions and JUMGOGPT pipeline and next-step records",
+      "Raiser's Edge NXT fundraiser-attributed gift credit and actions; JUMGOGPT local pipeline and next-step records",
+    scoringVersion: 1,
     generatedAt: new Date().toISOString(),
     lifetimeCreditUnavailableUserIds: [...new Set(lifetimeCreditUnavailableUserIds)],
+    scoringUnavailableUserIds: standings
+      .filter((entry) => entry.fundedThisFiscalYear === null || entry.highValueActionsThisFiscalYear === null)
+      .map((entry) => entry.userId),
     standings,
   };
 }
@@ -451,7 +459,7 @@ export async function GET(request) {
       authUser: user,
       origin,
     });
-    if (payload.lifetimeCreditUnavailableUserIds.length > 0) {
+    if (payload.lifetimeCreditUnavailableUserIds.length > 0 || payload.scoringUnavailableUserIds.length > 0) {
       const cachedPayload = await getCachedReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY);
       if (cachedPayload) {
         return Response.json(
@@ -459,7 +467,7 @@ export async function GET(request) {
             ...cachedPayload,
             snapshotStatus: "stale",
             refreshWarning:
-              "Lifetime solicitor credit could not be refreshed for every active MGO, so the last completed Team Standings snapshot is still displayed.",
+              "NXT gift credit or action totals could not be refreshed for every active MGO, so the previous Team Standings snapshot is still displayed.",
           },
           { headers: getReportCacheHeaders("stale") },
         );
@@ -473,7 +481,7 @@ export async function GET(request) {
         ...payload,
         snapshotStatus: "partial",
         refreshWarning:
-          "Some lifetime solicitor credit values could not be refreshed. Those values are shown as unavailable, not as $0; all other saved Team Standings metrics are current.",
+          "Some NXT metrics could not be refreshed. Missing values are unavailable, not zero, and are excluded from ranking. Other saved metrics are current.",
       };
       await saveReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY, partialPayload);
 

@@ -5,6 +5,8 @@ import { AlertTriangle, RefreshCw, Target, TrendingUp, Users } from "lucide-reac
 import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import CompetitionBoard from "./CompetitionBoard";
+import { coverageText as getCoverage, rankStandings, RANKING_MODES, scoreText } from "./standingsPresentation";
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-US", {
@@ -21,11 +23,6 @@ function isFiniteNumericValue(value) {
 
 function formatOptionalCurrency(value) {
   return isFiniteNumericValue(value) ? formatCurrency(value) : "Unavailable";
-}
-
-function getCoverage(covered, active) {
-  if (!active) return "No active prospects";
-  return `${Math.round((Number(covered || 0) / Number(active)) * 100)}% coverage`;
 }
 
 function formatShortDate(value) {
@@ -88,6 +85,7 @@ export default function ExecutiveTeamStandingsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [expandedUserIds, setExpandedUserIds] = useState([]);
+  const [rankingMode, setRankingMode] = useState("raised");
 
   useEffect(() => {
     if (!loadingUser && !user) {
@@ -128,7 +126,7 @@ export default function ExecutiveTeamStandingsPage() {
     return () => controller.abort();
   }, [user, refreshVersion]);
 
-  const standings = Array.isArray(report?.standings) ? report.standings : [];
+  const standings = rankStandings(Array.isArray(report?.standings) ? report.standings : [], rankingMode);
   const refreshRequired = report?.status === "refresh_required";
   const hasCompleteLifetimeCredit =
     standings.length > 0 && standings.every((entry) => isFiniteNumericValue(entry.lifetimeGiving));
@@ -168,13 +166,13 @@ export default function ExecutiveTeamStandingsPage() {
   }
 
   return (
-    <main style={{ backgroundColor: "#F8FAFC", minHeight: "100vh", padding: "40px 24px 80px" }}>
+    <main style={{ backgroundColor: "#F8FAFC", minHeight: "100vh", padding: "32px clamp(12px, 2vw, 24px) 80px" }}>
       <div style={{ margin: "0 auto", maxWidth: "1480px" }}>
         <SharedReportHeader
           activeReportKey="executive-team-standings"
           eyebrow="Executive dashboard"
           title="Team Standings"
-          description="A local operational snapshot for active MGOs. This is not an NXT revenue report."
+          description="Two ways to lead: fiscal-year fundraising and high-value NXT actions. One shared team snapshot."
           action={
             <button
               type="button"
@@ -247,27 +245,30 @@ export default function ExecutiveTeamStandingsPage() {
             <strong>
               {report?.snapshotStatus === "partial"
                 ? "Showing a partial refreshed snapshot"
-                : "Showing the last completed snapshot"}
+                : "Showing the previous snapshot"}
             </strong>
             <p style={{ margin: "8px 0 0" }}>{report.refreshWarning}</p>
           </section>
         ) : null}
 
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "16px", marginTop: "28px" }}>
+        {standings.length > 0 ? <CompetitionBoard entries={standings} mode={rankingMode} onModeChange={setRankingMode} fiscalYear={report?.fiscalYear?.label || "Current FY"} /> : null}
+
+        <details className="standings-local" style={{ ...panelStyle, marginTop: "24px", padding: "16px 20px" }}>
+          <summary>Team context &amp; local workflow (not ranked)</summary>
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))", gap: "16px", marginTop: "18px" }}>
           <MetricCard label="Active MGOs" value={standings.length} icon={<Users size={20} />} color="#4F46E5" />
           <MetricCard label="Active prospects" value={totals.activeProspects} icon={<Target size={20} />} color="#0369A1" />
           <MetricCard label="Open pipeline" value={formatCurrency(totals.openPipeline)} icon={<TrendingUp size={20} />} color="#0F766E" />
-          <MetricCard label={`${report?.fiscalYear?.label || "Current FY"} closed-opportunity value`} value={formatCurrency(totals.funded)} icon={<TrendingUp size={20} />} color="#166534" />
           <MetricCard label="Lifetime solicitor credit" value={hasCompleteLifetimeCredit ? formatCurrency(totals.lifetimeGiving) : "Refresh required"} icon={<TrendingUp size={20} />} color="#0F766E" />
-          <MetricCard label={`${report?.fiscalYear?.label || "Current FY"} NXT actions`} value={totals.nxtActionsThisFiscalYear} icon={<TrendingUp size={20} />} color="#7C3AED" />
+          <MetricCard label={`${report?.fiscalYear?.label || "Current FY"} attributed NXT actions`} value={standings.length && standings.every((entry) => isFiniteNumericValue(entry.nxtActionsThisFiscalYear)) ? totals.nxtActionsThisFiscalYear : "Unavailable"} icon={<TrendingUp size={20} />} color="#0369A1" />
         </section>
 
         <section style={{ ...panelStyle, marginTop: "20px", padding: "20px 24px" }}>
           <div style={{ alignItems: "flex-start", display: "flex", flexWrap: "wrap", gap: "14px", justifyContent: "space-between" }}>
             <div>
-              <h2 style={{ color: "#0F172A", fontSize: "20px", margin: 0 }}>Recent momentum</h2>
+              <h2 style={{ color: "#0F172A", fontSize: "20px", margin: 0 }}>Recent JUMGOGPT activity</h2>
               <p style={{ color: "#64748B", lineHeight: 1.5, margin: "6px 0 0" }}>
-                Last {report?.trendWindowDays || 7} days across the team. This shows current motion without pretending we have historical ranking snapshots.
+                Last {report?.trendWindowDays || 7} days across the team. Excludes work recorded only in NXT; does not affect standings.
               </p>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
@@ -278,21 +279,22 @@ export default function ExecutiveTeamStandingsPage() {
             </div>
           </div>
         </section>
+        </details>
 
         <section style={{ ...panelStyle, marginTop: "24px", overflow: "hidden" }}>
           <div style={{ padding: "22px 24px", borderBottom: "1px solid #E2E8F0" }}>
-            <h2 style={{ color: "#0F172A", fontSize: "22px", margin: 0 }}>Team board</h2>
+            <h2 style={{ color: "#0F172A", fontSize: "22px", margin: 0 }}>Individual scorecards</h2>
             <p style={{ color: "#64748B", lineHeight: 1.5, margin: "7px 0 0" }}>
-              Pipeline and follow-up metrics come from JUMGOGPT. Current-year closed, lifetime solicitor credit, and NXT action totals are attributed by explicit Blackbaud fundraiser credit.
+              Ordered by {RANKING_MODES[rankingMode].label.toLowerCase()}. Fundraising and high-value actions come from NXT, including work recorded outside JUMGOGPT.
             </p>
           </div>
 
           {loading && !report ? (
             <p style={{ color: "#64748B", margin: 0, padding: "28px 24px" }}>Loading team standings...</p>
           ) : standings.length ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))", gap: "18px", padding: "22px" }}>
-              {standings.map((entry, index) => (
-                <article key={entry.userId} style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "20px", backgroundColor: index === 0 ? "#F8FAFC" : "white" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: "18px", padding: "clamp(12px, 2vw, 22px)" }}>
+              {standings.map((entry) => (
+                <article id={`scorecard-${entry.userId}`} aria-label={`${entry.name} scorecard`} className="standings-scorecard" key={entry.userId} style={{ border: "1px solid #DCE6E1", borderTop: "4px solid #006B53", borderRadius: "16px", padding: "20px", backgroundColor: "white" }}>
                   {(() => {
                     const isExpanded = expandedUserIds.includes(entry.userId);
                     const activeProspects = Array.isArray(entry.drilldown?.activeProspects)
@@ -308,20 +310,27 @@ export default function ExecutiveTeamStandingsPage() {
                       <>
                   <div style={{ alignItems: "flex-start", display: "flex", gap: "12px", justifyContent: "space-between" }}>
                     <div>
-                      <p style={{ color: "#64748B", fontSize: "13px", fontWeight: 900, letterSpacing: "0.07em", margin: 0, textTransform: "uppercase" }}>MGO</p>
+                      <p style={{ color: "#64748B", fontSize: "12px", fontWeight: 900, letterSpacing: "0.07em", margin: 0, textTransform: "uppercase" }}>{RANKING_MODES[rankingMode].label}</p>
                       <h3 style={{ color: "#0F172A", fontSize: "22px", margin: "6px 0 0" }}>{entry.name}</h3>
-                      <p style={{ color: "#64748B", fontSize: "14px", margin: "5px 0 0" }}>{entry.email}</p>
+                      <p style={{ color: "#64748B", fontSize: "14px", margin: "5px 0 0", overflowWrap: "anywhere" }}>{entry.email}</p>
                     </div>
-                    <span style={{ borderRadius: "999px", backgroundColor: "#EEF2FF", color: "#4338CA", fontSize: "14px", fontWeight: 900, padding: "8px 10px" }}>
-                      {entry.activeProspects} active
+                    <span className="standings-rank" aria-label={entry.rank === null ? "Unranked" : `Rank ${entry.rank}`}>
+                      {entry.rank === null ? "-" : `#${entry.rank}`}
                     </span>
                   </div>
                   <div style={{ borderTop: "1px solid #E2E8F0", display: "grid", gap: "13px", gridTemplateColumns: "1fr 1fr", marginTop: "18px", paddingTop: "18px" }}>
-                    <StandingsMetric label="Open pipeline" value={formatCurrency(entry.openPipeline)} color="#0F766E" />
-                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} closed`} value={formatCurrency(entry.fundedThisFiscalYear)} color="#166534" />
+                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} raised`} value={scoreText(entry.fundedThisFiscalYear, "raised")} color="#006B53" />
+                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} high-value actions`} value={entry.highValueActionsThisFiscalYear === undefined ? "Refresh required" : scoreText(entry.highValueActionsThisFiscalYear, "actions")} color="#006B53" />
                     <StandingsMetric label="Lifetime solicitor credit" value={formatOptionalCurrency(entry.lifetimeGiving)} color="#0F766E" />
-                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} NXT actions`} value={Number(entry.nxtActionsThisFiscalYear || 0)} color="#7C3AED" />
-                    <StandingsMetric label="Next-step coverage" value={getCoverage(entry.prospectsWithNextSteps, entry.activeProspects)} color="#1D4ED8" />
+                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} all NXT actions`} value={scoreText(entry.nxtActionsThisFiscalYear, "actions")} color="#0369A1" />
+                  </div>
+                  <details className="standings-local">
+                    <summary>Local workflow (JUMGOGPT only)</summary>
+                    <p style={{ fontSize: "13px", lineHeight: 1.5 }}>Coverage counts active local prospects with unfinished next-step text. Work recorded only in NXT is not included. These metrics never affect rank.</p>
+                    <div style={{ display: "grid", gap: "13px", gridTemplateColumns: "1fr 1fr" }}>
+                    <StandingsMetric label="Active prospects" value={entry.activeProspects} color="#0F766E" />
+                    <StandingsMetric label="Open pipeline" value={formatCurrency(entry.openPipeline)} color="#0F766E" />
+                    <StandingsMetric label="Local next-step coverage" value={getCoverage(entry.prospectsWithNextSteps, entry.activeProspects)} color="#1D4ED8" />
                     <StandingsMetric label="Overdue follow-ups" value={entry.overdueNextSteps} color={entry.overdueNextSteps ? "#B91C1C" : "#166534"} />
                   </div>
                   <div style={{ backgroundColor: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: "14px", display: "grid", gap: "8px", marginTop: "18px", padding: "14px" }}>
@@ -335,6 +344,7 @@ export default function ExecutiveTeamStandingsPage() {
                       <TrendChip color="#166534" label={`${formatCurrency(entry.trend?.recentlyClosedValue || 0)} closed`} />
                     </div>
                   </div>
+                  </details>
                   <div style={{ borderTop: "1px solid #E2E8F0", display: "grid", gap: "12px", marginTop: "18px", paddingTop: "18px" }}>
                     <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "space-between" }}>
                       <div style={{ color: "#475569", fontSize: "14px", lineHeight: 1.45 }}>
@@ -342,6 +352,7 @@ export default function ExecutiveTeamStandingsPage() {
                       </div>
                       <button
                         type="button"
+                        aria-expanded={isExpanded}
                         onClick={() =>
                           setExpandedUserIds((current) =>
                             current.includes(entry.userId)
@@ -481,9 +492,11 @@ export default function ExecutiveTeamStandingsPage() {
                                         <div style={{ color: "#334155", fontSize: "13px", fontWeight: 700, marginTop: "4px" }}>
                                           {action.constituentName || "Unknown constituent"}
                                           {action.category ? ` · ${action.category}` : ""}
+                                          {action.type ? ` · ${action.type}` : ""}
+                                          {action.highValue ? <span style={{ display: "inline-block", marginLeft: "6px", color: "#006B53", fontWeight: 900 }}>High value</span> : null}
                                         </div>
                                         <div style={{ color: "#64748B", fontSize: "13px", lineHeight: 1.45, marginTop: "4px" }}>
-                                          {action.date ? `Completed ${formatShortDate(action.date)}` : "Completed date unavailable"}
+                                          {action.date ? `Action date ${formatShortDate(action.date)}` : "Action date unavailable"}
                                           {action.blackbaudConstituentId
                                             ? ` · NXT ID ${action.blackbaudConstituentId}`
                                             : ""}
@@ -503,7 +516,7 @@ export default function ExecutiveTeamStandingsPage() {
                             </div>
                           ) : (
                             <div style={{ color: "#64748B", fontSize: "14px" }}>
-                              No attributed NXT actions are contributing right now.
+                              {isFiniteNumericValue(entry.nxtActionsThisFiscalYear) ? "No attributed NXT actions are contributing right now." : "NXT actions are unavailable in this snapshot."}
                             </div>
                           )}
                         </div>
@@ -522,7 +535,7 @@ export default function ExecutiveTeamStandingsPage() {
         </section>
 
         <p style={{ color: "#64748B", fontSize: "13px", lineHeight: 1.5, margin: "18px 0 0" }}>
-          Source: {report?.source || "JUMGOGPT local operational records"}. Pipeline and follow-up sections come from JUMGOGPT records; current-year closed, lifetime solicitor credit, and NXT actions use Blackbaud fundraiser attribution.
+          Source: {report?.source || "NXT gift credit and actions; JUMGOGPT local operational records"}. Rankings use NXT fundraiser attribution. Local pipeline and follow-up metrics are shown separately.
         </p>
       </div>
     </main>
