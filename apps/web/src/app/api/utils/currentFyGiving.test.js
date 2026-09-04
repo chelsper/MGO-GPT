@@ -85,6 +85,7 @@ describe("current fiscal year giving", () => {
       expect.objectContaining({
         hardCreditConstituentId: "999",
         recipientConstituentId: "200",
+        hardCreditAmount: 1500,
         amount: 1500,
       }),
     ]);
@@ -157,11 +158,13 @@ describe("current fiscal year giving", () => {
       expect.objectContaining({
         hardCreditConstituentId: "daf",
         recipientConstituentId: "cynthia",
+        hardCreditAmount: 50000,
         amount: 50000,
       }),
       expect.objectContaining({
         hardCreditConstituentId: "daf",
         recipientConstituentId: "dan",
+        hardCreditAmount: 50000,
         amount: 50000,
       }),
     ]);

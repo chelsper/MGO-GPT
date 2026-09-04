@@ -8,6 +8,10 @@ import { canUseExecutiveViewRole, isMgoRole } from "@/utils/workspaceRoles";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
+import {
+  materializeAcknowledgmentGiftGroups,
+  mergeAcknowledgmentGiftGroup,
+} from "@/app/reports/portfolioAcknowledgmentGroups";
 
 const REPORT_BATCH_SIZE = 10;
 const REPORT_BATCH_CONCURRENCY = 2;
@@ -337,6 +341,7 @@ export default function ReportsPage() {
   const [actingWorkspaceStatus, setActingWorkspaceStatus] = useState(null);
   const [mgoUsers, setMgoUsers] = useState([]);
   const [reportRows, setReportRows] = useState([]);
+  const [acknowledgmentGiftGroups, setAcknowledgmentGiftGroups] = useState([]);
   const [period, setPeriod] = useState(null);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
@@ -491,6 +496,7 @@ export default function ReportsPage() {
       setReportError("");
       setReportWarnings([]);
       setReportRows([]);
+      setAcknowledgmentGiftGroups([]);
       setPeriod(null);
       setHardCreditTotals({ received: 0, committed: 0 });
       try {
@@ -517,6 +523,7 @@ export default function ReportsPage() {
           people.map((person) => [String(person?.constituentId || "").trim(), person]),
         );
         const reportRowsByConstituentId = new Map();
+        const reportGiftGroupsById = new Map();
         const warnings = new Set();
         let reportPeriod = null;
         let successfullyLoadedBatch = false;
@@ -605,6 +612,21 @@ export default function ReportsPage() {
 
             const selectedGiving = selectedGivingByConstituentId.get(constituentId);
             if (!selectedGiving) continue;
+            const hardCreditRecordSolicitor = getConstituentRecordSolicitor(workspaceUser, person);
+            for (const gift of selectedGiving.gifts) {
+              mergeAcknowledgmentGiftGroup(reportGiftGroupsById, {
+                giftId: gift.id,
+                date: gift.date,
+                hardCreditDonor: {
+                  constituentId,
+                  name: profile.name || person?.name || "Unnamed donor",
+                },
+                hardCreditRecordSolicitor,
+                receivedAmount: gift.receivedAmount,
+                committedAmount: gift.committedAmount,
+                giftSolicitors: gift.giftSolicitors,
+              });
+            }
             const existingRow = reportRowsByConstituentId.get(constituentId);
             const latestGift = selectedGiving.lastGiftDate
               ? getLatestGiftDetails(existingRow, {
@@ -619,7 +641,7 @@ export default function ReportsPage() {
               ...existingRow,
               constituentId,
               name: profile.name || person?.name || "Unnamed constituent",
-              constituentRecordSolicitor: getConstituentRecordSolicitor(workspaceUser, person),
+              constituentRecordSolicitor: hardCreditRecordSolicitor,
               // Direct credit is added here. Soft credit is added below from
               // the related gift, so a recipient sees the amount recognized
               // for them without double-counting it when both records load.
@@ -661,6 +683,29 @@ export default function ReportsPage() {
 
             const existingRow = reportRowsByConstituentId.get(recipientConstituentId);
             const recipientPortfolioPerson = peopleByConstituentId.get(recipientConstituentId);
+            const recipientRecordSolicitor = recipientPortfolioPerson
+              ? getConstituentRecordSolicitor(workspaceUser, recipientPortfolioPerson)
+              : "Not in selected MGO portfolio";
+            const hardCreditPortfolioPerson = peopleByConstituentId.get(hardCreditConstituentId);
+            mergeAcknowledgmentGiftGroup(reportGiftGroupsById, {
+              giftId: credit?.giftId,
+              date: credit?.date,
+              hardCreditDonor: {
+                constituentId: hardCreditConstituentId,
+                name: hardCreditDonor.name || "Unnamed donor",
+              },
+              hardCreditRecordSolicitor: hardCreditPortfolioPerson
+                ? getConstituentRecordSolicitor(workspaceUser, hardCreditPortfolioPerson)
+                : "Not in selected MGO portfolio",
+              receivedAmount: credit?.hardCreditAmount || credit?.amount,
+              giftSolicitors: credit?.giftSolicitors,
+              softCreditRecipient: {
+                constituentId: recipientConstituentId,
+                name: recipient.name || "Unnamed constituent",
+                constituentRecordSolicitor: recipientRecordSolicitor,
+                amount: credit?.amount,
+              },
+            });
             const acknowledgmentCreditKey = [
               credit?.giftId || `${credit?.date || "unknown"}:${credit?.amount || "unknown"}`,
               hardCreditConstituentId,
@@ -679,9 +724,10 @@ export default function ReportsPage() {
               ...existingRow,
               constituentId: recipientConstituentId,
               name: recipient.name || existingRow?.name || "Unnamed constituent",
-              constituentRecordSolicitor: recipientPortfolioPerson
-                ? getConstituentRecordSolicitor(workspaceUser, recipientPortfolioPerson)
-                : existingRow?.constituentRecordSolicitor || "Not in selected MGO portfolio",
+              constituentRecordSolicitor:
+                recipientRecordSolicitor ||
+                existingRow?.constituentRecordSolicitor ||
+                "Not in selected MGO portfolio",
               recognizedReceived:
                 Number(existingRow?.recognizedReceived || 0) +
                 (isNewAcknowledgmentCredit ? Number(credit?.amount || 0) : 0),
@@ -709,6 +755,9 @@ export default function ReportsPage() {
 
           if (active) {
             setReportRows(materializeReportRows(reportRowsByConstituentId));
+            setAcknowledgmentGiftGroups(
+              materializeAcknowledgmentGiftGroups(reportGiftGroupsById),
+            );
             setPeriod(reportPeriod);
             setReportWarnings(Array.from(warnings));
             setHardCreditTotals({
@@ -755,6 +804,7 @@ export default function ReportsPage() {
       } catch (error) {
         if (active) {
           setReportRows([]);
+          setAcknowledgmentGiftGroups([]);
           setPeriod(null);
           setReportError(
             error instanceof Error
@@ -1156,25 +1206,24 @@ export default function ReportsPage() {
               <div style={{ padding: "20px 22px 14px" }}>
                 <h2 style={{ margin: 0, color: "#0F172A", fontSize: "20px" }}>Acknowledgment detail</h2>
                 <p style={{ margin: "6px 0 0", color: "#64748B", lineHeight: 1.5 }}>
-                  Alphabetized by last name. Each row comes from a gift that lists the selected MGO as a
-                  Gift Solicitor. A soft-credit recipient is shown with the related hard-credit donor.
-                  Donor Advised Fund entities do not appear as acknowledgment recipients.
+                  Grouped by gift, newest first. Each group starts with the hard-credit donor and lists
+                  any related soft-credit recipients beneath it. Donor Advised Fund entities appear as
+                  gift context but are excluded from the acknowledgment-recipient total.
                 </p>
               </div>
-              {reportRows.length ? (
+              {acknowledgmentGiftGroups.length ? (
                 <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", minWidth: "1340px", borderCollapse: "collapse" }}>
+                  <table style={{ width: "100%", minWidth: "1180px", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ backgroundColor: "#F8FAFC", textAlign: "left" }}>
                         {[
-                          "Acknowledgment recipient",
+                          "Donor / recipient",
                           "Constituent record solicitor",
-                          "Hard-credit donor",
+                          "Relationship to gift",
                           "Gift solicitor(s)",
-                          `${yearLabel} Recognition Credit`,
-                          `${yearLabel} Recognized Committed`,
-                          "Last Gift Date",
-                          "Last Gift Amount",
+                          `${yearLabel} Cash Received`,
+                          `${yearLabel} Committed`,
+                          "Gift Date",
                           "Record",
                         ].map((heading) => (
                           <th
@@ -1195,39 +1244,65 @@ export default function ReportsPage() {
                         ))}
                       </tr>
                     </thead>
-                    <tbody>
-                      {reportRows.map((row) => {
-                        const profileUrl = buildBlackbaudConstituentProfileUrl(row.constituentId);
-                        return (
-                          <tr key={row.constituentId} style={{ borderTop: "1px solid #E2E8F0" }}>
-                            <td style={{ padding: "16px", color: "#0F172A", fontWeight: 800 }}>{row.name}</td>
-                            <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
-                              {row.constituentRecordSolicitor || "Not in selected MGO portfolio"}
+                    {acknowledgmentGiftGroups.map((group, groupIndex) => {
+                      const hardCreditProfileUrl = buildBlackbaudConstituentProfileUrl(
+                        group.hardCreditDonor?.constituentId,
+                      );
+                      const groupBorder = groupIndex === 0 ? "1px solid #E2E8F0" : "8px solid #E2E8F0";
+                      return (
+                        <tbody key={group.key}>
+                          <tr style={{ backgroundColor: "#F8FAFC", borderTop: groupBorder }}>
+                            <td style={{ padding: "16px", color: "#0F172A" }}>
+                              <span
+                                style={{
+                                  color: "#64748B",
+                                  display: "block",
+                                  fontSize: "10px",
+                                  fontWeight: 800,
+                                  letterSpacing: "0.06em",
+                                  marginBottom: "5px",
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                Hard-credit donor
+                              </span>
+                              <strong>{group.hardCreditDonor?.name || "Unnamed donor"}</strong>
                             </td>
                             <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
-                              {row.hardCreditDonors?.length
-                                ? row.hardCreditDonors.map((donor) => donor.name).join(", ")
-                                : "Direct credit"}
-                            </td>
-                            <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
-                              {formatGiftSolicitors(row.giftSolicitors)}
-                            </td>
-                            <td style={{ padding: "16px", color: "#047857", fontWeight: 800 }}>
-                              {formatCurrency(row.recognizedReceived)}
-                            </td>
-                            <td style={{ padding: "16px", color: "#1D4ED8", fontWeight: 800 }}>
-                              {formatCurrency(row.recognizedCommitted)}
-                            </td>
-                            <td style={{ padding: "16px", color: "#334155" }}>
-                              {row.lastGiftDate ? formatGiftDate(row.lastGiftDate) : "Unavailable"}
-                            </td>
-                            <td style={{ padding: "16px", color: "#334155", fontWeight: 700 }}>
-                              {row.lastGiftAmount == null ? "Unavailable" : formatCurrency(row.lastGiftAmount)}
+                              {group.hardCreditRecordSolicitor || "Not in selected MGO portfolio"}
                             </td>
                             <td style={{ padding: "16px" }}>
-                              {profileUrl ? (
+                              <span
+                                style={{
+                                  backgroundColor: "#DBEAFE",
+                                  borderRadius: "999px",
+                                  color: "#1D4ED8",
+                                  display: "inline-flex",
+                                  fontSize: "12px",
+                                  fontWeight: 800,
+                                  padding: "5px 9px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Hard credit
+                              </span>
+                            </td>
+                            <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
+                              {formatGiftSolicitors(group.giftSolicitors)}
+                            </td>
+                            <td style={{ padding: "16px", color: "#047857", fontWeight: 800 }}>
+                              {formatCurrency(group.receivedAmount)}
+                            </td>
+                            <td style={{ padding: "16px", color: "#1D4ED8", fontWeight: 800 }}>
+                              {formatCurrency(group.committedAmount)}
+                            </td>
+                            <td style={{ padding: "16px", color: "#334155", whiteSpace: "nowrap" }}>
+                              {group.date ? formatGiftDate(group.date) : "Unavailable"}
+                            </td>
+                            <td style={{ padding: "16px" }}>
+                              {hardCreditProfileUrl ? (
                                 <a
-                                  href={profileUrl}
+                                  href={hardCreditProfileUrl}
                                   target="_blank"
                                   rel="noreferrer"
                                   style={{
@@ -1251,9 +1326,90 @@ export default function ReportsPage() {
                               )}
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
+                          {group.softCreditRecipients.map((recipient) => {
+                            const recipientProfileUrl = buildBlackbaudConstituentProfileUrl(
+                              recipient.constituentId,
+                            );
+                            return (
+                              <tr
+                                key={`${group.key}:${recipient.constituentId}`}
+                                style={{ borderTop: "1px solid #E2E8F0" }}
+                              >
+                                <td style={{ padding: "14px 16px 14px 34px", color: "#0F172A" }}>
+                                  <div style={{ borderLeft: "3px solid #A7F3D0", paddingLeft: "12px" }}>
+                                    <span
+                                      style={{
+                                        color: "#047857",
+                                        display: "block",
+                                        fontSize: "10px",
+                                        fontWeight: 800,
+                                        letterSpacing: "0.06em",
+                                        marginBottom: "4px",
+                                        textTransform: "uppercase",
+                                      }}
+                                    >
+                                      Soft-credit recipient
+                                    </span>
+                                    <strong>{recipient.name}</strong>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "14px 16px", color: "#334155", lineHeight: 1.45 }}>
+                                  {recipient.constituentRecordSolicitor}
+                                </td>
+                                <td style={{ padding: "14px 16px" }}>
+                                  <span
+                                    style={{
+                                      backgroundColor: "#D1FAE5",
+                                      borderRadius: "999px",
+                                      color: "#047857",
+                                      display: "inline-flex",
+                                      fontSize: "12px",
+                                      fontWeight: 800,
+                                      padding: "5px 9px",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Soft credit
+                                  </span>
+                                </td>
+                                <td style={{ padding: "14px 16px", color: "#64748B" }}>Same gift</td>
+                                <td style={{ padding: "14px 16px", color: "#047857", fontWeight: 800 }}>
+                                  {formatCurrency(recipient.amount)}
+                                </td>
+                                <td style={{ padding: "14px 16px", color: "#94A3B8" }}>-</td>
+                                <td style={{ padding: "14px 16px", color: "#64748B" }}>Same gift</td>
+                                <td style={{ padding: "14px 16px" }}>
+                                  {recipientProfileUrl ? (
+                                    <a
+                                      href={recipientProfileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{
+                                        alignItems: "center",
+                                        border: "1px solid #BFDBFE",
+                                        borderRadius: "9px",
+                                        color: "#1D4ED8",
+                                        display: "inline-flex",
+                                        fontSize: "13px",
+                                        fontWeight: 800,
+                                        gap: "6px",
+                                        padding: "8px 10px",
+                                        textDecoration: "none",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      Open NXT record <ExternalLink size={14} />
+                                    </a>
+                                  ) : (
+                                    "Unavailable"
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      );
+                    })}
                   </table>
                 </div>
               ) : (

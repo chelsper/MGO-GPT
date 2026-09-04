@@ -563,6 +563,7 @@ export function calculateCurrentFiscalYearGiving({
             giftId: String(giftId),
             hardCreditConstituentId: directId,
             recipientConstituentId: constituentId,
+            hardCreditAmount: directAmount,
             amount,
             date: getGiftDate(gift),
             giftSolicitors,
