@@ -11,6 +11,7 @@ const {
   authMock,
   createBlackbaudQueryJobMock,
   downloadBlackbaudQueryResultMock,
+  downloadBlackbaudQueryResultWithMetadataMock,
   ensureAppSchemaMock,
   getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJobMock,
@@ -26,6 +27,7 @@ const {
   authMock: vi.fn(),
   createBlackbaudQueryJobMock: vi.fn(),
   downloadBlackbaudQueryResultMock: vi.fn(),
+  downloadBlackbaudQueryResultWithMetadataMock: vi.fn(),
   ensureAppSchemaMock: vi.fn(),
   getBlackbaudConfigIssuesMock: vi.fn(),
   getBlackbaudQueryJobMock: vi.fn(),
@@ -59,8 +61,10 @@ vi.mock("@/app/api/utils/reportCache", () => ({
   shouldBypassReportCache: shouldBypassReportCacheMock,
 }));
 vi.mock("@/app/api/utils/blackbaud", () => ({
+  BlackbaudQueryResultTooLargeError: class BlackbaudQueryResultTooLargeError extends Error {},
   createBlackbaudQueryJob: createBlackbaudQueryJobMock,
   downloadBlackbaudQueryResult: downloadBlackbaudQueryResultMock,
+  downloadBlackbaudQueryResultWithMetadata: downloadBlackbaudQueryResultWithMetadataMock,
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudQueryJob: getBlackbaudQueryJobMock,
 }));
@@ -326,5 +330,66 @@ describe("Alumni & Family Engagement report route", () => {
     expect(payload).toMatchObject({ status: "complete" });
     expect(payload.refreshWarning).toContain("Showing the last successful snapshot instead");
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an Output Query panel beside the existing donor-count panel", async () => {
+    const dashboard = {
+      ...DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD,
+      panels: [
+        ...DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels,
+        {
+          key: "ppc-output",
+          title: "PPC 2026-27",
+          layout: "query_results",
+          width: "full",
+          queryId: "30971",
+          refreshPolicy: "refreshable",
+          columnSettings: [],
+          rows: [],
+          columns: [],
+          values: [],
+        },
+      ],
+    };
+    getReportAccessForUserMock.mockResolvedValue({
+      canView: true,
+      dataConfiguration: dashboard,
+    });
+    downloadBlackbaudQueryResultWithMetadataMock.mockResolvedValue({
+      body: Uint8Array.from(Buffer.from(
+        "PPC Member Name,Total Giving FY27\nAnna Arribas,$0.00\nAmie Barry,$50.00",
+      )),
+      contentType: "text/csv; charset=utf-8",
+    });
+    const { GET } = await import("./route.js");
+    const response = await GET(createRequest("?refresh=1"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.genericConfiguration.panels[0]).toMatchObject({
+      key: "ppc-output",
+      queryId: "30971",
+    });
+    expect(downloadBlackbaudQueryResultWithMetadataMock).toHaveBeenCalledTimes(1);
+    expect(saveReportSnapshotMock.mock.calls[0][1].genericSnapshot.tables[0]).toMatchObject({
+      key: "ppc-output",
+      headers: ["PPC Member Name", "Total Giving FY27"],
+      rows: [["Anna Arribas", "$0.00"], ["Amie Barry", "$50.00"]],
+      status: "ready",
+    });
+    expect(payload.genericSnapshot.tables[0]).toMatchObject({
+      key: "ppc-output",
+      headers: ["PPC Member Name", "Total Giving FY27"],
+      rows: [["Anna Arribas", "$0.00"], ["Amie Barry", "$50.00"]],
+      status: "ready",
+    });
+    expect(saveReportSnapshotMock).toHaveBeenCalledWith(
+      "report:alumni-family-engagement",
+      expect.objectContaining({
+        genericSnapshot: expect.objectContaining({
+          tables: [expect.objectContaining({ key: "ppc-output" })],
+        }),
+      }),
+    );
   });
 });

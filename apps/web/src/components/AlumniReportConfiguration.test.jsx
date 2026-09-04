@@ -43,4 +43,22 @@ describe("existing Alumni configuration compatibility", () => {
     expect(screen.getByText("Not refreshed")).toBeInTheDocument();
     expect(screen.queryByText("99", { exact: true })).not.toBeInTheDocument();
   });
+  it("adds and removes standard Output Query panels without changing donor panels", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<Harness />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Output Query panel" }),
+    );
+    let data = JSON.parse(screen.getByTestId("configuration").textContent);
+    expect(data.panels).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "alumni_donor_count" }),
+        expect.objectContaining({ layout: "query_results", title: "Output Query" }),
+      ]),
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove panel" }).at(-1));
+    data = JSON.parse(screen.getByTestId("configuration").textContent);
+    expect(data.panels).toHaveLength(1);
+    expect(data.panels[0].type).toBe("alumni_donor_count");
+  });
 });

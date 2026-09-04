@@ -566,8 +566,13 @@ export default function ReportDashboardBuilder({
   value,
   onChange,
   disabled = false,
+  panelLimit = DASHBOARD_LIMITS.panels,
 }) {
   const panels = Array.isArray(value?.panels) ? value.panels : [];
+  const maxPanels = Math.max(
+    0,
+    Math.min(DASHBOARD_LIMITS.panels, Number(panelLimit) || 0),
+  );
   const allValues = panels.flatMap((panel) => panel.values || []);
   const tableCount = panels.filter(
     (panel) => panel.layout === "query_results",
@@ -576,7 +581,7 @@ export default function ReportDashboardBuilder({
     allValues.filter((cell) => cell.source === "query_count").length +
     tableCount;
   const canAddQueryTable =
-    panels.length < DASHBOARD_LIMITS.panels &&
+    panels.length < maxPanels &&
     tableCount < QUERY_RESULTS_LIMITS.panels &&
     queryCount < DASHBOARD_LIMITS.queries;
   const canAddValues = (count) =>
@@ -783,7 +788,7 @@ export default function ReportDashboardBuilder({
             className={styles.primary}
             disabled={
               disabled ||
-              panels.length >= DASHBOARD_LIMITS.panels ||
+              panels.length >= maxPanels ||
               !canAddValues(1)
             }
             onClick={() => changePanels([...panels, newPanel()])}
@@ -803,7 +808,7 @@ export default function ReportDashboardBuilder({
         </div>
       </div>
       <p className={styles.help}>
-        {panels.length}/{DASHBOARD_LIMITS.panels} panels; {allValues.length}/
+        {panels.length}/{maxPanels} panels; {allValues.length}/
         {DASHBOARD_LIMITS.values} values; {queryCount}/
         {DASHBOARD_LIMITS.queries} saved-query sources; {tableCount}/
         {QUERY_RESULTS_LIMITS.panels} query tables. Each query table uses one

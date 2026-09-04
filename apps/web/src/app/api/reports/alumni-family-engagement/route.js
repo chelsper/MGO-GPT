@@ -12,13 +12,12 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import {
-  BlackbaudQueryResultTooLargeError,
-  createBlackbaudQueryJob,
-  downloadBlackbaudQueryResult,
-  downloadBlackbaudQueryResultWithMetadata,
   getBlackbaudConfigIssues,
-  getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
+import {
+  executeSavedQueryCount,
+  executeSavedQueryResults,
+} from "@/app/api/utils/savedQueryExecution";
 import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
   getReportAccessForUser,
@@ -29,8 +28,14 @@ import {
   getAlumniDonorCountPanels,
   getAlumniDonorCountRows,
   getAlumniDonorCountRowFingerprint,
+  getAlumniGenericDashboard,
   normalizeAlumniFamilyEngagementDashboard,
 } from "@/app/api/utils/alumniDonorConfiguration";
+import {
+  presentDashboardSnapshot,
+  publicDashboardSnapshot,
+  refreshDashboardSnapshot,
+} from "@/app/api/utils/dashboardSnapshots";
 
 export const maxDuration = 300;
 
@@ -43,9 +48,9 @@ export const ALUMNI_DONOR_TOTAL_QUERIES = getAlumniDonorCountRows(
 const DEFAULT_REPORT_TITLE = "Alumni & Family Engagement";
 const DEFAULT_REPORT_DESCRIPTION =
   "Configured dashboard panels backed by saved NXT query snapshots.";
-const QUERY_POLL_INTERVAL_MS = 1500;
-const QUERY_MAX_WAIT_MS = 90000;
 const QUERY_RESULT_CSV_ROW_COUNT_SOURCE = "query-result-csv-row-count-v3";
+
+export { executeSavedQueryCount, executeSavedQueryResults };
 
 function getReportPresentation(access) {
   return {
@@ -97,6 +102,22 @@ function needsNxtRefresh({ cachedPayload, dashboard, countRows }) {
   });
 }
 
+function genericDashboardNeedsNxtRefresh(configuration, cached) {
+  const snapshot = presentDashboardSnapshot(configuration, cached, {});
+  const values = new Map(snapshot.values.map((value) => [value.key, value]));
+  const tables = new Map(snapshot.tables.map((table) => [table.key, table]));
+  return configuration.panels.some((panel) =>
+    panel.layout === "query_results"
+      ? panel.refreshPolicy !== "frozen" || tables.get(panel.key)?.rows === null
+      : panel.values.some(
+          (value) =>
+            value.source === "query_count" &&
+            (value.refreshPolicy !== "frozen" ||
+              values.get(value.key)?.value === null),
+        ),
+  );
+}
+
 function buildDashboardPanels({ dashboard, totals }) {
   const totalsByRow = new Map(
     (Array.isArray(totals) ? totals : []).map((total) => [
@@ -136,14 +157,27 @@ function attachReportPresentation({ cachedPayload, dashboard, presentation, coun
   });
   if (!compatibleTotals) return null;
 
+  const genericConfiguration = getAlumniGenericDashboard(dashboard);
+  const genericSnapshot = presentDashboardSnapshot(
+    genericConfiguration,
+    cachedPayload?.genericSnapshot,
+    {},
+  );
+
   const { constituencyMembershipCache: ignoredMembershipCache, ...publicPayload } = cachedPayload;
   return {
     ...publicPayload,
+    status:
+      genericSnapshot.status === "complete"
+        ? "complete"
+        : genericSnapshot.status,
     report: presentation,
     dashboard: {
       panels: buildDashboardPanels({ dashboard, totals: compatibleTotals }),
     },
     configurationFingerprint,
+    genericConfiguration,
+    genericSnapshot: publicDashboardSnapshot(genericSnapshot),
     totalRows: compatibleTotals.reduce((sum, total) => sum + Number(total.total || 0), 0),
     totals: countRows.map((row, index) => ({
       ...compatibleTotals[index],
@@ -151,241 +185,6 @@ function attachReportPresentation({ cachedPayload, dashboard, presentation, coun
       definitionFingerprint: getAlumniDonorCountRowFingerprint(dashboard, row),
     })),
   };
-}
-
-function getQueryJobId(job) {
-  return String(job?.id ?? job?.job_id ?? job?.jobId ?? "").trim();
-}
-
-function getQueryJobStatus(job) {
-  return String(job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "").trim();
-}
-
-function isCompletedQueryJob(status) {
-  return /^(?:completed|complete|succeeded|success)$/i.test(String(status || "").trim());
-}
-
-function isFailedQueryJob(status) {
-  return /(?:fail|cancel|error|declin)/i.test(String(status || ""));
-}
-
-function getQueryJobMetadataRowCount(job) {
-  const candidates = [
-    job?.row_count,
-    job?.rowCount,
-    job?.total_rows,
-    job?.totalRows,
-    job?.record_count,
-    job?.recordCount,
-    job?.result?.row_count,
-    job?.result?.rowCount,
-    job?.result?.total_rows,
-    job?.result?.totalRows,
-    job?.result?.record_count,
-    job?.result?.recordCount,
-  ];
-  const value = candidates.find(
-    (candidate) => candidate !== undefined && candidate !== null && String(candidate).trim(),
-  );
-  const rowCount = Number(value);
-  return Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null;
-}
-
-function getFirstQueryResultUrl(candidates) {
-  return String(
-    candidates.find((candidate) => String(candidate || "").trim()) || "",
-  ).trim();
-}
-
-function getQueryResultFileUrl(job) {
-  return getFirstQueryResultUrl([
-    job?.sas_uri,
-    job?.sasUri,
-    job?.result_uri,
-    job?.resultUri,
-    job?.result_url,
-    job?.resultUrl,
-    job?.resultFileUrl,
-    job?.download_url,
-    job?.downloadUrl,
-    job?.result?.sas_uri,
-    job?.result?.sasUri,
-    job?.result?.result_uri,
-    job?.result?.resultUri,
-    job?.result?.result_url,
-    job?.result?.resultUrl,
-    job?.result?.resultFileUrl,
-    job?.result?.download_url,
-    job?.result?.downloadUrl,
-  ]);
-}
-
-function getQueryResultReadUrl(job) {
-  return getFirstQueryResultUrl([
-    job?.read_url,
-    job?.readUrl,
-    job?.result?.read_url,
-    job?.result?.readUrl,
-  ]);
-}
-
-function parseCsv(content) {
-  const records = [];
-  const text = String(content || "").replace(/^\uFEFF/, "");
-  let row = [];
-  let cell = "";
-  let quoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    const nextCharacter = text[index + 1];
-
-    if (character === '"') {
-      if (quoted && nextCharacter === '"') {
-        cell += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-      continue;
-    }
-
-    if (character === "," && !quoted) {
-      row.push(cell);
-      cell = "";
-      continue;
-    }
-
-    if ((character === "\n" || character === "\r") && !quoted) {
-      if (character === "\r" && nextCharacter === "\n") index += 1;
-      row.push(cell);
-      if (row.some((value) => String(value || "").trim())) records.push(row);
-      row = [];
-      cell = "";
-      continue;
-    }
-
-    cell += character;
-  }
-
-  row.push(cell);
-  if (row.some((value) => String(value || "").trim())) records.push(row);
-  return records;
-}
-
-function countQueryResultRows(content, label) {
-  const resultCsv = String(content || "").replace(/^\uFEFF/, "");
-  const leadingContent = resultCsv.trimStart();
-
-  if (!leadingContent) {
-    throw new Error(
-      `NXT returned an empty result file for ${label}. The report was not updated.`,
-    );
-  }
-
-  if (/^(?:[\[{]|<!doctype\b|<html\b)/i.test(leadingContent)) {
-    throw new Error(
-      `NXT returned query-job metadata instead of the completed CSV result for ${label}. The report was not updated.`,
-    );
-  }
-
-  const records = parseCsv(resultCsv);
-  if (!records.length) return 0;
-
-  // Query jobs return a CSV header followed by the actual saved-query rows.
-  return records.slice(1).length;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv, readResult }) {
-  const startedAt = Date.now();
-  let polls = 0;
-  let lastStatus = "Queued";
-
-  while (Date.now() - startedAt < QUERY_MAX_WAIT_MS) {
-    const job = await getBlackbaudQueryJob({
-      userId: user.id,
-      authUserId: user.id,
-      origin,
-      jobId,
-    });
-    polls += 1;
-    lastStatus = getQueryJobStatus(job) || lastStatus;
-
-    if (isCompletedQueryJob(lastStatus)) {
-      const resultUrl = getQueryResultFileUrl(job) || getQueryResultReadUrl(job);
-      if (!resultUrl) {
-        throw new Error(
-          `NXT completed ${label}, but did not provide its result file. The report was not updated.`,
-        );
-      }
-      if (readResult) return readResult({ resultUrl, job });
-      const resultCsv = await downloadBlackbaudQueryResult(resultUrl, {
-        userId: user.id,
-        authUserId: user.id,
-        origin,
-      });
-      if (validateResultCsv) validateResultCsv(resultCsv);
-      return {
-        total: countQueryResultRows(resultCsv, label),
-        polls,
-        queryJobRowCount: getQueryJobMetadataRowCount(job),
-      };
-    }
-
-    if (isFailedQueryJob(lastStatus)) {
-      throw new Error(`NXT query job for ${label} ${lastStatus.toLocaleLowerCase("en-US")}.`);
-    }
-
-    await sleep(QUERY_POLL_INTERVAL_MS);
-  }
-
-  throw new Error(
-    `NXT is still preparing ${label}. The last saved report remains available; try Refresh data again shortly.`,
-  );
-}
-
-// Reuse the existing saved-query/download/count flow without changing alumni callers.
-export async function executeSavedQueryCount({ user, origin, queryId, label, validateResultCsv }) {
-  const createdJob = await createBlackbaudQueryJob({ userId: user.id, authUserId: user.id, origin, queryId });
-  const jobId = getQueryJobId(createdJob);
-  if (!jobId) throw new Error(`NXT did not return a query job ID for ${label}.`);
-  return waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv });
-}
-
-// Table readers reuse job execution/polling but never enter the legacy count parser.
-export async function executeSavedQueryResults({ user, origin, queryId, maxBytes }) {
-  try {
-    const createdJob = await createBlackbaudQueryJob({
-      userId: user.id,
-      authUserId: user.id,
-      origin,
-      queryId,
-    });
-    const jobId = getQueryJobId(createdJob);
-    if (!jobId) throw new Error("Missing query job ID.");
-    return await waitForBlackbaudQueryJob({
-      user,
-      origin,
-      jobId,
-      label: "dashboard query",
-      readResult: async ({ resultUrl, job }) => {
-        const { body, contentType } = await downloadBlackbaudQueryResultWithMetadata(resultUrl, {
-          userId: user.id,
-          authUserId: user.id,
-          origin,
-          maxBytes,
-        });
-        return { body, contentType, queryJobRowCount: getQueryJobMetadataRowCount(job) };
-      },
-    });
-  } catch (error) {
-    if (error instanceof BlackbaudQueryResultTooLargeError) throw error;
-    throw new Error("Could not retrieve the saved query results. No report snapshot was changed.");
-  }
 }
 
 async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload }) {
@@ -424,24 +223,13 @@ async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload
       );
     }
 
-    const createdJob = await createBlackbaudQueryJob({
-      userId: user.id,
-      authUserId: user.id,
-      origin,
-      queryId: row.queryId,
-    });
-    const jobId = getQueryJobId(createdJob);
-    if (!jobId) {
-      throw new Error(`NXT did not return a query job ID for ${row.label}.`);
-    }
-    queryJobs += 1;
-
-    const { total, polls, queryJobRowCount } = await waitForBlackbaudQueryJob({
+    const { total, polls, queryJobRowCount } = await executeSavedQueryCount({
       user,
       origin,
-      jobId,
+      queryId: row.queryId,
       label: row.label,
     });
+    queryJobs += 1;
     queryJobPolls += polls;
     totals.push({
       ...row,
@@ -495,6 +283,7 @@ export async function GET(request) {
 
     const dashboard = normalizeAlumniFamilyEngagementDashboard(access.dataConfiguration);
     const countRows = getAlumniDonorCountRows(dashboard);
+    const genericConfiguration = getAlumniGenericDashboard(dashboard);
     const presentation = getReportPresentation(access);
     const forceRefresh = shouldBypassReportCache(request);
     const cachedPayload = await getCachedReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY);
@@ -515,8 +304,12 @@ export async function GET(request) {
           status: "refresh_required",
           report: presentation,
           dashboard: { panels: buildDashboardPanels({ dashboard, totals: [] }) },
+          genericConfiguration,
+          genericSnapshot: publicDashboardSnapshot(
+            presentDashboardSnapshot(genericConfiguration, null, {}),
+          ),
           configurationFingerprint: getAlumniFamilyEngagementDashboardFingerprint(dashboard),
-          message: countRows.length
+          message: countRows.length || genericConfiguration.panels.length
             ? "No saved Alumni & Family Engagement snapshot matches this dashboard configuration yet. Select Refresh data to create one."
             : "No Alumni & Family Engagement dashboard panels are configured yet.",
         },
@@ -528,7 +321,10 @@ export async function GET(request) {
       cachedPayload,
       dashboard,
       countRows,
-    });
+    }) || genericDashboardNeedsNxtRefresh(
+      genericConfiguration,
+      cachedPayload?.genericSnapshot,
+    );
     const origin = new URL(request.url).origin;
     if (shouldCallNxt) {
       const configurationIssues = getBlackbaudConfigIssues(origin);
@@ -546,11 +342,30 @@ export async function GET(request) {
       dashboard,
       cachedPayload,
     });
-    if (queryTotals.refreshMetrics.queryJobs === 0 && presentedCachedPayload) {
+    const genericSnapshot = await refreshDashboardSnapshot({
+      configuration: genericConfiguration,
+      cached: cachedPayload?.genericSnapshot,
+      user,
+      origin,
+      staticValueProvenance: {},
+    });
+    const refreshMetrics = {
+      ...queryTotals.refreshMetrics,
+      queryJobs:
+        queryTotals.refreshMetrics.queryJobs +
+        genericSnapshot.refreshMetrics.queryJobs,
+      genericQueryJobs: genericSnapshot.refreshMetrics.queryJobs,
+      remainingQueryCount: genericSnapshot.remainingQueryCount,
+    };
+    if (
+      refreshMetrics.queryJobs === 0 &&
+      presentedCachedPayload &&
+      !genericConfiguration.panels.length
+    ) {
       return Response.json(
         {
           ...presentedCachedPayload,
-          refreshMetrics: queryTotals.refreshMetrics,
+          refreshMetrics,
           refreshNotice:
             "All configured rows are frozen snapshots. The saved report was returned without another NXT request.",
         },
@@ -565,6 +380,8 @@ export async function GET(request) {
       dashboard: { panels: buildDashboardPanels({ dashboard, totals: queryTotals.totals }) },
       configurationFingerprint: getAlumniFamilyEngagementDashboardFingerprint(dashboard),
       ...queryTotals,
+      refreshMetrics,
+      genericSnapshot,
     };
     await saveReportSnapshot(ALUMNI_FAMILY_ENGAGEMENT_CACHE_KEY, payload);
 

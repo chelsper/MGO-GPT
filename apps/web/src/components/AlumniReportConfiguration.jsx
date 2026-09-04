@@ -1,6 +1,14 @@
 import { useState } from "react";
-import { ALUMNI_DONOR_ROW_REFRESH_POLICIES, getAlumniDonorCountRowFingerprint } from "@/app/api/utils/alumniDonorConfiguration";
-import { validateDashboardQueryId } from "@/app/api/utils/dashboardConfiguration";
+import {
+  ALUMNI_DONOR_ROW_REFRESH_POLICIES,
+  getAlumniDonorCountRowFingerprint,
+} from "@/app/api/utils/alumniDonorConfiguration";
+import {
+  DASHBOARD_LIMITS,
+  validateDashboardQueryId,
+} from "@/app/api/utils/dashboardConfiguration";
+import ReportDashboardBuilder from "./ReportDashboardBuilder";
+import ReportDashboardPanels from "./ReportDashboardPanels";
 import styles from "./reportConfigurationEditor.module.css";
 
 function uniqueKey(prefix) { return `${prefix}-${crypto.randomUUID().slice(0, 8)}`; }
@@ -30,8 +38,13 @@ function QueryTest({ queryId }) {
   </div>;
 }
 
-export default function AlumniReportConfiguration({ value, onChange }) {
+export default function AlumniReportConfiguration({ value, onChange, disabled = false }) {
   const panels = value?.panels || [];
+  const donorPanels = panels.filter((panel) => panel.type === "alumni_donor_count");
+  const genericDashboard = {
+    version: 1,
+    panels: panels.filter((panel) => panel.layout),
+  };
   function updatePanel(key, patch) {
     onChange({ ...value, panels: panels.map((panel) => panel.key === key ? { ...panel, ...patch } : panel) });
   }
@@ -39,11 +52,12 @@ export default function AlumniReportConfiguration({ value, onChange }) {
     updatePanel(panel.key, { rows: panel.rows.map((row) => row.key === rowKey ? { ...row, ...patch } : row) });
   }
   return <section className={styles.stack} aria-label="Alumni dashboard panels">
-    <div className={styles.notice}>Existing Alumni panels continue to use their saved NXT queries and snapshots. The query owns its criteria. Use one constituent per result row for donor counts; aggregate-output queries would count as one row.</div>
-    {panels.map((panel, index) => <section className={`${styles.panel} ${styles.stack}`} key={panel.key}>
+    <div className={styles.notice}>Choose the panel that matches the result you need. Alumni count panels show one saved-query row count per labeled period. Number/count panels can combine query counts and static numbers. Output Query panels display the saved query&apos;s returned rows and columns.</div>
+    <div className={styles.sectionHeading}><div><h3 style={{ margin: 0 }}>Alumni donor-count panels</h3><p className={styles.muted} style={{ margin: "5px 0 0" }}>Preserves the existing fiscal-year donor totals and frozen snapshots.</p></div><button type="button" className={styles.button} disabled={disabled || panels.length >= DASHBOARD_LIMITS.panels} onClick={() => onChange({ ...value, panels: [...panels, { key: uniqueKey("panel"), type: "alumni_donor_count", title: "New donor-count panel", rows: [] }] })}>Add Alumni count panel</button></div>
+    {donorPanels.map((panel, index) => <section className={`${styles.panel} ${styles.stack}`} key={panel.key}>
       <div className={styles.sectionHeading}><h3>Panel {index + 1}</h3><button type="button" className={styles.button} onClick={() => {
         if (window.confirm(`Remove ${panel.title} from this dashboard? This takes effect only after saving.`)) onChange({ ...value, panels: panels.filter((item) => item.key !== panel.key) });
-      }}>Remove panel</button></div>
+      }} disabled={disabled}>Remove panel</button></div>
       <label className={styles.field}>Panel title<input value={panel.title} maxLength={160} onChange={(event) => updatePanel(panel.key, { title: event.target.value })} /></label>
       {panel.rows.map((row, rowIndex) => <section key={row.key} className={`${styles.row} ${styles.stack}`} aria-label={`Count row ${rowIndex + 1}`}>
         <div className={styles.sectionHeading}><strong>Count row {rowIndex + 1}</strong><button type="button" className={styles.button} onClick={() => {
@@ -57,15 +71,30 @@ export default function AlumniReportConfiguration({ value, onChange }) {
         </div>
         <QueryTest queryId={row.queryId} />
       </section>)}
-      <div><button type="button" className={styles.button} disabled={panel.rows.length >= 12} onClick={() => updatePanel(panel.key, { rows: [...panel.rows, { key: uniqueKey("count"), label: `Count ${panel.rows.length + 1}`, queryId: "", queryName: "", refreshPolicy: "refreshable" }] })}>Add query-count row</button></div>
+      <div><button type="button" className={styles.button} disabled={disabled || panel.rows.length >= 12} onClick={() => updatePanel(panel.key, { rows: [...panel.rows, { key: uniqueKey("count"), label: `Count ${panel.rows.length + 1}`, queryId: "", queryName: "", refreshPolicy: "refreshable" }] })}>Add query-count row</button></div>
     </section>)}
-    <div><button type="button" className={styles.button} disabled={panels.length >= 8} onClick={() => onChange({ ...value, panels: [...panels, { key: uniqueKey("panel"), type: "alumni_donor_count", title: "New donor-count panel", rows: [] }] })}>Add Alumni count panel</button></div>
+    {!donorPanels.length && <p className={styles.muted}>No Alumni donor-count panels are configured.</p>}
+    <ReportDashboardBuilder
+      value={genericDashboard}
+      disabled={disabled}
+      panelLimit={DASHBOARD_LIMITS.panels - donorPanels.length}
+      onChange={(next) => onChange({
+        ...value,
+        panels: [...donorPanels, ...next.panels],
+      })}
+    />
   </section>;
 }
 
 export function AlumniReportPreview({ configuration, snapshot }) {
-  return <div className={styles.grid}>
-    {(configuration?.panels || []).map((panel) => <section className={`${styles.panel} ${styles.stack}`} key={panel.key}>
+  const donorPanels = (configuration?.panels || []).filter((panel) => panel.type === "alumni_donor_count");
+  const genericDashboard = {
+    version: 1,
+    panels: (configuration?.panels || []).filter((panel) => panel.layout),
+  };
+  return <div className={styles.stack}>
+    <div className={styles.grid}>
+    {donorPanels.map((panel) => <section className={`${styles.panel} ${styles.stack}`} key={panel.key}>
       <h3>{panel.title}</h3>
       {panel.rows.map((row) => {
         const fingerprint = getAlumniDonorCountRowFingerprint(configuration, { ...row, panelKey: panel.key, panelType: panel.type });
@@ -74,5 +103,15 @@ export function AlumniReportPreview({ configuration, snapshot }) {
       })}
       {!panel.rows.length && <p className={styles.muted}>Add query-count rows in Configure.</p>}
     </section>)}
+    </div>
+    {genericDashboard.panels.length ? (
+      <ReportDashboardPanels
+        configuration={genericDashboard}
+        snapshot={snapshot?.genericSnapshot}
+      />
+    ) : null}
+    {!donorPanels.length && !genericDashboard.panels.length ? (
+      <p className={styles.muted}>No dashboard panels are configured.</p>
+    ) : null}
   </div>;
 }

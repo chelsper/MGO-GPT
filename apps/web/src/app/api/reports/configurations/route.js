@@ -3,6 +3,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import sql from "@/app/api/utils/sql";
 import {
+  deleteDashboardConfiguration,
   listDashboardConfigurations,
   saveDashboardConfiguration,
   serializeDashboardConfiguration,
@@ -309,9 +310,33 @@ export async function POST(request) {
   }
 }
 
-export async function DELETE() {
-  return Response.json(
-    { error: "Custom Field Reports are retired. Configure an approved Query-Based Report instead." },
-    { status: 410 },
-  );
+export async function DELETE(request) {
+  try {
+    const { user, error } = await requireSessionUser();
+    if (error) return error;
+    if (!canManageWorkspaceRole(user.role)) {
+      return Response.json(
+        { error: "Only Admin and Advancement Services users can delete reports." },
+        { status: 403 },
+      );
+    }
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json({ error: "Expected a report key." }, { status: 400 });
+    }
+    const deleted = await deleteDashboardConfiguration({
+      reportKey: body.reportKey,
+    });
+    return Response.json({
+      deletedReportKey: deleted.reportKey,
+      message: "Report and its saved snapshot were deleted.",
+    });
+  } catch (error) {
+    const status = Number(error.status) || 500;
+    if (status >= 500) console.error("Report configurations DELETE error:", error);
+    return Response.json(
+      { error: error.message || "Failed to delete report." },
+      { status },
+    );
+  }
 }

@@ -31,6 +31,8 @@
 .field small { font-weight: 400; color: var(--editor-muted); line-height: 1.45; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 9px 14px; border-radius: 9px; border: 1px solid #c7d2fe; color: #4338ca; background: white; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; text-decoration: none; }
 .primary { background: var(--editor-accent); border-color: var(--editor-accent); color: white; }
+.danger { color: #b91c1c; border-color: #fecaca; background: #fff7f7; }
+.successNotice { margin: -8px 0 20px; padding: 12px 15px; border: 1px solid #bbf7d0; border-radius: 10px; color: #166534; background: #f0fdf4; font-weight: 700; }
 .page button:disabled { opacity: .5; cursor: not-allowed; }
 .page :is(button, input, textarea, select, a):focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
 .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--editor-line); padding: 0 0 16px; margin: 16px 0 24px; flex-wrap: wrap; }

@@ -8,7 +8,7 @@ vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: mocks.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: vi.fn() }));
 vi.mock("@/app/api/utils/sql", () => ({ default: mocks.sql }));
-import { GET, PATCH, POST } from "./route";
+import { DELETE, GET, PATCH, POST } from "./route";
 
 const dashboard = {
   report_key: "demo",
@@ -139,5 +139,25 @@ describe("report configuration API", () => {
     ).toBe(400);
     mocks.auth.mockResolvedValue(null);
     expect((await GET()).status).toBe(401);
+  });
+  it("deletes only a user-created dashboard and its cached snapshot", async () => {
+    const response = await DELETE(request({ reportKey: "demo" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ deletedReportKey: "demo" });
+    const deleteCalls = mocks.sql.mock.calls.filter(([strings]) =>
+      strings.join(" ").includes("DELETE FROM"),
+    );
+    expect(deleteCalls).toHaveLength(2);
+    expect(deleteCalls[0][0].join(" ")).toContain("report_configurations");
+    expect(deleteCalls[1][0].join(" ")).toContain("report_snapshots_cache");
+    expect(deleteCalls[1][1]).toBe("report:dashboard:demo");
+  });
+  it("protects built-in reports from deletion", async () => {
+    const response = await DELETE(
+      request({ reportKey: "alumni-family-engagement" }),
+    );
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/cannot be deleted/i);
+    expect(mocks.sql).not.toHaveBeenCalled();
   });
 });

@@ -15,7 +15,7 @@ const users = [{ id: 1, name: "Reviewer One", email: "one@example.test", role: "
 const jsonResponse = (payload, ok = true) => ({ ok, json: async () => payload });
 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("report configuration save contracts", () => {
   it("sends configuration without access and access without configuration", () => {
@@ -121,5 +121,34 @@ describe("single-report editor", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     expect(fetch.mock.calls[0][0]).toBe("/api/reports/dashboards/dashboard-test?preview=1");
     expect(fetch.mock.calls[0][1]).not.toHaveProperty("method", "POST");
+  });
+
+  it("permanently deletes only user-created reports after confirmation", async () => {
+    const report = dashboard();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fetch.mockResolvedValue(
+      jsonResponse({
+        deletedReportKey: report.key,
+        message: "Report and its saved snapshot were deleted.",
+      }),
+    );
+    render(
+      <ReportConfigurationEditor
+        initialConfigurations={[report, builtin("future-made-phase-ii")]}
+        users={users}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete report" }));
+    expect(
+      await screen.findByText("Report and its saved snapshot were deleted."),
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/reports/configurations",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ reportKey: report.key }),
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "Delete report" })).not.toBeInTheDocument();
   });
 });

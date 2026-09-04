@@ -4,6 +4,7 @@ import {
   DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD,
   getAlumniDonorCountRowFingerprint,
   getAlumniDonorCountRows,
+  getAlumniGenericDashboard,
   getAlumniFamilyEngagementDashboardFingerprint,
   normalizeAlumniFamilyEngagementDashboard,
   validateAlumniFamilyEngagementDashboard,
@@ -154,5 +155,33 @@ describe("Alumni & Family Engagement dashboard configuration", () => {
         ],
       }),
     ).toContain("numeric saved NXT query system record ID");
+  });
+
+  it("preserves and validates mixed donor-count and Output Query panels", () => {
+    const mixed = {
+      ...DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD,
+      panels: [
+        ...DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels,
+        {
+          key: "ppc-output",
+          title: "PPC 2026-27",
+          layout: "query_results",
+          width: "full",
+          queryId: "30971",
+          refreshPolicy: "refreshable",
+          columnSettings: [],
+          rows: [],
+          columns: [],
+          values: [],
+        },
+      ],
+    };
+    const normalized = normalizeAlumniFamilyEngagementDashboard(mixed);
+    expect(validateAlumniFamilyEngagementDashboard(normalized)).toBe("");
+    expect(getAlumniDonorCountRows(normalized)).toHaveLength(2);
+    expect(getAlumniGenericDashboard(normalized)).toMatchObject({
+      version: 1,
+      panels: [expect.objectContaining({ queryId: "30971" })],
+    });
   });
 });

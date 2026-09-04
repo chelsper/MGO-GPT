@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { executeSavedQueryCount } from "@/app/api/reports/alumni-family-engagement/route";
+import { executeSavedQueryCount } from "@/app/api/utils/savedQueryExecution";
 import { validateDashboardQueryId } from "@/app/api/utils/dashboardConfiguration";
 import { getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 

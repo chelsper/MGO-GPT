@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
+import ReportDashboardPanels from "@/components/ReportDashboardPanels";
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
@@ -86,7 +87,7 @@ export default function AlumniFamilyEngagementPage() {
       setError("");
       setStatusText(
         refreshVersion > 0
-          ? "Refreshing configured donor-count rows..."
+          ? "Refreshing configured dashboard panels..."
           : "Loading the saved report snapshot...",
       );
       try {
@@ -138,6 +139,9 @@ export default function AlumniFamilyEngagementPage() {
   const reportDescription = String(
     report?.report?.description || "Configured dashboard panels backed by saved NXT query snapshots.",
   );
+  const genericPanels = Array.isArray(report?.genericConfiguration?.panels)
+    ? report.genericConfiguration.panels
+    : [];
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
@@ -263,7 +267,7 @@ export default function AlumniFamilyEngagementPage() {
           </section>
         ) : null}
 
-        {report?.status === "complete" ? (
+        {report?.generatedAt ? (
           <>
             {report.generatedAt ? (
               <p style={{ margin: "0 0 14px", color: "#64748B", fontSize: "14px" }}>
@@ -326,7 +330,7 @@ export default function AlumniFamilyEngagementPage() {
                 );
               })}
 
-              {!dashboardPanels.length ? (
+              {!dashboardPanels.length && !genericPanels.length ? (
                 <section
                   style={{
                     border: "1px solid #CBD5E1",
@@ -340,6 +344,14 @@ export default function AlumniFamilyEngagementPage() {
                 </section>
               ) : null}
             </section>
+            {genericPanels.length ? (
+              <div style={{ marginTop: dashboardPanels.length ? "18px" : 0 }}>
+                <ReportDashboardPanels
+                  configuration={report.genericConfiguration}
+                  snapshot={report.genericSnapshot}
+                />
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Plus, Save } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
 import { getReportHref, getReportTypeDefinitions, getDashboardReportMetadata } from "@/app/api/utils/reportRegistry";
 import { validateAlumniFamilyEngagementDashboard } from "@/app/api/utils/alumniDonorConfiguration";
 import { validateDashboardConfiguration } from "@/app/api/utils/dashboardConfiguration";
@@ -63,6 +63,20 @@ async function saveReport(payload, create) {
   const result = await response.json();
   if (!response.ok) throw new Error(result?.error || "Could not save this report.");
   if (!result?.configuration?.key) throw new Error("The server did not confirm the saved report. Your draft is retained.");
+  return result;
+}
+
+async function deleteReport(reportKey) {
+  const response = await fetch("/api/reports/configurations", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reportKey }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || "Could not delete this report.");
+  if (result?.deletedReportKey !== reportKey) {
+    throw new Error("The server did not confirm report deletion.");
+  }
   return result;
 }
 
@@ -135,6 +149,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState({});
+  const [pageFeedback, setPageFeedback] = useState(null);
   const [newReport, setNewReport] = useState(null);
   const allReports = newReport ? [...configurations, newReport] : configurations;
   const configuration = allReports.find((report) => report.key === selectedKey);
@@ -167,6 +182,45 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
     setSelectedKey(NEW_REPORT_KEY);
     setSearch("");
     setTab("Configure");
+  }
+
+  async function removeReport() {
+    if (!generic || isNew || saving) return;
+    const unsavedWarning = dirtyKeys.includes(selectedKey)
+      ? " Unsaved changes to this report will also be lost."
+      : "";
+    if (!window.confirm(
+      `Permanently delete "${draft.title || configuration.title}"? Its configuration, access list, and saved snapshot will be removed.${unsavedWarning} This cannot be undone.`,
+    )) return;
+
+    const key = selectedKey;
+    setSaving(true);
+    setPageFeedback(null);
+    try {
+      const result = await deleteReport(key);
+      const remaining = configurations.filter((report) => report.key !== key);
+      setConfigurations(remaining);
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setFeedback((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setSelectedKey(remaining[0]?.key || (newReport ? NEW_REPORT_KEY : ""));
+      setTab("Configure");
+      setPageFeedback({ message: result.message });
+    } catch (error) {
+      setFeedback((current) => ({
+        ...current,
+        [key]: { error: true, message: error.message },
+      }));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function save() {
@@ -215,6 +269,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       </select></label>
       <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport ? "Continue new report" : "Add report"}</button>
     </section>
+    {pageFeedback && <div className={styles.successNotice} role="status">{pageFeedback.message}</div>}
     {configuration && draft && <section className={styles.card} aria-label="Selected report editor">
       <div className={styles.sectionHeading}><div><h2 style={{ margin: 0 }}>{draft.title || "New report"}</h2><p className={styles.muted} style={{ margin: "6px 0 0" }}>{generic ? "Query results, counts, and static values" : configuration.reportTypeLabel}</p></div><span className={styles.tag}>{isNew ? "Unsaved draft" : generic ? configuration.active ? "Enabled" : "Disabled draft" : "Built-in report"}</span></div>
       <div className={styles.tabs} role="tablist" aria-label="Report settings">
@@ -237,6 +292,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       <footer className={styles.footer}>
         <div><strong>{dirtyKeys.includes(selectedKey) ? "Unsaved changes" : "All changes saved"}</strong><small>{dirtyKeys.length > 1 ? `${dirtyKeys.length} reports have unsaved drafts. Switching reports keeps them in this page.` : "Saving settings does not run a query or replace a snapshot."}</small></div>
         <div className={styles.sectionHeading}>
+          {generic && !isNew && <button className={`${styles.button} ${styles.danger}`} disabled={saving} onClick={removeReport}><Trash2 size={17} />Delete report</button>}
           {dirtyKeys.includes(selectedKey) && <button className={styles.button} disabled={saving} onClick={discard}>Discard changes</button>}
           <button className={`${styles.button} ${styles.primary}`} disabled={saving || !currentDirty || (isNew && tab === "Access")} onClick={save}><Save size={17} />{saving ? "Saving..." : isNew ? "Create disabled report" : tab === "Access" ? "Save access" : tab === "Configure" ? "Save configuration" : "Save all changes"}</button>
         </div>

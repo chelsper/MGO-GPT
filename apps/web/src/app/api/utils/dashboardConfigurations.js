@@ -72,6 +72,44 @@ export async function listDashboardConfigurations({ activeOnly = false } = {}) {
   `;
 }
 
+export async function deleteDashboardConfiguration({ reportKey }) {
+  if (
+    typeof reportKey !== "string" ||
+    !/^[a-z0-9][a-z0-9-]{0,79}$/.test(reportKey) ||
+    getReportDefinition(reportKey)
+  ) {
+    throw dashboardError("Built-in and reserved reports cannot be deleted.");
+  }
+  const existing = await getDashboardConfiguration(reportKey);
+  if (!existing) throw dashboardError("Unknown dashboard.", 404);
+
+  const deleted = await sql`
+    DELETE FROM report_configurations
+    WHERE report_key = ${reportKey}
+      AND configuration_kind = 'dashboard'
+      AND updated_at::text = ${existing.revision}
+    RETURNING report_key
+  `;
+  if (!deleted.length) {
+    throw dashboardError(
+      "Configuration changed while deleting. Reload and try again.",
+      409,
+    );
+  }
+
+  try {
+    await sql`
+      DELETE FROM report_snapshots_cache
+      WHERE report_key = ${`report:dashboard:${reportKey}`}
+    `;
+  } catch (error) {
+    // The report is already inaccessible once its configuration is deleted.
+    // A stale orphaned cache row is safe and can be removed operationally.
+    console.error("Deleted report snapshot cleanup failed:", error);
+  }
+  return { reportKey };
+}
+
 // Only supplied top-level fields are replaced; dataConfiguration is a whole schema document.
 export function mergeDashboardConfigurationPatch(current, patch) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch))

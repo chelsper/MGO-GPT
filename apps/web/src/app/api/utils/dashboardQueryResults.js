@@ -1,4 +1,4 @@
-import { executeSavedQueryResults } from "@/app/api/reports/alumni-family-engagement/route";
+import { executeSavedQueryResults } from "@/app/api/utils/savedQueryExecution";
 import {
   QUERY_RESULTS_LIMITS,
   isValidDashboardTableData,
