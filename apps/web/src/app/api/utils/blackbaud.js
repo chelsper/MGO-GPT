@@ -2188,6 +2188,7 @@ export async function listBlackbaudActions({
   searchParams,
   pageLimit = 500,
   maxPages = 20,
+  requireComplete = false,
 } = {}) {
   const results = [];
   let nextPath = BLACKBAUD_ACTIONS_URL;
@@ -2205,6 +2206,10 @@ export async function listBlackbaudActions({
       searchParams: nextPath === BLACKBAUD_ACTIONS_URL ? nextSearchParams : undefined,
     });
 
+    if (requireComplete && !Array.isArray(payload) && !Array.isArray(payload?.value)) {
+      throw Object.assign(new Error("NXT returned a malformed action list"), { code: "NXT_INCOMPLETE_RESULTS" });
+    }
+
     const rows = Array.isArray(payload?.value)
       ? payload.value
       : Array.isArray(payload)
@@ -2217,6 +2222,7 @@ export async function listBlackbaudActions({
     pageCount += 1;
   }
 
+  if (requireComplete && nextPath) throw Object.assign(new Error("NXT action results exceeded the pagination limit"), { code: "NXT_INCOMPLETE_RESULTS" });
   return results;
 }
 
@@ -2228,6 +2234,7 @@ export async function executeBlackbaudListQuery({
   definition = {},
   limit = 1000,
   maxPages = 20,
+  requireComplete = false,
 } = {}) {
   const normalizedDataModelName = String(dataModelName || "").trim();
   if (!normalizedDataModelName) {
@@ -2252,6 +2259,9 @@ export async function executeBlackbaudListQuery({
       },
     });
 
+    if (requireComplete && !Array.isArray(payload?.items)) {
+      throw Object.assign(new Error("NXT returned a malformed list query response"), { code: "NXT_INCOMPLETE_RESULTS" });
+    }
     const rows = Array.isArray(payload?.items) ? payload.items : [];
     results.push(...rows);
 
@@ -2268,6 +2278,7 @@ export async function executeBlackbaudListQuery({
     }
   }
 
+  if (requireComplete && continuationToken) throw Object.assign(new Error("NXT list results exceeded the pagination limit"), { code: "NXT_INCOMPLETE_RESULTS" });
   return results;
 }
 

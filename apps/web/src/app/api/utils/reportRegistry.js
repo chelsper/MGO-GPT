@@ -114,7 +114,7 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     configurationSchema: "standard-report-v1",
     configurationSchemaVersion: 1,
     href: "/reports/executive-team-standings",
-    title: "Executive Team Standings",
+    title: "Team Standings",
     description:
       "Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.",
     audienceMode: "team_standings",

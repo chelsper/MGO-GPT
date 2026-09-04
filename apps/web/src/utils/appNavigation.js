@@ -71,7 +71,7 @@ const ROUTE_LABELS = {
 const REPORT_ROUTE_LABELS = {
   "/reports/future-made-phase-ii": "Future. Made. Phase II",
   "/reports/alumni-family-engagement": "Alumni & Family Engagement",
-  "/reports/executive-team-standings": "Executive Team Standings",
+  "/reports/executive-team-standings": "Team Standings",
 };
 
 export function getNavigationItems({ isReviewer, canManageWorkspace }) {

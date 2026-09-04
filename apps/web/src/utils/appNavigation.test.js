@@ -31,6 +31,11 @@ describe("app navigation", () => {
   });
 
   it("builds explicit report breadcrumbs and highlights report routes", () => {
+    expect(getBreadcrumbs("/reports/executive-team-standings")).toEqual([
+      { label: "Home", href: "/" },
+      { label: "My Reports", href: "/reports" },
+      { label: "Team Standings" },
+    ]);
     expect(getBreadcrumbs("/reports/alumni-family-engagement")).toEqual([
       { label: "Home", href: "/" },
       { label: "My Reports", href: "/reports" },

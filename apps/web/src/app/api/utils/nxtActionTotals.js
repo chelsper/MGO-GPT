@@ -6,6 +6,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { normalizeBlackbaudFundraiserAliasIds } from "@/app/api/utils/closedFyGiftTotals";
 import { getNxtActionCategory, getNxtActionType, isHighValueAction } from "@/utils/highValueActions";
+import { isInStandingsPeriod } from "@/utils/standingsPeriods";
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -24,7 +25,7 @@ function firstDefined(source, paths) {
   return null;
 }
 
-function getActionDate(action) {
+function getActionDate(action, includeRecordDates = true) {
   return firstDefined(action, [
     "action_date",
     "action_summary.action_date",
@@ -34,12 +35,7 @@ function getActionDate(action) {
     "statusComposite.completedDate",
     "date",
     "actionDate",
-    "date_added",
-    "dateAdded",
-    "date_last_changed",
-    "dateLastChanged",
-    "created_at",
-    "createdAt",
+    ...(includeRecordDates ? ["date_added", "dateAdded", "date_last_changed", "dateLastChanged", "created_at", "createdAt"] : []),
   ]);
 }
 
@@ -357,6 +353,7 @@ async function listBlackbaudActionsWithFallback({
   maxPages,
   fiscalYearStart,
   fiscalYearEnd,
+  requireComplete = false,
 }) {
   const startDate = fiscalYearStart
     ? new Date(`${fiscalYearStart}T00:00:00Z`).getTime()
@@ -392,6 +389,7 @@ async function listBlackbaudActionsWithFallback({
           error: null,
         });
       } catch (error) {
+        if (requireComplete && error?.code === "NXT_INCOMPLETE_RESULTS") throw error;
         attempts.push({
           source,
           actions: [],
@@ -440,6 +438,7 @@ async function listBlackbaudActionsWithFallback({
         },
         limit: Math.min(pageLimit, 1000),
         maxPages,
+        requireComplete,
       }),
     );
 
@@ -455,6 +454,7 @@ async function listBlackbaudActionsWithFallback({
           : undefined,
         pageLimit,
         maxPages,
+        requireComplete,
       }),
     );
 
@@ -465,6 +465,7 @@ async function listBlackbaudActionsWithFallback({
         origin,
         pageLimit,
         maxPages,
+        requireComplete,
       }),
     );
 
@@ -527,6 +528,8 @@ export async function getNxtActionSummaryByWorkspaceUser({
   origin,
   fiscalYearStart,
   fiscalYearEnd,
+  periods,
+  requireComplete = false,
 }) {
   const normalizedUsers = Array.isArray(workspaceUsers)
     ? workspaceUsers.filter((user) => user?.id)
@@ -554,6 +557,7 @@ export async function getNxtActionSummaryByWorkspaceUser({
     maxPages: 20,
     fiscalYearStart,
     fiscalYearEnd,
+    requireComplete,
   });
   if (source === "none") throw new Error("NXT action totals could not be refreshed");
   const resolvedNameCache = new Map();
@@ -563,6 +567,10 @@ export async function getNxtActionSummaryByWorkspaceUser({
       actionsThisFY: identitySetsByUserId.get(Number(user.id))?.size ? 0 : null,
       highValueActionsThisFY: identitySetsByUserId.get(Number(user.id))?.size ? 0 : null,
       actions: [],
+      ...(periods ? { periods: Object.fromEntries(Object.keys(periods).map((key) => [key, {
+        actions: identitySetsByUserId.get(Number(user.id))?.size ? 0 : null,
+        highValueActions: identitySetsByUserId.get(Number(user.id))?.size ? 0 : null,
+      }])) } : {}),
     }]),
   );
   const seenActionIds = new Set();
@@ -574,7 +582,11 @@ export async function getNxtActionSummaryByWorkspaceUser({
       seenActionIds.add(actionId);
     }
 
-    if (!isDateInRange(getActionDate(action), startDate, endDate)) {
+    const actionDate = getActionDate(action, !periods);
+    const inRange = periods
+      ? isInStandingsPeriod(actionDate, { startsOn: fiscalYearStart, endsOn: fiscalYearEnd })
+      : isDateInRange(actionDate, startDate, endDate);
+    if (!inRange) {
       continue;
     }
 
@@ -587,6 +599,7 @@ export async function getNxtActionSummaryByWorkspaceUser({
     if (!fundraiserIds.size) continue;
 
     const normalizedAction = normalizeActionRecord(action);
+    normalizedAction.date = actionDate;
 
     for (const [userId, identitySet] of identitySetsByUserId.entries()) {
       if (!identitySet?.size) continue;
@@ -613,9 +626,16 @@ export async function getNxtActionSummaryByWorkspaceUser({
       }
       if (!matched) continue;
       const current = countsByUserId.get(userId) || { actionsThisFY: 0, highValueActionsThisFY: 0, actions: [] };
-      current.actionsThisFY += 1;
-      if (normalizedAction.highValue) current.highValueActionsThisFY += 1;
-      current.actions.push(normalizedAction);
+      if (periods) for (const [key, period] of Object.entries(periods)) {
+        if (!isInStandingsPeriod(normalizedAction.date, period)) continue;
+        current.periods[key].actions += 1;
+        if (normalizedAction.highValue) current.periods[key].highValueActions += 1;
+      }
+      if (!periods || isInStandingsPeriod(normalizedAction.date, periods.current)) {
+        current.actionsThisFY += 1;
+        if (normalizedAction.highValue) current.highValueActionsThisFY += 1;
+        current.actions.push(normalizedAction);
+      }
       countsByUserId.set(userId, current);
     }
   }

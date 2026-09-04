@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import {
-  getClosedFiscalYearSummary,
+  getPeriodGivingByWorkspaceUser,
   getLifetimeGivingTotalsForWorkspaceUsers,
 } from "@/app/api/utils/closedFyGiftTotals";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
@@ -17,6 +17,7 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
+import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import {
   EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
   getReportAccessForUser,
@@ -65,26 +66,10 @@ async function getCurrentUser(request) {
   return getOrCreateUser(session, "admin");
 }
 
-async function mapWithConcurrency(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      results[currentIndex] = await mapper(items[currentIndex]);
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(Math.max(concurrency, 1), items.length) }, worker),
-  );
-  return results;
-}
-
 export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
-  const fiscalYear = getFiscalYearWindow();
+  const comparison = getStandingsPeriods();
+  const fiscalYear = comparison.fiscalYear;
+  const periods = { current: comparison.current, prior: comparison.prior, week: comparison.week };
   const rows = await sql`
     WITH active_mgos AS (
       SELECT
@@ -274,48 +259,18 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
   const lifetimeCreditUnavailableUserIds = workspaceUsers
     .filter((workspaceUser) => !lifetimeGivingByUser.has(workspaceUser.id))
     .map((workspaceUser) => workspaceUser.id);
-  const givingTotals = origin
-    ? await mapWithConcurrency(rows, 2, async (row) => {
-        const workspaceUser = {
-          id: Number(row.user_id),
-          name: row.name,
-          email: row.email,
-          blackbaud_constituent_id: row.blackbaud_constituent_id,
-          blackbaud_lookup_id: row.blackbaud_lookup_id,
-          blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
-        };
-
-        let closedThisFY = null;
-        const lifetimeGiving = asOptionalNumber(
-          lifetimeGivingByUser.get(Number(row.user_id)),
-        );
-
-        try {
-          // FY Closed remains a separate, fiscal-year-limited calculation.
-          // Lifetime credit was prepared once for the entire team above.
-          const summary = await getClosedFiscalYearSummary({
-            workspaceUser,
-            authUserId: authUser.id,
-            origin,
-            requireComplete: true,
-          });
-          closedThisFY = asOptionalNumber(summary.closedThisFY);
-        } catch {
-          // Preserve the rest of the standings when a single MGO's gift summary is unavailable.
-        }
-
-        return [Number(row.user_id), { closedThisFY, lifetimeGiving }];
-      })
-    : [];
-
-  const givingTotalsByUser = new Map(givingTotals);
+  const givingTotalsByUser = origin
+    ? await getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserId: authUser.id, origin, periods }).catch(() => new Map())
+    : new Map();
   const nxtActionSummaryByUser = origin
     ? await getNxtActionSummaryByWorkspaceUser({
         workspaceUsers,
         authUserId: authUser.id,
         origin,
-        fiscalYearStart: fiscalYear.startsOn,
-        fiscalYearEnd: fiscalYear.endsOn,
+        fiscalYearStart: comparison.prior.startsOn,
+        fiscalYearEnd: comparison.current.endsOn,
+        periods,
+        requireComplete: true,
       }).catch(() => new Map())
     : new Map();
   const activeProspectsByUser = new Map();
@@ -374,9 +329,17 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     activeProspects: asNumber(row.active_prospects),
     openPipeline: asNumber(row.open_pipeline),
     fundedThisFiscalYear: asOptionalNumber(
-      givingTotalsByUser.get(Number(row.user_id))?.closedThisFY,
+      givingTotalsByUser.get(Number(row.user_id))?.current,
     ),
-    lifetimeGiving: givingTotalsByUser.get(Number(row.user_id))?.lifetimeGiving ?? null,
+    lifetimeGiving: lifetimeGivingByUser.get(Number(row.user_id)) ?? null,
+    priorYearToDate: {
+      raised: asOptionalNumber(givingTotalsByUser.get(Number(row.user_id))?.prior),
+      highValueActions: asOptionalNumber(nxtActionSummaryByUser.get(Number(row.user_id))?.periods?.prior?.highValueActions),
+    },
+    lastCompletedWeek: {
+      raised: asOptionalNumber(givingTotalsByUser.get(Number(row.user_id))?.week),
+      highValueActions: asOptionalNumber(nxtActionSummaryByUser.get(Number(row.user_id))?.periods?.week?.highValueActions),
+    },
     nxtActionsThisFiscalYear: asOptionalNumber(
       nxtActionSummaryByUser.get(Number(row.user_id))?.actionsThisFY,
     ),
@@ -409,11 +372,14 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     trendWindowDays: TREND_WINDOW_DAYS,
     source:
       "Raiser's Edge NXT fundraiser-attributed gift credit and actions; JUMGOGPT local pipeline and next-step records",
-    scoringVersion: 1,
+    scoringVersion: 2,
+    comparison,
     generatedAt: new Date().toISOString(),
     lifetimeCreditUnavailableUserIds: [...new Set(lifetimeCreditUnavailableUserIds)],
     scoringUnavailableUserIds: standings
-      .filter((entry) => entry.fundedThisFiscalYear === null || entry.highValueActionsThisFiscalYear === null)
+      .filter((entry) => entry.fundedThisFiscalYear === null || entry.highValueActionsThisFiscalYear === null
+        || Object.values(entry.priorYearToDate).some((value) => value === null)
+        || Object.values(entry.lastCompletedWeek).some((value) => value === null))
       .map((entry) => entry.userId),
     standings,
   };
@@ -430,7 +396,7 @@ export async function GET(request) {
     const access = await getReportAccessForUser(EXECUTIVE_TEAM_STANDINGS_REPORT_KEY, user);
     if (!internalRefresh && !access.canView) {
       return Response.json(
-        { error: "You do not have access to Executive Team Standings." },
+        { error: "You do not have access to Team Standings." },
         { status: 403 },
       );
     }
@@ -496,11 +462,11 @@ export async function GET(request) {
       headers: getReportCacheHeaders(forceRefresh ? "bypass" : "miss"),
     });
   } catch (error) {
-    console.error("Failed to load executive team standings:", error);
+    console.error("Failed to load Team Standings:", error);
     return Response.json(
       {
         error:
-          error instanceof Error ? error.message : "Could not load Executive Team Standings.",
+          error instanceof Error ? error.message : "Could not load Team Standings.",
       },
       { status: 500 },
     );

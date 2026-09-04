@@ -6,6 +6,8 @@ import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import CompetitionBoard from "./CompetitionBoard";
+import AnnualGoals, { AnnualGoalsProvider } from "./AnnualGoals";
+import { ScorecardComparison, WeeklySpotlight } from "./PeriodComparisons";
 import { coverageText as getCoverage, rankStandings, RANKING_MODES, scoreText } from "./standingsPresentation";
 
 function formatCurrency(value) {
@@ -78,7 +80,7 @@ const panelStyle = {
   boxShadow: "0 10px 28px rgba(15, 23, 42, 0.05)",
 };
 
-export default function ExecutiveTeamStandingsPage() {
+export default function TeamStandingsPage() {
   const { data: user, loading: loadingUser } = useUser();
   const [report, setReport] = useState(null);
   const [error, setError] = useState("");
@@ -108,13 +110,13 @@ export default function ExecutiveTeamStandingsPage() {
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
-          throw new Error(payload?.error || "Could not load Executive Team Standings.");
+          throw new Error(payload?.error || "Could not load Team Standings.");
         }
         setReport(payload);
       } catch (loadError) {
         if (loadError?.name !== "AbortError") {
           setError(
-            loadError instanceof Error ? loadError.message : "Could not load Executive Team Standings.",
+            loadError instanceof Error ? loadError.message : "Could not load Team Standings.",
           );
         }
       } finally {
@@ -170,7 +172,6 @@ export default function ExecutiveTeamStandingsPage() {
       <div style={{ margin: "0 auto", maxWidth: "1480px" }}>
         <SharedReportHeader
           activeReportKey="executive-team-standings"
-          eyebrow="Executive dashboard"
           title="Team Standings"
           description="Two ways to lead: fiscal-year fundraising and high-value NXT actions. One shared team snapshot."
           action={
@@ -251,7 +252,8 @@ export default function ExecutiveTeamStandingsPage() {
           </section>
         ) : null}
 
-        {standings.length > 0 ? <CompetitionBoard entries={standings} mode={rankingMode} onModeChange={setRankingMode} fiscalYear={report?.fiscalYear?.label || "Current FY"} /> : null}
+        {standings.length > 0 ? <CompetitionBoard entries={standings} mode={rankingMode} onModeChange={setRankingMode} fiscalYear={report?.fiscalYear?.label || "Current FY"} comparison={report?.comparison} /> : null}
+        <WeeklySpotlight entries={standings} comparison={report?.comparison} />
 
         <details className="standings-local" style={{ ...panelStyle, marginTop: "24px", padding: "16px 20px" }}>
           <summary>Team context &amp; local workflow (not ranked)</summary>
@@ -260,7 +262,7 @@ export default function ExecutiveTeamStandingsPage() {
           <MetricCard label="Active prospects" value={totals.activeProspects} icon={<Target size={20} />} color="#0369A1" />
           <MetricCard label="Open pipeline" value={formatCurrency(totals.openPipeline)} icon={<TrendingUp size={20} />} color="#0F766E" />
           <MetricCard label="Lifetime solicitor credit" value={hasCompleteLifetimeCredit ? formatCurrency(totals.lifetimeGiving) : "Refresh required"} icon={<TrendingUp size={20} />} color="#0F766E" />
-          <MetricCard label={`${report?.fiscalYear?.label || "Current FY"} attributed NXT actions`} value={standings.length && standings.every((entry) => isFiniteNumericValue(entry.nxtActionsThisFiscalYear)) ? totals.nxtActionsThisFiscalYear : "Unavailable"} icon={<TrendingUp size={20} />} color="#0369A1" />
+          <MetricCard label={`${report?.fiscalYear?.label || "Current FY"}${report?.comparison ? " YTD" : ""} attributed NXT actions`} value={standings.length && standings.every((entry) => isFiniteNumericValue(entry.nxtActionsThisFiscalYear)) ? totals.nxtActionsThisFiscalYear : "Unavailable"} icon={<TrendingUp size={20} />} color="#0369A1" />
         </section>
 
         <section style={{ ...panelStyle, marginTop: "20px", padding: "20px 24px" }}>
@@ -281,6 +283,7 @@ export default function ExecutiveTeamStandingsPage() {
         </section>
         </details>
 
+        <AnnualGoalsProvider key={report?.fiscalYear?.startsOn || "empty"} fiscalYear={report?.comparison ? report.fiscalYear : null}>
         <section style={{ ...panelStyle, marginTop: "24px", overflow: "hidden" }}>
           <div style={{ padding: "22px 24px", borderBottom: "1px solid #E2E8F0" }}>
             <h2 style={{ color: "#0F172A", fontSize: "22px", margin: 0 }}>Individual scorecards</h2>
@@ -319,11 +322,13 @@ export default function ExecutiveTeamStandingsPage() {
                     </span>
                   </div>
                   <div style={{ borderTop: "1px solid #E2E8F0", display: "grid", gap: "13px", gridTemplateColumns: "1fr 1fr", marginTop: "18px", paddingTop: "18px" }}>
-                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} raised`} value={scoreText(entry.fundedThisFiscalYear, "raised")} color="#006B53" />
-                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} high-value actions`} value={entry.highValueActionsThisFiscalYear === undefined ? "Refresh required" : scoreText(entry.highValueActionsThisFiscalYear, "actions")} color="#006B53" />
+                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"}${report?.comparison ? " YTD" : ""} raised`} value={scoreText(entry.fundedThisFiscalYear, "raised")} color="#006B53" />
+                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"}${report?.comparison ? " YTD" : ""} high-value actions`} value={entry.highValueActionsThisFiscalYear === undefined ? "Refresh required" : scoreText(entry.highValueActionsThisFiscalYear, "actions")} color="#006B53" />
                     <StandingsMetric label="Lifetime solicitor credit" value={formatOptionalCurrency(entry.lifetimeGiving)} color="#0F766E" />
-                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"} all NXT actions`} value={scoreText(entry.nxtActionsThisFiscalYear, "actions")} color="#0369A1" />
+                    <StandingsMetric label={`${report?.fiscalYear?.label || "Current FY"}${report?.comparison ? " YTD" : ""} all NXT actions`} value={scoreText(entry.nxtActionsThisFiscalYear, "actions")} color="#0369A1" />
                   </div>
+                  <ScorecardComparison entry={entry} comparison={report?.comparison} />
+                  <AnnualGoals entry={entry} />
                   <details className="standings-local">
                     <summary>Local workflow (JUMGOGPT only)</summary>
                     <p style={{ fontSize: "13px", lineHeight: 1.5 }}>Coverage counts active local prospects with unfinished next-step text. Work recorded only in NXT is not included. These metrics never affect rank.</p>
@@ -534,6 +539,7 @@ export default function ExecutiveTeamStandingsPage() {
           )}
         </section>
 
+        </AnnualGoalsProvider>
         <p style={{ color: "#64748B", fontSize: "13px", lineHeight: 1.5, margin: "18px 0 0" }}>
           Source: {report?.source || "NXT gift credit and actions; JUMGOGPT local operational records"}. Rankings use NXT fundraiser attribution. Local pipeline and follow-up metrics are shown separately.
         </p>

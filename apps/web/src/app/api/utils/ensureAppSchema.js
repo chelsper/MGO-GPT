@@ -32,6 +32,18 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS standings_annual_goals (
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        fiscal_year_start INTEGER NOT NULL CHECK (fiscal_year_start BETWEEN 2000 AND 2200),
+        raised_goal NUMERIC(16, 2) CHECK (raised_goal > 0),
+        actions_goal INTEGER CHECK (actions_goal > 0),
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, fiscal_year_start)
+      )
+    `;
+
+    await sql`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE
     `;
@@ -2407,12 +2419,19 @@ export default async function ensureAppSchema() {
       )
       VALUES (
         'executive-team-standings',
-        'Executive Team Standings',
+        'Team Standings',
         'Compare local portfolio health, pipeline, and follow-up coverage across active MGOs.',
         'executive',
         '[]'::jsonb
       )
       ON CONFLICT (report_key) DO NOTHING
+    `;
+    // Rename the former default without changing custom titles or report access.
+    await sql`
+      UPDATE report_configurations
+      SET title = 'Team Standings', updated_at = NOW()
+      WHERE report_key = 'executive-team-standings'
+        AND LOWER(TRIM(title)) = 'executive team standings'
     `;
     await sql`
       INSERT INTO report_configurations (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY,
+  EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
   FUTURE_MADE_PHASE_TWO_REPORT_KEY,
   getCustomFieldReportMetadata,
   getReportConfigurationCapabilities,
@@ -16,6 +17,10 @@ import {
 
 describe("report registry", () => {
   it("classifies each built-in report without changing its canonical route", () => {
+    expect(getReportDefinition(EXECUTIVE_TEAM_STANDINGS_REPORT_KEY)).toMatchObject({
+      title: "Team Standings",
+      href: "/reports/executive-team-standings",
+    });
     const alumni = getReportDefinition(ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY);
     const futureMade = getReportDefinition(FUTURE_MADE_PHASE_TWO_REPORT_KEY);
     const portfolio = getReportDefinition(PORTFOLIO_GIVING_REPORT_KEY);

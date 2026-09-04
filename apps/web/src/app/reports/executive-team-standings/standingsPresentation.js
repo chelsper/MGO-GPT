@@ -39,3 +39,19 @@ export function coverageText(covered, active) {
   if (!active) return "No active prospects";
   return `${Math.round((Number(covered || 0) / Number(active)) * 100)}% coverage`;
 }
+
+export function comparisonChange(current, prior, mode) {
+  const a = numericScore(current), b = numericScore(prior);
+  if (a === null || b === null) return "Unavailable";
+  const delta = a - b;
+  if (delta === 0) return "No change";
+  const amount = `${delta > 0 ? "+" : "-"}${scoreText(Math.abs(delta), mode)}`;
+  if (b === 0) return `${amount} (no prior baseline)`;
+  const percentage = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Math.abs(delta / b * 100));
+  return `${amount} (${delta > 0 ? "+" : "-"}${percentage}%)`;
+}
+
+export function periodText(period) {
+  const format = (value) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+  return `${format(period.startsOn)} to ${format(period.endsOn)}`;
+}

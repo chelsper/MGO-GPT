@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
 import { calculateLifetimeFundraiserCredit } from "@/app/api/utils/lifetimeFundraiserCredit";
+import { isInStandingsPeriod } from "@/utils/standingsPeriods";
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000;
 const LIFETIME_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -328,6 +329,45 @@ function getWorkspaceFundraiserIdSet(workspaceUser) {
   return new Set(
     normalizeWorkspaceFundraiserIds(workspaceUser).map((candidate) => candidate.id),
   );
+}
+
+export function calculatePeriodGivingByWorkspaceUser({ workspaceUsers, gifts, periods, realizedPlannedGiftIds = new Set() }) {
+  const uniqueGifts = dedupeGiftsById(gifts);
+  return new Map(workspaceUsers.map((user) => {
+    const identities = getWorkspaceFundraiserIdSet(user);
+    const totals = Object.fromEntries(Object.keys(periods).map((key) => [key, identities.size ? 0 : null]));
+    if (identities.size) for (const gift of uniqueGifts) {
+      const type = getGiftType(gift);
+      if (!CLOSED_FY_GIFT_TYPES.has(type) || (isPlannedGiftType(type) && realizedPlannedGiftIds.has(getGiftId(gift)))) continue;
+      if (!getGiftFundraiserCandidates(gift).some(({ value }) => isWorkspaceFundraiserIdMatch(value, identities))) continue;
+      const amount = Number(getGiftAmount(gift));
+      if (!Number.isFinite(amount)) throw new Error("NXT returned an invalid credited gift amount");
+      if (amount <= 0) continue;
+      for (const [key, period] of Object.entries(periods)) {
+        if (isInStandingsPeriod(getGiftDate(gift), period)) totals[key] += amount;
+      }
+    }
+    return [Number(user.id), totals];
+  }));
+}
+
+export async function getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserId, origin, periods }) {
+  if (!workspaceUsers.length) return new Map();
+  const startsOn = Object.values(periods).map((period) => period.startsOn).sort()[0];
+  const endsOn = Object.values(periods).map((period) => period.endsOn).sort().at(-1);
+  const gifts = [];
+  // One shared, sequential feed for all MGOs and periods, with the same FY credit rules.
+  for (const giftType of CLOSED_FY_GIFT_TYPE_QUERIES) {
+    const page = await listBlackbaudGifts({
+      userId: workspaceUsers[0].id, authUserId, origin,
+      searchParams: { limit: 500, gift_type: giftType, start_gift_date: startsOn, end_gift_date: endsOn },
+      pageLimit: 500, maxPages: 20, includePageMetadata: true, strictResponse: true,
+    });
+    if (!Array.isArray(page?.gifts) || page.hasMore !== false) throw new Error("NXT comparison gift results are incomplete");
+    gifts.push(...page.gifts);
+  }
+  const realizedPlannedGiftIds = await getRealizedPlannedGiftIds({ gifts, userId: workspaceUsers[0].id, authUserId, origin, strict: true });
+  return calculatePeriodGivingByWorkspaceUser({ workspaceUsers, gifts, periods, realizedPlannedGiftIds });
 }
 
 function dedupeGiftsById(gifts) {

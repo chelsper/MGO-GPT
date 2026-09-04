@@ -13,6 +13,7 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
 }));
 
 import { getNxtActionSummaryByWorkspaceUser } from "./nxtActionTotals";
+import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
 describe("getNxtActionSummaryByWorkspaceUser", () => {
   beforeEach(() => {
@@ -223,5 +224,27 @@ describe("high-value NXT action scoring", () => {
     executeBlackbaudListQueryMock.mockRejectedValue(new Error("429"));
     listBlackbaudActionsMock.mockRejectedValue(new Error("403"));
     await expect(getNxtActionSummaryByWorkspaceUser(options)).rejects.toThrow("could not be refreshed");
+  });
+  it("calculates YTD, prior YTD and week from one deduplicated action feed", async () => {
+    const { current, prior, week } = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
+    executeBlackbaudListQueryMock.mockResolvedValue([
+      action("now", { category: "Meeting", type: "Solicitation", action_date: "2026-08-25" }),
+      action("now", { category: "Meeting", action_date: "2026-08-25" }),
+      action("today", { type: "Solicitation", action_date: "2026-09-04" }),
+      action("prior", { category: "Meeting", action_date: "2025-09-04" }),
+      action("after-cutoff", { category: "Meeting", action_date: "2025-09-05" }),
+      action("future", { category: "Meeting", action_date: "2026-09-05" }),
+      action("record-date-only", { category: "Meeting", action_date: null, date_added: "2026-09-04" }),
+    ]);
+    const result = await getNxtActionSummaryByWorkspaceUser({ ...options, fiscalYearStart: prior.startsOn, fiscalYearEnd: current.endsOn, periods: { current, prior, week }, requireComplete: true });
+    expect(result.get(1)).toMatchObject({ actionsThisFY: 2, highValueActionsThisFY: 2, periods: { prior: { highValueActions: 1 }, week: { highValueActions: 1 } } });
+    expect(result.get(1).actions).toHaveLength(2);
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledWith(expect.objectContaining({ requireComplete: true }));
+  });
+  it("does not replace a capped feed with a smaller fallback and call it complete", async () => {
+    executeBlackbaudListQueryMock.mockRejectedValue(Object.assign(new Error("Pagination cap"), { code: "NXT_INCOMPLETE_RESULTS" }));
+    await expect(getNxtActionSummaryByWorkspaceUser({ ...options, requireComplete: true })).rejects.toThrow("Pagination cap");
+    expect(listBlackbaudActionsMock).not.toHaveBeenCalled();
   });
 });

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   authMock,
-  getClosedFiscalYearSummaryMock,
+  getPeriodGivingByWorkspaceUserMock,
   getLifetimeGivingTotalsForWorkspaceUsersMock,
   getCachedReportSnapshotMock,
   getReportCacheHeadersMock,
@@ -17,7 +17,7 @@ const {
   sqlMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
-  getClosedFiscalYearSummaryMock: vi.fn(),
+  getPeriodGivingByWorkspaceUserMock: vi.fn(),
   getLifetimeGivingTotalsForWorkspaceUsersMock: vi.fn(),
   getCachedReportSnapshotMock: vi.fn(),
   getReportCacheHeadersMock: vi.fn((status) => ({ "X-MGOGPT-Report-Cache": status })),
@@ -37,7 +37,7 @@ const {
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/closedFyGiftTotals", () => ({
-  getClosedFiscalYearSummary: getClosedFiscalYearSummaryMock,
+  getPeriodGivingByWorkspaceUser: getPeriodGivingByWorkspaceUserMock,
   getLifetimeGivingTotalsForWorkspaceUsers: getLifetimeGivingTotalsForWorkspaceUsersMock,
 }));
 vi.mock("@/app/api/utils/nxtActionTotals", () => ({
@@ -60,7 +60,7 @@ vi.mock("@/app/api/utils/reportRefresh", () => ({
 }));
 vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 
-describe("Executive Team Standings report route", () => {
+describe("Team Standings report route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authMock.mockResolvedValue({ user: { email: "executive@example.edu" } });
@@ -69,7 +69,7 @@ describe("Executive Team Standings report route", () => {
     getReportAccessForUserMock.mockResolvedValue({ canView: true });
     getReportRefreshUserMock.mockResolvedValue({ id: 99, role: "admin" });
     isAuthorizedReportRefreshRequestMock.mockReturnValue(false);
-    getClosedFiscalYearSummaryMock.mockResolvedValue({ closedThisFY: 25000 });
+    getPeriodGivingByWorkspaceUserMock.mockResolvedValue(new Map([[8, { current: 25000, prior: 20000, week: 1000 }]]));
     getLifetimeGivingTotalsForWorkspaceUsersMock.mockResolvedValue(new Map([[8, 380000]]));
     getNxtActionSummaryByWorkspaceUserMock.mockResolvedValue(
       new Map([
@@ -78,6 +78,7 @@ describe("Executive Team Standings report route", () => {
           {
             actionsThisFY: 11,
             highValueActionsThisFY: 4,
+            periods: { prior: { highValueActions: 2 }, week: { highValueActions: 1 } },
             actions: [
               {
                 actionId: "bb-action-1",
@@ -162,6 +163,10 @@ describe("Executive Team Standings report route", () => {
 
     expect(response.status).toBe(200);
     expect(saveReportSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(getPeriodGivingByWorkspaceUserMock).toHaveBeenCalledTimes(1);
+    expect(getNxtActionSummaryByWorkspaceUserMock).toHaveBeenCalledTimes(1);
+    expect(payload.comparison.current.endsOn.slice(5)).toBe(payload.comparison.prior.endsOn.slice(5));
+    expect(payload.standings[0].priorYearToDate).toEqual({ raised: 20000, highValueActions: 2 });
     expect(payload.standings).toEqual([
       expect.objectContaining({
         userId: 8,
@@ -296,13 +301,14 @@ describe("Executive Team Standings report route", () => {
 
     const response = await GET();
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "You do not have access to Team Standings." });
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it.each(["actions", "giving"])("keeps the prior snapshot when %s cannot refresh", async (source) => {
     const { GET } = await import("./route.js");
     if (source === "actions") getNxtActionSummaryByWorkspaceUserMock.mockRejectedValue(new Error("429"));
-    else getClosedFiscalYearSummaryMock.mockRejectedValue(new Error("Gift feed unavailable"));
+    else getPeriodGivingByWorkspaceUserMock.mockRejectedValue(new Error("Gift feed unavailable"));
     getCachedReportSnapshotMock.mockResolvedValue({ standings: [{ userId: 8, fundedThisFiscalYear: 25000, highValueActionsThisFiscalYear: 4 }] });
     const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
     const payload = await response.json();
@@ -314,12 +320,23 @@ describe("Executive Team Standings report route", () => {
   it("stores unavailable scoring fields as null, not zero, without a prior snapshot", async () => {
     const { GET } = await import("./route.js");
     getNxtActionSummaryByWorkspaceUserMock.mockRejectedValue(new Error("NXT unavailable"));
-    getClosedFiscalYearSummaryMock.mockRejectedValue(new Error("NXT unavailable"));
+    getPeriodGivingByWorkspaceUserMock.mockRejectedValue(new Error("NXT unavailable"));
     const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
     const payload = await response.json();
     expect(payload.scoringUnavailableUserIds).toEqual([8]);
     expect(payload.standings[0]).toMatchObject({ fundedThisFiscalYear: null, highValueActionsThisFiscalYear: null, nxtActionsThisFiscalYear: null });
     expect(payload.snapshotStatus).toBe("partial");
-    expect(getClosedFiscalYearSummaryMock).toHaveBeenCalledWith(expect.objectContaining({ requireComplete: true }));
+    expect(getNxtActionSummaryByWorkspaceUserMock).toHaveBeenCalledWith(expect.objectContaining({ requireComplete: true }));
+  });
+  it("retains the prior snapshot when only prior-year totals are missing", async () => {
+    getPeriodGivingByWorkspaceUserMock.mockResolvedValue(new Map([[8, { current: 25000, prior: null, week: 1000 }]]));
+    getCachedReportSnapshotMock.mockResolvedValue({ standings: [{ userId: 8, fundedThisFiscalYear: 24000 }], comparison: { asOf: "2026-09-03" } });
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
+    const payload = await response.json();
+    expect(payload.snapshotStatus).toBe("stale");
+    expect(payload.comparison.asOf).toBe("2026-09-03");
+    expect(payload.standings[0].fundedThisFiscalYear).toBe(24000);
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,13 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import Page from "./page";
+import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
 vi.mock("@/utils/useUser", () => {
   const user = { id: 7, role: "executive" };
   return { default: () => ({ data: user, loading: false }) };
 });
-vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title, description, action }) => <header><h1>{title}</h1><p>{description}</p>{action}</header> }));
+vi.mock("@/app/reports/SharedReportHeader", () => ({ default: ({ title, description, action, eyebrow }) => <header>{eyebrow ? <p>{eyebrow}</p> : null}<h1>{title}</h1><p>{description}</p>{action}</header> }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const report = {
@@ -28,6 +29,8 @@ function tableNames() {
 it("sorts leaderboard and scorecards by FY raised, then high-value actions without another NXT request", async () => {
   const fetchMock = mount();
   await screen.findByRole("table");
+  expect(screen.getByRole("heading", { name: "Team Standings", level: 1 })).toBeInTheDocument();
+  expect(screen.queryByText(/executive/i)).not.toBeInTheDocument();
   expect(tableNames()).toEqual(["Blake MGO", "Alex MGO"]);
   fireEvent.click(screen.getByRole("button", { name: "High-value actions" }));
   expect(tableNames()).toEqual(["Alex MGO", "Blake MGO"]);
@@ -52,10 +55,28 @@ it("keeps the coverage explanation visible on demand and out of ranking", async 
 it("does not guess high-value actions from an older snapshot", async () => {
   mount({ ...report, standings: report.standings.map(({ highValueActionsThisFiscalYear, ...entry }) => entry) });
   await screen.findByRole("table");
-  expect(screen.getByRole("status")).toHaveTextContent("High-value actions: Refresh required");
+  expect(screen.getAllByRole("status").some((node) => node.textContent.includes("High-value actions: Refresh required"))).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "High-value actions" }));
   expect(within(screen.getByRole("table")).getAllByLabelText("Unranked")).toHaveLength(2);
   expect(within(screen.getByRole("table")).getAllByText("Refresh required")).toHaveLength(2);
+});
+
+it("compares matching YTD windows and switches metrics without refreshing NXT", async () => {
+  const comparison = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
+  const payload = { ...report, fiscalYear: comparison.fiscalYear, comparison, standings: report.standings.map((entry) => ({ ...entry, priorYearToDate: { raised: 500, highValueActions: 5 }, lastCompletedWeek: { raised: 100, highValueActions: 1 } })) };
+  const fetchMock = vi.fn(async (url) => Response.json(url.includes("/goals?") ? { canEdit: false, goals: [] } : payload));
+  vi.stubGlobal("fetch", fetchMock); render(<Page />);
+  const table = await screen.findByRole("table");
+  expect(within(table).getByRole("columnheader", { name: "FY26 YTD" })).toBeInTheDocument();
+  expect(within(table).getAllByText("+$500 (+100%)").length).toBeGreaterThan(0);
+  expect(screen.getByText(/Jul 1, 2025 to Sep 4, 2025/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "High-value actions" }));
+  expect(within(table).getAllByText("+10 (+200%)").length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Compare with last FY to date" }));
+  expect(within(table).queryByRole("columnheader", { name: "FY26 YTD" })).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => !url.includes("/goals"))).toHaveLength(1);
+  expect(screen.getByRole("region", { name: "Weekly spotlight" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Edit annual goals" })).not.toBeInTheDocument();
 });
 it("shows shared leaders for ties but no champion for all-zero or partial scores", async () => {
   mount({ ...report, standings: report.standings.map((entry) => ({ ...entry, fundedThisFiscalYear: 1000, highValueActionsThisFiscalYear: 0 })) });
