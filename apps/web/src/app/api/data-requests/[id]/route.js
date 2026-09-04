@@ -14,7 +14,9 @@ export async function PATCH(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser } = await getWorkspaceUser(session, request);
+    const user = new URL(request.url).searchParams.get("view") === "reviewer" && isReviewerRole(sessionUser?.role)
+      ? sessionUser : workspaceUser;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }

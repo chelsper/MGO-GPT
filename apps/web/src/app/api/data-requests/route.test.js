@@ -139,6 +139,22 @@ describe("data requests route", () => {
     expect(payload.request_type).toBe("Research request");
   });
 
+  it("uses the actual reviewer in reviewer view even with an acting-MGO workspace", async () => {
+    const { GET } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: 7, role: "admin" }, workspaceUser: { id: 44, role: "mgo" } });
+    const response = await GET(new Request("https://example.com/api/data-requests?view=reviewer"));
+    expect(response.status).toBe(200);
+    expect(sqlMockImpl.mock.calls[0][0].join(" ")).not.toContain("dcr.requester_user_id =");
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("ignores a forged reviewer view from an MGO", async () => {
+    const { GET } = await import("./route.js");
+    await GET(new Request("https://example.com/api/data-requests?view=reviewer"));
+    expect(sqlMockImpl.mock.calls[0][0].join(" ")).toContain("dcr.requester_user_id =");
+    expect(sqlMockImpl.mock.calls[0].slice(1)).toContain(44);
+  });
+
   it("lets Advancement Services view the shared queue", async () => {
     const { GET } = await import("./route.js");
 

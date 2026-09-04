@@ -8,6 +8,7 @@ import useWorkspaceView from "@/utils/useWorkspaceView";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { addressesEquivalent } from "@/utils/contactMatching";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import QueueImportLink from "@/components/QueueImportLink";
 
 const IMPORT_FIELDS = [
   {
@@ -6224,6 +6225,8 @@ export default function ConstituencyImportPage() {
             {preview?.savedRun ? "Import run ready for NXT actions" : "Import review: no NXT writes"}
           </Pill>
         </header>
+
+        <QueueImportLink onOpen={loadSavedRun} loadedRunId={preview?.savedRun?.id} loading={Boolean(loadingRunId)} />
 
         <section
           style={{

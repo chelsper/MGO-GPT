@@ -72,7 +72,9 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser } = await getWorkspaceUser(session, request);
+    const user = new URL(request.url).searchParams.get("view") === "reviewer" && isReviewerRole(sessionUser?.role)
+      ? sessionUser : workspaceUser;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -121,7 +123,7 @@ export async function GET(request) {
           ORDER BY dcr.updated_at DESC
         `;
 
-    return Response.json(rows);
+    return Response.json(rows, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Error fetching data requests:", error);
     return Response.json(

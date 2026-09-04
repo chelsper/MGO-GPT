@@ -54,6 +54,37 @@ describe("constituency import runs route", () => {
     });
   });
 
+  it("paginates queue batches with a stable ID cursor without loading constituent details", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([{ id: 100 }, { id: 90 }, { id: 80 }]);
+    const response = await GET(new Request("https://example.com/api/constituency-import/runs?queue=all&limit=2&beforeId=110"));
+    const payload = await response.json();
+    expect(payload.runs.map((run) => run.id)).toEqual(["100", "90"]);
+    expect(payload.nextCursor).toBe("90");
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(sqlMock.mock.calls[0][0].join(" ")).toContain("ORDER BY r.id DESC");
+    expect(sqlMock.mock.calls[0].slice(1)).toEqual(["110", "110", null, null, 3]);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("ends queue pagination, rejects bad cursors, and preserves the legacy list shape", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValue([{ id: 1 }]);
+    const last = await GET(new Request("https://example.com/api/constituency-import/runs?queue=all&limit=50"));
+    expect((await last.json()).nextCursor).toBeNull();
+    const invalid = await GET(new Request("https://example.com/api/constituency-import/runs?queue=all&beforeId=abc"));
+    expect(invalid.status).toBe(400);
+    const legacy = await GET(new Request("https://example.com/api/constituency-import/runs?limit=12"));
+    expect(await legacy.json()).not.toHaveProperty("nextCursor");
+  });
+
+  it("does not allow an MGO to access the queue listing", async () => {
+    const { GET } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: 1, role: "mgo" } });
+    expect((await GET(new Request("https://example.com/api/constituency-import/runs?queue=all"))).status).toBe(403);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
   it("sanitizes a legacy quota-paused row when reopening a saved import", async () => {
     const { GET } = await import("./route.js");
     const quotaResponse =

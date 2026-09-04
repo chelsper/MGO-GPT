@@ -165,6 +165,31 @@ export async function GET(request) {
       ? limitParam
       : 12;
 
+    // Opt-in keyset pagination for the work queue; legacy import previews keep
+    // their existing ordering and response. No constituent details are loaded.
+    if (searchParams.get("queue") === "all") {
+      const beforeId = cleanText(searchParams.get("beforeId"));
+      if (beforeId && !/^[1-9]\d*$/.test(beforeId)) {
+        return Response.json({ error: "Invalid import cursor" }, { status: 400 });
+      }
+      const page = await sql`
+        SELECT r.*, creator.name AS created_by_name, creator.email AS created_by_email,
+          workspace_user.name AS workspace_user_name, workspace_user.email AS workspace_user_email
+        FROM constituency_import_runs r
+        LEFT JOIN users creator ON creator.id = r.created_by_user_id
+        LEFT JOIN users workspace_user ON workspace_user.id = r.workspace_user_id
+        WHERE (${beforeId || null}::BIGINT IS NULL OR r.id < ${beforeId || null}::BIGINT)
+          AND (${status || null}::TEXT IS NULL OR r.status = ${status || null})
+        ORDER BY r.id DESC
+        LIMIT ${limit + 1}
+      `;
+      const visible = page.slice(0, limit);
+      return Response.json({
+        runs: visible.map((run) => serializeRun(run, { quotaPaused: blackbaudQuota.paused })),
+        nextCursor: page.length > limit ? String(visible[visible.length - 1].id) : null,
+      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
+    }
+
     const runs = await sql`
       SELECT
         r.*,
