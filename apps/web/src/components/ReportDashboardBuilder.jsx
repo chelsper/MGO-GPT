@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   DASHBOARD_LIMITS,
   QUERY_RESULTS_LIMITS,
+  isTechnicalDashboardQueryHeader,
   isValidDashboardTableData,
   validateDashboardQueryId,
 } from "@/app/api/utils/dashboardConfiguration";
@@ -298,7 +299,7 @@ function QueryTableEditor({ panel, onChange, disabled }) {
       ...(preview?.headers || []),
       ...columnSettings.map((column) => column.header),
     ]),
-  ];
+  ].filter((header) => !isTechnicalDashboardQueryHeader(header));
 
   useEffect(() => {
     setPreview(null);
@@ -408,7 +409,7 @@ function QueryTableEditor({ panel, onChange, disabled }) {
         Shared reports expose displayed query columns, including donor
         information, to the selected viewers. Review the query output, column
         visibility and report access before sharing. Blackbaud&apos;s technical
-        QRECID column is hidden by default.
+        QRECID column is never displayed.
       </p>
       <div className={styles.panelFields}>
         <div className={styles.field}>

@@ -78,6 +78,22 @@ describe("dashboard saved-query result tables", () => {
     expect(mocks.countDownload).not.toHaveBeenCalled();
   });
 
+  it("removes Blackbaud's QRECID technical column before returning report data", async () => {
+    mocks.download.mockResolvedValue(
+      csv("Name,Amount,QRECID\nExample,$10.00,242718\n"),
+    );
+    expect(await run()).toMatchObject({
+      headers: ["Name", "Amount"],
+      rows: [["Example", "$10.00"]],
+    });
+
+    mocks.download.mockResolvedValue(csv("QRECID\n242718\n"));
+    await expect(run()).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringContaining("besides QRECID"),
+    });
+  });
+
   it.each(["ID,Name", "ID,Name\n", "ID,Name\r\n", '"ID","Name"\r'])
     ("accepts header-only CSV without fabricating a row: %s", async (content) => {
       mocks.download.mockResolvedValue(csv(content));

@@ -701,7 +701,7 @@ describe("ReportDashboardBuilder query tables", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("hides QRECID in previews by default and saves an explicit visibility override", async () => {
+  it("removes QRECID from previews and column display controls", async () => {
     fetch.mockResolvedValue(
       json(
         previewPayload({
@@ -715,16 +715,8 @@ describe("ReportDashboardBuilder query tables", () => {
     await screen.findByRole("table");
     expect(screen.queryByText("242718")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Column display settings (optional)"));
-    const visibility = screen.getByLabelText("Show column QRECID");
-    expect(visibility).not.toBeChecked();
-    fireEvent.click(visibility);
-    expect(latest.panels[0].columnSettings).toContainEqual({
-      header: "QRECID",
-      label: "",
-      format: "text",
-      visible: true,
-    });
-    expect(screen.getByText("242718")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Show column QRECID")).not.toBeInTheDocument();
+    expect(latest.panels[0].columnSettings).toEqual([]);
     expect(validateDashboardConfiguration(latest)).toBe("");
     expect(fetch).toHaveBeenCalledTimes(1);
   });

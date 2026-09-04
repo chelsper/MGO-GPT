@@ -33,7 +33,7 @@ describe("QueryResultsTable", () => {
     expect(cells()).toEqual(["10.5", "-$1,234.50", "0012.00", "", "=1+2", "raw", "N/A", "EUR 20", "raw", "12,34", "9007199254740993", "raw"]);
   });
 
-  it("hides Blackbaud's QRECID technical column by default and allows an explicit reveal", () => {
+  it("never displays Blackbaud's QRECID technical column", () => {
     const props = {
       headers: ["Name", "Gift", "QRECID"],
       rows: [["Example Person", "$10.00", "242718"]],
@@ -53,8 +53,9 @@ describe("QueryResultsTable", () => {
     );
     expect(
       screen.getAllByRole("columnheader").map((header) => header.textContent),
-    ).toEqual(["Name", "Gift", "QRECID"]);
-    expect(cells()).toEqual(["Example Person", "$10.00", "242718"]);
+    ).toEqual(["Name", "Gift"]);
+    expect(cells()).toEqual(["Example Person", "$10.00"]);
+    expect(screen.queryByText("242718")).not.toBeInTheDocument();
   });
 
   it("sorts all rows, not only the visible page, paginates 25 rows, and never mutates the data", () => {

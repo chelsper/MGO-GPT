@@ -31,6 +31,10 @@ export function validateDashboardQueryId(value) {
     : "Use a positive numeric saved NXT query system record ID.";
 }
 
+export function isTechnicalDashboardQueryHeader(value) {
+  return typeof value === "string" && value.trim().toLowerCase() === "qrecid";
+}
+
 export function validateDashboardConfiguration(value) {
   if (!isObject(value) || value.version !== 1)
     return "Dashboard schema version must be 1.";

@@ -1,6 +1,7 @@
-const DEFAULT_HIDDEN_HEADERS = new Set(["qrecid"]);
+import { isTechnicalDashboardQueryHeader } from "@/app/api/utils/dashboardConfiguration";
 
 export function isQueryResultColumnVisible(header, setting) {
+  if (isTechnicalDashboardQueryHeader(header)) return false;
   if (typeof setting?.visible === "boolean") return setting.visible;
-  return !DEFAULT_HIDDEN_HEADERS.has(String(header ?? "").trim().toLowerCase());
+  return true;
 }

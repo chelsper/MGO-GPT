@@ -1,6 +1,7 @@
 import { executeSavedQueryResults } from "@/app/api/utils/savedQueryExecution";
 import {
   QUERY_RESULTS_LIMITS,
+  isTechnicalDashboardQueryHeader,
   isValidDashboardTableData,
   validateDashboardQueryId,
 } from "@/app/api/utils/dashboardConfiguration";
@@ -60,6 +61,22 @@ function decodeResult({ body, contentType }) {
 
 function malformedCsv() {
   return new DashboardQueryResultsError("NXT returned malformed CSV. Check the saved query result file.");
+}
+
+function removeTechnicalColumns(table) {
+  const displayedIndexes = table.headers.flatMap((header, index) =>
+    isTechnicalDashboardQueryHeader(header) ? [] : [index],
+  );
+  if (displayedIndexes.length === table.headers.length) return table;
+  if (!displayedIndexes.length) {
+    throw new DashboardQueryResultsError(
+      "The saved query must include at least one report output column besides QRECID.",
+    );
+  }
+  return {
+    headers: displayedIndexes.map((index) => table.headers[index]),
+    rows: table.rows.map((row) => displayedIndexes.map((index) => row[index])),
+  };
 }
 
 function parseResultCsv(content) {
@@ -141,7 +158,7 @@ function parseResultCsv(content) {
   }
   if (state === "quoted") throw malformedCsv();
   if (state !== "start" || row.length) { finishCell(); finishRow(); }
-  const table = { headers, rows };
+  const table = removeTechnicalColumns({ headers, rows });
   if (!isValidDashboardTableData(table)) {
     throw limitError("Query results exceed the supported table size or shape.");
   }
