@@ -4,6 +4,8 @@ const { ensureAppSchemaMock, getReportRefreshUserMock } = vi.hoisted(() => ({
   ensureAppSchemaMock: vi.fn(),
   getReportRefreshUserMock: vi.fn(),
 }));
+const { dashboardTargetsMock } = vi.hoisted(() => ({ dashboardTargetsMock: vi.fn() }));
+vi.mock("@/app/api/utils/dashboardScheduler", () => ({ getDueDashboardRefreshTargets: dashboardTargetsMock }));
 
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/reportRefresh", () => ({
@@ -28,6 +30,7 @@ describe("report snapshot refresh cron", () => {
     process.env.CRON_SECRET = "test-refresh-secret";
     delete process.env.REPORT_REFRESH_CRON_SECRET;
     ensureAppSchemaMock.mockResolvedValue();
+    dashboardTargetsMock.mockResolvedValue([]);
     getReportRefreshUserMock.mockResolvedValue({
       id: 7,
       name: "Refresh User",
@@ -87,5 +90,15 @@ describe("report snapshot refresh cron", () => {
         "x-mgogpt-report-refresh": "scheduled",
       });
     }
+  });
+
+  it("continues due dashboard checkpoints outside the built-in 6 PM window using POST", async () => {
+    dashboardTargetsMock.mockResolvedValue([{ key: "demo", path: "/api/reports/dashboards/demo", method: "POST" }]);
+    fetchMock.mockResolvedValue(Response.json({ status: "refresh_required", refreshStatus: "pending", remainingQueryCount: 3, snapshot: { generatedAt: "now" } }));
+    const { GET } = await import("./route.js");
+    const payload = await (await GET(createRequest())).json();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(payload.refreshed[0]).toMatchObject({ key: "demo", status: "pending", remainingQueryCount: 3 });
   });
 });

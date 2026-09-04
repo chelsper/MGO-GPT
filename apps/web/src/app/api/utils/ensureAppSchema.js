@@ -2332,6 +2332,18 @@ export default async function ensureAppSchema() {
       ADD COLUMN IF NOT EXISTS data_configuration JSONB NOT NULL DEFAULT '{}'::jsonb
     `;
     await sql`
+      ALTER TABLE report_configurations
+      ADD COLUMN IF NOT EXISTS configuration_kind TEXT NOT NULL DEFAULT 'standard'
+    `;
+    await sql`
+      ALTER TABLE report_configurations
+      ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    await sql`
+      ALTER TABLE report_configurations
+      ADD COLUMN IF NOT EXISTS value_provenance JSONB NOT NULL DEFAULT '{}'::jsonb
+    `;
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_report_configurations_visibility
       ON report_configurations (visibility)
     `;

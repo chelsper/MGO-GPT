@@ -1,5 +1,6 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getReportRefreshUser } from "@/app/api/utils/reportRefresh";
+import { getDueDashboardRefreshTargets } from "@/app/api/utils/dashboardScheduler";
 
 export const maxDuration = 300;
 
@@ -90,6 +91,7 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
     }
 
     const response = await fetch(url, {
+      ...(target.method ? { method: target.method, signal: AbortSignal.timeout(195_000) } : {}),
       headers: {
         Authorization: authorization,
         "x-mgogpt-report-refresh": "scheduled",
@@ -124,6 +126,15 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
       throw new Error(payload?.error || `Report refresh returned ${response.status}.`);
     }
 
+    if (target.method === "POST") {
+      return {
+        key: target.key,
+        status: payload.refreshStatus === "pending" ? "pending" : payload.status === "complete" ? "refreshed" : "partial",
+        remainingQueryCount: payload.remainingQueryCount || 0,
+        generatedAt: payload.snapshot?.generatedAt || null,
+        warnings: payload.snapshot?.warnings || [],
+      };
+    }
     if (payload?.status !== "complete" && !Array.isArray(payload?.standings)) {
       throw new Error(payload?.message || "The report did not return a completed snapshot.");
     }
@@ -142,6 +153,7 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
 
 export async function GET(request) {
   try {
+    const startedAt = Date.now();
     const cronAuthorization = getCronAuthorizationState(request);
     if (!cronAuthorization.isAuthorized) {
       // Keep auth failures diagnosable without ever logging either secret.
@@ -158,7 +170,9 @@ export async function GET(request) {
     const currentHour = Number(ny.hour);
     const localTime = `${ny.year}-${ny.month}-${ny.day} ${ny.hour}:${ny.minute}:${ny.second}`;
 
-    if (!force && !DASHBOARD_REFRESH_HOURS.has(currentHour)) {
+    const refreshBuiltins = force || DASHBOARD_REFRESH_HOURS.has(currentHour);
+    const dashboardTargets = await getDueDashboardRefreshTargets();
+    if (!refreshBuiltins && !dashboardTargets.length) {
       return Response.json({
         status: "skipped",
         reason: "Outside the scheduled 6 PM New York refresh window.",
@@ -183,11 +197,16 @@ export async function GET(request) {
     const origin = url.origin;
     const refreshed = [];
     const failed = [];
+    const deferred = [];
 
     // Run one report at a time to avoid consuming NXT quota in bursts. Each
-    // route writes a new snapshot only after it receives valid data, so a
-    // failed refresh leaves the last successful snapshot available.
-    for (const target of REFRESH_TARGETS) {
+    // route retains successful values on failures. Dashboards checkpoint at
+    // most two unique queries per request and resume on the next hourly run.
+    for (const target of [...(refreshBuiltins ? REFRESH_TARGETS : []), ...dashboardTargets]) {
+      if (target.method && Date.now() - startedAt > 75_000) {
+        deferred.push({ key: target.key, reason: "Deferred to the next hourly run to respect the execution budget." });
+        continue;
+      }
       try {
         refreshed.push(
           await refreshReportSnapshot({ origin, target, authorization }),
@@ -201,7 +220,7 @@ export async function GET(request) {
     }
 
     return Response.json({
-      status: failed.length ? "partial" : "refreshed",
+      status: failed.length || deferred.length || refreshed.some((result) => result.status !== "refreshed") ? "partial" : "refreshed",
       localTime,
       refreshUser: {
         id: refreshUser.id,
@@ -209,8 +228,10 @@ export async function GET(request) {
       },
       refreshed,
       failed,
+      deferred,
       forced: force,
       nextScheduledRefresh: "6:00 PM America/New_York",
+      dashboardSchedule: "Daily; pending and deferred dashboard batches continue on the hourly cron.",
     });
   } catch (error) {
     console.error("Failed to refresh report snapshots:", error);

@@ -3,6 +3,11 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import sql from "@/app/api/utils/sql";
 import {
+  listDashboardConfigurations,
+  saveDashboardConfiguration,
+  serializeDashboardConfiguration,
+} from "@/app/api/utils/dashboardConfigurations";
+import {
   canManageWorkspaceRole,
 } from "@/utils/workspaceRoles";
 import {
@@ -57,7 +62,9 @@ async function requireSessionUser() {
   if (!session?.user?.email) {
     return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) };
   }
-  return { user: await getOrCreateUser(session, "admin") };
+  const user = await getOrCreateUser(session, "admin");
+  if (user.active === false) return { error: Response.json({ error: "Inactive account" }, { status: 403 }) };
+  return { user };
 }
 
 export async function GET() {
@@ -79,6 +86,9 @@ export async function GET() {
       WHERE report_key = ANY(${STANDARD_REPORT_KEYS})
     `;
     const canManage = canManageWorkspaceRole(user.role);
+    const dashboards = (await listDashboardConfigurations())
+      .map((record) => serializeDashboardConfiguration(record, user))
+      .filter((configuration) => canManage || configuration.canView);
     const recordsByKey = new Map(records.map((record) => [record.report_key, record]));
     const users = canManage
       ? await sql`
@@ -91,11 +101,11 @@ export async function GET() {
 
     return Response.json({
       canManage,
-      configurations: STANDARD_REPORT_DEFINITIONS.map((definition) =>
+      configurations: [...STANDARD_REPORT_DEFINITIONS.map((definition) =>
         serializeConfiguration(definition, recordsByKey.get(definition.key), user),
-      ),
+      ), ...dashboards],
       users,
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Report configurations GET error:", error);
     return Response.json(
@@ -116,7 +126,10 @@ export async function PATCH(request) {
       );
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json({ error: "Expected a configuration object." }, { status: 400 });
+    }
     if (String(body?.customFieldReportSlug || "").trim()) {
       return Response.json(
         { error: "Custom Field Reports are retired. Configure an approved Query-Based Report instead." },
@@ -126,7 +139,8 @@ export async function PATCH(request) {
 
     const definition = getReportDefinition(body?.reportKey);
     if (!definition) {
-      return Response.json({ error: "Unknown report." }, { status: 400 });
+      const configuration = await saveDashboardConfiguration({ body, user });
+      return Response.json({ configuration, message: "Report configuration saved." });
     }
 
     const configurationPayloadError = validateReportConfigurationPayload(definition, body);
@@ -134,8 +148,14 @@ export async function PATCH(request) {
       return Response.json({ error: configurationPayloadError }, { status: 400 });
     }
 
-    const visibility = normalizeReportVisibility(body?.visibility);
-    const requestedUserIds = parseReportSpecificUserIds(body?.specificUserIds);
+    const hasVisibilityUpdate = Object.hasOwn(body, "visibility");
+    const hasSpecificUsersUpdate = Object.hasOwn(body, "specificUserIds");
+    const existingRecords = await sql`
+      SELECT visibility, specific_user_ids FROM report_configurations
+      WHERE report_key = ${definition.key} LIMIT 1
+    `;
+    const visibility = normalizeReportVisibility(hasVisibilityUpdate ? body.visibility : existingRecords[0]?.visibility);
+    const requestedUserIds = parseReportSpecificUserIds(hasSpecificUsersUpdate ? body.specificUserIds : existingRecords[0]?.specific_user_ids);
     if (visibility === "specific_users" && requestedUserIds.length === 0) {
       return Response.json(
         { error: "Choose at least one active user for a specific-user report." },
@@ -152,7 +172,7 @@ export async function PATCH(request) {
         `
       : [];
     const activeUserIds = activeUsers.map((activeUser) => Number(activeUser.id));
-    if (visibility === "specific_users" && activeUserIds.length !== requestedUserIds.length) {
+    if ((hasVisibilityUpdate || hasSpecificUsersUpdate) && visibility === "specific_users" && activeUserIds.length !== requestedUserIds.length) {
       return Response.json(
         { error: "One or more selected report users are inactive or no longer exist." },
         { status: 400 },
@@ -235,8 +255,8 @@ export async function PATCH(request) {
           WHEN ${hasDescriptionUpdate} THEN EXCLUDED.description
           ELSE report_configurations.description
         END,
-        visibility = EXCLUDED.visibility,
-        specific_user_ids = EXCLUDED.specific_user_ids,
+        visibility = CASE WHEN ${hasVisibilityUpdate} THEN EXCLUDED.visibility ELSE report_configurations.visibility END,
+        specific_user_ids = CASE WHEN ${hasSpecificUsersUpdate} THEN EXCLUDED.specific_user_ids ELSE report_configurations.specific_user_ids END,
         source_query_id = CASE
           WHEN ${shouldUpdateSourceQuery} THEN EXCLUDED.source_query_id
           ELSE report_configurations.source_query_id
@@ -275,11 +295,18 @@ export async function PATCH(request) {
   }
 }
 
-export async function POST() {
-  return Response.json(
-    { error: "Custom Field Reports are retired. Configure an approved Query-Based Report instead." },
-    { status: 410 },
-  );
+export async function POST(request) {
+  try {
+    const { user, error } = await requireSessionUser();
+    if (error) return error;
+    if (!canManageWorkspaceRole(user.role)) return Response.json({ error: "Only Admin and Advancement Services users can configure reports." }, { status: 403 });
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Expected a configuration object." }, { status: 400 });
+    const configuration = await saveDashboardConfiguration({ body, user, create: true });
+    return Response.json({ configuration, message: "Dashboard created." }, { status: 201 });
+  } catch (error) {
+    return Response.json({ error: error.message || "Failed to create dashboard." }, { status: Number(error.status) || 500 });
+  }
 }
 
 export async function DELETE() {

@@ -298,7 +298,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
+async function waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv }) {
   const startedAt = Date.now();
   let polls = 0;
   let lastStatus = "Queued";
@@ -325,6 +325,7 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
         authUserId: user.id,
         origin,
       });
+      if (validateResultCsv) validateResultCsv(resultCsv);
       return {
         total: countQueryResultRows(resultCsv, label),
         polls,
@@ -342,6 +343,14 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label }) {
   throw new Error(
     `NXT is still preparing ${label}. The last saved report remains available; try Refresh data again shortly.`,
   );
+}
+
+// Reuse the existing saved-query/download/count flow without changing alumni callers.
+export async function executeSavedQueryCount({ user, origin, queryId, label, validateResultCsv }) {
+  const createdJob = await createBlackbaudQueryJob({ userId: user.id, authUserId: user.id, origin, queryId });
+  const jobId = getQueryJobId(createdJob);
+  if (!jobId) throw new Error(`NXT did not return a query job ID for ${label}.`);
+  return waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv });
 }
 
 async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload }) {

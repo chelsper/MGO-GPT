@@ -235,8 +235,31 @@ export function getReportHref(report) {
   const definition = getReportDefinition(report?.key);
   if (definition) return definition.href;
 
+  if (report?.configurationSchema === "query-count-dashboard-v1" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(report?.key || "")) {
+    return `/reports/dashboards/${encodeURIComponent(report.key)}`;
+  }
+
   const configuredHref = String(report?.href || "").trim();
   return configuredHref.startsWith("/reports/custom-field/") ? configuredHref : "/reports";
+}
+
+export function getDashboardReportMetadata(reportKey) {
+  return {
+    reportType: REPORT_TYPES.QUERY_BASED,
+    reportTypeLabel: REPORT_TYPE_DEFINITIONS[REPORT_TYPES.QUERY_BASED].label,
+    adapterKey: "query-count-dashboard",
+    configurationSchema: "query-count-dashboard-v1",
+    configurationSchemaVersion: 1,
+    href: `/reports/dashboards/${encodeURIComponent(reportKey)}`,
+    audienceMode: "shared_snapshot",
+    supportsDataConfiguration: true,
+    configurationCapabilities: getReportConfigurationCapabilities({
+      configurationCapabilities: {
+        ...CUSTOM_FIELD_REPORT_CONFIGURATION_CAPABILITIES,
+        dataConfiguration: "query_count_dashboard",
+      },
+    }),
+  };
 }
 
 export function validateReportConfigurationPayload(definition, payload = {}) {
