@@ -574,7 +574,7 @@ export default function Page() {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <main style={{ maxWidth: "960px", margin: "0 auto", padding: "24px 18px 40px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 40px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
           <img
             src="https://ucarecdn.com/8291db54-6f2a-43f4-9fc2-e6ced1ab623d/-/format/auto/"

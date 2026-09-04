@@ -57,6 +57,7 @@ function getReportPresentation(access) {
     title: String(access?.title || "").trim() || DEFAULT_REPORT_TITLE,
     description:
       String(access?.description || "").trim() || DEFAULT_REPORT_DESCRIPTION,
+    canArrange: access?.canArrange === true,
   };
 }
 
@@ -130,6 +131,7 @@ function buildDashboardPanels({ dashboard, totals }) {
     key: panel.key,
     type: panel.type,
     title: panel.title,
+    width: panel.width,
     totals: panel.rows.map((row) => {
       const countRow = {
         ...row,
@@ -175,6 +177,7 @@ function attachReportPresentation({ cachedPayload, dashboard, presentation, coun
     dashboard: {
       panels: buildDashboardPanels({ dashboard, totals: compatibleTotals }),
     },
+    dashboardConfiguration: dashboard,
     configurationFingerprint,
     genericConfiguration,
     genericSnapshot: publicDashboardSnapshot(genericSnapshot),
@@ -304,6 +307,7 @@ export async function GET(request) {
           status: "refresh_required",
           report: presentation,
           dashboard: { panels: buildDashboardPanels({ dashboard, totals: [] }) },
+          dashboardConfiguration: dashboard,
           genericConfiguration,
           genericSnapshot: publicDashboardSnapshot(
             presentDashboardSnapshot(genericConfiguration, null, {}),

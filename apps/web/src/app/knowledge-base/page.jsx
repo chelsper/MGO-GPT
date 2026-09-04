@@ -1288,7 +1288,7 @@ export default function KnowledgeBasePage() {
       >
         <div
           style={{
-            maxWidth: "1240px",
+            maxWidth: "1480px",
             margin: "0 auto",
             padding: "16px 24px",
             display: "flex",
@@ -1365,7 +1365,7 @@ export default function KnowledgeBasePage() {
         </div>
       </header>
 
-      <main style={{ maxWidth: "1240px", margin: "0 auto", padding: "26px 24px 60px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "26px 24px 60px" }}>
         <div style={{ marginBottom: "20px" }}>
           <SearchBar value={query} onChange={setQuery} />
         </div>

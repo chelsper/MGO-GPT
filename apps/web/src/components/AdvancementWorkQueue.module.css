@@ -1,4 +1,4 @@
-.page { --ink: #172033; --muted: #596579; --line: #dce3ec; --accent: #5949e8; max-width: 1260px; margin: 0 auto; padding: 32px 24px 60px; color: var(--ink); }
+.page { --ink: #172033; --muted: #596579; --line: #dce3ec; --accent: #5949e8; max-width: 1480px; margin: 0 auto; padding: 32px 24px 60px; color: var(--ink); }
 .page button, .page input, .page select, .page textarea { font: inherit; }
 .page button { cursor: pointer; }
 .page button:disabled { cursor: wait; opacity: .6; }

@@ -33,7 +33,11 @@ function Editor({ initial = empty, disabled = false, snapshot = null }) {
           setValue(next);
         }}
       />
-      <ReportDashboardPanels configuration={value} snapshot={snapshot} />
+      <ReportDashboardPanels
+        configuration={value}
+        snapshot={snapshot}
+        disabled={disabled}
+      />
     </>
   );
 }

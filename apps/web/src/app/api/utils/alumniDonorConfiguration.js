@@ -57,6 +57,7 @@ export const DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD = {
       key: DEFAULT_PANEL_KEY,
       type: "alumni_donor_count",
       title: DEFAULT_PANEL_TITLE,
+      width: "half",
       rows: [
         {
           key: "fy27-alumni-giving",
@@ -166,6 +167,10 @@ function normalizePanelType(value) {
   return PANEL_TYPE_KEYS.has(type) ? type : "alumni_donor_count";
 }
 
+function normalizePanelWidth(value, fallback = "half") {
+  return ["half", "full"].includes(value) ? value : fallback;
+}
+
 function normalizePanels(value, { fallbackPanels = [] } = {}) {
   const candidatePanels = Array.isArray(value)
     ? value.slice(0, DASHBOARD_LIMITS.panels)
@@ -201,6 +206,7 @@ function normalizePanels(value, { fallbackPanels = [] } = {}) {
       key,
       type,
       title,
+      width: normalizePanelWidth(panel?.width, fallback.width || "half"),
       rows: normalizeRows(panel?.rows, { fallbackRows }),
     };
   });
@@ -217,6 +223,7 @@ function getLegacyPanels(configuration) {
       key: DEFAULT_PANEL_KEY,
       type: "alumni_donor_count",
       title: DEFAULT_PANEL_TITLE,
+      width: "half",
       rows: normalizeRows(configuration.rows, { fallbackRows: defaultPanel.rows }),
     },
   ];

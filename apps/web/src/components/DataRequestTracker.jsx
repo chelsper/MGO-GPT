@@ -298,7 +298,7 @@ export default function DataRequestTracker() {
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
-      <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "18px" }}>
           <a
             href="/"

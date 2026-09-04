@@ -1514,7 +1514,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "24px 18px 48px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 48px" }}>
         <a
           href="/"
           style={{

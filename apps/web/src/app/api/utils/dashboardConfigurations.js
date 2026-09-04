@@ -9,7 +9,7 @@ import {
   normalizeDashboardConfiguration,
   validateDashboardConfiguration,
 } from "@/app/api/utils/dashboardConfiguration";
-import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
+import { canManageWorkspaceRole, isAdminRole } from "@/utils/workspaceRoles";
 
 export function dashboardError(message, status = 400) {
   return Object.assign(new Error(message), { status });
@@ -42,6 +42,7 @@ export function serializeDashboardConfiguration(record, user) {
       specificUserIds,
     }),
     canPreview: user?.active === true && canManageWorkspaceRole(user.role),
+    canArrange: user?.active === true && isAdminRole(user.role),
     updatedAt: record.updated_at
       ? new Date(record.updated_at).toISOString()
       : null,

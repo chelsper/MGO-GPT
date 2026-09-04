@@ -141,5 +141,6 @@ export async function getReportAccessForUser(reportKey, user) {
       specificUserIds,
       accessPolicy: configurationCapabilities.access,
     }),
+    canArrange: user?.active !== false && isAdminRole(user?.role),
   };
 }

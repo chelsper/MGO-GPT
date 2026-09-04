@@ -9974,7 +9974,7 @@ export default function MyTopProspectsPage() {
       >
         <div
           style={{
-            maxWidth: "1000px",
+            maxWidth: "1480px",
             margin: "0 auto",
             display: "grid",
             gap: "10px",
@@ -10187,7 +10187,7 @@ export default function MyTopProspectsPage() {
         </div>
       </header>
 
-      <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "24px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px" }}>
         <div
           style={{
             display: "inline-flex",

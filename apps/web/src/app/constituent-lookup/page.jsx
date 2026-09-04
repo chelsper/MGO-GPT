@@ -216,7 +216,7 @@ export default function ConstituentLookupPage() {
         padding: "28px 18px 48px",
       }}
     >
-      <div style={{ maxWidth: "1020px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "24px" }}>
           <a
             href="/"

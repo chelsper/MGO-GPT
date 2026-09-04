@@ -59,6 +59,7 @@ describe("Alumni & Family Engagement dashboard configuration", () => {
           key: "annual-giving",
           type: "alumni_donor_count",
           title: "Annual Giving",
+          width: "half",
           rows: [
             expect.objectContaining({
               key: "fy28",
@@ -126,8 +127,16 @@ describe("Alumni & Family Engagement dashboard configuration", () => {
         ),
       })),
     };
+    const resized = {
+      ...DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD,
+      panels: DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels.map((panel) => ({
+        ...panel,
+        width: "full",
+      })),
+    };
 
     expect(getAlumniFamilyEngagementDashboardFingerprint(relabeled)).toBe(baseline);
+    expect(getAlumniFamilyEngagementDashboardFingerprint(resized)).toBe(baseline);
     expect(getAlumniFamilyEngagementDashboardFingerprint(changedQuery)).not.toBe(baseline);
     expect(
       getAlumniDonorCountRowFingerprint(relabeled, {

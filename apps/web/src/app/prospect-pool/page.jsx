@@ -1303,7 +1303,7 @@ export default function ProspectPoolPage() {
         .prospect-pool-page button:disabled { cursor: not-allowed; }
         .prospect-pool-page :focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
       `}</style>
-      <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "24px 18px 48px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 48px" }}>
         {toast ? (
           <div
             style={{

@@ -41,7 +41,7 @@ const pageStyle = {
 };
 
 const shellStyle = {
-  maxWidth: "1180px",
+  maxWidth: "1480px",
   margin: "0 auto",
   padding: "36px 24px 72px",
 };

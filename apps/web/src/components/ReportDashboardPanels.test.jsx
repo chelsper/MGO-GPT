@@ -1,7 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDashboardTableFingerprint, getDashboardValueFingerprint } from "@/app/api/utils/dashboardConfiguration";
-import ReportDashboardPanels from "./ReportDashboardPanels";
+import ReportDashboardPanels, {
+  reorderDashboardPanels,
+  setDashboardPanelWidth,
+} from "./ReportDashboardPanels";
 
 const query = (key, rowKey, columnKey, queryId) => ({ key, rowKey, columnKey, source: "query_count", queryId, refreshPolicy: "refreshable" });
 const panel = {
@@ -176,5 +179,46 @@ describe("ReportDashboardPanels query tables", () => {
     expect(screen.getByText("Not refreshed")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByText(/Example Person|Not snapshot data|As of/)).not.toBeInTheDocument();
+  });
+
+  it("opens list panels in a full-screen dialog without fetching new data", () => {
+    render(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} snapshot={{ tables: [savedTable()] }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open full view of Query results" }));
+    const dialog = screen.getByRole("dialog", { name: "Query results full view" });
+    expect(within(dialog).getByRole("cell", { name: "Example Person" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close full view" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("provides drag, keyboard order and width controls only in arrange mode", () => {
+    const second = { ...resultsPanel, key: "second", title: "Second query", queryId: "888", width: "half" };
+    const onMovePanel = vi.fn();
+    const onWidthChange = vi.fn();
+    render(
+      <ReportDashboardPanels
+        configuration={{ panels: [resultsPanel, second] }}
+        arrangeMode
+        onMovePanel={onMovePanel}
+        onWidthChange={onWidthChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move Second query earlier" }));
+    expect(onMovePanel).toHaveBeenCalledWith("second", "query-table");
+    fireEvent.click(screen.getByRole("button", { name: "Use half width for Query results" }));
+    expect(onWidthChange).toHaveBeenCalledWith("query-table", "half");
+    fireEvent.dragStart(screen.getByRole("button", { name: "Drag Query results to reorder" }));
+    fireEvent.drop(screen.getByRole("heading", { name: "Second query" }).closest("section"));
+    expect(onMovePanel).toHaveBeenLastCalledWith("query-table", "second");
+  });
+
+  it("reorders and resizes immutable dashboard drafts", () => {
+    const second = { ...resultsPanel, key: "second", title: "Second query", width: "half" };
+    const configuration = { version: 1, panels: [resultsPanel, second] };
+    const reordered = reorderDashboardPanels(configuration, "second", "query-table");
+    expect(reordered.panels.map((item) => item.key)).toEqual(["second", "query-table"]);
+    expect(configuration.panels.map((item) => item.key)).toEqual(["query-table", "second"]);
+    const resized = setDashboardPanelWidth(reordered, "query-table", "half");
+    expect(resized.panels.find((item) => item.key === "query-table").width).toBe("half");
   });
 });

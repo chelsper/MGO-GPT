@@ -880,7 +880,7 @@ export default function ReportsPage() {
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
-      <div style={{ maxWidth: "1240px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <SharedReportHeader
           activeReportKey="portfolio-fy-giving"
           title="My Reports"

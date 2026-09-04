@@ -417,7 +417,7 @@ export default function BlackbaudMappingPage() {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <FloatingFeedback error={error} statusMessage={statusMessage} />
-      <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "24px 18px 48px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 48px" }}>
         <a
           href="/"
           style={{

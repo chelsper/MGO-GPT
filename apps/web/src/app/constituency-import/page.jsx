@@ -6185,7 +6185,7 @@ export default function ConstituencyImportPage() {
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 56px" }}>
-      <div style={{ maxWidth: "1180px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

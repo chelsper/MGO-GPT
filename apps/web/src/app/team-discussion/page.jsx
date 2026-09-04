@@ -769,7 +769,7 @@ export default function TeamDiscussionPage() {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <main style={{ maxWidth: "980px", margin: "0 auto", padding: "24px 18px 40px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 40px" }}>
         <a
           href="/"
           style={{

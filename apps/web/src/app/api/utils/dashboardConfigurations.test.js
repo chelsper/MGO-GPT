@@ -53,8 +53,16 @@ describe("dashboard configuration access and patches", () => {
     expect(serializeDashboardConfiguration(record, manager)).toMatchObject({
       canView: false,
       canPreview: true,
+      canArrange: true,
       active: false,
     });
+    expect(
+      serializeDashboardConfiguration(record, {
+        id: 2,
+        active: true,
+        role: "advancement_services",
+      }),
+    ).toMatchObject({ canPreview: true, canArrange: false });
   });
   it("preserves omitted fields for configure-only and access-only updates", () => {
     const current = serializeDashboardConfiguration(

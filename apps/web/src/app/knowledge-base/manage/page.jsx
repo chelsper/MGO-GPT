@@ -677,7 +677,7 @@ export default function KnowledgeBaseManagePage() {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <main style={{ maxWidth: "1320px", margin: "0 auto", padding: "24px 20px 60px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 20px 60px" }}>
         <a
           href="/knowledge-base"
           style={{

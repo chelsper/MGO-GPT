@@ -148,4 +148,40 @@ describe("ReportDashboardPage", () => {
     unmount();
     expect(signal.aborted).toBe(true);
   });
+
+  it("lets admins save panel width and order without refreshing the cached snapshot", async () => {
+    const adminConfiguration = { ...configuration, canArrange: true };
+    const initial = report(12, { configuration: adminConfiguration });
+    const savedConfiguration = {
+      ...adminConfiguration,
+      dataConfiguration: {
+        ...adminConfiguration.dataConfiguration,
+        panels: [{ ...adminConfiguration.dataConfiguration.panels[0], width: "half" }],
+      },
+    };
+    fetch.mockReset()
+      .mockResolvedValueOnce(json(initial))
+      .mockResolvedValueOnce(json({ configuration: savedConfiguration }));
+    mount();
+    await screen.findByText("12");
+    fireEvent.click(screen.getByRole("button", { name: "Arrange dashboard" }));
+    expect(screen.getByRole("button", { name: "Refresh data" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Use half width for Donors" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
+    expect(await screen.findByText(/Dashboard layout saved/)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toBe("/api/reports/configurations");
+    expect(fetch.mock.calls[1][1].method).toBe("PATCH");
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({
+      reportKey: "engagement",
+      dataConfiguration: { panels: [{ key: "p", width: "half" }] },
+    });
+    expect(screen.getByText("12")).toBeInTheDocument();
+  });
+
+  it("does not expose dashboard arrangement to non-admin viewers", async () => {
+    mount();
+    await screen.findByRole("heading", { name: "Engagement dashboard" });
+    expect(screen.queryByRole("button", { name: "Arrange dashboard" })).not.toBeInTheDocument();
+  });
 });

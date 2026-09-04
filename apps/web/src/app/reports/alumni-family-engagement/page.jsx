@@ -1,10 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Columns2,
+  GripVertical,
+  LayoutDashboard,
+  RefreshCw,
+  Rows3,
+  Save,
+  X,
+} from "lucide-react";
 import useUser from "@/utils/useUser";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
-import ReportDashboardPanels from "@/components/ReportDashboardPanels";
+import ReportDashboardPanels, {
+  reorderDashboardPanels,
+  setDashboardPanelWidth,
+} from "@/components/ReportDashboardPanels";
+import dashboardStyles from "@/components/reportDashboard.module.css";
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
@@ -57,6 +71,12 @@ export default function AlumniFamilyEngagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [statusText, setStatusText] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [arranging, setArranging] = useState(false);
+  const [layoutDraft, setLayoutDraft] = useState(null);
+  const [draggedPanelKey, setDraggedPanelKey] = useState("");
+  const [savingLayout, setSavingLayout] = useState(false);
+  const [layoutMessage, setLayoutMessage] = useState("");
+  const [layoutError, setLayoutError] = useState("");
 
   useEffect(() => {
     if (!loadingUser && !user) {
@@ -113,6 +133,87 @@ export default function AlumniFamilyEngagementPage() {
     };
   }, [refreshVersion, user]);
 
+  function startArranging() {
+    if (!report?.report?.canArrange || !report?.dashboardConfiguration) return;
+    setLayoutDraft(structuredClone(report.dashboardConfiguration));
+    setLayoutMessage("");
+    setLayoutError("");
+    setArranging(true);
+  }
+
+  function cancelArranging() {
+    setLayoutDraft(null);
+    setDraggedPanelKey("");
+    setLayoutError("");
+    setArranging(false);
+  }
+
+  function movePanel(sourceKey, target) {
+    setLayoutDraft((current) => {
+      if (typeof target === "number") {
+        const panels = Array.isArray(current?.panels) ? current.panels : [];
+        const sourceIndex = panels.findIndex((panel) => panel.key === sourceKey);
+        const targetPanel = panels[sourceIndex + target];
+        return targetPanel
+          ? reorderDashboardPanels(current, sourceKey, targetPanel.key)
+          : current;
+      }
+      return reorderDashboardPanels(current, sourceKey, target);
+    });
+  }
+
+  function changePanelWidth(panelKey, width) {
+    setLayoutDraft((current) => setDashboardPanelWidth(current, panelKey, width));
+  }
+
+  async function saveLayout() {
+    if (!report?.report?.canArrange || !layoutDraft || savingLayout) return;
+    setSavingLayout(true);
+    setLayoutError("");
+    setLayoutMessage("");
+    try {
+      const response = await fetch("/api/reports/configurations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reportKey: "alumni-family-engagement",
+          dataConfiguration: layoutDraft,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.configuration?.dataConfiguration) {
+        throw new Error(response.status === 403
+          ? "Only administrators can arrange this dashboard."
+          : "Could not save the dashboard layout. Please reload and try again.");
+      }
+      const savedConfiguration = payload.configuration.dataConfiguration;
+      const widths = new Map(savedConfiguration.panels.map((panel) => [panel.key, panel.width]));
+      setReport((current) => ({
+        ...current,
+        dashboardConfiguration: savedConfiguration,
+        dashboard: {
+          ...current.dashboard,
+          panels: (current.dashboard?.panels || []).map((panel) => ({
+            ...panel,
+            width: widths.get(panel.key) || panel.width,
+          })),
+        },
+        genericConfiguration: {
+          version: 1,
+          panels: savedConfiguration.panels.filter((panel) => panel.layout),
+        },
+      }));
+      setLayoutDraft(null);
+      setDraggedPanelKey("");
+      setArranging(false);
+      setLayoutMessage("Dashboard layout saved. Cached report data was not refreshed.");
+    } catch (saveError) {
+      setLayoutError(saveError.message);
+    } finally {
+      setSavingLayout(false);
+    }
+  }
+
   if (loadingUser || !user) {
     return (
       <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#64748B" }}>
@@ -142,38 +243,51 @@ export default function AlumniFamilyEngagementPage() {
   const genericPanels = Array.isArray(report?.genericConfiguration?.panels)
     ? report.genericConfiguration.panels
     : [];
+  const savedLayout = report?.dashboardConfiguration || {
+    dashboardVersion: 2,
+    panels: [...dashboardPanels, ...genericPanels],
+  };
+  const displayedLayout = arranging && layoutDraft ? layoutDraft : savedLayout;
+  const donorPanelsByKey = new Map(dashboardPanels.map((panel) => [panel.key, panel]));
+  const genericPanelsByKey = new Map(genericPanels.map((panel) => [panel.key, panel]));
+  const orderedPanels = (displayedLayout?.panels || []).flatMap((panel) => {
+    if (panel.type === "alumni_donor_count") {
+      const savedPanel = donorPanelsByKey.get(panel.key);
+      return savedPanel ? [{ kind: "donor", panel: { ...savedPanel, ...panel, totals: savedPanel.totals } }] : [];
+    }
+    const savedPanel = genericPanelsByKey.get(panel.key);
+    return savedPanel ? [{ kind: "generic", panel: { ...savedPanel, ...panel } }] : [];
+  });
+  const layoutDirty = arranging && layoutDraft
+    ? JSON.stringify(layoutDraft) !== JSON.stringify(savedLayout)
+    : false;
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
-      <div style={{ maxWidth: "1240px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <SharedReportHeader
           activeReportKey="alumni-family-engagement"
           eyebrow="Shared engagement report"
           title={reportTitle}
           description={reportDescription}
           action={
-            <button
-              type="button"
-              onClick={() => setRefreshVersion((version) => version + 1)}
-              disabled={isLoading}
-              style={{
-                minHeight: "42px",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                borderRadius: "10px",
-                border: "1px solid #BFDBFE",
-                backgroundColor: "white",
-                color: "#1D4ED8",
-                padding: "0 14px",
-                fontWeight: 800,
-                cursor: isLoading ? "default" : "pointer",
-                opacity: isLoading ? 0.65 : 1,
-              }}
-            >
-              <RefreshCw size={17} />
-              Refresh data
-            </button>
+            <div className={dashboardStyles.headerActions}>
+              {report?.report?.canArrange && !arranging ? (
+                <button type="button" className={dashboardStyles.button} onClick={startArranging} disabled={isLoading || !report?.dashboardConfiguration}>
+                  <LayoutDashboard size={17} aria-hidden="true" />
+                  Arrange dashboard
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={dashboardStyles.button}
+                onClick={() => setRefreshVersion((version) => version + 1)}
+                disabled={isLoading || arranging}
+              >
+                <RefreshCw size={17} aria-hidden="true" />
+                Refresh data
+              </button>
+            </div>
           }
         />
 
@@ -193,6 +307,9 @@ export default function AlumniFamilyEngagementPage() {
             {error}
           </section>
         ) : null}
+
+        {layoutError ? <div className={dashboardStyles.alert} role="alert">{layoutError}</div> : null}
+        {layoutMessage ? <div className={dashboardStyles.successNotice} role="status">{layoutMessage}</div> : null}
 
         {report?.refreshWarning ? (
           <section
@@ -274,65 +391,98 @@ export default function AlumniFamilyEngagementPage() {
                 Last refreshed: {new Date(report.generatedAt).toLocaleString("en-US")}
               </p>
             ) : null}
-            <section
-              style={{
-                display: "grid",
-                gap: "18px",
-                // Leave an open half-width cell for the next panel on wide screens.
-                gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 500px), 1fr))",
-                alignItems: "start",
-              }}
-            >
-              {dashboardPanels.map((panel) => {
+            {arranging ? (
+              <div className={dashboardStyles.arrangeToolbar} role="region" aria-label="Arrange dashboard controls">
+                <p>Drag panels into order or use the arrow controls. Choose half width for side-by-side panels or full width to stack a panel. These changes do not refresh report data.</p>
+                <div className={dashboardStyles.arrangeActions}>
+                  <button type="button" className={dashboardStyles.button} onClick={cancelArranging} disabled={savingLayout}>
+                    <X size={16} aria-hidden="true" />
+                    Cancel
+                  </button>
+                  <button type="button" className={dashboardStyles.primary} onClick={saveLayout} disabled={!layoutDirty || savingLayout}>
+                    <Save size={16} aria-hidden="true" />
+                    {savingLayout ? "Saving..." : "Save layout"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <section className={dashboardStyles.dashboard}>
+              {orderedPanels.map(({ kind, panel }, index) => {
+                const title = panel.title || "Untitled panel";
                 const panelTotals = Array.isArray(panel?.totals) ? panel.totals : [];
-
                 return (
-                  <section
+                  <div
                     key={panel.key}
-                    style={{
-                      border: "1px solid #BFDBFE",
-                      borderRadius: "18px",
-                      padding: "20px",
-                      backgroundColor: "#EFF6FF",
-                      minWidth: 0,
-                    }}
+                    className={`${dashboardStyles.panelSlot} ${panel.width === "full" ? dashboardStyles.full : dashboardStyles.half}`}
+                    onDragOver={arranging ? (event) => event.preventDefault() : undefined}
+                    onDrop={arranging ? (event) => {
+                      event.preventDefault();
+                      if (draggedPanelKey && draggedPanelKey !== panel.key) movePanel(draggedPanelKey, panel.key);
+                      setDraggedPanelKey("");
+                    } : undefined}
                   >
-                    <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "21px" }}>{panel.title}</h2>
-                    <p style={{ margin: "7px 0 0", color: "#475569", lineHeight: 1.5 }}>
-                      Each total is the count returned by its configured saved NXT query.
-                    </p>
-
-                    {panelTotals.length ? (
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: "10px",
-                          gridTemplateColumns: "minmax(0, 1fr)",
-                          marginTop: "16px",
-                        }}
-                      >
-                        {panelTotals.map((total) => (
-                          <DonorTotal
-                            key={`${panel.key}:${total.key}`}
-                            label={total.label}
-                            value={total.total}
-                            refreshPolicy={total.refreshPolicy}
-                            frozenAt={total.frozenAt}
-                          />
-                        ))}
+                    {arranging ? (
+                      <div className={dashboardStyles.panelArrangeBar}>
+                        <button
+                          type="button"
+                          className={`${dashboardStyles.iconButton} ${dashboardStyles.dragHandle}`}
+                          draggable
+                          onDragStart={(event) => {
+                            if (event.dataTransfer) {
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", panel.key);
+                            }
+                            setDraggedPanelKey(panel.key);
+                          }}
+                          onDragEnd={() => setDraggedPanelKey("")}
+                          aria-label={`Drag ${title} to reorder`}
+                          title="Drag to reorder"
+                        >
+                          <GripVertical size={18} aria-hidden="true" />
+                        </button>
+                        <strong>{title}</strong>
+                        <div className={dashboardStyles.panelActions}>
+                          <button type="button" className={dashboardStyles.iconButton} onClick={() => movePanel(panel.key, -1)} disabled={index === 0} aria-label={`Move ${title} earlier`} title="Move earlier"><ArrowUp size={17} aria-hidden="true" /></button>
+                          <button type="button" className={dashboardStyles.iconButton} onClick={() => movePanel(panel.key, 1)} disabled={index === orderedPanels.length - 1} aria-label={`Move ${title} later`} title="Move later"><ArrowDown size={17} aria-hidden="true" /></button>
+                          <button type="button" className={dashboardStyles.widthButton} onClick={() => changePanelWidth(panel.key, panel.width === "full" ? "half" : "full")} aria-label={`${panel.width === "full" ? "Use half width for" : "Use full width for"} ${title}`}>
+                            {panel.width === "full" ? <Columns2 size={17} aria-hidden="true" /> : <Rows3 size={17} aria-hidden="true" />}
+                            {panel.width === "full" ? "Half width" : "Full width"}
+                          </button>
+                        </div>
                       </div>
+                    ) : null}
+                    {kind === "generic" ? (
+                      <ReportDashboardPanels
+                        configuration={{ version: 1, panels: [{ ...panel, width: "full" }] }}
+                        snapshot={report.genericSnapshot}
+                      />
                     ) : (
-                      <p style={{ margin: "16px 0 0", color: "#64748B", fontWeight: 700 }}>
-                        No count rows are configured in this panel.
-                      </p>
+                      <section className={dashboardStyles.specialPanel} aria-label={title}>
+                        <h2 style={{ margin: 0, color: "#1E3A8A", fontSize: "21px" }}>{title}</h2>
+                        <p style={{ margin: "7px 0 0", color: "#475569", lineHeight: 1.5 }}>
+                          Each total is the count returned by its configured saved NXT query.
+                        </p>
+                        {panelTotals.length ? (
+                          <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "minmax(0, 1fr)", marginTop: "16px" }}>
+                            {panelTotals.map((total) => (
+                              <DonorTotal key={`${panel.key}:${total.key}`} label={total.label} value={total.total} refreshPolicy={total.refreshPolicy} frozenAt={total.frozenAt} />
+                            ))}
+                          </div>
+                        ) : (
+                          <p style={{ margin: "16px 0 0", color: "#64748B", fontWeight: 700 }}>
+                            No count rows are configured in this panel.
+                          </p>
+                        )}
+                      </section>
                     )}
-                  </section>
+                  </div>
                 );
               })}
 
-              {!dashboardPanels.length && !genericPanels.length ? (
+              {!orderedPanels.length ? (
                 <section
                   style={{
+                    gridColumn: "1 / -1",
                     border: "1px solid #CBD5E1",
                     borderRadius: "16px",
                     padding: "20px",
@@ -344,14 +494,6 @@ export default function AlumniFamilyEngagementPage() {
                 </section>
               ) : null}
             </section>
-            {genericPanels.length ? (
-              <div style={{ marginTop: dashboardPanels.length ? "18px" : 0 }}>
-                <ReportDashboardPanels
-                  configuration={report.genericConfiguration}
-                  snapshot={report.genericSnapshot}
-                />
-              </div>
-            ) : null}
           </>
         ) : null}
       </div>

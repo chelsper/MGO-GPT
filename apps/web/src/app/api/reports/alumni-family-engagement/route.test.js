@@ -140,6 +140,7 @@ describe("Alumni & Family Engagement report route", () => {
   });
 
   it("returns a compatible snapshot without another NXT request", async () => {
+    getReportAccessForUserMock.mockResolvedValueOnce({ canView: true, canArrange: true });
     getCachedReportSnapshotMock.mockResolvedValueOnce(createCachedSnapshot());
     const { GET } = await import("./route.js");
     const response = await GET(createRequest());
@@ -148,6 +149,10 @@ describe("Alumni & Family Engagement report route", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       status: "complete",
+      report: { canArrange: true },
+      dashboardConfiguration: {
+        panels: [expect.objectContaining({ width: "half" })],
+      },
       dashboard: {
         panels: [
           {

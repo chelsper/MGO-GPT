@@ -798,7 +798,7 @@ export default function FamilyImportPage() {
 
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 56px" }}>
-      <div style={{ maxWidth: "1260px", margin: "0 auto" }}>
+      <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <header style={{ display: "flex", gap: "16px", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", marginBottom: "18px" }}>
           <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
             <a

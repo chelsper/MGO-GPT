@@ -169,7 +169,7 @@ export default function ExecutiveTeamStandingsPage() {
 
   return (
     <main style={{ backgroundColor: "#F8FAFC", minHeight: "100vh", padding: "40px 24px 80px" }}>
-      <div style={{ margin: "0 auto", maxWidth: "1400px" }}>
+      <div style={{ margin: "0 auto", maxWidth: "1480px" }}>
         <SharedReportHeader
           activeReportKey="executive-team-standings"
           eyebrow="Executive dashboard"

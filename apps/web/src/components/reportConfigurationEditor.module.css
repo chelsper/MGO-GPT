@@ -8,7 +8,7 @@
   color: var(--editor-ink);
   padding: 32px 24px 60px;
 }
-.container { max-width: 1180px; margin: auto; }
+.container { max-width: 1480px; margin: auto; }
 .header, .toolbar, .sectionHeading, .footer, .rowPreview {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
 }

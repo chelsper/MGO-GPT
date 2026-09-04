@@ -21,6 +21,16 @@ describe("existing Alumni configuration compatibility", () => {
     expect(data.panels[0].rows.map((row) => [row.key, row.queryId, row.refreshPolicy])).toEqual(DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels[0].rows.map((row) => [row.key, row.queryId, row.refreshPolicy]));
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("configures donor-count panel width without changing its data source", () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByLabelText("Panel width"), { target: { value: "full" } });
+    const data = JSON.parse(screen.getByTestId("configuration").textContent);
+    expect(data.panels[0]).toMatchObject({
+      type: "alumni_donor_count",
+      width: "full",
+      rows: DEFAULT_ALUMNI_FAMILY_ENGAGEMENT_DASHBOARD.panels[0].rows,
+    });
+  });
   it("uses a manager-only test request without saving snapshots and rejects invalid returned counts", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ queryId: "30976", count: "bad" }) });
     vi.stubGlobal("fetch", fetchMock);
