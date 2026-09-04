@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { isAdminRole, isReviewerRole } from "@/utils/workspaceRoles";
+import getReviewerQueueCounts from "@/app/api/utils/reviewerQueueCounts";
 
 export async function GET(request) {
   try {
@@ -13,19 +14,24 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const { sessionUser, workspaceUser } = await getWorkspaceUser(session, request);
+    const requestedView = new URL(request.url).searchParams.get("view");
+    // A leftover executive-view cookie must not hide an administrator's shared
+    // queues after they return to Advancement Services. Check the real role.
+    const user = requestedView === "reviewer" && isReviewerRole(sessionUser?.role)
+      ? sessionUser
+      : workspaceUser;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    const requestedView = new URL(request.url).searchParams.get("view");
     const isReviewer =
       isAdminRole(user.role) && (requestedView === "mgo" || requestedView === "reviewer")
         ? requestedView === "reviewer"
         : isReviewerRole(user.role);
 
     if (isReviewer) {
-      const [submissionCounts, clarificationThreads, poolItems, discussionItems, dataRequests] =
+      const [submissionCounts, clarificationThreads, poolItems, discussionItems, dataRequests, queueCounts] =
         await Promise.all([
           sql`
             SELECT
@@ -87,6 +93,7 @@ export async function GET(request) {
             ORDER BY dcr.updated_at DESC
             LIMIT 6
           `,
+          getReviewerQueueCounts(),
         ]);
 
       return Response.json({
@@ -95,15 +102,16 @@ export async function GET(request) {
           pendingSubmissions: Number(submissionCounts[0]?.pending_count || 0),
           clarificationRequests: Number(submissionCounts[0]?.clarification_count || 0),
           approvedToday: Number(submissionCounts[0]?.approved_count || 0),
-          openDiscussionItems: discussionItems.length,
-          openDataRequests: dataRequests.length,
-          poolNeedsAttention: poolItems.length,
+          openDiscussionItems: queueCounts.discussions,
+          openDataRequests: queueCounts.dataRequests,
+          poolNeedsAttention: queueCounts.prospectPool,
         },
+        queueCounts,
         clarificationThreads,
         poolItems,
         discussionItems,
         dataRequests,
-      });
+      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
     }
 
     const [

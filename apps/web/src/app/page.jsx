@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
@@ -76,9 +77,9 @@ const MGO_ACTIONS = [
 
 const REVIEWER_ACTIONS = [
   {
-    title: "Review Submissions",
+    title: "Work Queue",
     href: "/submissions",
-    description: "Approve submissions or push them back to MGOs with notes.",
+    description: "Review data updates, list requests, import batches, and NXT exceptions.",
     section: "requestsReview",
   },
   {
@@ -181,7 +182,7 @@ const REVIEWER_NAV_ITEMS = [
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
-  { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
+  { label: "Work Queue", href: "/submissions", section: "Requests & Review" },
   { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
   { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
   { label: "Import Preview", href: "/constituency-import", section: "Requests & Review" },
@@ -525,7 +526,7 @@ export default function Page() {
     enabled: Boolean(canSwitchMgoWorkspace && isMgoView),
   });
   const actingUser = actingWorkspaceStatus?.actingUser || null;
-  const { data: worklist } = useQuery({
+  const { data: worklist, isError: worklistFailed } = useQuery({
     queryKey: ["homepage-worklist", profile?.id, actingUser?.id || "self", isReviewer ? "reviewer" : "mgo"],
     queryFn: async () => {
       const response = await fetch(`/api/worklist?view=${encodeURIComponent(isReviewer ? "reviewer" : "mgo")}`);
@@ -537,7 +538,11 @@ export default function Page() {
     },
     enabled: Boolean(user && profile),
     staleTime: 60 * 1000,
+    refetchInterval: isReviewer ? 60 * 1000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: isReviewer ? "always" : true,
   });
+  const queueCounts = isReviewer ? worklist?.queueCounts : undefined;
   const openDiscussionItems = Number(worklist?.summary?.openDiscussionItems || 0);
   const attentionItems = useMemo(() => getHomepageAttentionItems(worklist), [worklist]);
   const hasAttentionItems = isMgoView && (attentionItems.overdue.length || attentionItems.upcoming.length);
@@ -776,7 +781,7 @@ export default function Page() {
                             <span>{item.label}</span>
                             {item.href === "/team-discussion" ? (
                               <DiscussionAlertBadge count={openDiscussionItems} compact />
-                            ) : null}
+                            ) : <WorkQueueAlertBadge href={item.href} counts={queueCounts} compact />}
                           </a>
                         ))}
                       </div>
@@ -1351,6 +1356,14 @@ export default function Page() {
           My Work
         </div>
 
+        {isReviewer ? (
+          <p role={worklistFailed ? "status" : undefined} style={{ color: worklistFailed ? "#92400E" : "#6B7280", fontSize: "13px", margin: "0 0 14px", lineHeight: 1.5 }}>
+            {worklistFailed
+              ? "Queue alerts could not refresh. Any displayed counts are from the last successful check; open a queue to verify its current work."
+              : "Numbered alerts show outstanding work, not unread messages. Import alerts count batches, not rows. Completed work and successful direct-to-NXT updates do not trigger alerts. Counts refresh every minute while this page is open."}
+          </p>
+        ) : null}
+
         <div
           style={{
             display: "grid",
@@ -1394,8 +1407,9 @@ export default function Page() {
                 >
                   {index === 0 ? "Primary" : "Workspace"}
                 </div>
-              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "17px" }}>
-                {action.title}
+              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "17px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                <span>{action.title}</span>
+                <WorkQueueAlertBadge href={action.href} counts={queueCounts} />
               </div>
               <div style={{ color: "#6B7280", fontSize: "14px", lineHeight: 1.55 }}>
                 {action.description}
@@ -1475,8 +1489,9 @@ export default function Page() {
                     color: "#111827",
                   }}
                 >
-                  <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
-                    {action.title}
+                  <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <span>{action.title}</span>
+                    <WorkQueueAlertBadge href={action.href} counts={queueCounts} compact />
                   </div>
                   <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
                     {action.description}
