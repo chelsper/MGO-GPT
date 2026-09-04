@@ -152,7 +152,7 @@ export async function saveDashboardConfiguration({
   if (
     typeof reportKey !== "string" ||
     !/^[a-z0-9][a-z0-9-]{0,79}$/.test(reportKey) ||
-    reportKey === "test-query" ||
+    ["test-query", "test-query-results"].includes(reportKey) ||
     getReportDefinition(reportKey)
   )
     throw dashboardError("Invalid or reserved dashboard report key.");

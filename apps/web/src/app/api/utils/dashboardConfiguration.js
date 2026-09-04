@@ -6,6 +6,13 @@ export const DASHBOARD_LIMITS = Object.freeze({
   queries: 12,
   queriesPerRefresh: 2,
 });
+export const QUERY_RESULTS_LIMITS = Object.freeze({
+  panels: 4,
+  rows: 1000,
+  columns: 25,
+  bytes: 524288,
+  cellCharacters: 2000,
+});
 
 const isObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -35,16 +42,63 @@ export function validateDashboardConfiguration(value) {
   const panelKeys = new Set();
   const valueKeys = new Set();
   let queries = 0;
+  let resultTables = 0;
   for (const panel of value.panels) {
     if (!isObject(panel) || !validKey(panel.key) || panelKeys.has(panel.key))
       return "Panel keys must be valid and unique.";
     panelKeys.add(panel.key);
     if (!validText(panel.title, 120))
       return "Each panel needs a title of at most 120 characters.";
-    if (!["rows", "table", "metric"].includes(panel.layout))
+    if (!["rows", "table", "metric", "query_results"].includes(panel.layout))
       return "Unsupported panel layout.";
     if (!["half", "full"].includes(panel.width))
       return "Panel width must be half or full.";
+    if (panel.layout === "query_results") {
+      resultTables += 1;
+      queries += 1;
+      if (resultTables > QUERY_RESULTS_LIMITS.panels)
+        return "A dashboard accepts at most 4 query results tables.";
+      if (queries > DASHBOARD_LIMITS.queries)
+        return "A dashboard accepts at most 12 saved-query sources.";
+      const queryError = validateDashboardQueryId(panel.queryId);
+      if (queryError) return queryError;
+      if (
+        panel.refreshPolicy !== undefined &&
+        !["refreshable", "frozen"].includes(panel.refreshPolicy)
+      )
+        return "Unsupported refresh policy.";
+      for (const dimension of ["rows", "columns", "values"]) {
+        if (
+          panel[dimension] !== undefined &&
+          (!Array.isArray(panel[dimension]) || panel[dimension].length)
+        )
+          return "Query results tables get their rows and columns from NXT, not manual values.";
+      }
+      if (
+        panel.columnSettings !== undefined &&
+        (!Array.isArray(panel.columnSettings) ||
+          panel.columnSettings.length > QUERY_RESULTS_LIMITS.columns)
+      )
+        return "Query results tables accept at most 25 column display settings.";
+      const headers = new Set();
+      for (const column of panel.columnSettings || []) {
+        if (
+          !isObject(column) ||
+          !validText(column.header, 200) ||
+          headers.has(column.header)
+        )
+          return "Column settings need unique, exact query header names.";
+        if (column.label !== undefined && !validText(column.label, 120, false))
+          return "Column labels must be at most 120 characters.";
+        if (
+          column.format !== undefined &&
+          !["text", "number", "currency"].includes(column.format)
+        )
+          return "Unsupported query column display format.";
+        headers.add(column.header);
+      }
+      continue;
+    }
     for (const dimension of ["rows", "columns"]) {
       if (
         !Array.isArray(panel[dimension]) ||
@@ -141,28 +195,93 @@ export function normalizeDashboardConfiguration(value) {
   if (error) throw new Error(error);
   return {
     version: 1,
-    panels: value.panels.map((panel) => ({
-      key: panel.key,
-      title: panel.title.trim(),
-      layout: panel.layout,
-      width: panel.width,
-      rows: panel.rows.map(({ key, label }) => ({ key, label: label.trim() })),
-      columns: panel.columns.map(({ key, label }) => ({
-        key,
-        label: label.trim(),
-      })),
-      values: panel.values.map((cell) => ({
-        key: cell.key,
-        rowKey: cell.rowKey ?? "",
-        columnKey: cell.columnKey ?? "",
-        source: cell.source,
-        queryId: cell.source === "query_count" ? String(cell.queryId) : "",
-        refreshPolicy: cell.refreshPolicy ?? "refreshable",
-        staticValue: cell.source === "static" ? cell.staticValue : null,
-        note: cell.note?.trim() || "",
-      })),
-    })),
+    panels: value.panels.map((panel) =>
+      panel.layout === "query_results"
+        ? {
+            key: panel.key,
+            title: panel.title.trim(),
+            layout: "query_results",
+            width: panel.width,
+            queryId: String(panel.queryId),
+            refreshPolicy: panel.refreshPolicy ?? "refreshable",
+            columnSettings: (panel.columnSettings || []).map((column) => ({
+              header: column.header,
+              label: column.label?.trim() || "",
+              format: column.format || "text",
+            })),
+            rows: [],
+            columns: [],
+            values: [],
+          }
+        : {
+            key: panel.key,
+            title: panel.title.trim(),
+            layout: panel.layout,
+            width: panel.width,
+            rows: panel.rows.map(({ key, label }) => ({
+              key,
+              label: label.trim(),
+            })),
+            columns: panel.columns.map(({ key, label }) => ({
+              key,
+              label: label.trim(),
+            })),
+            values: panel.values.map((cell) => ({
+              key: cell.key,
+              rowKey: cell.rowKey ?? "",
+              columnKey: cell.columnKey ?? "",
+              source: cell.source,
+              queryId:
+                cell.source === "query_count" ? String(cell.queryId) : "",
+              refreshPolicy: cell.refreshPolicy ?? "refreshable",
+              staticValue: cell.source === "static" ? cell.staticValue : null,
+              note: cell.note?.trim() || "",
+            })),
+          },
+    ),
   };
+}
+
+export function getDashboardTableFingerprint(panel) {
+  return JSON.stringify([
+    1,
+    "query_results",
+    String(panel.queryId),
+    "query-results-csv-v1",
+  ]);
+}
+
+// Shared by cache publication and rendering; never treat a missing table as an empty one.
+export function isValidDashboardTableData(value) {
+  if (
+    !value ||
+    !Array.isArray(value.headers) ||
+    !value.headers.length ||
+    value.headers.length > QUERY_RESULTS_LIMITS.columns
+  )
+    return false;
+  if (
+    value.headers.some((header) => !validText(header, 200)) ||
+    new Set(value.headers).size !== value.headers.length
+  )
+    return false;
+  return (
+    Array.isArray(value.rows) &&
+    value.rows.length <= QUERY_RESULTS_LIMITS.rows &&
+    value.rows.every(
+      (row) =>
+        Array.isArray(row) &&
+        row.length === value.headers.length &&
+        row.every(
+          (cell) =>
+            typeof cell === "string" &&
+            cell.length <= QUERY_RESULTS_LIMITS.cellCharacters,
+        ),
+    ) &&
+    new TextEncoder().encode(JSON.stringify([value.headers, value.rows]))
+      .byteLength <=
+      QUERY_RESULTS_LIMITS.bytes * 2
+  );
 }
 
 // Stable source identity deliberately excludes labels, layout, position, notes and access.

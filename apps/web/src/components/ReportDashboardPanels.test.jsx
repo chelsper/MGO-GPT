@@ -1,6 +1,6 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDashboardValueFingerprint } from "@/app/api/utils/dashboardConfiguration";
+import { getDashboardTableFingerprint, getDashboardValueFingerprint } from "@/app/api/utils/dashboardConfiguration";
 import ReportDashboardPanels from "./ReportDashboardPanels";
 
 const query = (key, rowKey, columnKey, queryId) => ({ key, rowKey, columnKey, source: "query_count", queryId, refreshPolicy: "refreshable" });
@@ -92,5 +92,89 @@ describe("ReportDashboardPanels", () => {
     expect(screen.getAllByRole("region", { name: "Engagement" })[0].className).toContain("full");
     rerender(<ReportDashboardPanels configuration={null} />);
     expect(screen.getByText(/No panels yet/)).toBeInTheDocument();
+  });
+});
+
+const resultsPanel = { key: "query-table", title: "Query results", layout: "query_results", width: "full", queryId: "777", refreshPolicy: "refreshable", columnSettings: [], rows: [], columns: [], values: [] };
+const savedTable = (definition = resultsPanel, patch = {}) => ({ key: definition.key, panelKey: definition.key, queryId: definition.queryId, headers: ["Name", "Gift"], rows: [["Example Person", "$120.0000"]], dataSource: "query-results-csv-v1", definitionFingerprint: getDashboardTableFingerprint(definition), refreshedAt: "2026-09-01T12:00:00Z", frozenAt: null, status: "ready", error: null, ...patch });
+
+describe("ReportDashboardPanels query tables", () => {
+  it("renders snapshot tables by panel key alongside existing numeric panels without using config data as cells", () => {
+    const second = { ...resultsPanel, key: "second", title: "Second query", queryId: "888", width: "half" };
+    render(<ReportDashboardPanels configuration={{ panels: [resultsPanel, panel, second] }} snapshot={{
+      values: panel.values.map((definition) => saved(definition, 42)),
+      tables: [savedTable(second, { rows: [["Second Person", "0"]] }), savedTable()],
+    }} />);
+    const table = screen.getByRole("table", { name: "Query results" });
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Name", "Gift"]);
+    expect(within(table).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Example Person", "$120.0000"]);
+    expect(within(screen.getByRole("table", { name: "Second query" })).getByRole("cell", { name: "Second Person" })).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Engagement" })).getAllByRole("cell")).toHaveLength(4);
+    expect(screen.getByRole("region", { name: "Query results" }).className).toContain("full");
+    expect(screen.getByRole("region", { name: "Second query" }).className).toContain("half");
+    expect(screen.queryByText("Add rows and columns to this panel.")).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses draft title, width, labels and formats without invalidating source-only snapshot matching", () => {
+    const draft = { ...resultsPanel, title: "Draft table", width: "half", refreshPolicy: "frozen", columnSettings: [{ header: "Name", label: "Constituent", format: "text" }, { header: "Gift", label: "Donation", format: "currency" }] };
+    render(<ReportDashboardPanels configuration={{ panels: [draft] }} snapshot={{ configuration: { panels: [resultsPanel] }, tables: [savedTable()] }} />);
+    expect(screen.getByRole("table", { name: "Draft table" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Constituent" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Donation" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "$120.00" })).toBeInTheDocument();
+    expect(screen.getByText("Frozen")).toBeInTheDocument();
+    expect(screen.getByText(/As of Sep 1, 2026/)).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("retains prior rows after a failed refresh and shows frozen/as-of status without raw error details", () => {
+    const frozen = { ...resultsPanel, refreshPolicy: "frozen" };
+    const { rerender } = render(<ReportDashboardPanels configuration={{ panels: [frozen] }} snapshot={{ tables: [savedTable(frozen)] }} />);
+    rerender(<ReportDashboardPanels configuration={{ panels: [frozen] }} snapshot={{ tables: [savedTable(frozen, { status: "stale", frozenAt: "2026-08-20T12:00:00Z", error: "private@example.invalid" })] }} />);
+    expect(screen.getByRole("cell", { name: "Example Person" })).toBeInTheDocument();
+    expect(screen.getByText("Last successful table; refresh failed")).toBeInTheDocument();
+    expect(screen.getByText("Frozen")).toBeInTheDocument();
+    expect(screen.getByText(/As of Aug 20, 2026/)).toBeInTheDocument();
+    expect(screen.queryByText(/private@example/)).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes never loaded, failed missing, successful empty and stale empty results", () => {
+    const { rerender } = render(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} />);
+    expect(screen.getByText("Not refreshed")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    rerender(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} snapshot={{ tables: [savedTable(resultsPanel, { rows: null, status: "missing", error: "Do not show this raw error" })] }} />);
+    expect(screen.getByText("Not refreshed")).toBeInTheDocument();
+    expect(screen.getByText("Query refresh failed")).toBeInTheDocument();
+    expect(screen.queryByText(/As of|Do not show/)).not.toBeInTheDocument();
+    rerender(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} snapshot={{ tables: [savedTable(resultsPanel, { rows: [] })] }} />);
+    expect(screen.getByText(/No rows returned.*successfully/)).toBeInTheDocument();
+    expect(screen.queryByText("Not refreshed")).not.toBeInTheDocument();
+    rerender(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} snapshot={{ tables: [savedTable(resultsPanel, { rows: [], status: "stale", error: "failure" })] }} />);
+    expect(screen.getByText(/No rows returned.*successfully/)).toBeInTheDocument();
+    expect(screen.getByText("Last successful table; refresh failed")).toBeInTheDocument();
+  });
+
+  it.each([
+    { definitionFingerprint: undefined }, { definitionFingerprint: "wrong" }, { dataSource: "strict-csv-row-count-v1" },
+    { key: "other" }, { panelKey: "other" }, { queryId: "888" }, { rows: null }, { rows: [["Example", 0]] },
+    { headers: ["Name", "Name"] }, { status: "missing" }, { status: "unsupported" },
+  ])("rejects mismatched or malformed saved table data", (patch) => {
+    render(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} snapshot={{ tables: [savedTable(resultsPanel, patch)] }} />);
+    expect(screen.getByText("Not refreshed")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Example Person|As of/)).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("immediately hides cached rows when the draft query changes and does not substitute preview/config rows", () => {
+    const snapshot = { tables: [savedTable()] };
+    const { rerender } = render(<ReportDashboardPanels configuration={{ panels: [resultsPanel] }} snapshot={snapshot} />);
+    expect(screen.getByRole("cell", { name: "Example Person" })).toBeInTheDocument();
+    rerender(<ReportDashboardPanels configuration={{ panels: [{ ...resultsPanel, queryId: "888", headers: ["Private"], rows: [["Not snapshot data"]] }] }} snapshot={snapshot} />);
+    expect(screen.getByText("Not refreshed")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Example Person|Not snapshot data|As of/)).not.toBeInTheDocument();
   });
 });

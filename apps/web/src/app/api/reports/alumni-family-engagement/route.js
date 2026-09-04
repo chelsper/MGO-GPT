@@ -12,8 +12,10 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import {
+  BlackbaudQueryResultTooLargeError,
   createBlackbaudQueryJob,
   downloadBlackbaudQueryResult,
+  downloadBlackbaudQueryResultWithMetadata,
   getBlackbaudConfigIssues,
   getBlackbaudQueryJob,
 } from "@/app/api/utils/blackbaud";
@@ -298,7 +300,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv }) {
+async function waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv, readResult }) {
   const startedAt = Date.now();
   let polls = 0;
   let lastStatus = "Queued";
@@ -320,6 +322,7 @@ async function waitForBlackbaudQueryJob({ user, origin, jobId, label, validateRe
           `NXT completed ${label}, but did not provide its result file. The report was not updated.`,
         );
       }
+      if (readResult) return readResult({ resultUrl, job });
       const resultCsv = await downloadBlackbaudQueryResult(resultUrl, {
         userId: user.id,
         authUserId: user.id,
@@ -351,6 +354,38 @@ export async function executeSavedQueryCount({ user, origin, queryId, label, val
   const jobId = getQueryJobId(createdJob);
   if (!jobId) throw new Error(`NXT did not return a query job ID for ${label}.`);
   return waitForBlackbaudQueryJob({ user, origin, jobId, label, validateResultCsv });
+}
+
+// Table readers reuse job execution/polling but never enter the legacy count parser.
+export async function executeSavedQueryResults({ user, origin, queryId, maxBytes }) {
+  try {
+    const createdJob = await createBlackbaudQueryJob({
+      userId: user.id,
+      authUserId: user.id,
+      origin,
+      queryId,
+    });
+    const jobId = getQueryJobId(createdJob);
+    if (!jobId) throw new Error("Missing query job ID.");
+    return await waitForBlackbaudQueryJob({
+      user,
+      origin,
+      jobId,
+      label: "dashboard query",
+      readResult: async ({ resultUrl, job }) => {
+        const { body, contentType } = await downloadBlackbaudQueryResultWithMetadata(resultUrl, {
+          userId: user.id,
+          authUserId: user.id,
+          origin,
+          maxBytes,
+        });
+        return { body, contentType, queryJobRowCount: getQueryJobMetadataRowCount(job) };
+      },
+    });
+  } catch (error) {
+    if (error instanceof BlackbaudQueryResultTooLargeError) throw error;
+    throw new Error("Could not retrieve the saved query results. No report snapshot was changed.");
+  }
 }
 
 async function buildQueryApiDonorTotals({ user, origin, dashboard, cachedPayload }) {

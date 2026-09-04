@@ -99,7 +99,7 @@ export default function ReportDashboardPage() {
           accessibleReports={[]}
           eyebrow="Configured dashboard"
           title={configuration?.title || "Report dashboard"}
-          description={configuration?.description || "Saved query counts and static values from the last dashboard snapshot."}
+          description={configuration?.description || "Saved query results, counts, and static values from the last dashboard snapshot."}
           action={
             <button type="button" className={styles.button} onClick={refresh} disabled={loading || refreshing || !report}>
               <RefreshCw size={17} aria-hidden="true" />
@@ -109,7 +109,7 @@ export default function ReportDashboardPage() {
         />
         {error ? <div className={styles.alert} role="alert">{error}</div> : null}
         {loading ? <div className={styles.notice} role="status">Loading the cached dashboard...</div> : null}
-        {refreshing ? <div className={styles.notice} role="status">Refreshing saved query counts. The previous snapshot remains visible; frozen values are preserved.</div> : null}
+        {refreshing ? <div className={styles.notice} role="status">Refreshing saved query data. The previous snapshot remains visible; frozen values and tables are preserved.</div> : null}
         {pending ? <div className={styles.notice} role="status">Refresh paused between batches{Number.isInteger(remaining) ? `: ${remaining} queries remaining` : ""}. Choose Continue refresh to run the next batch. No queries run automatically.</div> : null}
         {needsRefresh && !pending ? <div className={styles.notice}>This dashboard has not been fully refreshed. Unknown values are shown as Not refreshed, not zero. Choose Refresh data to run its saved queries.</div> : null}
         {partial && (!pending || hasFailedValues) ? <div className={styles.warning} role="status">Some values could not be refreshed. Last successful values are retained where available; missing values are marked Not refreshed.</div> : null}

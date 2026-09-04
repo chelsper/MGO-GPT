@@ -986,9 +986,55 @@ export async function downloadBlackbaudQueryResult(
   }
 }
 
-// This is intentionally separate from downloadBlackbaudQueryResult. It is
-// used by an administrator-only diagnostic to inspect the response shape
-// without altering normal query-result parsing or report snapshots.
+export class BlackbaudQueryResultTooLargeError extends Error {
+  constructor(maxBytes) {
+    super(`The query result exceeds the ${maxBytes}-byte download limit.`);
+    this.name = "BlackbaudQueryResultTooLargeError";
+  }
+}
+
+async function readBoundedQueryResult(response, maxBytes, controller) {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
+    controller.abort();
+    await response.body?.cancel().catch(() => {});
+    throw new BlackbaudQueryResultTooLargeError(maxBytes);
+  }
+  if (!response.body) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > maxBytes) {
+        throw new BlackbaudQueryResultTooLargeError(maxBytes);
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    controller.abort();
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+// Diagnostics and table readers inspect raw bytes and response metadata here.
+// Optional bounds leave existing diagnostics and the separate legacy count
+// downloader unchanged.
 export async function downloadBlackbaudQueryResultWithMetadata(
   resultUrl,
   {
@@ -996,8 +1042,12 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     authUserId,
     origin,
     timeoutMs = BLACKBAUD_REQUEST_TIMEOUT_MS,
+    maxBytes,
   } = {},
 ) {
+  if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
+    throw new Error("The query result byte limit must be a nonnegative integer.");
+  }
   const url = new URL(String(resultUrl || ""));
   if (url.protocol !== "https:") {
     throw new Error("The Blackbaud query result URL must use HTTPS");
@@ -1037,7 +1087,10 @@ export async function downloadBlackbaudQueryResultWithMetadata(
       headers,
       signal: controller.signal,
     });
-    const body = new Uint8Array(await response.arrayBuffer());
+    // Diagnostics retain their original unbounded behavior unless opted in.
+    const body = maxBytes === undefined
+      ? new Uint8Array(await response.arrayBuffer())
+      : await readBoundedQueryResult(response, maxBytes, controller);
 
     if (!response.ok) {
       const responseText = new TextDecoder().decode(body);

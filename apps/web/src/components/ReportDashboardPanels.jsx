@@ -1,7 +1,8 @@
 "use client";
 
 import { useId } from "react";
-import { getDashboardValueFingerprint } from "@/app/api/utils/dashboardConfiguration";
+import { getDashboardTableFingerprint, getDashboardValueFingerprint, isValidDashboardTableData } from "@/app/api/utils/dashboardConfiguration";
+import QueryResultsTable from "./QueryResultsTable";
 import styles from "./reportDashboard.module.css";
 
 function formatTime(value) {
@@ -39,7 +40,28 @@ function DashboardValue({ definition, saved }) {
   );
 }
 
-function DashboardPanel({ panel, savedValues }) {
+function DashboardQueryTable({ panel, saved }) {
+  const fingerprint = getDashboardTableFingerprint(panel);
+  const matches = saved?.key === panel.key && saved?.panelKey === panel.key &&
+    String(saved?.queryId) === String(panel.queryId) && saved?.dataSource === "query-results-csv-v1" &&
+    saved?.definitionFingerprint === fingerprint;
+  const known = matches && ["ready", "stale"].includes(saved.status) && isValidDashboardTableData(saved);
+  const asOf = known ? formatTime(saved.frozenAt || saved.refreshedAt) : null;
+
+  return (
+    <div className={styles.queryResults}>
+      <div className={styles.valueStatus}>
+        {panel.refreshPolicy === "frozen" ? <span className={styles.badge}>Frozen</span> : null}
+        {asOf ? <span>As of {asOf}</span> : null}
+        {known && saved.status === "stale" ? <span>Last successful table; refresh failed</span> : null}
+        {matches && !known && saved.error ? <span>Query refresh failed</span> : null}
+      </div>
+      {known ? <QueryResultsTable key={fingerprint} title={panel.title || "Untitled panel"} headers={saved.headers} rows={saved.rows} columnSettings={panel.columnSettings || []} /> : <p className={styles.unknown}>Not refreshed</p>}
+    </div>
+  );
+}
+
+function DashboardPanel({ panel, savedValues, savedTables }) {
   const titleId = useId();
   const rows = Array.isArray(panel.rows) ? panel.rows : [];
   const columns = Array.isArray(panel.columns) ? panel.columns : [];
@@ -54,7 +76,7 @@ function DashboardPanel({ panel, savedValues }) {
       className={`${styles.panel} ${panel.width === "full" ? styles.full : styles.half}`}
     >
       <h3 id={titleId} className={styles.panelTitle}>{panel.title || "Untitled panel"}</h3>
-      {panel.layout === "metric" ? (
+      {panel.layout === "query_results" ? <DashboardQueryTable panel={panel} saved={savedTables.get(panel.key)} /> : panel.layout === "metric" ? (
         <dl className={styles.metrics}>
           <div className={styles.dataRow}>
             <dt>{rows.find((row) => row.key === values[0]?.rowKey)?.label || panel.title || "Metric"}</dt>
@@ -101,12 +123,13 @@ function DashboardPanel({ panel, savedValues }) {
 export default function ReportDashboardPanels({ configuration, snapshot = null }) {
   const panels = Array.isArray(configuration?.panels) ? configuration.panels : [];
   const savedValues = new Map((Array.isArray(snapshot?.values) ? snapshot.values : []).map((value) => [value.key, value]));
+  const savedTables = new Map((Array.isArray(snapshot?.tables) ? snapshot.tables : []).map((table) => [table.key, table]));
 
   if (!panels.length) return <p className={styles.empty}>No panels yet. Add a panel to build this dashboard.</p>;
 
   return (
     <div className={styles.dashboard}>
-      {panels.map((panel) => <DashboardPanel key={panel.key} panel={panel} savedValues={savedValues} />)}
+      {panels.map((panel) => <DashboardPanel key={panel.key} panel={panel} savedValues={savedValues} savedTables={savedTables} />)}
     </div>
   );
 }

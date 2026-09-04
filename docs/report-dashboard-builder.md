@@ -20,6 +20,7 @@ Each panel has a title, half/full width, and a layout:
 - Rows: a labeled vertical list with one value column.
 - Table: labeled rows and columns; each cell has its own data source.
 - Metric: a single prominent value.
+- Query Results Table: one saved-query ID supplies all output rows and headers automatically. There are no manually defined row/column axes or numeric cells for this panel type.
 
 Values use one of two explicit sources:
 
@@ -29,6 +30,18 @@ Values use one of two explicit sources:
 Test query runs one saved query on explicit request by a report manager and returns a safe count only. It does not write snapshots or freeze a value. Failures do not reveal provider URLs or result data.
 
 Current bounds: 12 panels, 100 values, at most 12 query-backed values per dashboard. Row/column removal asks for confirmation; layout switches never silently drop values.
+
+## Query Results Tables
+
+For a query such as PPC 2026-27 (system record ID `30971`), open a general dashboard or choose Add report, then **Add query table**. Enter the query ID and select **Load query preview**. The preview shows the columns and rows actually returned by NXT; for the supplied example these are PPC Member Name and Total Giving FY27. Do not create an individual dashboard row for each person. This feature is available in general dashboards; built-in specialized report editors remain unchanged.
+
+The preview executes only on explicit request and is not written into report configuration or production snapshots. After saving, select viewers, enable the report, and refresh its data to create the shared snapshot. No Blackbaud saved query is created or modified. Aggregate output is shown as output, never mistaken for a donor count. Giving values are not recalculated or summed.
+
+By default, cells display the returned CSV text. Optional per-header display settings rename labels or format numbers/currency; the original cell values remain in the snapshot. Sorting and pagination run locally and make no NXT calls. Changed query IDs cannot reuse an old table. Presentation and access edits preserve compatible cached results.
+
+Tables contain constituent-level data. Managers must choose viewers deliberately: all selected viewers can see every returned column in the shared snapshot, regardless of their own NXT field permissions. Responses are private/no-store, previews require an active report manager, and published reports require the existing explicit allowlist. No query rows, signed download URLs, or tokens are logged.
+
+Table limits: at most 4 query tables per dashboard, 1,000 result rows and 25 columns per table, 512 KiB downloaded CSV, and 2,000 characters per cell. Tables share the existing 12-query-source limit and two-query-per-batch refresh budget with count cells. Oversized, ambiguous, or malformed results fail rather than silently truncate or overwrite a valid snapshot. A header-only CSV is a valid empty result and is distinct from a missing snapshot. Count and table interpretations of the same query use separate execution/cache keys so they cannot be confused.
 
 ## Snapshots And Refresh
 

@@ -78,6 +78,7 @@ function AccessEditor({ configuration, draft, users, onChange }) {
   }
   return <section className={styles.stack} aria-label="Report access">
     {generic && <label className={styles.choice}><input type="checkbox" checked={draft.active} onChange={(event) => onChange({ active: event.target.checked })} /><span><strong>Enable this report</strong><small>Only selected active users can open an enabled report. Managers can preview disabled drafts here; administrator status does not grant published-report access.</small></span></label>}
+    {generic && draft.dataConfiguration?.panels?.some((panel) => panel.layout === "query_results") && <p className={styles.notice}>This report contains constituent-level query results. Every selected viewer can see all returned columns in the shared snapshot, including names and giving amounts. Select viewers accordingly; the snapshot is not filtered by each viewer's NXT permissions.</p>}
     {!generic && <div className={styles.stack}>
       <h3 style={{ margin: 0 }}>Who can view this report?</h3>
       {(access.allowedVisibilities || Object.keys(AUDIENCES)).filter((key) => AUDIENCES[key]).map((key) => <label className={styles.choice} key={key}><input type="radio" name={`audience-${configuration.key}`} checked={draft.visibility === key} onChange={() => onChange({ visibility: key })} /><span><strong>{AUDIENCES[key][0]}</strong><small>{AUDIENCES[key][1]}</small></span></label>)}
@@ -215,7 +216,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport ? "Continue new report" : "Add report"}</button>
     </section>
     {configuration && draft && <section className={styles.card} aria-label="Selected report editor">
-      <div className={styles.sectionHeading}><div><h2 style={{ margin: 0 }}>{draft.title || "New report"}</h2><p className={styles.muted} style={{ margin: "6px 0 0" }}>{generic ? "Query counts and static values" : configuration.reportTypeLabel}</p></div><span className={styles.tag}>{isNew ? "Unsaved draft" : generic ? configuration.active ? "Enabled" : "Disabled draft" : "Built-in report"}</span></div>
+      <div className={styles.sectionHeading}><div><h2 style={{ margin: 0 }}>{draft.title || "New report"}</h2><p className={styles.muted} style={{ margin: "6px 0 0" }}>{generic ? "Query results, counts, and static values" : configuration.reportTypeLabel}</p></div><span className={styles.tag}>{isNew ? "Unsaved draft" : generic ? configuration.active ? "Enabled" : "Disabled draft" : "Built-in report"}</span></div>
       <div className={styles.tabs} role="tablist" aria-label="Report settings">
         {TABS.map((name, index) => <button key={name} id={`report-tab-${name}`} className={styles.tab} role="tab" aria-selected={tab === name} aria-controls={`report-panel-${name}`} tabIndex={tab === name ? 0 : -1} disabled={saving} onClick={() => setTab(name)} onKeyDown={(event) => {
           const next = event.key === "ArrowRight" ? (index + 1) % TABS.length : event.key === "ArrowLeft" ? (index + TABS.length - 1) % TABS.length : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : null;

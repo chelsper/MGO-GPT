@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DASHBOARD_LIMITS, validateDashboardConfiguration } from "@/app/api/utils/dashboardConfiguration";
+import { DASHBOARD_LIMITS, QUERY_RESULTS_LIMITS, validateDashboardConfiguration } from "@/app/api/utils/dashboardConfiguration";
 import ReportDashboardBuilder from "./ReportDashboardBuilder";
 import ReportDashboardPanels from "./ReportDashboardPanels";
 
@@ -262,6 +262,241 @@ describe("ReportDashboardBuilder", () => {
     expect(screen.getByRole("button", { name: "Add panel" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add column" })).toBeDisabled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+const queryTable = (patch = {}) => ({ key: "results", title: "Synthetic results", layout: "query_results", width: "full", queryId: "777", refreshPolicy: "refreshable", columnSettings: [], rows: [], columns: [], values: [], ...patch });
+const previewPayload = (patch = {}) => ({ queryId: "777", headers: ["Name", "Amount"], rows: [["Example Person", "$1,250.0000"]], dataSource: "query-results-csv-v1", queryJobRowCount: 1, testedAt: "2026-09-04T12:00:00Z", ...patch });
+const queryInitial = (patch = {}) => ({ version: 1, panels: [queryTable(patch)] });
+
+describe("ReportDashboardBuilder query tables", () => {
+  it("adds a distinct blank-ID panel without converting a numeric panel, and edits metadata without requests", () => {
+    render(<Editor />);
+    startPanel();
+    setQuery("123");
+    const numeric = structuredClone(latest.panels[0]);
+    expect(within(screen.getByLabelText("Layout")).queryByRole("option", { name: /query results/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add query table" }));
+    expect(latest.panels[0]).toEqual(numeric);
+    expect(latest.panels[1]).toMatchObject({ layout: "query_results", queryId: "", refreshPolicy: "refreshable", columnSettings: [], rows: [], columns: [], values: [] });
+    const editor = within(screen.getByRole("region", { name: "Edit panel 2" }));
+    expect(editor.getByRole("button", { name: "Load query preview" })).toBeDisabled();
+    expect(editor.queryByRole("button", { name: "Add row" })).not.toBeInTheDocument();
+    expect(editor.queryByRole("button", { name: "Add column" })).not.toBeInTheDocument();
+    expect(editor.queryByLabelText("Value source")).not.toBeInTheDocument();
+    expect(editor.queryByLabelText("Layout")).not.toBeInTheDocument();
+    const input = editor.getByLabelText("Query ID");
+    input.focus();
+    fireEvent.change(input, { target: { value: "777" } });
+    expect(input).toHaveFocus();
+    fireEvent.change(editor.getByLabelText("Panel title"), { target: { value: "Donor rows" } });
+    fireEvent.change(editor.getByLabelText("Panel width"), { target: { value: "half" } });
+    fireEvent.change(editor.getByLabelText("Refresh policy"), { target: { value: "frozen" } });
+    expect(latest.panels[1]).toMatchObject({ title: "Donor rows", width: "half", queryId: "777", refreshPolicy: "frozen" });
+    expect(validateDashboardConfiguration(latest)).toBe("");
+    expect(editor.getByText(/Shared reports expose all returned query columns.*donor information.*selected viewers/)).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("loads only on click and never stores preview headers/rows in configuration or the dashboard preview", async () => {
+    fetch.mockResolvedValue(json(previewPayload()));
+    render(<Editor initial={queryInitial()} />);
+    const original = structuredClone(latest);
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    const table = await screen.findByRole("table", { name: "Synthetic results preview" });
+    expect(within(table).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Example Person", "$1,250.0000"]);
+    expect(fetch).toHaveBeenCalledWith("/api/reports/dashboards/test-query-results", expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ queryId: "777" }) }));
+    expect(latest).toEqual(original);
+    expect(changes).not.toHaveBeenCalled();
+    expect(screen.getByText("Not refreshed")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Synthetic results" })).not.toBeInTheDocument();
+    expect(screen.getByText("Query preview only. Not saved to the dashboard.")).toBeInTheDocument();
+    expect(latest.panels[0]).not.toHaveProperty("headers");
+    expect(latest.panels[0]).not.toHaveProperty("testedAt");
+  });
+
+  it("keeps exact-header display settings separate from data and does not reload for presentation or policy edits", async () => {
+    fetch.mockResolvedValue(json(previewPayload()));
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByText("Column display settings (optional)"));
+    fireEvent.change(screen.getByLabelText("Display label for Amount"), { target: { value: "Gift total" } });
+    fireEvent.change(screen.getByLabelText("Format for Amount"), { target: { value: "currency" } });
+    fireEvent.change(screen.getByLabelText("Panel title"), { target: { value: "Gift results" } });
+    fireEvent.change(screen.getByLabelText("Refresh policy"), { target: { value: "frozen" } });
+    expect(latest.panels[0]).toMatchObject({ columnSettings: [{ header: "Amount", label: "Gift total", format: "currency" }], rows: [], columns: [], values: [] });
+    expect(screen.getByRole("columnheader", { name: "Gift total" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "$1,250.00" })).toBeInTheDocument();
+    expect(validateDashboardConfiguration(latest)).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Reset display settings for Amount" }));
+    expect(latest.panels[0].columnSettings).toEqual([]);
+    expect(screen.getByRole("cell", { name: "$1,250.0000" })).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("confirms changing an ID with saved settings, preserves on cancel, and clears preview/settings on acceptance", async () => {
+    fetch.mockResolvedValue(json(previewPayload()));
+    render(<Editor initial={queryInitial({ columnSettings: [{ header: "Amount", label: "Prior gift", format: "text" }] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    await screen.findByRole("table");
+    fireEvent.change(screen.getByLabelText("Query ID"), { target: { value: "888" } });
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("reset its column display settings"));
+    expect(latest.panels[0].queryId).toBe("777");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    confirm.mockReturnValueOnce(true);
+    fireEvent.change(screen.getByLabelText("Query ID"), { target: { value: "888" } });
+    expect(latest.panels[0]).toMatchObject({ queryId: "888", columnSettings: [] });
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText("Column display settings (optional)")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts ID changes and ignores old responses even after starting a new preview", async () => {
+    let first, second;
+    fetch.mockImplementationOnce(() => new Promise((resolve) => { first = resolve; })).mockImplementationOnce(() => new Promise((resolve) => { second = resolve; }));
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    const signal = fetch.mock.calls[0][1].signal;
+    expect(screen.getByRole("button", { name: "Loading query preview..." })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Query ID"), { target: { value: "888" } });
+    expect(signal.aborted).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    await act(async () => first(json(previewPayload())));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Loading query preview..." })).toBeDisabled();
+    await act(async () => second(json(previewPayload({ queryId: "888", rows: [["New Person", "0"]] }))));
+    expect(screen.getByRole("cell", { name: "New Person" })).toBeInTheDocument();
+    expect(screen.queryByText("Example Person")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Query ID"), { target: { value: "999" } });
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("requires confirmation for even blank table removal and aborts requests on removal", async () => {
+    let resolve;
+    fetch.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const { unmount } = render(<Editor initial={queryInitial({ queryId: "" })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove panel" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Remove query table"));
+    expect(latest.panels).toHaveLength(1);
+    unmount();
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    const signal = fetch.mock.calls[0][1].signal;
+    fireEvent.click(screen.getByRole("button", { name: "Remove panel" }));
+    expect(signal.aborted).toBe(false);
+    confirm.mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "Remove panel" }));
+    expect(latest.panels).toEqual([]);
+    expect(signal.aborted).toBe(true);
+    await act(async () => resolve(json(previewPayload())));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("retains the last successful local preview on failure without exposing raw errors", async () => {
+    fetch.mockResolvedValueOnce(json(previewPayload())).mockResolvedValueOnce(json({ error: "private@example.invalid" }, false));
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Showing the last successful preview");
+    expect(screen.getByRole("cell", { name: "Example Person" })).toBeInTheDocument();
+    expect(screen.queryByText(/private@example/)).not.toBeInTheDocument();
+    expect(changes).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [413, "Query results must not exceed 1000 rows. Narrow the saved query in NXT and try again. No results were truncated."],
+    [502, "NXT must return a CSV result file for this table."],
+    [502, "NXT returned an unsupported charset or invalid CSV text encoding."],
+    [403, "Only report managers can test saved queries."],
+  ])("shows sanitized endpoint error details for status %s", async (status, message) => {
+    fetch.mockResolvedValue({ ...json({ error: message }, false), status });
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByRole("button", { name: "Load query preview" })).toBeEnabled();
+    expect(changes).not.toHaveBeenCalled();
+  });
+
+  it("caps supported endpoint messages and renders them as text, never HTML", async () => {
+    const message = `<img src=x onerror=alert(1)>${"a".repeat(600)}`;
+    fetch.mockResolvedValue({ ...json({ error: message }, false), status: 502 });
+    const { container } = render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(message.slice(0, 500));
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("does not expose network exception text or unsupported status payloads", async () => {
+    fetch.mockRejectedValueOnce(new Error("private network detail"))
+      .mockResolvedValueOnce({ ...json({ error: "private server detail" }, false), status: 500 });
+    render(<Editor initial={queryInitial()} />);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Could not load this query preview");
+      expect(screen.queryByText(/private .* detail/)).not.toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    { queryId: "888" }, { dataSource: "unexpected" }, { headers: ["Name", "Name"] }, { rows: null },
+    { rows: [["Example", 12]] }, { rows: [["Only one column"]] }, { rows: [["x".repeat(2001), "0"]] },
+    { rows: Array.from({ length: 1001 }, () => ["Example", "0"]) },
+  ])("rejects wrong-source, malformed and oversized preview data", async (patch) => {
+    fetch.mockResolvedValue(json(previewPayload(patch)));
+    render(<Editor initial={queryInitial()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load this query preview");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(changes).not.toHaveBeenCalled();
+  });
+
+  it("validates IDs, honors disabled state, and aborts a pending preview when disabled", async () => {
+    let resolve;
+    fetch.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const { rerender, container } = render(<Editor initial={queryInitial({ queryId: "not-an-id" })} />);
+    expect(screen.getByLabelText("Query ID")).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Query ID"), { target: { value: "777" } });
+    fireEvent.click(screen.getByRole("button", { name: "Load query preview" }));
+    const signal = fetch.mock.calls[0][1].signal;
+    changes.mockClear();
+    rerender(<Editor disabled />);
+    expect(signal.aborted).toBe(true);
+    for (const element of container.querySelectorAll("button, input, select")) expect(element).toBeDisabled();
+    await act(async () => resolve(json(previewPayload())));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(changes).not.toHaveBeenCalled();
+  });
+
+  it("limits query tables to four independently of numeric values and total panels", () => {
+    render(<Editor />);
+    for (let i = 0; i < QUERY_RESULTS_LIMITS.panels; i += 1) fireEvent.click(screen.getByRole("button", { name: "Add query table" }));
+    expect(screen.getByRole("button", { name: "Add query table" })).toBeDisabled();
+    expect(latest.panels).toHaveLength(4);
+    expect(screen.getByRole("button", { name: "Add panel" })).toBeEnabled();
+    expect(screen.getByText(/4\/12 saved-query sources; 4\/4 query tables/)).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("shares the twelve-query budget with numeric cells and frees it after table removal", () => {
+    const numeric = { key: "numeric", title: "Counts", layout: "rows", width: "half", columns: [{ key: "c", label: "Count" }], rows: Array.from({ length: 12 }, (_, i) => ({ key: `r${i}`, label: `Row ${i}` })), values: Array.from({ length: 12 }, (_, i) => ({ key: `v${i}`, rowKey: `r${i}`, columnKey: "c", source: i < 11 ? "query_count" : "static", queryId: "123", staticValue: null })) };
+    render(<Editor initial={{ version: 1, panels: [numeric] }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add query table" }));
+    const source = screen.getAllByLabelText("Value source")[11];
+    expect(within(source).getByRole("option", { name: "Saved query count" })).toBeDisabled();
+    fireEvent.change(source, { target: { value: "query_count" } });
+    expect(latest.panels[0].values[11].source).toBe("static");
+    expect(screen.getByRole("button", { name: "Add query table" })).toBeDisabled();
+    confirm.mockReturnValueOnce(true);
+    fireEvent.click(within(screen.getByRole("region", { name: "Edit panel 2" })).getByRole("button", { name: "Remove panel" }));
+    expect(within(source).getByRole("option", { name: "Saved query count" })).toBeEnabled();
+    fireEvent.change(source, { target: { value: "query_count" } });
+    expect(screen.getByRole("button", { name: "Add query table" })).toBeDisabled();
     expect(fetch).not.toHaveBeenCalled();
   });
 });

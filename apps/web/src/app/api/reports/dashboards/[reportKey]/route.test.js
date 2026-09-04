@@ -37,6 +37,7 @@ vi.mock("@/app/api/utils/reportRefresh", () => ({
   isAuthorizedReportRefreshRequest: mocks.scheduled,
 }));
 import { GET, POST } from "./route";
+import { getDashboardTableFingerprint } from "@/app/api/utils/dashboardConfiguration";
 
 const record = {
   report_key: "demo",
@@ -141,5 +142,22 @@ describe("generic dashboard routes", () => {
     );
     expect((await GET(request(), context)).status).toBe(401);
     expect(mocks.record).not.toHaveBeenCalled();
+  });
+  it("serves cached query rows only to explicit viewers, with no public caching or NXT execution", async () => {
+    const panel = { key: "ppc", title: "PPC", layout: "query_results", width: "half", queryId: "30971", rows: [], columns: [], values: [] };
+    mocks.record.mockResolvedValue({ ...record, data_configuration: { version: 1, panels: [panel] } });
+    mocks.snapshot.mockResolvedValue({ tables: [{ key: "ppc", headers: ["Member", "Giving"], rows: [["Example Member", "$0.00"]], dataSource: "query-results-csv-v1", definitionFingerprint: getDashboardTableFingerprint(panel) }] });
+    const response = await GET(request(), context);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await response.json()).snapshot.tables[0].rows).toEqual([["Example Member", "$0.00"]]);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    mocks.snapshot.mockClear();
+    mocks.user.mockResolvedValue({ id: 2, active: true, role: "admin" });
+    const blocked = await GET(request(), context);
+    expect(blocked.status).toBe(403);
+    expect(JSON.stringify(await blocked.json())).not.toContain("Example Member");
+    expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 });
