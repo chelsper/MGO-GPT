@@ -54,7 +54,10 @@ describe("query table report editor integration", () => {
       target: { value: "PPC 2026-27" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Add query table", exact: true }),
+      screen.getByRole("button", {
+        name: "Add Output Query panel",
+        exact: true,
+      }),
     );
     fireEvent.change(screen.getByLabelText("Query ID"), {
       target: { value: "30971" },

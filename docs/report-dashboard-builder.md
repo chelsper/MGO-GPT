@@ -24,7 +24,7 @@ Each panel has a title, half/full width, and a layout:
 
 Values use one of two explicit sources:
 
-- Saved query count: enter the positive numeric saved NXT query system record ID. The app counts CSV data rows after the header, using the existing saved-query execution and download flow. It does not sum/extract aggregate columns or use job.row_count as the result. A donor count requires the saved query to return one row per constituent; duplicate rows will be counted. No NXT saved query is created or modified.
+- Saved query row count (number only): enter the positive numeric saved NXT query system record ID. The app counts CSV data rows after the header, using the existing saved-query execution and download flow. It does not display the returned columns, sum/extract aggregate columns, or use job.row_count as the result. A donor count requires the saved query to return one row per constituent; duplicate rows will be counted. No NXT saved query is created or modified.
 - Static value: enter a finite number, including zero or a decimal, with an optional note. Blank means unknown, not zero. Manual values show provenance separately from NXT query/frozen values. Changing labels/access does not change the static value's original update provenance.
 
 Test query runs one saved query on explicit request by a report manager and returns a safe count only. It does not write snapshots or freeze a value. Failures do not reveal provider URLs or result data.
@@ -33,7 +33,7 @@ Current bounds: 12 panels, 100 values, at most 12 query-backed values per dashbo
 
 ## Query Results Tables
 
-For a query such as PPC 2026-27 (system record ID `30971`), open a general dashboard or choose Add report, then **Add query table**. Enter the query ID and select **Load query preview**. The preview shows the columns and rows actually returned by NXT; for the supplied example these are PPC Member Name and Total Giving FY27. Do not create an individual dashboard row for each person. This feature is available in general dashboards; built-in specialized report editors remain unchanged.
+For a query such as PPC 2026-27 (system record ID `30971`), open a general dashboard or choose Add report, then **Add Output Query panel**. Enter the query ID and select **Load query preview**. The preview shows the columns and rows actually returned by NXT; for the supplied example these are PPC Member Name and Total Giving FY27. Do not create an individual dashboard row for each person. If the query was accidentally entered in a single numeric/count panel, choose **Show this query's rows and columns instead** to convert that draft panel. This feature is available in general dashboards; built-in specialized report editors remain unchanged.
 
 The preview executes only on explicit request and is not written into report configuration or production snapshots. After saving, select viewers, enable the report, and refresh its data to create the shared snapshot. No Blackbaud saved query is created or modified. Aggregate output is shown as output, never mistaken for a donor count. Giving values are not recalculated or summed.
 
