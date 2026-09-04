@@ -6,6 +6,8 @@ import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import { buildPoolActionBody, filterPoolEntries, getPoolContactState, isPoolEntryArchived } from "@/utils/prospectPool";
+import { ProspectPoolArchiveCard, ProspectPoolNavigation, poolButtonStyle } from "@/components/ProspectPoolNavigation";
 
 const DISPLAY_LOCALE = "en-US";
 const DISPLAY_TIME_ZONE = "America/New_York";
@@ -21,13 +23,6 @@ const NXT_SUMMARY_FETCH_TIMEOUT_MS = 45000;
 const NXT_SUMMARY_STALE_TIMEOUT_MS = NXT_SUMMARY_FETCH_TIMEOUT_MS + 15000;
 const NXT_SUMMARY_AUTO_ATTEMPTS = 3;
 const NXT_SUMMARY_RETRY_DELAY_MS = 1500;
-const CLEARED_MGO_REQUEST_DRAFT = {
-  needsContactInfo: false,
-  contactInfoRequestNote: "",
-  solicitorRequested: false,
-  mgogptDispositionValue: "",
-  mgogptDispositionComment: "",
-};
 const nxtProfileLinkStyle = {
   display: "inline-flex",
   alignItems: "center",
@@ -146,24 +141,19 @@ function AnnualGivingSocietyBadge({ annualGivingSocieties }) {
   );
 }
 
-function getRequestState(entry) {
-  if (entry.needs_contact_info) return "Needs contact info";
-  if (entry.solicitor_requested) return "Assignment syncing";
-  return "Ready for outreach";
-}
-
 function getStateColors(label) {
   const map = {
-    "Needs contact info": { bg: "#FEF3C7", fg: "#92400E" },
-    "Assignment syncing": { bg: "#DBEAFE", fg: "#1D4ED8" },
-    "Ready for outreach": { bg: "#DCFCE7", fg: "#166534" },
+    "Contact info requested": { bg: "#FEF3C7", fg: "#92400E" },
+    "Assignment needs attention": { bg: "#FEE2E2", fg: "#991B1B" },
+    "Assignment pending": { bg: "#DBEAFE", fg: "#1D4ED8" },
+    "Contact details available": { bg: "#DCFCE7", fg: "#166534" },
   };
   return map[label] || { bg: "#E5E7EB", fg: "#374151" };
 }
 
 function getQuickRequestLabel(entry) {
   if (entry.needs_contact_info) return "Contact info requested";
-  if (entry.solicitor_requested) return "Solicitor assignment syncing automatically";
+  if (entry.solicitor_requested) return "Review the solicitor assignment status below";
   return "No open requests";
 }
 
@@ -416,13 +406,16 @@ export default function ProspectPoolPage() {
   const [profile, setProfile] = useState(null);
   const [profileStatus, setProfileStatus] = useState(null);
   const [entries, setEntries] = useState([]);
+  const [poolTab, setPoolTab] = useState("active");
+  const [poolSearch, setPoolSearch] = useState("");
+  const [poolSort, setPoolSort] = useState("oldest");
+  const [expandedEntries, setExpandedEntries] = useState({});
   const [mgos, setMgos] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [savingId, setSavingId] = useState(null);
   const [retryingSyncId, setRetryingSyncId] = useState(null);
-  const [clearedMgoRequestIds, setClearedMgoRequestIds] = useState(() => new Set());
   const [exportingQueue, setExportingQueue] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -556,7 +549,7 @@ export default function ProspectPoolPage() {
       setLoadingData(true);
       setError("");
       try {
-        const requests = [fetch(`/api/prospect-pool?view=${isReviewer ? "reviewer" : "mgo"}`)];
+        const requests = [fetch(`/api/prospect-pool?view=${isReviewer ? "reviewer" : "mgo"}&includeArchived=true`)];
         if (isReviewer) {
           requests.push(fetch("/api/users/mgos"));
         }
@@ -615,11 +608,12 @@ export default function ProspectPoolPage() {
         ready: 0,
       };
     }
-    return entries.reduce(
+    return entries.filter((entry) => !isPoolEntryArchived(entry)).reduce(
       (acc, entry) => {
         acc.total += 1;
         if (entry.needs_contact_info) acc.needsContactInfo += 1;
-        if (!entry.needs_contact_info) acc.ready += 1;
+        const id = getEntryBlackbaudConstituentId(entry);
+        if (getPoolContactState(entry, blackbaudSummaries[id]) === "Contact details available") acc.ready += 1;
         return acc;
       },
       {
@@ -628,7 +622,7 @@ export default function ProspectPoolPage() {
         ready: 0,
       },
     );
-  }, [entries]);
+  }, [entries, blackbaudSummaries, hasMounted]);
 
   const taskSummary = useMemo(() => {
     if (!hasMounted) {
@@ -642,14 +636,14 @@ export default function ProspectPoolPage() {
           detail: "Data requests waiting",
         },
         {
-          label: "Ready to route",
-          value: entries.filter((entry) => !entry.needs_contact_info).length,
-          detail: "No follow-up blocking outreach",
+          label: "Contact available",
+          value: summary.ready,
+          detail: "Active entries with email or phone loaded",
         },
         {
           label: "Pool total",
-          value: entries.length,
-          detail: "Shared names in the queue",
+          value: summary.total,
+          detail: "Active names in the queue",
         },
       ];
     }
@@ -661,27 +655,28 @@ export default function ProspectPoolPage() {
         detail: "Data requests waiting",
       },
       {
-        label: "Ready for outreach",
-        value: entries.filter((entry) => !entry.needs_contact_info).length,
-        detail: "Can move into donor work now",
+        label: "Contact available",
+        value: summary.ready,
+        detail: "Active entries with email or phone loaded",
       },
       {
         label: "Assigned total",
-        value: entries.length,
+        value: summary.total,
         detail: "Names currently in your pool",
       },
     ];
-  }, [entries, isReviewer]);
+  }, [entries, isReviewer, summary, hasMounted]);
 
   const visibleEntries = useMemo(() => {
     if (!hasMounted) {
       return [];
     }
-    if (!isReviewer) {
-      return entries;
-    }
+    const browsed = filterPoolEntries(entries, {
+      archive: poolTab === "archive", search: poolSearch, sort: poolSort,
+    }, blackbaudSummaries);
+    if (!isReviewer) return browsed;
 
-    const filtered = entries.filter((entry) => {
+    const filtered = browsed.filter((entry) => {
       if (
         reviewerFilters.assignedUserId !== "all" &&
         String(entry.assigned_user_id || "") !== reviewerFilters.assignedUserId
@@ -747,7 +742,7 @@ export default function ProspectPoolPage() {
     });
 
     return sorted;
-  }, [entries, hasMounted, isReviewer, mountedNow, reviewerFilters]);
+  }, [entries, hasMounted, isReviewer, mountedNow, reviewerFilters, poolTab, poolSearch, poolSort, blackbaudSummaries]);
 
   useEffect(() => {
     const query = createForm.prospectName.trim();
@@ -837,6 +832,7 @@ export default function ProspectPoolPage() {
     }
 
     const entryToLoad = visibleEntries.find((entry) => {
+      if (isPoolEntryArchived(entry) || (!isReviewer && !expandedEntries[entry.id])) return false;
       const constituentId = getEntryBlackbaudConstituentId(entry);
       return constituentId && !blackbaudSummariesRef.current[constituentId];
     });
@@ -900,7 +896,7 @@ export default function ProspectPoolPage() {
     }
 
     loadQueuedSummary();
-  }, [hasMounted, summaryQueueTick, visibleEntries]);
+  }, [hasMounted, summaryQueueTick, visibleEntries, isReviewer, expandedEntries]);
 
   async function retryBlackbaudSummary(entry) {
     const constituentId = getEntryBlackbaudConstituentId(entry);
@@ -924,12 +920,6 @@ export default function ProspectPoolPage() {
   }
 
   function setDraft(id, updates) {
-    setClearedMgoRequestIds((current) => {
-      if (!current.has(id)) return current;
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
     setDrafts((current) => ({
       ...current,
       [id]: {
@@ -954,10 +944,6 @@ export default function ProspectPoolPage() {
         ...(Object.prototype.hasOwnProperty.call(current[id] || {}, "contactInfoRequestNote")
           ? { contactInfoRequestNote: current[id].contactInfoRequestNote }
           : {}),
-        solicitorRequested:
-          current[id]?.solicitorRequested ??
-          entries.find((entry) => entry.id === id)?.solicitor_requested ??
-          false,
         mgogptDispositionValue:
           current[id]?.mgogptDispositionValue ??
           entries.find((entry) => entry.id === id)?.mgogpt_disposition_value ??
@@ -1100,7 +1086,7 @@ export default function ProspectPoolPage() {
         "selected MGO";
 
       const refreshedResponse = await fetch(
-        `/api/prospect-pool?view=${isReviewer ? "reviewer" : "mgo"}`,
+        `/api/prospect-pool?view=${isReviewer ? "reviewer" : "mgo"}&includeArchived=true`,
       );
       if (refreshedResponse.ok) {
         const refreshed = await refreshedResponse.json();
@@ -1129,7 +1115,8 @@ export default function ProspectPoolPage() {
     }
   }
 
-  async function saveMgoEntry(id) {
+  async function saveMgoEntry(id, action) {
+    if (savingId !== null) return;
     setSavingId(id);
     setError("");
     setActionMessage("");
@@ -1137,27 +1124,23 @@ export default function ProspectPoolPage() {
     try {
       const draft = drafts[id] || {};
       const existingEntry = entries.find((entry) => entry.id === id);
-      const solicitorRequested =
-        draft.solicitorRequested ?? existingEntry?.solicitor_requested ?? false;
+      const solicitorRequested = action === "assign";
+      if (solicitorRequested && (draft.needsContactInfo || draft.contactInfoRequestNote?.trim())) {
+        throw new Error("Send or clear your unsent help request before assigning this prospect.");
+      }
       const mgogptDispositionValue =
         draft.mgogptDispositionValue ?? existingEntry?.mgogpt_disposition_value ?? "";
 
-      if (solicitorRequested && !String(mgogptDispositionValue || "").trim()) {
-        throw new Error(
-          "Choose an MGOGPT outcome before assigning yourself as solicitor.",
-        );
-      }
+      const body = buildPoolActionBody(action, {
+        ...draft,
+        mgogptDispositionValue,
+        mgogptDispositionComment: draft.mgogptDispositionComment ?? existingEntry?.mgogpt_disposition_comment ?? "",
+      });
 
       const response = await fetch(`/api/prospect-pool/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          needsContactInfo: draft.needsContactInfo,
-          contactInfoRequestNote: draft.contactInfoRequestNote,
-          solicitorRequested: draft.solicitorRequested,
-          mgogptDispositionValue: draft.mgogptDispositionValue,
-          mgogptDispositionComment: draft.mgogptDispositionComment,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -1168,21 +1151,13 @@ export default function ProspectPoolPage() {
       const updated = await response.json();
       const movedToPortfolio = solicitorRequested && isSolicitorAssignmentSynced(updated);
       setEntries((current) =>
-        movedToPortfolio
-          ? current.filter((entry) => entry.id !== id)
-          : current.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)),
+        current.map((entry) => (entry.id === id ? { ...entry, ...updated } : entry)),
       );
-      setDrafts((current) =>
-        movedToPortfolio
-          ? Object.fromEntries(Object.entries(current).filter(([entryId]) => entryId !== String(id)))
-          : Object.fromEntries(Object.entries(current).filter(([entryId]) => entryId !== String(id))),
-      );
-      setClearedMgoRequestIds((current) => {
-        const next = new Set(current);
-        if (movedToPortfolio) {
-          next.delete(id);
-        } else {
-          next.add(id);
+      setDrafts((current) => {
+        const next = { ...current };
+        if (movedToPortfolio) delete next[id];
+        else if (action === "request_help") {
+          next[id] = { ...next[id], needsContactInfo: false, contactInfoRequestNote: "" };
         }
         return next;
       });
@@ -1192,7 +1167,7 @@ export default function ProspectPoolPage() {
       const solicitorDebug = solicitorRequested && solicitorMessage?.tone !== "success"
         ? formatSolicitorAssignmentDebug(updated.solicitor_assignment_sync_debug)
         : "";
-      const mgogptDispositionMessage = mgogptDispositionValue
+      const mgogptDispositionMessage = action !== "request_help" && mgogptDispositionValue
         ? getMgogptDispositionPresentation(updated.mgogpt_disposition_sync_state)
         : null;
       const messageParts = [`Saved updates for ${updated.prospect_name}.`];
@@ -1206,12 +1181,14 @@ export default function ProspectPoolPage() {
         messageParts.push("Sent to the Advancement Services data request queue.");
       }
       if (movedToPortfolio) {
-        messageParts.push("Moved to your portfolio.");
+        messageParts.push("Assigned in NXT and moved to your pool Archive. Your portfolio remains active.");
       }
       const message = messageParts.join(" ");
-      setActionMessage(message);
+      const needsAttention = [solicitorMessage, mgogptDispositionMessage].some((item) => item?.tone === "error");
+      if (needsAttention) setError(message);
+      else setActionMessage(message);
       setToast({
-        tone: solicitorMessage?.tone || mgogptDispositionMessage?.tone || "success",
+        tone: needsAttention ? "error" : "success",
         message,
       });
     } catch (err) {
@@ -1313,12 +1290,19 @@ export default function ProspectPoolPage() {
   return (
     <div
       suppressHydrationWarning
+      className="prospect-pool-page"
       style={{
         minHeight: "100vh",
         backgroundColor: "#F9FAFB",
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
+      <style>{`
+        .prospect-pool-page input, .prospect-pool-page textarea, .prospect-pool-page select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+        .prospect-pool-page article { overflow-wrap: anywhere; }
+        .prospect-pool-page button:disabled { cursor: not-allowed; }
+        .prospect-pool-page :focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+      `}</style>
       <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "24px 18px 48px" }}>
         {toast ? (
           <div
@@ -1489,9 +1473,9 @@ export default function ProspectPoolPage() {
             >
               Pool snapshot
             </div>
-            <div>Total entries: {summary.total}</div>
-            <div>Needs contact info: {summary.needsContactInfo}</div>
-            <div>Ready now: {summary.ready}</div>
+            <div>Active entries: {summary.total}</div>
+            <div>Contact info requested: {summary.needsContactInfo}</div>
+            <div>Contact details available: {summary.ready}</div>
           </div>
         </div>
 
@@ -1510,6 +1494,10 @@ export default function ProspectPoolPage() {
           >
             <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "4px" }}>Saved</div>
             {actionMessage}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "10px" }}>
+              <button type="button" style={poolButtonStyle} onClick={() => { setPoolTab("archive"); setPoolSearch(""); }}>View Archive</button>
+              {!isReviewer ? <a href="/my-top-prospects?tab=portfolio" style={poolButtonStyle}>View My Portfolio</a> : null}
+            </div>
           </div>
         ) : null}
 
@@ -2070,6 +2058,17 @@ export default function ProspectPoolPage() {
           </div>
         ) : null}
 
+        <ProspectPoolNavigation
+          tab={poolTab}
+          onTabChange={setPoolTab}
+          activeCount={summary.total}
+          archiveCount={entries.filter(isPoolEntryArchived).length}
+          search={poolSearch}
+          onSearchChange={setPoolSearch}
+          sort={poolSort}
+          onSortChange={isReviewer ? undefined : setPoolSort}
+        />
+        <p role="status" style={{ color: "#6B7280", fontSize: "13px" }}>{visibleEntries.length} {poolTab === "archive" ? "archived" : "active"} entries shown</p>
         <div style={{ display: "grid", gap: "12px" }}>
           {visibleEntries.length === 0 ? (
             <div
@@ -2083,36 +2082,27 @@ export default function ProspectPoolPage() {
                 fontSize: "14px",
               }}
             >
-              {isReviewer
-                ? "No prospect pool entries yet. Add the first one above."
-                : "Nothing is in your prospect pool yet."}
+              {poolSearch.trim()
+                ? "No entries match your search. Clear the search or change your filters."
+                : poolTab === "archive"
+                  ? "No completed entries to show. Entries appear here after NXT confirms the solicitor assignment."
+                  : "No active entries to show. Completed assignments are in Archive; check your filters if names are missing."}
             </div>
           ) : null}
 
           {visibleEntries.map((entry) => {
-            const stateLabel = getRequestState(entry);
+            if (isPoolEntryArchived(entry)) {
+              return <ProspectPoolArchiveCard key={entry.id} entry={entry} formatDate={formatDate} showPortfolioLink={!isReviewer} />;
+            }
+            const stateLabel = getPoolContactState(entry, blackbaudSummaries[getEntryBlackbaudConstituentId(entry)]);
             const stateColors = getStateColors(stateLabel);
             const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
             const draft = drafts[entry.id];
-            const useClearedMgoRequestDraft = !isReviewer && !draft && clearedMgoRequestIds.has(entry.id);
-            const needsContactInfo = useClearedMgoRequestDraft
-              ? CLEARED_MGO_REQUEST_DRAFT.needsContactInfo
-              : draft?.needsContactInfo ?? false;
-            const solicitorRequested = useClearedMgoRequestDraft
-              ? CLEARED_MGO_REQUEST_DRAFT.solicitorRequested
-              : draft?.solicitorRequested ?? entry.solicitor_requested;
-            const contactInfoRequestNote =
-              useClearedMgoRequestDraft
-                ? CLEARED_MGO_REQUEST_DRAFT.contactInfoRequestNote
-                : draft?.contactInfoRequestNote ?? "";
-            const mgogptDispositionValue =
-              useClearedMgoRequestDraft
-                ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionValue
-                : draft?.mgogptDispositionValue ?? entry.mgogpt_disposition_value ?? "";
-            const mgogptDispositionComment =
-              useClearedMgoRequestDraft
-                ? CLEARED_MGO_REQUEST_DRAFT.mgogptDispositionComment
-                : draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
+            const needsContactInfo = draft?.needsContactInfo ?? false;
+            const contactInfoRequestNote = draft?.contactInfoRequestNote ?? "";
+            const hasUnsentHelp = Boolean(needsContactInfo || contactInfoRequestNote.trim());
+            const mgogptDispositionValue = draft?.mgogptDispositionValue ?? entry.mgogpt_disposition_value ?? "";
+            const mgogptDispositionComment = draft?.mgogptDispositionComment ?? entry.mgogpt_disposition_comment ?? "";
             const blackbaudConstituentId = getEntryBlackbaudConstituentId(entry);
             const nxtProfileUrl = buildBlackbaudConstituentProfileUrl(blackbaudConstituentId);
             const blackbaudSummaryState = blackbaudConstituentId
@@ -2152,19 +2142,36 @@ export default function ProspectPoolPage() {
                   boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
                 }}
               >
+                {!isReviewer ? (
+                  <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ background: stateColors.bg, color: stateColors.fg, padding: "5px 9px", borderRadius: "999px", fontSize: "12px", fontWeight: 700 }}>{stateLabel}</span>
+                      <h2 style={{ margin: "10px 0 6px", fontSize: "20px" }}>{entry.prospect_name}</h2>
+                      {!expandedEntries[entry.id] ? <div style={{ color: "#6B7280", fontSize: "13px" }}>Assigned {formatDate(entry.assigned_at || entry.created_at)}</div> : null}
+                      {entry.note && !expandedEntries[entry.id] ? <p style={{ color: "#4B5563", margin: "8px 0 0" }}>{entry.note.length > 140 ? `${entry.note.slice(0, 140)}...` : entry.note}</p> : null}
+                    </div>
+                    <button type="button" aria-expanded={Boolean(expandedEntries[entry.id])} aria-controls={`pool-details-${entry.id}`}
+                      onClick={() => setExpandedEntries((current) => ({ ...current, [entry.id]: !current[entry.id] }))} style={poolButtonStyle}>
+                      {expandedEntries[entry.id] ? "Hide details" : "Review prospect"}
+                    </button>
+                  </header>
+                ) : null}
+                {(isReviewer || expandedEntries[entry.id]) ? (
                 <div
+                  id={`pool-details-${entry.id}`}
                   style={{
                     display: "flex",
+                    marginTop: isReviewer ? 0 : "14px",
                     justifyContent: "space-between",
                     gap: "16px",
                     flexWrap: "wrap",
                     alignItems: "flex-start",
                   }}
                 >
-                  <div style={{ minWidth: "260px", flex: "1 1 340px" }}>
+                  <div style={{ minWidth: 0, flex: "1 1 340px" }}>
                     <div
                       style={{
-                        display: "flex",
+                        display: isReviewer ? "flex" : "none",
                         gap: "8px",
                         flexWrap: "wrap",
                         marginBottom: "12px",
@@ -2201,7 +2208,7 @@ export default function ProspectPoolPage() {
                         </div>
                       ) : null}
                     </div>
-                    <h2 style={{ margin: 0, fontSize: "22px", color: "#111827" }}>
+                    <h2 style={{ margin: 0, fontSize: "22px", color: "#111827", display: isReviewer ? undefined : "none" }}>
                       {entry.prospect_name}
                     </h2>
                     <div style={{ marginTop: "8px", fontSize: "14px", color: "#6B7280" }}>
@@ -2524,7 +2531,7 @@ export default function ProspectPoolPage() {
                                   Email
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827", overflowWrap: "anywhere", lineHeight: 1.4 }}>
-                                  {getDisplayText(blackbaudConstituent?.email)}
+                                  {getDisplayText(blackbaudConstituent?.email || entry.email)}
                                 </div>
                               </div>
                               <div style={{ minWidth: 0 }}>
@@ -2532,7 +2539,7 @@ export default function ProspectPoolPage() {
                                   Phone
                                 </div>
                                 <div style={{ fontSize: "14px", color: "#111827", overflowWrap: "anywhere", lineHeight: 1.4 }}>
-                                  {getDisplayText(blackbaudConstituent?.phone)}
+                                  {getDisplayText(blackbaudConstituent?.phone || entry.phone)}
                                 </div>
                               </div>
                               <div style={{ minWidth: 0 }}>
@@ -2712,7 +2719,7 @@ export default function ProspectPoolPage() {
                   {isReviewer ? (
                     <div
                       style={{
-                        minWidth: "260px",
+                        minWidth: 0,
                         flex: "0 1 320px",
                         borderRadius: "14px",
                         backgroundColor: "#F9FAFB",
@@ -2902,7 +2909,7 @@ export default function ProspectPoolPage() {
                   ) : (
                     <div
                       style={{
-                        minWidth: "280px",
+                        minWidth: 0,
                         flex: "0 1 340px",
                         borderRadius: "14px",
                         backgroundColor: "#F9FAFB",
@@ -2986,29 +2993,23 @@ export default function ProspectPoolPage() {
                         />
                       </label>
 
-                      <label
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          fontSize: "14px",
-                          color: "#111827",
-                          marginBottom: "14px",
-                        }}
-                      >
-                        <input
-                          id={`prospect-pool-entry-solicitor-requested-${entry.id}`}
-                          name={`solicitorRequested-${entry.id}`}
-                          type="checkbox"
-                          checked={Boolean(solicitorRequested)}
-                          onChange={(event) =>
-                            setDraft(entry.id, {
-                              solicitorRequested: event.target.checked,
-                            })
-                          }
-                        />
-                        Assign me as solicitor
-                      </label>
+                      <button type="button" disabled={savingId !== null || !needsContactInfo}
+                        onClick={() => saveMgoEntry(entry.id, "request_help")}
+                        style={{ ...poolButtonStyle, width: "100%", opacity: savingId !== null || !needsContactInfo ? 0.55 : 1 }}>
+                        {savingId === entry.id ? "Saving..." : "Send help request"}
+                      </button>
+                      <p style={{ color: "#6B7280", fontSize: "12px" }}>Sends only the contact request to Advancement Services. Does not assign a solicitor or change NXT.</p>
+
+                      <hr style={{ border: 0, borderTop: "1px solid #E5E7EB", margin: "20px 0" }} />
+                      <h3 style={{ fontSize: "16px", margin: "0 0 8px" }}>Outcome and portfolio assignment</h3>
+                      <p style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.5 }}>
+                        Assign to My Portfolio adds you as Lead Solicitor in NXT. After confirmation, this pool entry moves to Archive.
+                      </p>
+                      {entry.solicitor_requested && !isSolicitorAssignmentSynced(entry) ? (
+                        <p role="status" style={{ color: "#92400E", fontSize: "13px" }}>
+                          Assignment is not confirmed. This entry stays active. You can retry Assign to My Portfolio; existing NXT assignments are checked first.
+                        </p>
+                      ) : null}
 
                       <label
                         style={{
@@ -3019,12 +3020,11 @@ export default function ProspectPoolPage() {
                           marginBottom: "12px",
                         }}
                       >
-                        MGOGPT outcome{solicitorRequested ? " *" : ""}
+                        MGOGPT outcome
                         <select
                           id={`prospect-pool-entry-mgogpt-outcome-${entry.id}`}
                           name={`mgogptDispositionValue-${entry.id}`}
                           value={mgogptDispositionValue}
-                          required={Boolean(solicitorRequested)}
                           onChange={(event) =>
                             setDraft(entry.id, {
                               mgogptDispositionValue: event.target.value,
@@ -3033,10 +3033,7 @@ export default function ProspectPoolPage() {
                           style={{
                             padding: "12px 14px",
                             borderRadius: "12px",
-                            border:
-                              solicitorRequested && !mgogptDispositionValue
-                                ? "1px solid #FCA5A5"
-                                : "1px solid #D1D5DB",
+                            border: "1px solid #D1D5DB",
                             backgroundColor: "white",
                             fontSize: "14px",
                           }}
@@ -3048,7 +3045,7 @@ export default function ProspectPoolPage() {
                             </option>
                           ))}
                         </select>
-                        {solicitorRequested && !mgogptDispositionValue ? (
+                        {!mgogptDispositionValue ? (
                           <span style={{ fontSize: "12px", color: "#991B1B" }}>
                             Select an outcome before this prospect moves to your portfolio.
                           </span>
@@ -3089,22 +3086,31 @@ export default function ProspectPoolPage() {
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                         <button
                           type="button"
-                          disabled={savingId === entry.id}
-                          onClick={() => saveMgoEntry(entry.id)}
+                          disabled={savingId !== null || !mgogptDispositionValue || hasUnsentHelp}
+                          onClick={() => saveMgoEntry(entry.id, "assign")}
                           style={{
                             flex: "1 1 180px",
                             padding: "12px 16px",
                             borderRadius: "12px",
                             border: "none",
-                            backgroundColor: savingId === entry.id ? "#A5B4FC" : "#6A5BFF",
+                            backgroundColor: savingId !== null || !mgogptDispositionValue || hasUnsentHelp ? "#A5B4FC" : "#6A5BFF",
                             color: "white",
                             fontSize: "14px",
                             fontWeight: 700,
                             cursor: savingId === entry.id ? "wait" : "pointer",
                           }}
                         >
-                          {savingId === entry.id ? "Saving..." : "Save requests"}
+                          {savingId === entry.id ? "Saving..." : "Assign to My Portfolio"}
                         </button>
+                        {hasUnsentHelp ? <p style={{ color: "#92400E", fontSize: "12px", margin: 0 }}>Send or clear your unsent help request before assigning this prospect.</p> : null}
+                        <button type="button" disabled={savingId !== null || !mgogptDispositionValue}
+                          onClick={() => saveMgoEntry(entry.id, "save_outcome")}
+                          style={{ ...poolButtonStyle, flex: "1 1 180px", opacity: savingId !== null || !mgogptDispositionValue ? 0.55 : 1 }}>
+                          Save outcome only
+                        </button>
+                        <p style={{ color: "#6B7280", fontSize: "12px", margin: 0 }}>
+                          Save outcome only updates the MGOGPT custom field in NXT, without assigning or archiving. Help requests are sent separately above.
+                        </p>
                         <a
                           href={`/action-opportunity-update?donor=${encodeURIComponent(
                             entry.prospect_name || "",
@@ -3130,6 +3136,7 @@ export default function ProspectPoolPage() {
                     </div>
                   )}
                 </div>
+                ) : null}
               </article>
             );
           })}

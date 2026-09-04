@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { buildPoolActionBody } from "@/utils/prospectPool";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
@@ -822,7 +823,17 @@ export async function PATCH(request, { params }) {
     }
 
     const entry = existing[0];
-    const body = await request.json();
+    let body = await request.json();
+    if (body?.requestAction !== undefined) {
+      try {
+        body = buildPoolActionBody(body.requestAction, body);
+      } catch (error) {
+        return Response.json({ error: error.message }, { status: 400 });
+      }
+      if (Number(entry.assigned_user_id) !== Number(workspaceUser.id)) {
+        return Response.json({ error: "This prospect is assigned to another MGO" }, { status: 403 });
+      }
+    }
     const requestsMgoMutation =
       body?.needsContactInfo !== undefined ||
       body?.contactInfoRequestNote !== undefined ||
@@ -1024,7 +1035,10 @@ export async function PATCH(request, { params }) {
       ? body.mgogptDispositionComment.trim() || null
       : entry.mgogpt_disposition_comment || null;
 
-    if (solicitorRequested && !mgogptDispositionValue) {
+    const shouldAttemptAssignment = solicitorRequested &&
+      entry.solicitor_assignment_sync_state !== SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS &&
+      (!body.requestAction || body.requestAction === "assign");
+    if (shouldAttemptAssignment && !mgogptDispositionValue) {
       return Response.json(
         {
           error:
@@ -1036,6 +1050,7 @@ export async function PATCH(request, { params }) {
 
     if (
       mgogptDispositionValue &&
+      body.requestAction !== "request_help" &&
       !MGOGPT_FOLLOW_UP_VALUES.has(mgogptDispositionValue)
     ) {
       return Response.json({ error: "Invalid MGOGPT outcome selected" }, { status: 400 });
@@ -1067,7 +1082,7 @@ export async function PATCH(request, { params }) {
       mgogptDispositionValue !== (entry.mgogpt_disposition_value || null) ||
       mgogptDispositionComment !== (entry.mgogpt_disposition_comment || null);
 
-    if (solicitorRequested) {
+    if (shouldAttemptAssignment) {
       const syncResult = await attemptSolicitorAssignmentSync({
         currentUser,
         workspaceUser,
@@ -1080,14 +1095,17 @@ export async function PATCH(request, { params }) {
       solicitorAssignmentSyncError = syncResult.errorMessage;
       solicitorAssignmentSyncedAt = syncResult.syncedAt;
       solicitorAssignmentSyncDebug = syncResult.debug;
-    } else {
+    } else if (!solicitorRequested) {
       solicitorAssignmentSyncState = null;
       solicitorAssignmentSyncError = null;
       solicitorAssignmentSyncedAt = null;
       solicitorAssignmentSyncDebug = null;
     }
 
-    if (mgogptDispositionValue && mgogptDispositionChanged) {
+    const shouldSyncDisposition = mgogptDispositionValue &&
+      (mgogptDispositionChanged ||
+        (["assign", "save_outcome"].includes(body.requestAction) && mgogptDispositionSyncState !== "success"));
+    if (shouldSyncDisposition) {
       const dispositionSyncResult = await attemptMgogptDispositionSync({
         currentUser,
         workspaceUser,
@@ -1126,7 +1144,7 @@ export async function PATCH(request, { params }) {
         mgogpt_disposition_sync_state = ${mgogptDispositionSyncState},
         mgogpt_disposition_sync_error = ${mgogptDispositionSyncError},
         mgogpt_disposition_sync_attempted_at = CASE
-          WHEN ${mgogptDispositionValue && mgogptDispositionChanged} THEN NOW()
+          WHEN ${Boolean(shouldSyncDisposition)} THEN NOW()
           WHEN ${!mgogptDispositionValue} THEN NULL
           ELSE mgogpt_disposition_sync_attempted_at
         END,
@@ -1139,8 +1157,9 @@ export async function PATCH(request, { params }) {
         solicitor_assignment_sync_state = ${solicitorAssignmentSyncState},
         solicitor_assignment_sync_error = ${solicitorAssignmentSyncError},
         solicitor_assignment_sync_attempted_at = CASE
-          WHEN ${solicitorRequested} THEN NOW()
-          ELSE NULL
+          WHEN ${Boolean(shouldAttemptAssignment)} THEN NOW()
+          WHEN ${!solicitorRequested} THEN NULL
+          ELSE solicitor_assignment_sync_attempted_at
         END,
         solicitor_assignment_synced_at = ${solicitorAssignmentSyncedAt},
         solicitor_assignment_sync_debug = ${solicitorAssignmentSyncDebug ? JSON.stringify(solicitorAssignmentSyncDebug) : null}::jsonb,
@@ -1150,7 +1169,7 @@ export async function PATCH(request, { params }) {
     `;
 
     let dataRequest = null;
-    if (needsContactInfo) {
+    if (needsContactInfo && (!body.requestAction || body.requestAction === "request_help")) {
       dataRequest = await upsertOpenDataRequest({
         sql,
         requesterUserId: currentUser.id,
@@ -1195,7 +1214,7 @@ export async function PATCH(request, { params }) {
 
     let blackbaudPortfolioCacheCleared = false;
     if (
-      solicitorRequested &&
+      shouldAttemptAssignment &&
       solicitorAssignmentSyncState === SOLICITOR_ASSIGNMENT_SYNC_STATUS.SUCCESS
     ) {
       try {

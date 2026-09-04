@@ -14,6 +14,16 @@ const findBlackbaudConstituentByEmailMock = vi.fn();
 const findBlackbaudConstituentByLookupIdMock = vi.fn();
 const getBlackbaudFundraiserByIdMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
+const upsertOpenDataRequestMock = vi.fn();
+const notificationMock = vi.fn();
+
+vi.mock("@/app/api/utils/dataRequests", () => ({
+  DATA_REQUEST_TYPE_CONTACT_INFO: "contact_info",
+  upsertOpenDataRequest: upsertOpenDataRequestMock,
+}));
+vi.mock("@/app/api/utils/sendSubmissionEmail", () => ({
+  sendAdvancementServicesNotification: notificationMock,
+}));
 
 const sqlQueue = [];
 function queueSqlResult(value) {
@@ -79,6 +89,8 @@ describe("prospect pool routes", () => {
     findBlackbaudConstituentByLookupIdMock.mockReset();
     getBlackbaudFundraiserByIdMock.mockReset();
     searchBlackbaudConstituentsMock.mockReset();
+    upsertOpenDataRequestMock.mockReset().mockResolvedValue({ id: 55 });
+    notificationMock.mockReset().mockResolvedValue();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -193,6 +205,78 @@ describe("prospect pool routes", () => {
     expect(strings.join(" ")).toContain(
       "COALESCE(pp.solicitor_assignment_sync_state, '') <> 'success'",
     );
+  });
+
+  it.each(["mgo", "admin"])("keeps archive reads scoped to the workspace for %s MGO view", async (role) => {
+    const { GET } = await import("./route.js");
+    getOrCreateUserMock.mockResolvedValue({ id: role === "admin" ? 7 : 44, role });
+    const archived = { id: 901, assigned_user_id: 44, solicitor_assignment_sync_state: "success" };
+    queueSqlResult([archived]);
+    const response = await GET(new Request("https://example.com/api/prospect-pool?view=mgo&includeArchived=true&userId=99"));
+    expect(await response.json()).toEqual([archived]);
+    const [strings, ...values] = sqlMockImpl.mock.calls[0];
+    expect(strings.join(" ")).toContain("WHERE pp.assigned_user_id =");
+    expect(values).toContain(44);
+    expect(values).not.toContain(99);
+    expect(values.at(-1)).toBe(true);
+  });
+
+  it.each(["request_help", "save_outcome"])("%s does not retry an unsuccessful solicitor assignment", async (requestAction) => {
+    const { PATCH } = await import("./[id]/route.js");
+    getOrCreateUserMock.mockResolvedValue({ id: 44, role: "mgo" });
+    const existing = {
+      id: 901, assigned_user_id: 44, prospect_name: "Pat Prospect", blackbaud_constituent_id: "555123",
+      needs_contact_info: true, solicitor_requested: true, solicitor_assignment_sync_state: "failed",
+      solicitor_assignment_sync_error: "Assignment unavailable",
+      mgogpt_disposition_value: "Qualified - Major Gifts", mgogpt_disposition_sync_state: "success",
+    };
+    queueSqlResult([existing]);
+    queueSqlResult([existing]);
+    const response = await PATCH(new Request("https://example.com/api/prospect-pool/901", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestAction, solicitorRequested: true, needsContactInfo: true,
+        mgogptDispositionValue: "Qualified - Major Gifts", contactInfoRequestNote: "Verify contact" }),
+    }), { params: { id: "901" } });
+    expect(response.status).toBe(200);
+    expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
+    expect(createBlackbaudFundraiserAssignmentMock).not.toHaveBeenCalled();
+    expect(createBlackbaudConstituentCustomFieldMock).not.toHaveBeenCalled();
+    expect(upsertOpenDataRequestMock).toHaveBeenCalledTimes(requestAction === "request_help" ? 1 : 0);
+    expect(notificationMock).toHaveBeenCalledTimes(requestAction === "request_help" ? 1 : 0);
+    const updateCall = sqlMockImpl.mock.calls.find(([strings]) => strings.join(" ").includes("solicitor_assignment_sync_state ="));
+    const stateIndex = updateCall[0].findIndex((part) => part.includes("solicitor_assignment_sync_state ="));
+    expect(updateCall[stateIndex + 1]).toBe("failed");
+    expect(updateCall[0].join(" ")).toContain("ELSE solicitor_assignment_sync_attempted_at");
+  });
+
+  it("does not overwrite a confirmed assignment when assigning again", async () => {
+    const { PATCH } = await import("./[id]/route.js");
+    getOrCreateUserMock.mockResolvedValue({ id: 44, role: "mgo" });
+    const existing = { id: 901, assigned_user_id: 44, blackbaud_constituent_id: "555123",
+      solicitor_requested: true, solicitor_assignment_sync_state: "success", solicitor_assignment_synced_at: "2026-09-01T12:00:00Z",
+      mgogpt_disposition_value: "Qualified - Major Gifts", mgogpt_disposition_sync_state: "success" };
+    queueSqlResult([existing]);
+    queueSqlResult([existing]);
+    const response = await PATCH(new Request("https://example.com/api/prospect-pool/901", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestAction: "assign", mgogptDispositionValue: "Qualified - Major Gifts" }),
+    }), { params: { id: "901" } });
+    expect(response.status).toBe(200);
+    expect(createBlackbaudFundraiserAssignmentMock).not.toHaveBeenCalled();
+    expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
+    expect((await response.json()).solicitor_assignment_synced_at).toBe(existing.solicitor_assignment_synced_at);
+  });
+
+  it.each(["assign", "request_help", "save_outcome"])("rejects %s on another MGO's entry", async (requestAction) => {
+    const { PATCH } = await import("./[id]/route.js");
+    queueSqlResult([{ id: 901, assigned_user_id: 99 }]);
+    const response = await PATCH(new Request("https://example.com/api/prospect-pool/901", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestAction, mgogptDispositionValue: "Qualified - Major Gifts" }),
+    }), { params: { id: "901" } });
+    expect(response.status).toBe(403);
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+    expect(createBlackbaudFundraiserAssignmentMock).not.toHaveBeenCalled();
   });
 
   it("only exposes assigned solicitor actions dated on or after the pool assignment", async () => {
