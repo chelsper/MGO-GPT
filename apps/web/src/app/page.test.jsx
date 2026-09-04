@@ -13,7 +13,7 @@ vi.mock("@/utils/useWorkspaceView", () => ({
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({}),
   useQuery: (options) => {
-    if (options.queryKey[0] !== "homepage-worklist") return {};
+    if (options.queryKey[0] !== "app-shell-worklist") return {};
     state.options = options;
     return { data: { queueCounts: state.counts, summary: { openDiscussionItems: 1 } }, isError: state.failed };
   },
@@ -52,13 +52,6 @@ describe("Advancement Services home alerts", () => {
     expect(badge("/data-requests")).toBeNull();
     expect(container.textContent).toContain("Import alerts count batches, not rows");
     expect(state.options).toMatchObject({ refetchInterval: 60000, refetchIntervalInBackground: false, refetchOnWindowFocus: "always" });
-  });
-
-  it("includes counts in the navigation menu", async () => {
-    await render();
-    await act(async () => container.querySelector('[aria-label="Open navigation menu"]').click());
-    expect(container.querySelector('[role="menuitem"][href="/constituency-import"]')).toHaveTextContent("12");
-    expect(container.querySelector('[role="menuitem"][href="/submissions"]')).toHaveTextContent("Work Queue");
   });
 
   it("updates counts after refresh and clears completed queue alerts", async () => {

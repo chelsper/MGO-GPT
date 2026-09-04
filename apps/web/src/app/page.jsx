@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, LogOut, Menu, Settings, UserCircle2 } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
@@ -162,33 +161,6 @@ const ADMIN_ACTIONS = [
   },
 ];
 
-const MGO_NAV_ITEMS = [
-  { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
-  { label: "My Reports", href: "/reports", section: "My Work" },
-  { label: "Team Discussion", href: "/team-discussion", section: "My Work" },
-  { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
-  { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
-  { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
-  { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
-  { label: "Submission Tracker", href: "/submissions", section: "Requests & Review" },
-  { label: "Request List from DevData", href: "/request-list", section: "Requests & Review" },
-  { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
-  { label: "Suggest New Constituent", href: "/new-constituent", section: "Requests & Review" },
-];
-
-const REVIEWER_NAV_ITEMS = [
-  { label: "Prospect Pool", href: "/prospect-pool", section: "My Work" },
-  { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
-  { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
-  { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
-  { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
-  { label: "Work Queue", href: "/submissions", section: "Requests & Review" },
-  { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
-  { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
-  { label: "Import Preview", href: "/constituency-import", section: "Requests & Review" },
-  { label: "Family Import", href: "/family-import", section: "Requests & Review" },
-];
-
 const ADMIN_WORKSPACE_ITEMS = [
   {
     label: "Field Settings",
@@ -222,8 +194,6 @@ const ADMIN_WORKSPACE_ITEMS = [
   },
 ];
 
-const ADMIN_NAV_ITEMS = [...REVIEWER_NAV_ITEMS, ...ADMIN_WORKSPACE_ITEMS];
-
 const PRIMARY_ACTION_PATHS = {
   mgo: ["/my-top-prospects", "/reports", "/team-discussion"],
   reviewer: ["/prospect-pool", "/team-discussion", "/knowledge-base/manage"],
@@ -256,16 +226,6 @@ function getActionGroups({ isAdmin, isReviewer, quickActions }) {
   const teamSupport = quickActions.filter((action) => action.section === "teamSupport");
   const requestsReview = quickActions.filter((action) => action.section === "requestsReview");
   return { primary, teamSupport, requestsReview, workflow: ROLE_WORKFLOW_STEPS[key] };
-}
-
-function groupNavItems(navItems) {
-  const order = ["My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
-  return order
-    .map((section) => ({
-      section,
-      items: navItems.filter((item) => item.section === section),
-    }))
-    .filter((group) => group.items.length);
 }
 
 function DiscussionAlertBadge({ count, compact = false }) {
@@ -388,10 +348,6 @@ export default function Page() {
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [workspaceSwitchMessage, setWorkspaceSwitchMessage] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const accountMenuRef = useRef(null);
-  const menuRef = useRef(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -430,34 +386,6 @@ export default function Page() {
     };
   }, [user]);
 
-  useEffect(() => {
-    if (!accountMenuOpen && !menuOpen) return;
-
-    const handlePointerDown = (event) => {
-      if (!accountMenuRef.current?.contains(event.target)) {
-        setAccountMenuOpen(false);
-      }
-      if (!menuRef.current?.contains(event.target)) {
-        setMenuOpen(false);
-      }
-    };
-
-    const handleEscape = (event) => {
-      if (event.key === "Escape") {
-        setAccountMenuOpen(false);
-        setMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleEscape);
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [accountMenuOpen, menuOpen]);
-
   const { isAdmin, adminViewMode, effectiveRole, isMgoView, isReviewerView, setViewMode } = useWorkspaceView(
     profile?.role,
   );
@@ -478,16 +406,6 @@ export default function Page() {
     },
     [canManageWorkspace, isAdmin, isReviewer],
   );
-  const navItems = useMemo(
-    () => {
-      if (!isAdmin && !canManageWorkspace) {
-        return isReviewer ? REVIEWER_NAV_ITEMS : MGO_NAV_ITEMS;
-      }
-
-      return isReviewer ? ADMIN_NAV_ITEMS : MGO_NAV_ITEMS;
-    },
-    [canManageWorkspace, isAdmin, isReviewer],
-  );
   const { primary: primaryActions, teamSupport, requestsReview, workflow } = useMemo(
     () => getActionGroups({ isAdmin: isAdmin || canManageWorkspace, isReviewer, quickActions }),
     [canManageWorkspace, isAdmin, isReviewer, quickActions],
@@ -496,7 +414,6 @@ export default function Page() {
     () => ((isAdmin || canManageWorkspace) && isReviewer ? ADMIN_WORKSPACE_ITEMS : []),
     [canManageWorkspace, isAdmin, isReviewer],
   );
-  const groupedNavItems = useMemo(() => groupNavItems(navItems), [navItems]);
   const {
     data: actingWorkspaceStatus,
   } = useQuery({
@@ -527,7 +444,7 @@ export default function Page() {
   });
   const actingUser = actingWorkspaceStatus?.actingUser || null;
   const { data: worklist, isError: worklistFailed } = useQuery({
-    queryKey: ["homepage-worklist", profile?.id, actingUser?.id || "self", isReviewer ? "reviewer" : "mgo"],
+    queryKey: ["app-shell-worklist", profile?.id, effectiveRole],
     queryFn: async () => {
       const response = await fetch(`/api/worklist?view=${encodeURIComponent(isReviewer ? "reviewer" : "mgo")}`);
       const payload = await response.json().catch(() => null);
@@ -657,376 +574,6 @@ export default function Page() {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <header
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-          backgroundColor: "white",
-          borderBottom: "1px solid #E5E7EB",
-          padding: "14px 18px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: "960px",
-            margin: "0 auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div ref={menuRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              aria-label="Open navigation menu"
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              onClick={() => setMenuOpen((open) => !open)}
-              style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "10px",
-                border: "1px solid #E5E7EB",
-                backgroundColor: "#F9FAFB",
-                display: "grid",
-                placeItems: "center",
-                cursor: "pointer",
-              }}
-            >
-              <Menu size={18} color="#111827" />
-            </button>
-
-            {menuOpen ? (
-              <div
-                role="menu"
-                aria-label="Primary navigation"
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 8px)",
-                  left: 0,
-                  width: "240px",
-                  backgroundColor: "white",
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "14px",
-                  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
-                  padding: "10px",
-                }}
-              >
-                <div
-                  style={{
-                    padding: "8px 10px 10px",
-                    borderBottom: "1px solid #E5E7EB",
-                    marginBottom: "6px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                      color: "#6B7280",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    Menu
-                  </div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
-                    {isReviewer ? "Advancement Services" : "MGO workspace"}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "4px" }}>
-                    {isReviewer ? "Shared team navigation" : "Primary workflow navigation"}
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gap: "12px" }}>
-                  {groupedNavItems.map((group) => (
-                    <div key={group.section}>
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          letterSpacing: "0.04em",
-                          textTransform: "uppercase",
-                          color: "#6B7280",
-                          margin: "0 0 6px 4px",
-                        }}
-                      >
-                        {group.section}
-                      </div>
-                      <div style={{ display: "grid", gap: "8px" }}>
-                        {group.items.map((item) => (
-                          <a
-                            key={`menu-${item.href}`}
-                            href={item.href}
-                            role="menuitem"
-                            onClick={() => setMenuOpen(false)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              borderRadius: "10px",
-                              padding: "10px 12px",
-                              textDecoration: "none",
-                              color: "#111827",
-                              border: "1px solid #E5E7EB",
-                              fontSize: "14px",
-                              fontWeight: 600,
-                              backgroundColor:
-                                group.section === "My Work" ? "#FCFCFD" : "white",
-                              justifyContent: "space-between",
-                              gap: "10px",
-                            }}
-                          >
-                            <span>{item.label}</span>
-                            {item.href === "/team-discussion" ? (
-                              <DiscussionAlertBadge count={openDiscussionItems} compact />
-                            ) : <WorkQueueAlertBadge href={item.href} counts={queueCounts} compact />}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div ref={accountMenuRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              aria-expanded={accountMenuOpen}
-              aria-haspopup="menu"
-              onClick={() => setAccountMenuOpen((open) => !open)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "9px 12px",
-                borderRadius: "10px",
-                border: "1px solid #E5E7EB",
-                backgroundColor: "white",
-                color: "#111827",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <UserCircle2 size={16} />
-              Account
-              <ChevronDown
-                size={16}
-                color="#6B7280"
-                style={{
-                  transform: accountMenuOpen ? "rotate(180deg)" : "rotate(0deg)",
-                  transition: "transform 150ms ease",
-                }}
-              />
-            </button>
-
-            {accountMenuOpen ? (
-              <div
-                role="menu"
-                aria-label="Account menu"
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 8px)",
-                  right: 0,
-                  width: "250px",
-                  backgroundColor: "white",
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "14px",
-                  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
-                  padding: "10px",
-                }}
-              >
-                <div
-                  style={{
-                    padding: "10px 12px 12px",
-                    borderBottom: "1px solid #E5E7EB",
-                    marginBottom: "6px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                      color: "#6B7280",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    Signed in as
-                  </div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>
-                    {profile?.name || user?.name || "MGO-GPT User"}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      color: "#6B7280",
-                      marginTop: "2px",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {profile?.email || user?.email || "No email available"}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: "8px",
-                      fontSize: "12px",
-                      color: "#6A5BFF",
-                      fontWeight: 700,
-                      textTransform: "capitalize",
-                    }}
-                  >
-                    {roleLabel}
-                  </div>
-                  {isAdmin ? (
-                    <div style={{ marginTop: "10px" }}>
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          letterSpacing: "0.04em",
-                          textTransform: "uppercase",
-                          color: "#6B7280",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        View as
-                      </div>
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "999px",
-                          padding: "3px",
-                          gap: "4px",
-                          backgroundColor: "#F9FAFB",
-                        }}
-                      >
-                        {[
-                          { value: "reviewer", label: "Advancement Services" },
-                          { value: "mgo", label: "MGO" },
-                        ].map((option) => {
-                          const active = adminViewMode === option.value;
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() => handleViewModeChange(option.value)}
-                              style={{
-                                border: "none",
-                                borderRadius: "999px",
-                                padding: "6px 10px",
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                color: active ? "white" : "#4B5563",
-                                backgroundColor: active ? "#6A5BFF" : "transparent",
-                              }}
-                            >
-                              {option.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  {canSwitchMgoWorkspace && isMgoView ? (
-                    <div style={{ marginTop: "10px" }}>
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          letterSpacing: "0.04em",
-                          textTransform: "uppercase",
-                          color: "#6B7280",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        View workspace
-                      </div>
-                      <select
-                        value={actingUser?.id || profile?.id || ""}
-                        onChange={(event) => handleActingWorkspaceChange(event.target.value)}
-                        style={{
-                          width: "100%",
-                          border: "1px solid #D1D5DB",
-                          borderRadius: "10px",
-                          padding: "10px 12px",
-                          fontSize: "13px",
-                          color: "#111827",
-                          backgroundColor: "white",
-                        }}
-                      >
-                        <option value={profile?.id || ""}>My workspace</option>
-                        {mgoUsers
-                          .filter(
-                            (mgoUser) =>
-                              canViewWorkspaceAsRole(profile?.role, mgoUser.role) &&
-                              String(mgoUser.id) !== String(profile?.id || ""),
-                          )
-                          .map((mgoUser) => (
-                            <option key={mgoUser.id} value={mgoUser.id}>
-                              {mgoUser.name || mgoUser.email}
-                              {getWorkspaceRoleLabel(mgoUser.role) === "Executive"
-                                ? " (Executive)"
-                                : ""}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  ) : null}
-                </div>
-
-                <a
-                  href="/settings"
-                  role="menuitem"
-                  onClick={() => setAccountMenuOpen(false)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    borderRadius: "10px",
-                    padding: "10px 12px",
-                    color: "#111827",
-                    textDecoration: "none",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                  }}
-                >
-                  <Settings size={16} color="#6B7280" />
-                  My Account &amp; Connections
-                </a>
-
-                <a
-                  href="/account/logout"
-                  role="menuitem"
-                  onClick={() => setAccountMenuOpen(false)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    borderRadius: "10px",
-                    padding: "10px 12px",
-                    color: "#B91C1C",
-                    textDecoration: "none",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                  }}
-                >
-                  <LogOut size={16} color="#B91C1C" />
-                  Sign out
-                </a>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </header>
-
       <main style={{ maxWidth: "960px", margin: "0 auto", padding: "24px 18px 40px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
           <img

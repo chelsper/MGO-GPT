@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import AppShell from "@/components/AppShell";
 
 export default function RootLayout({ children }) {
   const [queryClient] = useState(
@@ -19,6 +20,8 @@ export default function RootLayout({ children }) {
   );
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <AppShell>{children}</AppShell>
+    </QueryClientProvider>
   );
 }

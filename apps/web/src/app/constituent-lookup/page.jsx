@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Search } from "lucide-react";
+import { useLocation } from "react-router";
 import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
@@ -48,6 +49,7 @@ function ResultDetail({ label, value }) {
 }
 
 export default function ConstituentLookupPage() {
+  const location = useLocation();
   const { data: user, loading: loadingUser } = useUser();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -63,6 +65,11 @@ export default function ConstituentLookupPage() {
       window.location.href = "/account/signin";
     }
   }, [loadingUser, user]);
+
+  useEffect(() => {
+    const requestedQuery = new URLSearchParams(location.search).get("q")?.trim();
+    if (requestedQuery) setQuery(requestedQuery);
+  }, [location.search]);
 
   useEffect(() => {
     if (!user) return undefined;
