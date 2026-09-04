@@ -33,6 +33,8 @@ export default function OpportunityGiftLinkModal({
   opportunityId,
   constituentId,
   opportunityTitle = "this opportunity",
+  reportGift = null,
+  openOpportunities = [],
   onClose,
   onSaved,
 }) {
@@ -42,11 +44,17 @@ export default function OpportunityGiftLinkModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRecentGifts() {
+      if (reportGift) {
+        setGifts([reportGift]);
+        setSelectedGiftIds(new Set([String(reportGift.id)]));
+        return;
+      }
       if (!constituentId) {
         setError("A Blackbaud constituent ID is required before gifts can be linked.");
         return;
@@ -89,7 +97,7 @@ export default function OpportunityGiftLinkModal({
     return () => {
       cancelled = true;
     };
-  }, [constituentId]);
+  }, [constituentId, reportGift]);
 
   function toggleGift(giftId) {
     setSelectedGiftIds((current) => {
@@ -104,8 +112,8 @@ export default function OpportunityGiftLinkModal({
   }
 
   async function saveSelectedGifts() {
-    if (!opportunityId) {
-      setError("The opportunity must be saved before gifts can be linked.");
+    if (reportGift ? !openOpportunities.some((item) => item.id === selectedOpportunityId) : !opportunityId) {
+      setError(reportGift ? "Select an open opportunity." : "The opportunity must be saved before gifts can be linked.");
       return;
     }
 
@@ -121,11 +129,15 @@ export default function OpportunityGiftLinkModal({
 
     try {
       const response = await fetch(
-        `/api/prospects/opportunities/${encodeURIComponent(opportunityId)}/gift-links`,
+        reportGift ? "/api/reports/gift-opportunities" : `/api/prospects/opportunities/${encodeURIComponent(opportunityId)}/gift-links`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: JSON.stringify(reportGift ? {
+            constituentId: String(constituentId),
+            opportunityId: selectedOpportunityId,
+            giftId: String(reportGift.id),
+          } : {
             gifts: selectedGifts.map((gift) => ({
               id: gift.id,
               giftDate: gift.date || null,
@@ -164,7 +176,7 @@ export default function OpportunityGiftLinkModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Link recent gift"
+      aria-label={reportGift ? "Link to Opportunity" : "Link recent gift"}
       style={{
         position: "fixed",
         inset: 0,
@@ -208,7 +220,7 @@ export default function OpportunityGiftLinkModal({
                   lineHeight: 1.15,
                 }}
               >
-                Link to recent gift?
+                {reportGift ? "Link to Opportunity" : "Link to recent gift?"}
               </h2>
               <p
                 style={{
@@ -218,7 +230,7 @@ export default function OpportunityGiftLinkModal({
                   lineHeight: 1.5,
                 }}
               >
-                Select any recent gifts that funded <strong>{opportunityTitle}</strong>.
+                {reportGift ? "Select an open opportunity on this constituent's NXT record for this gift. " : <>Select any recent gifts that funded <strong>{opportunityTitle}</strong>. </>}
                 This saves the relationship in JUMGOGPT now; NXT linking is still marked for
                 manual review.
               </p>
@@ -245,6 +257,18 @@ export default function OpportunityGiftLinkModal({
         </div>
 
         <div style={{ padding: "20px 24px" }}>
+          {reportGift ? (
+            <label style={{ display: "grid", gap: "8px", marginBottom: "18px", fontWeight: 700 }}>
+              Open opportunity
+              <select value={selectedOpportunityId} onChange={(event) => setSelectedOpportunityId(event.target.value)}
+                disabled={saving} style={{ padding: "12px", width: "100%", border: "1px solid #CBD5E1", borderRadius: "8px" }}>
+                <option value="">Select an opportunity</option>
+                {openOpportunities.map((item) => <option key={item.id} value={item.id}>
+                  {item.name} ({item.status}){item.amount != null ? ` - ${formatCurrency(item.amount)}` : ""}
+                </option>)}
+              </select>
+            </label>
+          ) : null}
           {loading ? (
             <div style={{ color: "#6B7280", fontSize: "14px" }}>
               Loading the constituent's five most recent gifts...
@@ -292,6 +316,7 @@ export default function OpportunityGiftLinkModal({
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleGift(giftId)}
+                      disabled={Boolean(reportGift) || saving}
                       style={{ marginTop: "3px" }}
                     />
                     <span>

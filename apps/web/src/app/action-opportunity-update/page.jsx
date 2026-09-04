@@ -468,6 +468,8 @@ export default function ActionOpportunityUpdatePage() {
     const params = new URLSearchParams(window.location.search);
     const requestedReturnPath = params.get("returnTo") || "";
     const requestedMode = params.get("mode") || "";
+    const requestedActionType = params.get("actionType") || "";
+    if (INTERACTION_TYPES.includes(requestedActionType)) setInteractionType(requestedActionType);
     const requestedDonorName = params.get("donor") || params.get("name") || "";
     const requestedBlackbaudConstituentId =
       params.get("blackbaudConstituentId") || "";

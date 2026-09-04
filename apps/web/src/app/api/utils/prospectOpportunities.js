@@ -88,6 +88,7 @@ export async function getProspectOpportunities(prospectId) {
       po.*,
       COALESCE(gift_links.linked_gifts, '[]'::json) AS linked_gifts
     FROM prospect_opportunities po
+    INNER JOIN prospects parent_prospect ON parent_prospect.id = po.prospect_id
     LEFT JOIN LATERAL (
       SELECT json_agg(
         json_build_object(
@@ -106,7 +107,16 @@ export async function getProspectOpportunities(prospectId) {
         ORDER BY pogl.gift_date DESC NULLS LAST, pogl.created_at DESC
       ) AS linked_gifts
       FROM prospect_opportunity_gift_links pogl
-      WHERE pogl.prospect_opportunity_id = po.id
+      WHERE pogl.prospect_opportunity_id = po.id OR (
+        pogl.prospect_opportunity_id IS NULL
+        AND pogl.workspace_user_id = parent_prospect.user_id
+        AND pogl.blackbaud_opportunity_id = po.blackbaud_opportunity_id
+        AND NOT EXISTS (
+          SELECT 1 FROM prospect_opportunity_gift_links direct_link
+          WHERE direct_link.prospect_opportunity_id = po.id
+            AND direct_link.blackbaud_gift_id = pogl.blackbaud_gift_id
+        )
+      )
     ) gift_links ON true
     WHERE po.prospect_id = ${prospectId}
     ORDER BY

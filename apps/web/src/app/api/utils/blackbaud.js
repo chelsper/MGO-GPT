@@ -1732,6 +1732,7 @@ export async function listBlackbaudOpportunities({
   searchParams,
   pageLimit = 500,
   maxPages = 20,
+  strictResponse = false,
 } = {}) {
   const results = [];
   let nextPath = BLACKBAUD_OPPORTUNITIES_URL;
@@ -1749,6 +1750,9 @@ export async function listBlackbaudOpportunities({
       searchParams: nextPath === BLACKBAUD_OPPORTUNITIES_URL ? nextSearchParams : undefined,
     });
 
+    if (strictResponse && !Array.isArray(payload?.value) && !Array.isArray(payload)) {
+      throw new Error("Malformed Blackbaud opportunity response");
+    }
     const rows = Array.isArray(payload?.value)
       ? payload.value
       : Array.isArray(payload)
@@ -1761,6 +1765,7 @@ export async function listBlackbaudOpportunities({
     pageCount += 1;
   }
 
+  if (strictResponse && nextPath) throw new Error("Blackbaud opportunity list is incomplete");
   return results;
 }
 

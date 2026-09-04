@@ -69,6 +69,7 @@ describe("opportunity gift links route", () => {
       },
     ]);
     queueSqlResult([]);
+    queueSqlResult([]); // Remove a superseded NXT-only link after the local upsert.
     queueSqlResult([
       {
         id: 1,
@@ -157,6 +158,8 @@ describe("opportunity gift links route", () => {
         user_id: 44,
       },
     ]);
+    queueSqlResult([]);
+    queueSqlResult([]);
     queueSqlResult([]);
     queueSqlResult([]);
     queueSqlResult([

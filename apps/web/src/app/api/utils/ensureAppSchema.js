@@ -1233,6 +1233,16 @@ export default async function ensureAppSchema() {
       ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL
     `;
 
+    // NXT-only opportunities can be linked without creating a Top Prospect.
+    await sql`ALTER TABLE prospect_opportunity_gift_links ALTER COLUMN prospect_opportunity_id DROP NOT NULL`;
+    await sql`ALTER TABLE prospect_opportunity_gift_links ADD COLUMN IF NOT EXISTS workspace_user_id BIGINT REFERENCES users(id) ON DELETE CASCADE`;
+    await sql`ALTER TABLE prospect_opportunity_gift_links ADD COLUMN IF NOT EXISTS blackbaud_constituent_id TEXT`;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_nxt_only_opportunity_gift_link
+      ON prospect_opportunity_gift_links (workspace_user_id, blackbaud_opportunity_id, blackbaud_gift_id)
+      WHERE prospect_opportunity_id IS NULL
+    `;
+
     await sql`
       UPDATE prospect_opportunities
       SET title = COALESCE(NULLIF(title, ''), 'Untitled opportunity')

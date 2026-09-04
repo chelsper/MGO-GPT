@@ -1,3 +1,5 @@
+import { getGiftDisplayDetails } from "./giftDisplayDetails";
+
 const EXCLUDED_FUND_NAMES = new Set(["credit card processing fee"]);
 
 const RECEIVED_GIFT_TYPES = new Set([
@@ -299,6 +301,9 @@ function addDirectGift(
     committedAmount = 0,
     plannedGiftAmount = 0,
     giftSolicitors = [],
+    giftType = null,
+    fundDescriptions = [],
+    fundIds = [],
   },
 ) {
   if (!summary.directGifts) summary.directGifts = new Map();
@@ -316,6 +321,9 @@ function addDirectGift(
   };
 
   if (date) directGift.date = String(date);
+  directGift.giftType = giftType || directGift.giftType || null;
+  directGift.fundDescriptions = [...new Set([...(directGift.fundDescriptions || []), ...fundDescriptions])];
+  directGift.fundIds = [...new Set([...(directGift.fundIds || []), ...fundIds])];
   directGift.receivedAmount = Math.max(directGift.receivedAmount, Number(receivedAmount || 0));
   directGift.committedAmount = Math.max(directGift.committedAmount, Number(committedAmount || 0));
   directGift.plannedGiftAmount = Math.max(
@@ -535,6 +543,7 @@ export function calculateCurrentFiscalYearGiving({
       }
 
       addDirectGift(directSummary, {
+        ...getGiftDisplayDetails(gift),
         giftId,
         date: getGiftDate(gift),
         receivedAmount: isReceived ? directAmount : 0,
@@ -560,6 +569,7 @@ export function calculateCurrentFiscalYearGiving({
         if (!acknowledgmentCreditKeys.has(acknowledgmentKey)) {
           acknowledgmentCreditKeys.add(acknowledgmentKey);
           acknowledgmentCredits.push({
+            ...getGiftDisplayDetails(gift),
             giftId: String(giftId),
             hardCreditConstituentId: directId,
             recipientConstituentId: constituentId,
@@ -657,6 +667,9 @@ export function calculateCurrentFiscalYearGiving({
       .map((gift) => ({
         id: gift.id,
         date: gift.date,
+        giftType: gift.giftType,
+        fundDescriptions: gift.fundDescriptions,
+        fundIds: gift.fundIds,
         receivedAmount: roundCurrency(gift.receivedAmount),
         committedAmount: roundCurrency(gift.committedAmount),
         plannedGiftAmount: roundCurrency(gift.plannedGiftAmount),

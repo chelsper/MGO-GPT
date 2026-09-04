@@ -52,6 +52,10 @@ export function mergeAcknowledgmentGiftGroup(groups, details) {
   };
 
   if (details?.date && !existing.date) existing.date = details.date;
+  existing.giftType = details?.giftType || existing.giftType || null;
+  existing.fundDescriptions = [...new Set([
+    ...(existing.fundDescriptions || []), ...(details?.fundDescriptions || []),
+  ])];
   if (details?.hardCreditDonor?.constituentId || details?.hardCreditDonor?.name) {
     existing.hardCreditDonor = {
       constituentId: normalizeText(details.hardCreditDonor.constituentId) || null,

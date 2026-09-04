@@ -50,10 +50,21 @@ function normalizeGift(gift) {
 
 async function getGiftLinks(prospectOpportunityId) {
   return sql`
-    SELECT *
-    FROM prospect_opportunity_gift_links
-    WHERE prospect_opportunity_id = ${prospectOpportunityId}
-    ORDER BY gift_date DESC NULLS LAST, created_at DESC
+    SELECT links.*
+    FROM prospect_opportunity_gift_links links
+    WHERE links.prospect_opportunity_id = ${prospectOpportunityId} OR (
+      links.prospect_opportunity_id IS NULL AND EXISTS (
+        SELECT 1 FROM prospect_opportunities po JOIN prospects p ON p.id = po.prospect_id
+        WHERE po.id = ${prospectOpportunityId}
+          AND links.workspace_user_id = p.user_id
+          AND links.blackbaud_opportunity_id = po.blackbaud_opportunity_id
+      ) AND NOT EXISTS (
+        SELECT 1 FROM prospect_opportunity_gift_links direct_link
+        WHERE direct_link.prospect_opportunity_id = ${prospectOpportunityId}
+          AND direct_link.blackbaud_gift_id = links.blackbaud_gift_id
+      )
+    )
+    ORDER BY links.gift_date DESC NULLS LAST, links.created_at DESC
   `;
 }
 
@@ -181,6 +192,14 @@ export async function POST(request, { params }) {
           nxt_sync_error = EXCLUDED.nxt_sync_error,
           updated_at = NOW()
       `;
+      if (opportunity.blackbaud_opportunity_id) {
+        await sql`
+          DELETE FROM prospect_opportunity_gift_links
+          WHERE prospect_opportunity_id IS NULL AND workspace_user_id = ${user.id}
+            AND blackbaud_opportunity_id = ${opportunity.blackbaud_opportunity_id}
+            AND blackbaud_gift_id = ${gift.blackbaudGiftId}
+        `;
+      }
     }
 
     return Response.json({
@@ -249,13 +268,19 @@ export async function DELETE(request, { params }) {
       ? await sql`
           DELETE FROM prospect_opportunity_gift_links
           WHERE id = ${giftLinkId}
-            AND prospect_opportunity_id = ${opportunity.id}
+            AND (prospect_opportunity_id = ${opportunity.id} OR (
+              prospect_opportunity_id IS NULL AND workspace_user_id = ${user.id}
+              AND blackbaud_opportunity_id = (SELECT blackbaud_opportunity_id FROM prospect_opportunities WHERE id = ${opportunity.id})
+            ))
           RETURNING id
         `
       : await sql`
           DELETE FROM prospect_opportunity_gift_links
           WHERE blackbaud_gift_id = ${blackbaudGiftId}
-            AND prospect_opportunity_id = ${opportunity.id}
+            AND (prospect_opportunity_id = ${opportunity.id} OR (
+              prospect_opportunity_id IS NULL AND workspace_user_id = ${user.id}
+              AND blackbaud_opportunity_id = (SELECT blackbaud_opportunity_id FROM prospect_opportunities WHERE id = ${opportunity.id})
+            ))
           RETURNING id
         `;
 

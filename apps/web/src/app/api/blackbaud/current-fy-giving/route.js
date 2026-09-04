@@ -4,6 +4,7 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { getReportRefreshUser, isAuthorizedReportRefreshRequest } from "@/app/api/utils/reportRefresh";
 import { readPortfolioGivingSnapshots } from "@/app/api/utils/portfolioGivingSnapshots";
+import { addReportFundDescriptions } from "@/app/api/utils/reportFundDescriptions";
 import {
   getReportAccessForUser,
   PORTFOLIO_GIVING_REPORT_KEY,
@@ -376,7 +377,7 @@ export async function GET(request) {
         { headers: { "Cache-Control": "private, no-store" } });
     }
     const strict = requestUrl.searchParams.get("portfolio_refresh") === "1";
-    const cacheKey = getCacheKey({
+    const cacheKey = requestUrl.searchParams.get("report") + ":" + getCacheKey({
       userId: user.id,
       authUserId,
       constituentIds,
@@ -493,6 +494,10 @@ export async function GET(request) {
         realizedPlannedGiftIds,
       });
       usedZeroResultFallback = true;
+    }
+    if (requestUrl.searchParams.get("report") === PORTFOLIO_GIVING_REPORT_KEY) {
+      const missingFunds = await addReportFundDescriptions(summary, { userId: user.id, authUserId, origin });
+      if (missingFunds) warnings.funds = "Some fund descriptions are unavailable; giving totals are unchanged.";
     }
     const payload = {
       ...summary,

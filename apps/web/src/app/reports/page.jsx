@@ -6,6 +6,7 @@ import useUser from "@/utils/useUser";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { canUseExecutiveViewRole, isMgoRole } from "@/utils/workspaceRoles";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
+import GiftReportActions, { GiftRowActions } from "@/app/reports/GiftReportActions";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import {
@@ -272,15 +273,6 @@ function addGiftSolicitors(row, solicitors) {
     }
     row.giftSolicitors.set(key, existing);
   }
-}
-
-function formatGiftSolicitors(solicitors) {
-  if (!solicitors?.length) return "Not returned by NXT";
-  return solicitors
-    .map((solicitor) =>
-      solicitor.giftCount > 1 ? `${solicitor.name} (${solicitor.giftCount} gifts)` : solicitor.name,
-    )
-    .join(", ");
 }
 
 function materializeReportRows(rowsByConstituentId) {
@@ -617,6 +609,8 @@ export default function ReportsPage() {
               mergeAcknowledgmentGiftGroup(reportGiftGroupsById, {
                 giftId: gift.id,
                 date: gift.date,
+                giftType: gift.giftType,
+                fundDescriptions: gift.fundDescriptions,
                 hardCreditDonor: {
                   constituentId,
                   name: profile.name || person?.name || "Unnamed donor",
@@ -690,6 +684,8 @@ export default function ReportsPage() {
             mergeAcknowledgmentGiftGroup(reportGiftGroupsById, {
               giftId: credit?.giftId,
               date: credit?.date,
+              giftType: credit?.giftType,
+              fundDescriptions: credit?.fundDescriptions,
               hardCreditDonor: {
                 constituentId: hardCreditConstituentId,
                 name: hardCreditDonor.name || "Unnamed donor",
@@ -1193,16 +1189,11 @@ export default function ReportsPage() {
               />
             </section>
 
-            <section
-              style={{
-                marginTop: "24px",
-                backgroundColor: "white",
-                border: "1px solid #E2E8F0",
-                borderRadius: "18px",
-                boxShadow: "0 10px 28px rgba(15, 23, 42, 0.05)",
-                overflow: "hidden",
-              }}
-            >
+            <GiftReportActions key={`${workspaceUser?.id}:${refreshVersion}`}
+              groups={acknowledgmentGiftGroups} ready={!isLoadingReport}
+              enabled={Boolean(workspaceUser && profileStatus?.user?.id === workspaceUser.id && !profileStatus?.actingAsUser)}>
+            <section style={{ marginTop: "24px", backgroundColor: "white", border: "1px solid #E2E8F0",
+              borderRadius: "18px", boxShadow: "0 10px 28px rgba(15, 23, 42, 0.05)", overflow: "hidden" }}>
               <div style={{ padding: "20px 22px 14px" }}>
                 <h2 style={{ margin: 0, color: "#0F172A", fontSize: "20px" }}>Acknowledgment detail</h2>
                 <p style={{ margin: "6px 0 0", color: "#64748B", lineHeight: 1.5 }}>
@@ -1218,13 +1209,13 @@ export default function ReportsPage() {
                       <tr style={{ backgroundColor: "#F8FAFC", textAlign: "left" }}>
                         {[
                           "Donor / recipient",
-                          "Constituent record solicitor",
+                          "Fund description",
                           "Relationship to gift",
-                          "Gift solicitor(s)",
+                          "Gift type",
                           `${yearLabel} Cash Received`,
                           `${yearLabel} Committed`,
                           "Gift Date",
-                          "Record",
+                          "Actions",
                         ].map((heading) => (
                           <th
                             key={heading}
@@ -1269,7 +1260,7 @@ export default function ReportsPage() {
                               <strong>{group.hardCreditDonor?.name || "Unnamed donor"}</strong>
                             </td>
                             <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
-                              {group.hardCreditRecordSolicitor || "Not in selected MGO portfolio"}
+                              {group.fundDescriptions?.join("; ") || "Unavailable"}
                             </td>
                             <td style={{ padding: "16px" }}>
                               <span
@@ -1288,7 +1279,7 @@ export default function ReportsPage() {
                               </span>
                             </td>
                             <td style={{ padding: "16px", color: "#334155", lineHeight: 1.45 }}>
-                              {formatGiftSolicitors(group.giftSolicitors)}
+                              {group.giftType || "Unavailable"}
                             </td>
                             <td style={{ padding: "16px", color: "#047857", fontWeight: 800 }}>
                               {formatCurrency(group.receivedAmount)}
@@ -1321,9 +1312,8 @@ export default function ReportsPage() {
                                 >
                                   Open NXT record <ExternalLink size={14} />
                                 </a>
-                              ) : (
-                                "Unavailable"
-                              )}
+                              ) : "Unavailable"}
+                              <GiftRowActions constituent={group.hardCreditDonor} group={group} />
                             </td>
                           </tr>
                           {group.softCreditRecipients.map((recipient) => {
@@ -1354,7 +1344,7 @@ export default function ReportsPage() {
                                   </div>
                                 </td>
                                 <td style={{ padding: "14px 16px", color: "#334155", lineHeight: 1.45 }}>
-                                  {recipient.constituentRecordSolicitor}
+                                  Same gift
                                 </td>
                                 <td style={{ padding: "14px 16px" }}>
                                   <span
@@ -1372,7 +1362,7 @@ export default function ReportsPage() {
                                     Soft credit
                                   </span>
                                 </td>
-                                <td style={{ padding: "14px 16px", color: "#64748B" }}>Same gift</td>
+                                <td style={{ padding: "14px 16px", color: "#64748B" }}>{group.giftType || "Unavailable"}</td>
                                 <td style={{ padding: "14px 16px", color: "#047857", fontWeight: 800 }}>
                                   {formatCurrency(recipient.amount)}
                                 </td>
@@ -1400,9 +1390,8 @@ export default function ReportsPage() {
                                     >
                                       Open NXT record <ExternalLink size={14} />
                                     </a>
-                                  ) : (
-                                    "Unavailable"
-                                  )}
+                                  ) : "Unavailable"}
+                                  <GiftRowActions constituent={recipient} group={group} />
                                 </td>
                               </tr>
                             );
@@ -1418,6 +1407,7 @@ export default function ReportsPage() {
                 </div>
               )}
             </section>
+            </GiftReportActions>
           </>
         ) : null}
       </div>
