@@ -1719,6 +1719,7 @@ export async function listBlackbaudGifts({
   pageLimit = 500,
   maxPages = 20,
   includePageMetadata = false,
+  strictResponse = false,
 } = {}) {
   const results = [];
   let nextPath = BLACKBAUD_GIFTS_URL;
@@ -1735,6 +1736,10 @@ export async function listBlackbaudGifts({
       origin,
       searchParams: nextPath === BLACKBAUD_GIFTS_URL ? nextSearchParams : undefined,
     });
+
+    if (strictResponse && !Array.isArray(payload) && !Array.isArray(payload?.value)) {
+      throw new Error("Blackbaud returned a malformed gift-list response");
+    }
 
     const rows = Array.isArray(payload?.value)
       ? payload.value

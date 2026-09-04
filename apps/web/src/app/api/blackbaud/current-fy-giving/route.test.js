@@ -7,6 +7,14 @@ const getBlackbaudConfigIssuesMock = vi.fn();
 const getBlackbaudGiftMock = vi.fn();
 const listBlackbaudGiftsMock = vi.fn();
 const getRealizedPlannedGiftIdsMock = vi.fn();
+const sqlMock = vi.fn();
+const isScheduledMock = vi.fn();
+const refreshUserMock = vi.fn();
+
+vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
+vi.mock("@/app/api/utils/reportRefresh", () => ({
+  isAuthorizedReportRefreshRequest: isScheduledMock, getReportRefreshUser: refreshUserMock,
+}));
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -24,6 +32,7 @@ vi.mock("@/app/api/utils/blackbaud", () => ({
   getBlackbaudConfigIssues: getBlackbaudConfigIssuesMock,
   getBlackbaudGift: getBlackbaudGiftMock,
   listBlackbaudGifts: listBlackbaudGiftsMock,
+  isBlackbaudQuotaExceededError: (error) => error?.httpStatus === 403 && error?.retryAfterMs > 0,
 }));
 
 vi.mock("../../utils/plannedGiftRevenue.js", () => ({
@@ -42,6 +51,9 @@ describe("current fiscal year giving route", () => {
     getBlackbaudGiftMock.mockReset();
     listBlackbaudGiftsMock.mockReset();
     getRealizedPlannedGiftIdsMock.mockReset();
+    sqlMock.mockReset().mockResolvedValue([]);
+    isScheduledMock.mockReset().mockReturnValue(false);
+    refreshUserMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -56,6 +68,58 @@ describe("current fiscal year giving route", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("serves saved FY figures without Blackbaud calls, including stale snapshots", async () => {
+    sqlMock.mockResolvedValue([{ constituent_id: "saved", stale_after: "2026-01-01", payload: {
+      currentFyPeriod: { startDate: "2026-07-01" }, currentFyGiving: { recognizedReceived: 250 },
+    } }]);
+    const { GET } = await import("./route.js");
+    const data = await (await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentIds=saved,missing&portfolio_snapshot=1"))).json();
+    expect(data.byConstituentId.saved.recognizedReceived).toBe(250);
+    expect(data.byConstituentId.missing).toBeUndefined();
+    expect(data.warnings.saved).toContain("last saved");
+    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+    expect(getBlackbaudGiftMock).not.toHaveBeenCalled();
+  });
+
+  it("does not label last fiscal year's saved numbers as current", async () => {
+    sqlMock.mockResolvedValue([{ constituent_id: "saved", payload: {
+      currentFyPeriod: { startDate: "2025-07-01" }, currentFyGiving: { recognizedReceived: 250 },
+    } }]);
+    const { GET } = await import("./route.js");
+    const data = await (await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=saved&portfolio_snapshot=1"))).json();
+    expect(data.byConstituentId).toEqual({});
+    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+  });
+
+  it.each([429, 403])("preserves HTTP %i throttling for the nightly worker", async (httpStatus) => {
+    listBlackbaudGiftsMock.mockRejectedValue(Object.assign(new Error("Provider paused"), { httpStatus, retryAfterMs: 30000 }));
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=paused&portfolio_refresh=1"));
+    expect(response.status).toBe(httpStatus === 429 ? 429 : 503);
+    expect(response.headers.get("Retry-After")).toBe("30");
+    expect(await response.json()).toMatchObject({ providerStatus: httpStatus, retryAfterMs: 30000 });
+  });
+
+  it.each([{}, { gifts: [null], hasMore: false }])("rejects malformed nightly giving instead of caching zero", async (value) => {
+    listBlackbaudGiftsMock.mockResolvedValue(value);
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=bad&portfolio_refresh=1"));
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).toContain("Malformed");
+  });
+
+  it("allows only the validated scheduled context to choose a target workspace", async () => {
+    isScheduledMock.mockReturnValue(true);
+    refreshUserMock.mockResolvedValue({ id: 99 });
+    sqlMock.mockResolvedValueOnce([{ id: 7, active: true }]);
+    listBlackbaudGiftsMock.mockResolvedValue({ gifts: [], hasMore: false });
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/current-fy-giving?constituentId=scheduled&portfolio_refresh=1&workspaceUserId=7"));
+    expect(response.status).toBe(200);
+    expect(authMock).not.toHaveBeenCalled();
+    expect(listBlackbaudGiftsMock).toHaveBeenCalledWith(expect.objectContaining({ userId: 7, authUserId: 99, strictResponse: true }));
   });
 
   it("loads multiple constituents with repeated Gift API filters", async () => {

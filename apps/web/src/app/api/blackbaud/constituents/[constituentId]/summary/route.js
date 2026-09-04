@@ -10,9 +10,15 @@ import {
   blackbaudApiFetch,
   getBlackbaudConfigIssues,
   isBlackbaudQuotaExceededError,
-  listBlackbaudGifts,
   withBlackbaudRequestMetrics,
 } from "@/app/api/utils/blackbaud";
+import { createPortfolioGivingDataSource } from "@/app/api/utils/portfolioGivingDataCache";
+import { savePortfolioGivingSnapshot, withPortfolioGivingSnapshot } from "@/app/api/utils/portfolioGivingSnapshots";
+import { GET as getCurrentFyGiving } from "@/app/api/blackbaud/current-fy-giving/route";
+import {
+  getPortfolioSummaryStaleAfter,
+  PORTFOLIO_SUMMARY_TTL_MS,
+} from "@/app/api/utils/portfolioSummaryFreshness";
 import { fetchAnnualGivingSocieties } from "../../../../utils/annualGivingSocieties.js";
 import { getRealizedPlannedGiftIds } from "../../../../utils/plannedGiftRevenue.js";
 import {
@@ -20,7 +26,7 @@ import {
   listGivingSocietyConfigurations,
 } from "../../../../utils/givingSocietyConfigurations.js";
 
-const CONSTITUENT_SUMMARY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CONSTITUENT_SUMMARY_CACHE_TTL_MS = PORTFOLIO_SUMMARY_TTL_MS;
 
 function isFreshSummaryCache(cachedAt) {
   if (!cachedAt) return false;
@@ -65,8 +71,11 @@ async function getCachedSummary({ workspaceUserId, authUserId, cacheKey }) {
     LIMIT 1
   `;
   const row = rows[0];
-  if (!row?.payload || !isFreshSummaryCache(row.updated_at)) return null;
-  return row.payload;
+  const lightweight = !cacheKey.endsWith("|full");
+  const ttl = lightweight ? 24 * 60 * 60 * 1000 : CONSTITUENT_SUMMARY_CACHE_TTL_MS;
+  if (!row?.payload || !isFreshSummaryCache(row.updated_at) || Date.now() - Date.parse(row.updated_at) > ttl) return null;
+  if (Date.parse(getPortfolioSummaryStaleAfter(row.payload)) <= Date.now()) return null;
+  return { ...row.payload, summaryRefreshedAt: row.payload.summaryRefreshedAt || row.updated_at };
 }
 
 async function saveCachedSummary({
@@ -108,14 +117,17 @@ async function saveCachedSummary({
 async function getPortfolioSnapshotSummary({ workspaceUserId, constituentId }) {
   if (!workspaceUserId || !constituentId) return null;
   const rows = await sql`
-    SELECT summary_payload
+    SELECT summary_payload, last_refreshed_at
     FROM portfolio_constituent_snapshots
     WHERE workspace_user_id = ${workspaceUserId}
       AND constituent_id = ${String(constituentId)}
       AND summary_payload IS NOT NULL
     LIMIT 1
   `;
-  return rows[0]?.summary_payload || null;
+  return rows[0]?.summary_payload ? {
+    ...rows[0].summary_payload,
+    summaryRefreshedAt: rows[0].summary_payload.summaryRefreshedAt || rows[0].last_refreshed_at,
+  } : null;
 }
 
 function isCompleteSummaryPayload(payload) {
@@ -132,6 +144,7 @@ async function savePortfolioSnapshotSummary({ workspaceUserId, constituentId, pa
       normalized_payload,
       summary_payload,
       data_complete,
+      weekly_policy_applied,
       stale_after,
       last_refreshed_at,
       last_error_stage,
@@ -147,7 +160,8 @@ async function savePortfolioSnapshotSummary({ workspaceUserId, constituentId, pa
       })}::jsonb,
       ${JSON.stringify(payload)}::jsonb,
       TRUE,
-      ${new Date(Date.now() + CONSTITUENT_SUMMARY_CACHE_TTL_MS).toISOString()},
+      TRUE,
+      ${getPortfolioSummaryStaleAfter(payload)},
       NOW(),
       NULL,
       NULL,
@@ -157,6 +171,7 @@ async function savePortfolioSnapshotSummary({ workspaceUserId, constituentId, pa
       normalized_payload = EXCLUDED.normalized_payload,
       summary_payload = EXCLUDED.summary_payload,
       data_complete = TRUE,
+      weekly_policy_applied = TRUE,
       stale_after = EXCLUDED.stale_after,
       last_refreshed_at = NOW(),
       last_error_stage = NULL,
@@ -1302,6 +1317,7 @@ async function loadOptionalSection(label, requestFactory) {
 }
 
 async function handleGet(request, { params }) {
+  const startedAt = Date.now();
   const requestUrl = new URL(request.url);
   const scheduledRefresh = isAuthorizedReportRefreshRequest(request);
   const session = scheduledRefresh ? null : await auth(request);
@@ -1371,6 +1387,43 @@ async function handleGet(request, { params }) {
     const givingSocietySignature = contactOnly || reportProfile
       ? ""
       : getGivingSocietyConfigurationSignature(givingSocietyConfigurations);
+
+    if (requestUrl.searchParams.get("giving_only") === "1") {
+      const givingData = createPortfolioGivingDataSource({
+        userId: user.id, authUserId, origin, constituentId, forceRefresh: true,
+      });
+      const lifetimeGiving = await givingData.loadLifetimeGiving();
+      const annualGivingSocieties = await fetchAnnualGivingSocieties({
+        listGifts: givingData.listGifts, userId: user.id, authUserId, origin, constituentId,
+        societyDefinitions: givingSocietyConfigurations, lifetimeGiving, strict: true,
+        resolveRealizedPlannedGiftIds: (gifts) => getRealizedPlannedGiftIds({ gifts, userId: user.id, authUserId, origin, strict: true }),
+      });
+      // Use the existing FY calculation, but require complete input for a durable snapshot.
+      const fyUrl = new URL("/api/blackbaud/current-fy-giving", request.url);
+      fyUrl.searchParams.set("constituentId", constituentId);
+      fyUrl.searchParams.set("portfolio_refresh", "1");
+      if (scheduledRefresh) fyUrl.searchParams.set("workspaceUserId", String(user.id));
+      const fyResponse = await getCurrentFyGiving(new Request(fyUrl, { headers: request.headers }));
+      const fy = await fyResponse.json();
+      if (!fyResponse.ok || Object.values(fy?.warnings || {}).some(Boolean) || !fy?.byConstituentId?.[constituentId]) {
+        const error = new Error(fy?.error || "Incomplete fiscal-year giving; previous snapshot retained");
+        error.httpStatus = fy?.providerStatus || fyResponse.status;
+        error.retryAfterMs = fy?.retryAfterMs || 0;
+        error.quotaPaused = fy?.quotaPaused;
+        throw error;
+      }
+      const currentYear = new Date().getMonth() >= 6 ? new Date().getFullYear() + 1 : new Date().getFullYear();
+      const payload = {
+        constituentId, givingRefreshedAt: new Date(startedAt).toISOString(), givingSocietySignature,
+        mapped: {
+          lifetimeGiving: mapLifetimeGiving(lifetimeGiving), annualGivingSocieties,
+          proposalSummary: await loadProposalSummary({ workspaceUserId: user.id, constituentId, currentFYNumber: currentYear % 100 }),
+        },
+        currentFyGiving: fy.byConstituentId[constituentId], currentFyPeriod: fy.period, warnings: {},
+      };
+      await savePortfolioGivingSnapshot(user.id, constituentId, payload, startedAt);
+      return summaryResponse(payload, "giving-refresh");
+    }
     const cacheKey = buildSummaryCacheKey({
       constituentId,
       lookupId,
@@ -1389,7 +1442,8 @@ async function handleGet(request, { params }) {
         cacheKey,
       });
       if (cachedSummary) {
-        return summaryResponse(cachedSummary, "hit");
+        return summaryResponse(contactOnly || reportProfile ? cachedSummary :
+          await withPortfolioGivingSnapshot(user.id, constituentId, cachedSummary), "hit");
       }
       if (!contactOnly && !reportProfile) {
         const portfolioSnapshot = await getPortfolioSnapshotSummary({
@@ -1397,7 +1451,7 @@ async function handleGet(request, { params }) {
           constituentId,
         });
         if (portfolioSnapshot) {
-          return summaryResponse(portfolioSnapshot, "portfolio-snapshot");
+          return summaryResponse(await withPortfolioGivingSnapshot(user.id, constituentId, portfolioSnapshot), "portfolio-snapshot");
         }
       }
     }
@@ -1482,6 +1536,15 @@ async function handleGet(request, { params }) {
       return summaryResponse(responsePayload, "miss");
     }
 
+    const givingData = createPortfolioGivingDataSource({
+      userId: user.id,
+      authUserId,
+      origin,
+      constituentId: resolvedConstituentId,
+      // Stale-only jobs may reuse data fetched by the badge loader. Explicit
+      // individual refreshes and full rebuilds still force fresh giving reads.
+      forceRefresh: forceRefresh && requestUrl.searchParams.get("reuse_giving") !== "1",
+    });
     const [
       lifetimeGivingResult,
       fundraiserAssignmentsResult,
@@ -1489,18 +1552,7 @@ async function handleGet(request, { params }) {
       educationResult,
     ] =
       await Promise.all([
-        loadBlackbaudSection("lifetimeGiving", () =>
-          blackbaudApiFetch(
-            `/constituent/v1/constituents/${encodeURIComponent(
-              resolvedConstituentId,
-            )}/givingsummary/lifetimegiving`,
-            {
-              userId: user.id,
-              authUserId,
-              origin,
-            },
-          ),
-        ),
+        loadBlackbaudSection("lifetimeGiving", givingData.loadLifetimeGiving),
         loadBlackbaudSection("fundraiserAssignments", () =>
           blackbaudApiFetch(
             `/constituent/v1/constituents/${encodeURIComponent(
@@ -1551,7 +1603,7 @@ async function handleGet(request, { params }) {
       "annualGivingSocieties",
       () =>
         fetchAnnualGivingSocieties({
-          listGifts: listBlackbaudGifts,
+          listGifts: givingData.listGifts,
           userId: user.id,
           authUserId,
           origin,
@@ -1624,6 +1676,8 @@ async function handleGet(request, { params }) {
     const responsePayload = {
       constituentId,
       includeInactive,
+      givingDataFreshUntil: givingData.freshUntil,
+      summaryRefreshedAt: new Date(startedAt).toISOString(),
       mapped: {
         constituent: mappedConstituent,
         lifetimeGiving: mappedLifetimeGiving,
@@ -1685,7 +1739,7 @@ async function handleGet(request, { params }) {
   } catch (error) {
     console.error("Blackbaud constituent summary error:", error);
     const providerStatus = Number(error?.httpStatus || 0) || null;
-    const quotaPaused = isBlackbaudQuotaExceededError(error);
+    const quotaPaused = error?.quotaPaused === true || isBlackbaudQuotaExceededError(error);
     const retryAfterMs = Math.max(0, Number(error?.retryAfterMs || 0)) || null;
     return Response.json(
       {

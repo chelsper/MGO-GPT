@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import sql from "@/app/api/utils/sql";
+import { getReportRefreshUser, isAuthorizedReportRefreshRequest } from "@/app/api/utils/reportRefresh";
+import { readPortfolioGivingSnapshots } from "@/app/api/utils/portfolioGivingSnapshots";
 import {
   getReportAccessForUser,
   PORTFOLIO_GIVING_REPORT_KEY,
@@ -9,6 +12,7 @@ import {
   getBlackbaudConfigIssues,
   getBlackbaudGift,
   listBlackbaudGifts,
+  isBlackbaudQuotaExceededError,
 } from "@/app/api/utils/blackbaud";
 import {
   calculateCurrentFiscalYearGiving,
@@ -35,6 +39,14 @@ function normalizeToken(value) {
 
 function getGiftId(gift) {
   return gift?.id || gift?.gift_id || gift?.giftId || null;
+}
+
+function responseGifts(response, strict) {
+  const gifts = Array.isArray(response) ? response : response?.gifts;
+  if (strict && (!Array.isArray(gifts) || gifts.some((gift) => !gift || !getGiftId(gift)))) {
+    throw new Error("Malformed fiscal-year gift response; previous giving snapshot retained");
+  }
+  return gifts || [];
 }
 
 function getGiftType(gift) {
@@ -101,6 +113,7 @@ async function enrichAssociatedPledgePayments({
   userId,
   authUserId,
   origin,
+  strict = false,
 }) {
   const requestedConstituentIds = new Set(constituentIds);
   const candidateIds = [
@@ -132,6 +145,7 @@ async function enrichAssociatedPledgePayments({
             detailsById.set(String(giftId), gift);
           }
         } catch (error) {
+          if (strict) throw error;
           // A detail gap must not prevent the remaining portfolio summaries from loading.
           console.warn("Unable to enrich a Blackbaud pledge payment", {
             giftId,
@@ -167,6 +181,7 @@ async function loadConstituentGiftLists({
   authUserId,
   origin,
   period,
+  strict = false,
 }) {
   const gifts = [];
   const warnings = {};
@@ -189,16 +204,18 @@ async function loadConstituentGiftLists({
           pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
           maxPages: CONSTITUENT_GIFT_MAX_PAGES,
           includePageMetadata: true,
+          strictResponse: strict,
         });
-        const responseGifts = Array.isArray(response) ? response : response?.gifts || [];
+        const loadedGifts = responseGifts(response, strict);
         const responseHasMore = !Array.isArray(response) && Boolean(response?.hasMore);
         successfulLookups += 1;
-        gifts.push(...responseGifts);
+        gifts.push(...loadedGifts);
         if (responseHasMore) {
           warnings[constituentId] =
             "Current fiscal-year Gift API results exceeded the safe per-constituent read limit.";
         }
       } catch (error) {
+        if (strict) throw error;
         warnings[constituentId] =
           error instanceof Error
             ? error.message
@@ -285,8 +302,9 @@ export async function GET(request) {
   try {
     await ensureAppSchema();
 
-    const session = await auth(request);
-    if (!session?.user?.email) {
+    const scheduled = isAuthorizedReportRefreshRequest(request);
+    const session = scheduled ? null : await auth(request);
+    if (!scheduled && !session?.user?.email) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -308,8 +326,19 @@ export async function GET(request) {
       );
     }
 
-    const { workspaceUser: user, sessionUser, isActing } =
-      await getWorkspaceUser(session, request);
+    let user, sessionUser, isActing;
+    if (scheduled) {
+      sessionUser = await getReportRefreshUser();
+      const workspaceUserId = Number(requestUrl.searchParams.get("workspaceUserId"));
+      if (!sessionUser || !Number.isInteger(workspaceUserId) || workspaceUserId <= 0) {
+        return Response.json({ error: "Invalid scheduled giving target" }, { status: 400 });
+      }
+      const rows = await sql`SELECT * FROM users WHERE id = ${workspaceUserId} AND active = TRUE LIMIT 1`;
+      user = rows[0];
+      isActing = user?.id !== sessionUser.id;
+    } else {
+      ({ workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(session, request));
+    }
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -332,6 +361,21 @@ export async function GET(request) {
     const authUserId = isActing ? sessionUser?.id || user.id : user.id;
     const now = new Date();
     const period = getCurrentFiscalYearWindow({ now });
+    if (requestUrl.searchParams.get("portfolio_snapshot") === "1") {
+      const snapshots = await readPortfolioGivingSnapshots(user.id, constituentIds);
+      const byConstituentId = {};
+      const warnings = {};
+      for (const id of constituentIds) {
+        const row = snapshots.get(id);
+        if (row?.payload?.currentFyPeriod?.startDate === period.startDate && row.payload.currentFyGiving) {
+          byConstituentId[id] = row.payload.currentFyGiving;
+          if (Date.parse(row.stale_after) <= Date.now()) warnings[id] = "Showing last saved giving; overnight refresh is pending.";
+        } else warnings[id] = "Giving has not been refreshed for this fiscal year yet.";
+      }
+      return Response.json({ period, byConstituentId, warnings, source: "portfolio_snapshot" },
+        { headers: { "Cache-Control": "private, no-store" } });
+    }
+    const strict = requestUrl.searchParams.get("portfolio_refresh") === "1";
     const cacheKey = getCacheKey({
       userId: user.id,
       authUserId,
@@ -339,7 +383,7 @@ export async function GET(request) {
       period,
     });
     const cached = summaryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (!strict && cached && cached.expiresAt > Date.now()) {
       return Response.json(cached.payload, {
         headers: { "Cache-Control": "private, no-store" },
       });
@@ -359,12 +403,11 @@ export async function GET(request) {
       pageLimit: PORTFOLIO_GIFT_PAGE_LIMIT,
       maxPages: PORTFOLIO_GIFT_MAX_PAGES,
       includePageMetadata: true,
+      strictResponse: strict,
     });
     const portfolioGiftListWasTruncated =
       !Array.isArray(portfolioGiftResponse) && Boolean(portfolioGiftResponse?.hasMore);
-    let gifts = Array.isArray(portfolioGiftResponse)
-      ? portfolioGiftResponse
-      : portfolioGiftResponse?.gifts || [];
+    let gifts = responseGifts(portfolioGiftResponse, strict);
     let warnings = {};
 
     // A combined portfolio list can contain far more gifts than the dashboard
@@ -377,6 +420,7 @@ export async function GET(request) {
         authUserId,
         origin,
         period,
+        strict,
       });
       gifts = constituentGiftLists.gifts;
       warnings = constituentGiftLists.warnings;
@@ -388,12 +432,14 @@ export async function GET(request) {
       userId: user.id,
       authUserId,
       origin,
+      strict,
     });
     let realizedPlannedGiftIds = await getRealizedPlannedGiftIds({
       gifts: enrichedGifts,
       userId: user.id,
       authUserId,
       origin,
+      strict,
     });
     let summary = calculateCurrentFiscalYearGiving({
       constituentIds,
@@ -420,6 +466,7 @@ export async function GET(request) {
         authUserId,
         origin,
         period,
+        strict,
       });
       gifts = mergeUniqueGifts(gifts, constituentGiftLists.gifts);
       warnings = { ...warnings, ...constituentGiftLists.warnings };
@@ -429,12 +476,14 @@ export async function GET(request) {
         userId: user.id,
         authUserId,
         origin,
+        strict,
       });
       realizedPlannedGiftIds = await getRealizedPlannedGiftIds({
         gifts: enrichedGifts,
         userId: user.id,
         authUserId,
         origin,
+        strict,
       });
       summary = calculateCurrentFiscalYearGiving({
         constituentIds,
@@ -469,8 +518,12 @@ export async function GET(request) {
           error instanceof Error && error.message
             ? error.message
             : "Failed to fetch current fiscal year giving",
+        providerStatus: Number(error?.httpStatus) || null,
+        retryAfterMs: Number(error?.retryAfterMs) || null,
+        quotaPaused: isBlackbaudQuotaExceededError(error),
       },
-      { status: 500 },
+      { status: isBlackbaudQuotaExceededError(error) ? 503 : Number(error?.httpStatus) === 429 ? 429 : 500,
+        headers: error?.retryAfterMs ? { "Retry-After": String(Math.ceil(error.retryAfterMs / 1000)) } : undefined },
     );
   }
 }

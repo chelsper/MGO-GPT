@@ -832,6 +832,7 @@ export async function fetchAnnualGivingSocieties({
   lifetimeGiving,
   loadLifetimeGiving,
   resolveRealizedPlannedGiftIds,
+  strict = false,
 } = {}) {
   if (!listGifts) {
     throw new Error("A Blackbaud gift list function is required");
@@ -863,14 +864,14 @@ export async function fetchAnnualGivingSocieties({
     lifetimeGiving !== undefined
       ? Promise.resolve(lifetimeGiving)
       : typeof loadLifetimeGiving === "function"
-        ? Promise.resolve().then(loadLifetimeGiving).catch(() => null)
+        ? Promise.resolve().then(loadLifetimeGiving).catch((error) => { if (strict) throw error; return null; })
         : Promise.resolve(null),
   ]);
   const realizedPlannedGiftIds =
     typeof resolveRealizedPlannedGiftIds === "function"
       ? await Promise.resolve()
           .then(() => resolveRealizedPlannedGiftIds(gifts))
-          .catch(() => new Set())
+          .catch((error) => { if (strict) throw error; return new Set(); })
       : new Set();
 
   return calculateAnnualGivingSocieties({

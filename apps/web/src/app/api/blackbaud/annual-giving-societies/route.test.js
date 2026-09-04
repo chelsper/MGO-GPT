@@ -8,6 +8,13 @@ const listBlackbaudGiftsMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 const listGivingSocietyConfigurationsMock = vi.fn();
 const getRealizedPlannedGiftIdsMock = vi.fn();
+const sqlMock = vi.fn();
+
+vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
+
+function giftResponse(gifts) {
+  return { gifts, pageCount: 1, hasMore: false };
+}
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -53,6 +60,8 @@ describe("annual giving societies batch route", () => {
     blackbaudApiFetchMock.mockReset();
     listGivingSocietyConfigurationsMock.mockReset();
     getRealizedPlannedGiftIdsMock.mockReset();
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValue([]);
 
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -100,12 +109,22 @@ describe("annual giving societies batch route", () => {
     vi.useRealTimers();
   });
 
+  it("uses persisted societies without triggering a new gift lookup on portfolio visits", async () => {
+    const saved = { societies: [{ label: "Saved society" }] };
+    sqlMock.mockResolvedValueOnce([{ constituent_id: "123", payload: { mapped: { annualGivingSocieties: saved } }, stale_after: "2026-01-01" }]);
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.com/api/blackbaud/annual-giving-societies?constituentId=123&portfolio_snapshot=1"));
+    expect((await response.json()).byConstituentId["123"]).toEqual(saved);
+    expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns annual giving society data keyed by constituent ID", async () => {
     const { GET } = await import("./route.js");
 
     listBlackbaudGiftsMock.mockImplementation(async ({ searchParams }) => {
       if (searchParams.constituent_id === "123") {
-        return [
+        return giftResponse([
           {
             id: "gift-1",
             constituent_id: "123",
@@ -113,9 +132,9 @@ describe("annual giving societies batch route", () => {
             date: "2026-07-01T00:00:00.000Z",
             amount: { value: 12500 },
           },
-        ];
+        ]);
       }
-      return [];
+      return giftResponse([]);
     });
 
     const response = await GET(
@@ -140,7 +159,7 @@ describe("annual giving societies batch route", () => {
       if (searchParams.constituent_id === "456") {
         throw new Error("Blackbaud gift lookup failed");
       }
-      return [
+      return giftResponse([
         {
           id: "gift-1",
           constituent_id: searchParams.constituent_id,
@@ -148,7 +167,7 @@ describe("annual giving societies batch route", () => {
           date: "2026-07-01T00:00:00.000Z",
           amount: { value: 1500 },
         },
-      ];
+      ]);
     });
 
     const response = await GET(
@@ -195,7 +214,7 @@ describe("annual giving societies batch route", () => {
         displayOrder: 2,
       },
     ]);
-    listBlackbaudGiftsMock.mockResolvedValue([
+    listBlackbaudGiftsMock.mockResolvedValue(giftResponse([
       {
         id: "gift-1",
         constituent_id: "123",
@@ -203,7 +222,7 @@ describe("annual giving societies batch route", () => {
         date: "2026-07-01T00:00:00.000Z",
         amount: { value: 12500 },
       },
-    ]);
+    ]));
     blackbaudApiFetchMock.mockResolvedValue({
       total_giving: { value: 1000000 },
       total_received_giving: { value: 750000 },

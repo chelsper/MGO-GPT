@@ -30,6 +30,18 @@ function getNewYorkHour(now = new Date()) {
 }
 
 async function getRefreshTarget() {
+  // Membership must not wait behind a multi-night enrichment backlog.
+  const staleAssignments = await sql`
+    SELECT id AS workspace_user_id, blackbaud_portfolio_cached_at
+    FROM users
+    WHERE active = TRUE AND blackbaud_portfolio_cache IS NOT NULL
+      AND (blackbaud_portfolio_cached_at IS NULL
+        OR blackbaud_portfolio_cached_at <= NOW() - INTERVAL '20 hours')
+    ORDER BY blackbaud_portfolio_cached_at ASC NULLS FIRST, id ASC LIMIT 1
+  `;
+  if (staleAssignments[0]) return {
+    workspaceUserId: staleAssignments[0].workspace_user_id, refreshAssignments: true, job: null,
+  };
   const activeJobs = await sql`
     SELECT id, workspace_user_id, status, paused_until, updated_at
     FROM portfolio_refresh_jobs
@@ -71,11 +83,17 @@ async function getRefreshTarget() {
       LEFT JOIN portfolio_constituent_snapshots AS snapshot
         ON snapshot.workspace_user_id = portfolio_ids.workspace_user_id
        AND snapshot.constituent_id = portfolio_ids.constituent_id
+      LEFT JOIN portfolio_giving_snapshots AS giving
+        ON giving.workspace_user_id = portfolio_ids.workspace_user_id
+       AND giving.constituent_id = portfolio_ids.constituent_id
       WHERE snapshot.id IS NULL
         OR snapshot.data_complete = FALSE
         OR snapshot.summary_payload IS NULL
         OR snapshot.stale_after IS NULL
         OR snapshot.stale_after <= NOW()
+        OR snapshot.last_error_stage IS NOT NULL
+        OR giving.constituent_id IS NULL
+        OR giving.stale_after <= NOW()
       GROUP BY portfolio_ids.workspace_user_id, portfolio_ids.blackbaud_portfolio_cached_at
     )
     SELECT
@@ -92,6 +110,15 @@ async function getRefreshTarget() {
       LIMIT 1
     ) AS latest_job ON TRUE
     WHERE stale_counts.stale_count > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM portfolio_refresh_jobs AS attempted
+        WHERE attempted.workspace_user_id = stale_counts.workspace_user_id
+          AND attempted.mode = 'nightly'
+          AND attempted.status IN ('completed', 'completed_with_failures', 'cancelled')
+          AND attempted.created_at >= (
+            date_trunc('day', NOW() AT TIME ZONE 'America/New_York') + INTERVAL '1 hour'
+          ) AT TIME ZONE 'America/New_York'
+      )
     ORDER BY latest_job.completed_at ASC NULLS FIRST, stale_counts.workspace_user_id ASC
     LIMIT 1
   `;
@@ -104,27 +131,7 @@ async function getRefreshTarget() {
     };
   }
 
-  // Refresh portfolio membership even when every existing summary is current.
-  // A newly assigned constituent will then enter the next stale-only manifest.
-  const staleAssignments = await sql`
-    SELECT id AS workspace_user_id, blackbaud_portfolio_cached_at
-    FROM users
-    WHERE active = TRUE
-      AND blackbaud_portfolio_cache IS NOT NULL
-      AND (
-        blackbaud_portfolio_cached_at IS NULL
-        OR blackbaud_portfolio_cached_at <= NOW() - INTERVAL '20 hours'
-      )
-    ORDER BY blackbaud_portfolio_cached_at ASC NULLS FIRST, id ASC
-    LIMIT 1
-  `;
-  if (!staleAssignments[0]) return null;
-  return {
-    job: null,
-    workspaceUserId: staleAssignments[0].workspace_user_id,
-    portfolioCachedAt: staleAssignments[0].blackbaud_portfolio_cached_at,
-    staleCount: 0,
-  };
+  return null;
 }
 
 async function callRefreshRoute({ origin, authorization, workspaceUserId, body, path }) {
@@ -173,7 +180,7 @@ export async function GET(request) {
 
   const target = await getRefreshTarget();
   if (!target) {
-    return Response.json({ status: "complete", reason: "No stale portfolio summaries remain." });
+    return Response.json({ status: "complete", reason: "Portfolio maintenance is current or already attempted this night." });
   }
 
   const authorization = request.headers.get("authorization") || "";
@@ -205,7 +212,7 @@ export async function GET(request) {
     if (!job) {
       // Refresh assignment membership once before constructing a new manifest.
       // This call persists every assignment before enrichment starts.
-      await callRefreshRoute({
+      if (target.refreshAssignments) await callRefreshRoute({
         origin: url.origin,
         authorization,
         workspaceUserId: target.workspaceUserId,
@@ -216,7 +223,7 @@ export async function GET(request) {
         authorization,
         workspaceUserId: target.workspaceUserId,
         path: "/api/blackbaud/portfolio-refresh",
-        body: { action: "start", mode: "stale" },
+        body: { action: "start", mode: "nightly" },
       });
       job = started?.job || null;
     }

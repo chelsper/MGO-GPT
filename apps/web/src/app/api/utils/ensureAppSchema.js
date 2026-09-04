@@ -136,6 +136,31 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      ALTER TABLE portfolio_constituent_snapshots
+      ADD COLUMN IF NOT EXISTS weekly_policy_applied BOOLEAN NOT NULL DEFAULT FALSE
+    `;
+    // One-time transition of valid existing summaries. Never renew a failed snapshot.
+    await sql`
+      UPDATE portfolio_constituent_snapshots
+      SET stale_after = CASE
+        WHEN data_complete AND summary_payload IS NOT NULL AND last_error_stage IS NULL
+          THEN last_refreshed_at + INTERVAL '7 days'
+        ELSE stale_after END,
+        weekly_policy_applied = TRUE
+      WHERE weekly_policy_applied = FALSE
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_giving_snapshots (
+        workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        constituent_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        refreshed_at TIMESTAMPTZ NOT NULL,
+        stale_after TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (workspace_user_id, constituent_id)
+      )
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS portfolio_refresh_jobs (
         id BIGSERIAL PRIMARY KEY,
         workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

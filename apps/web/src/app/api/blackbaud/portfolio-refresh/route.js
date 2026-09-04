@@ -2,6 +2,8 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { runPortfolioRefreshBatch } from "@/app/api/utils/portfolioRefreshPipeline";
+import { getPortfolioSummaryStaleAfter, isPortfolioSummaryCurrent, isPortfolioGivingCurrent, selectPortfolioRefreshIds, hasPortfolioSummaryChanges } from "@/app/api/utils/portfolioSummaryFreshness";
+import { readPortfolioGivingSnapshots } from "@/app/api/utils/portfolioGivingSnapshots";
 import {
   getReportRefreshUser,
   isAuthorizedReportRefreshRequest,
@@ -11,7 +13,6 @@ import { isAdminRole } from "@/utils/workspaceRoles";
 
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_CONCURRENCY = 2;
-const SNAPSHOT_STALE_MS = 24 * 60 * 60 * 1000;
 const PROCESSING_LEASE_MINUTES = 5;
 
 function parsePayload(value) {
@@ -38,6 +39,7 @@ function portfolioIds(payload) {
 }
 
 function numeric(value, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
@@ -126,22 +128,12 @@ async function getInventory(workspaceUserId, failedCount = 0) {
     return { total: 0, current: 0, stale: 0, failed: numeric(failedCount) };
   }
   const snapshots = await sql`
-    SELECT constituent_id, summary_payload, data_complete, stale_after
+    SELECT constituent_id, summary_payload, data_complete, stale_after, last_error_stage
     FROM portfolio_constituent_snapshots
     WHERE workspace_user_id = ${workspaceUserId}
       AND constituent_id = ANY(${ids})
   `;
-  const current = snapshots.filter((snapshot) => {
-    const staleAt = snapshot?.stale_after
-      ? new Date(snapshot.stale_after).getTime()
-      : 0;
-    return (
-      snapshot?.data_complete === true &&
-      Boolean(snapshot?.summary_payload) &&
-      Number.isFinite(staleAt) &&
-      staleAt > Date.now()
-    );
-  }).length;
+  const current = snapshots.filter((snapshot) => isPortfolioSummaryCurrent(snapshot)).length;
   return {
     total: ids.length,
     current,
@@ -255,12 +247,49 @@ function mergeWithLastGoodSummary(previous, current) {
       mapped[field] = previous.mapped[field];
     }
   }
-  return { ...current, mapped };
+  if (previous?.mapped?.prospectSummaryNarrative) mapped.prospectSummaryNarrative = previous.mapped.prospectSummaryNarrative;
+  return { ...current, mapped, summaryRefreshedAt: previous.summaryRefreshedAt };
+}
+
+async function requestPortfolioSummary({ request, item, workspaceUserId, givingOnly, fullRebuild }) {
+  const url = new URL(`/api/blackbaud/constituents/${encodeURIComponent(String(item.constituent_id))}/summary`, request.url);
+  url.searchParams.set("refresh", "1");
+  if (givingOnly) url.searchParams.set("giving_only", "1");
+  if (!fullRebuild) url.searchParams.set("reuse_giving", "1");
+  const scheduled = isAuthorizedReportRefreshRequest(request);
+  if (scheduled) url.searchParams.set("workspaceUserId", String(workspaceUserId));
+  const response = await fetch(url, {
+    headers: scheduled ? {
+      authorization: request.headers.get("authorization") || "",
+      "x-mgogpt-report-refresh": "scheduled",
+    } : { cookie: request.headers.get("cookie") || "" },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+  const info = {
+    payload,
+    apiCallCount: numeric(response.headers.get("x-mgogpt-nxt-api-calls")),
+    requestDurationMs: numeric(response.headers.get("x-mgogpt-nxt-request-duration-ms")),
+    lastEndpoint: response.headers.get("x-mgogpt-nxt-last-endpoint") || `/constituent/v1/constituents/${encodeURIComponent(String(item.constituent_id))}`,
+    providerStatus: numeric(response.headers.get("x-mgogpt-nxt-last-status"), numeric(payload?.providerStatus, response.status)),
+  };
+  if (!response.ok) {
+    const error = new Error(payload?.error || `Portfolio refresh returned ${response.status}`);
+    Object.assign(error, {
+      stage: "blackbaud_retrieval", httpStatus: info.providerStatus,
+      retryAfterMs: numeric(response.headers.get("x-mgogpt-nxt-retry-after-ms"), numeric(payload?.retryAfterMs)),
+      endpoint: info.lastEndpoint, apiCallCount: info.apiCallCount, requestDurationMs: info.requestDurationMs,
+      paused: response.status === 429 || payload?.quotaPaused === true,
+    });
+    throw error;
+  }
+  return info;
 }
 
 async function processItem({ request, item, job, workspaceUserId, authUserId }) {
   const startedAt = Date.now();
   let previousSummary = null;
+  let givingPhase = job.mode === "nightly";
   const endpoint = `/constituent/v1/constituents/${encodeURIComponent(
     String(item.constituent_id),
   )}`;
@@ -274,30 +303,41 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     // If a previous execution completed the shared snapshot but terminated
     // before checkpointing the item, recover without spending more API calls.
     const recoveredRows = await sql`
-      SELECT summary_payload, data_complete, stale_after
+      SELECT summary_payload, data_complete, stale_after, last_error_stage
       FROM portfolio_constituent_snapshots
       WHERE workspace_user_id = ${workspaceUserId}
         AND constituent_id = ${String(item.constituent_id)}
       LIMIT 1
     `;
     const recovered = recoveredRows[0];
-    const recoveredStaleAt = recovered?.stale_after
-      ? new Date(recovered.stale_after).getTime()
-      : 0;
+    let givingInfo = null;
+    let changed = false;
+    if (job.mode === "nightly") {
+      const saved = (await readPortfolioGivingSnapshots(workspaceUserId, [String(item.constituent_id)])).get(String(item.constituent_id));
+      let giving = saved?.payload;
+      if (!isPortfolioGivingCurrent({ giving_payload: giving, giving_stale_after: saved?.stale_after })) {
+        givingInfo = await requestPortfolioSummary({ request, item, workspaceUserId, givingOnly: true });
+        giving = givingInfo.payload;
+      }
+      if (!giving?.mapped?.lifetimeGiving || !giving?.currentFyGiving) {
+        throw Object.assign(new Error("Incomplete nightly giving snapshot"), { stage: "normalization" });
+      }
+      changed = hasPortfolioSummaryChanges(parsePayload(recovered?.summary_payload), giving);
+    }
+    givingPhase = false;
     if (
       job.mode !== "full" &&
-      recovered?.data_complete === true &&
-      recovered?.summary_payload &&
-      Number.isFinite(recoveredStaleAt) &&
-      recoveredStaleAt > Date.now()
+      isPortfolioSummaryCurrent(recovered) && !changed
     ) {
       await sql`
         UPDATE portfolio_refresh_items
         SET
           status = 'success',
-          stage = 'recovered_snapshot',
+          stage = ${givingInfo ? "giving_refreshed_summary_current" : "recovered_snapshot"},
           request_duration_ms = ${Date.now() - startedAt},
-          api_call_count = 0,
+          api_call_count = ${givingInfo?.apiCallCount || 0},
+          last_endpoint = ${givingInfo?.lastEndpoint || null},
+          http_status = ${givingInfo?.providerStatus || null},
           error_class = NULL,
           error_message = NULL,
           completed_at = NOW(),
@@ -312,63 +352,16 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
       return { status: "success", recovered: true };
     }
 
-    const url = new URL(
-      `/api/blackbaud/constituents/${encodeURIComponent(
-        String(item.constituent_id),
-      )}/summary`,
-      request.url,
-    );
-    url.searchParams.set("refresh", "1");
-    const scheduledRefresh = isAuthorizedReportRefreshRequest(request);
-    if (scheduledRefresh) {
-      url.searchParams.set("workspaceUserId", String(workspaceUserId));
-    }
-    const response = await fetch(url, {
-      headers: {
-        ...(scheduledRefresh
-          ? {
-              authorization: request.headers.get("authorization") || "",
-              "x-mgogpt-report-refresh": "scheduled",
-            }
-          : { cookie: request.headers.get("cookie") || "" }),
-      },
-      cache: "no-store",
-    });
-    const payload = await response.json().catch(() => null);
-    const apiCallCount = numeric(response.headers.get("x-mgogpt-nxt-api-calls"));
-    const requestDurationMs = numeric(
-      response.headers.get("x-mgogpt-nxt-request-duration-ms"),
-      Date.now() - startedAt,
-    );
-    const lastEndpoint =
-      response.headers.get("x-mgogpt-nxt-last-endpoint") || endpoint;
-    const providerStatus = numeric(
-      response.headers.get("x-mgogpt-nxt-last-status"),
-      numeric(payload?.providerStatus, response.status),
-    );
-    const retryAfterMs = numeric(
-      response.headers.get("x-mgogpt-nxt-retry-after-ms"),
-      numeric(payload?.retryAfterMs),
-    );
-
-    if (!response.ok) {
-      const paused = response.status === 429 || payload?.quotaPaused === true;
-      const error = new Error(payload?.error || `Summary refresh returned ${response.status}`);
-      error.stage = "blackbaud_retrieval";
-      error.httpStatus = providerStatus || response.status;
-      error.retryAfterMs = retryAfterMs;
-      error.endpoint = lastEndpoint;
-      error.apiCallCount = apiCallCount;
-      error.requestDurationMs = requestDurationMs;
-      error.paused = paused;
-      throw error;
-    }
+    const info = await requestPortfolioSummary({ request, item, workspaceUserId, fullRebuild: job.mode === "full" });
+    const { payload, lastEndpoint, providerStatus } = info;
+    const apiCallCount = info.apiCallCount + (givingInfo?.apiCallCount || 0);
+    const requestDurationMs = Date.now() - startedAt;
 
     const identity = payload?.mapped?.constituent;
     if (!identity?.id || !identity?.name) {
       const error = new Error("Blackbaud returned a malformed constituent identity");
       error.stage = "normalization";
-      error.httpStatus = providerStatus || response.status;
+      error.httpStatus = providerStatus;
       error.endpoint = lastEndpoint;
       error.apiCallCount = apiCallCount;
       error.requestDurationMs = requestDurationMs;
@@ -376,13 +369,16 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     }
 
     const previousRows = await sql`
-      SELECT summary_payload
+      SELECT summary_payload, last_refreshed_at
       FROM portfolio_constituent_snapshots
       WHERE workspace_user_id = ${workspaceUserId}
         AND constituent_id = ${String(item.constituent_id)}
       LIMIT 1
     `;
     previousSummary = parsePayload(previousRows[0]?.summary_payload);
+    if (previousSummary && !previousSummary.summaryRefreshedAt) {
+      previousSummary = { ...previousSummary, summaryRefreshedAt: previousRows[0]?.last_refreshed_at };
+    }
     const normalized = normalizedPayload(payload);
 
     // Persist the normalized provider snapshot before summary generation. A
@@ -404,7 +400,7 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
         ${String(item.constituent_id)},
         ${JSON.stringify(normalized)}::jsonb,
         FALSE,
-        ${new Date(Date.now() + SNAPSHOT_STALE_MS).toISOString()},
+        ${getPortfolioSummaryStaleAfter(payload)},
         ${identity?.date_modified || identity?.updated_at || null},
         NOW(),
         NULL,
@@ -413,11 +409,7 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
       )
       ON CONFLICT (workspace_user_id, constituent_id) DO UPDATE SET
         normalized_payload = EXCLUDED.normalized_payload,
-        stale_after = EXCLUDED.stale_after,
         source_updated_at = COALESCE(EXCLUDED.source_updated_at, portfolio_constituent_snapshots.source_updated_at),
-        last_refreshed_at = NOW(),
-        last_error_stage = NULL,
-        last_error_message = NULL,
         updated_at = NOW()
     `;
 
@@ -425,7 +417,7 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     if (!narrative) {
       const error = new Error("Summary generation returned no narrative");
       error.stage = "summary_generation";
-      error.httpStatus = providerStatus || response.status;
+      error.httpStatus = providerStatus;
       error.endpoint = lastEndpoint;
       error.apiCallCount = apiCallCount;
       error.requestDurationMs = requestDurationMs;
@@ -439,7 +431,11 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
       SET
         summary_payload = ${JSON.stringify(safeSummary)}::jsonb,
         data_complete = ${complete},
-        last_refreshed_at = NOW(),
+        stale_after = ${getPortfolioSummaryStaleAfter(payload)},
+        weekly_policy_applied = TRUE,
+        last_error_stage = ${complete ? null : "optional_enrichment"},
+        last_error_message = ${complete ? null : "Optional enrichment incomplete; previous values retained"},
+        last_refreshed_at = CASE WHEN ${complete} THEN NOW() ELSE last_refreshed_at END,
         updated_at = NOW()
       WHERE workspace_user_id = ${workspaceUserId}
         AND constituent_id = ${String(item.constituent_id)}
@@ -455,25 +451,25 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     await sql`
       UPDATE portfolio_refresh_items
       SET
-        status = 'success',
-        stage = 'complete',
+        status = ${complete ? "success" : "failed"},
+        stage = ${complete ? "complete" : "optional_enrichment"},
         last_endpoint = ${lastEndpoint},
-        http_status = ${providerStatus || response.status},
+        http_status = ${providerStatus},
         retry_after_ms = NULL,
         request_duration_ms = ${requestDurationMs},
         api_call_count = ${apiCallCount},
-        error_class = NULL,
-        error_message = NULL,
+        error_class = ${complete ? null : "IncompleteEnrichment"},
+        error_message = ${complete ? null : "Optional enrichment incomplete; previous values retained"},
         completed_at = NOW(),
         updated_at = NOW()
       WHERE id = ${item.id}
     `;
-    await sql`
+    if (complete) await sql`
       UPDATE portfolio_refresh_jobs
       SET last_successful_constituent_id = ${String(item.constituent_id)}, updated_at = NOW()
       WHERE id = ${job.id}
     `;
-    return { status: "success" };
+    return { status: complete ? "success" : "failed" };
   } catch (error) {
     const paused = error?.paused === true;
     const retryAfterMs = Math.max(0, numeric(error?.retryAfterMs));
@@ -518,7 +514,7 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
       `;
     }
 
-    await sql`
+    if (!givingPhase) await sql`
       UPDATE portfolio_constituent_snapshots
       SET
         last_error_stage = ${error?.stage || "unknown"},
@@ -561,7 +557,7 @@ export async function POST(request) {
   const workspaceUserId = context.workspaceUser.id;
 
   if (action === "start") {
-    const mode = body?.mode === "full" ? "full" : "stale";
+    const mode = ["full", "nightly"].includes(body?.mode) ? body.mode : "stale";
     if (mode === "full" && !isAdminRole(context.sessionUser?.role)) {
       return Response.json({ error: "Only an administrator can run a full rebuild" }, { status: 403 });
     }
@@ -587,30 +583,16 @@ export async function POST(request) {
       );
     }
     const snapshots = await sql`
-      SELECT constituent_id, summary_payload, data_complete, stale_after
-      FROM portfolio_constituent_snapshots
-      WHERE workspace_user_id = ${workspaceUserId}
-        AND constituent_id = ANY(${ids})
+      SELECT ids.constituent_id, summary.summary_payload, summary.data_complete,
+        summary.stale_after, summary.last_error_stage,
+        giving.payload AS giving_payload, giving.stale_after AS giving_stale_after
+      FROM unnest(${ids}::text[]) AS ids(constituent_id)
+      LEFT JOIN portfolio_constituent_snapshots AS summary
+        ON summary.workspace_user_id = ${workspaceUserId} AND summary.constituent_id = ids.constituent_id
+      LEFT JOIN portfolio_giving_snapshots AS giving
+        ON giving.workspace_user_id = ${workspaceUserId} AND giving.constituent_id = ids.constituent_id
     `;
-    const snapshotById = new Map(
-      snapshots.map((snapshot) => [String(snapshot.constituent_id), snapshot]),
-    );
-    const selectedIds =
-      mode === "full"
-        ? ids
-        : ids.filter((id) => {
-            const snapshot = snapshotById.get(id);
-            const staleAt = snapshot?.stale_after
-              ? new Date(snapshot.stale_after).getTime()
-              : 0;
-            return (
-              !snapshot ||
-              snapshot.data_complete !== true ||
-              !snapshot.summary_payload ||
-              !Number.isFinite(staleAt) ||
-              staleAt <= Date.now()
-            );
-          });
+    const selectedIds = selectPortfolioRefreshIds(ids, snapshots, mode);
     const jobs = await sql`
       INSERT INTO portfolio_refresh_jobs (
         workspace_user_id,
@@ -693,6 +675,9 @@ export async function POST(request) {
 
   if (job.cancel_requested || job.status === "cancelled") {
     return Response.json({ job: serializeJob(job) });
+  }
+  if (job.status === "paused" && Date.parse(job.paused_until || "") > Date.now()) {
+    return Response.json({ job: serializeJob(job), paused: true });
   }
   if (["completed", "completed_with_failures"].includes(job.status) && action === "process") {
     const failedItems = isAdminRole(context.sessionUser?.role)

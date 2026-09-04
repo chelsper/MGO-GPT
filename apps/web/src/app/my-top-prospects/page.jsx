@@ -1485,12 +1485,17 @@ function PortfolioRefreshProgress({
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <div style={{ color: "#1E3A8A", fontSize: "14px", fontWeight: 800 }}>
-            Cached intelligence refresh
+            {job?.mode === "nightly" ? "Nightly portfolio maintenance" : "Cached intelligence refresh"}
           </div>
           <div style={{ marginTop: "3px", color: "#475569", fontSize: "12px" }}>
             {inventory
               ? `${inventory.total} prospects · ${inventory.current} current · ${inventory.stale} stale · ${inventory.failed} failed`
               : "Checking cached portfolio summaries..."}
+          </div>
+          <div style={{ marginTop: "5px", color: "#475569", fontSize: "12px" }}>
+            Assignments and giving refresh overnight. Full summaries refresh every seven days,
+            sooner for detected giving or local proposal changes, or when you refresh one manually.
+            Saved data stays visible while updates run.
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -1511,6 +1516,11 @@ function PortfolioRefreshProgress({
               }}
             >
               {inventory?.stale ? `Refresh ${inventory.stale} stale` : "All summaries current"}
+            </button>
+          ) : null}
+          {!active && !paused ? (
+            <button type="button" onClick={() => onStart("nightly")} disabled={isPending} style={smallActionButton}>
+              Refresh stale giving
             </button>
           ) : null}
           {paused ? (
@@ -1951,6 +1961,14 @@ function PortfolioTier({
                         }}
                       >
                         {narrativeSummary}
+                        {summaryState?.payload?.summaryRefreshedAt ? (
+                          <div style={{ marginTop: "8px", fontSize: "11px", color: "#64748B" }}>
+                            Intelligence snapshot: {new Date(summaryState.payload.summaryRefreshedAt).toLocaleString()}.
+                            {summaryState.payload.givingRefreshedAt
+                              ? ` Giving figures updated: ${new Date(summaryState.payload.givingRefreshedAt).toLocaleString()}.`
+                              : ""}
+                          </div>
+                        ) : null}
                       </div>
                     ) : (
                       <div
@@ -8825,7 +8843,10 @@ export default function MyTopProspectsPage() {
       }));
       if (["completed", "completed_with_failures"].includes(payload?.job?.status)) {
         queryClient.invalidateQueries({ queryKey: ["blackbaud-portfolio"] });
+        queryClient.invalidateQueries({ queryKey: portfolioRefreshQueryKey });
       }
+      queryClient.invalidateQueries({ queryKey: ["portfolio-current-fy-giving", activeWorkspaceUserId] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-annual-giving-societies", activeWorkspaceUserId] });
     },
   });
   const portfolioRefreshJob = portfolioRefreshState?.job || null;
@@ -8889,6 +8910,7 @@ export default function MyTopProspectsPage() {
       )) {
         const params = new URLSearchParams();
         params.set("constituentIds", constituentIds.join(","));
+        params.set("portfolio_snapshot", "1");
         const res = await fetch(
           `/api/blackbaud/annual-giving-societies?${params.toString()}`,
         );
@@ -8964,6 +8986,7 @@ export default function MyTopProspectsPage() {
       )) {
         const params = new URLSearchParams();
         params.set("constituentIds", constituentIds.join(","));
+        params.set("portfolio_snapshot", "1");
         const res = await fetch(
           `/api/blackbaud/current-fy-giving?${params.toString()}`,
         );

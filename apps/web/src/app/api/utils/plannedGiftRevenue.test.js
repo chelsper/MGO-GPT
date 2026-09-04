@@ -12,7 +12,9 @@ vi.mock("./reportCache.js", () => ({
 import {
   getBlackbaudGiftId,
   getEmbeddedRealizedPlannedGiftIds,
+  getRealizedPlannedGiftIds,
 } from "./plannedGiftRevenue.js";
+import { listBlackbaudRealizedPlannedGiftRevenueGifts } from "./blackbaud.js";
 
 describe("planned gift revenue reconciliation", () => {
   it("uses only explicit relationships already present in a gift response", () => {
@@ -47,5 +49,21 @@ describe("planned gift revenue reconciliation", () => {
 
   it("does not turn a missing identifier into a valid gift ID", () => {
     expect(getBlackbaudGiftId({ gift_type: "Planned Gift" })).toBe("");
+  });
+
+  it.each([429, 403])("propagates HTTP %i rather than persisting incomplete nightly giving", async (httpStatus) => {
+    const error = Object.assign(new Error("Provider pause"), { httpStatus, retryAfterMs: 30000 });
+    listBlackbaudRealizedPlannedGiftRevenueGifts.mockRejectedValue(error);
+    await expect(getRealizedPlannedGiftIds({
+      gifts: [{ id: `strict-${httpStatus}`, gift_type: "Planned Gift" }],
+      userId: 7, origin: "https://example.com", strict: true,
+    })).rejects.toBe(error);
+  });
+
+  it("flags an incomplete bounded relationship pass in strict nightly mode", async () => {
+    await expect(getRealizedPlannedGiftIds({
+      gifts: [{ id: "strict-limit", gift_type: "Planned Gift" }],
+      userId: 7, origin: "https://example.com", strict: true, maxNetworkLookups: 0,
+    })).rejects.toThrow("lookup limit");
   });
 });

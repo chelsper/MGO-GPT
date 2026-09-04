@@ -223,6 +223,7 @@ export async function getRealizedPlannedGiftIds({
   authUserId,
   origin,
   maxNetworkLookups = MAX_NETWORK_LOOKUPS,
+  strict = false,
 } = {}) {
   const realizedPlannedGiftIds = getEmbeddedRealizedPlannedGiftIds(gifts);
   const plannedGiftIds = Array.from(
@@ -256,6 +257,9 @@ export async function getRealizedPlannedGiftIds({
     0,
     Math.max(0, Number(maxNetworkLookups) || 0),
   );
+  if (strict && lookupIds.length < pendingLookupIds.length) {
+    throw new Error("Planned-gift relationship lookup limit reached; previous giving snapshot retained");
+  }
   let nextIndex = 0;
   let shouldStop = false;
 
@@ -277,10 +281,11 @@ export async function getRealizedPlannedGiftIds({
             if (result.hasRealizedRevenue) {
               realizedPlannedGiftIds.add(plannedGiftId);
             }
-          } catch {
+          } catch (error) {
             // Do not make more calls after Blackbaud becomes unavailable. The
             // conservative result is to keep any unconfirmed planned gift.
             shouldStop = true;
+            if (strict) throw error;
           }
         }
       },

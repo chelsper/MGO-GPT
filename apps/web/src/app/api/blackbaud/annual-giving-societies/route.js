@@ -1,11 +1,10 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
-import {
-  blackbaudApiFetch,
-  getBlackbaudConfigIssues,
-  listBlackbaudGifts,
-} from "@/app/api/utils/blackbaud";
+import { getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
+import { createPortfolioGivingDataSource } from "@/app/api/utils/portfolioGivingDataCache";
+import { readPortfolioGivingSnapshots } from "@/app/api/utils/portfolioGivingSnapshots";
+import sql from "@/app/api/utils/sql";
 import { fetchAnnualGivingSocieties } from "../../utils/annualGivingSocieties.js";
 import { getRealizedPlannedGiftIds } from "../../utils/plannedGiftRevenue.js";
 import {
@@ -101,13 +100,34 @@ export async function GET(request) {
     const byConstituentId = {};
     const warnings = {};
 
+    if (new URL(request.url).searchParams.get("portfolio_snapshot") === "1") {
+      const snapshots = await readPortfolioGivingSnapshots(user.id, constituentIds);
+      const legacy = await sql`
+        SELECT constituent_id, summary_payload FROM portfolio_constituent_snapshots
+        WHERE workspace_user_id = ${user.id} AND constituent_id = ANY(${constituentIds})
+      `;
+      const previous = new Map(legacy.map((row) => [String(row.constituent_id), row.summary_payload]));
+      for (const id of constituentIds) {
+        const row = snapshots.get(id);
+        byConstituentId[id] = row?.payload?.mapped?.annualGivingSocieties || previous.get(id)?.mapped?.annualGivingSocieties || null;
+        if (!row || Date.parse(row.stale_after) <= Date.now() || row.payload?.givingSocietySignature !== givingSocietySignature) {
+          warnings[id] = "Showing last saved societies; overnight refresh is pending.";
+        }
+      }
+      return Response.json({ byConstituentId, warnings, givingSocietySignature },
+        { headers: { "Cache-Control": "private, no-store" } });
+    }
+
     await runWithConcurrency(
       constituentIds,
       CONCURRENT_REQUESTS,
       async (constituentId) => {
         try {
+          const givingData = createPortfolioGivingDataSource({
+            userId: user.id, authUserId, origin, constituentId,
+          });
           byConstituentId[constituentId] = await fetchAnnualGivingSocieties({
-            listGifts: listBlackbaudGifts,
+            listGifts: givingData.listGifts,
             userId: user.id,
             authUserId,
             origin,
@@ -120,17 +140,7 @@ export async function GET(request) {
                 authUserId,
                 origin,
               }),
-            loadLifetimeGiving: () =>
-              blackbaudApiFetch(
-                `/constituent/v1/constituents/${encodeURIComponent(
-                  constituentId,
-                )}/givingsummary/lifetimegiving`,
-                {
-                  userId: user.id,
-                  authUserId,
-                  origin,
-                },
-              ),
+            loadLifetimeGiving: givingData.loadLifetimeGiving,
           });
         } catch (error) {
           byConstituentId[constituentId] = null;

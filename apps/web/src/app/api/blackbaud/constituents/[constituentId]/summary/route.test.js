@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
+import { blackbaudApiFetch, getBlackbaudConfigIssues, listBlackbaudGifts } from "@/app/api/utils/blackbaud";
 
 vi.mock("@/auth", () => ({
   auth: vi.fn(),
@@ -362,5 +362,124 @@ describe("Blackbaud constituent summary identity language", () => {
     );
     await expect(response.json()).resolves.toEqual(snapshot);
     expect(blackbaudApiFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("portfolio badges and summary shared giving reads", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-03T16:00:00Z"));
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    getBlackbaudConfigIssues.mockReturnValue([]);
+    getWorkspaceUser.mockResolvedValue({
+      workspaceUser: { id: 42 }, sessionUser: { id: 42 }, isActing: false,
+    });
+    const entries = new Map();
+    sql.mockImplementation(async (strings, ...values) => {
+      const statement = strings.join(" ");
+      const offset = statement.includes("WITH expired") ? 4 : 0;
+      const key = JSON.stringify(values.slice(offset, offset + 3));
+      if (!String(values[offset + 2]).startsWith("portfolio-giving-v1|")) return [];
+      if (statement.includes("SELECT payload")) return entries.has(key) ? [{ payload: entries.get(key) }] : [];
+      if (statement.includes("INSERT INTO")) entries.set(key, JSON.parse(values[offset + 4]));
+      return [];
+    });
+    blackbaudApiFetch.mockImplementation(async (path) => {
+      if (path.endsWith("/lifetimegiving")) {
+        return { constituent_id: "123", total_giving: { value: 1500 } };
+      }
+      if (path.endsWith("/constituents/123")) {
+        return { id: "123", name: "Test Prospect" };
+      }
+      return { value: [] };
+    });
+    listBlackbaudGifts.mockResolvedValue({
+      gifts: [{ id: "gift-1", constituent_id: "123", gift_type: "Donation", amount: { value: 1500 }, date: "2026-08-03" }],
+      hasMore: false, pageCount: 1,
+    });
+  });
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  async function badges() {
+    const { GET } = await import("../../../annual-giving-societies/route.js");
+    return GET(new Request("https://jumgogpt.app/api/blackbaud/annual-giving-societies?constituentIds=123"));
+  }
+
+  async function summary(query = "refresh=1&reuse_giving=1") {
+    const { GET } = await import("./route.js");
+    return GET(new Request(`https://jumgogpt.app/api/blackbaud/constituents/123/summary?${query}`), { params: { constituentId: "123" } });
+  }
+
+  it("uses badge giving data in the stale-only summary job without repeat API calls", async () => {
+    const badgeResponse = await badges();
+    const badgeData = await badgeResponse.json();
+    const summaryResponse = await summary();
+    const summaryData = await summaryResponse.json();
+    expect(summaryResponse.status).toBe(200);
+    expect(summaryData.mapped.annualGivingSocieties).toEqual(badgeData.byConstituentId["123"]);
+    expect(summaryData.mapped.lifetimeGiving.totalGiving).toBe(1500);
+    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(1);
+    expect(summaryData.givingDataFreshUntil).toBe("2026-09-04T16:00:00.000Z");
+  });
+
+  it("persists a giving-only update without identity, relationship, education or narrative regeneration", async () => {
+    const response = await summary("giving_only=1&refresh=1");
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.currentFyGiving.recognizedReceived).toBe(1500);
+    expect(payload.mapped.prospectSummaryNarrative).toBeUndefined();
+    expect(blackbaudApiFetch.mock.calls.every(([path]) => path.endsWith("/lifetimegiving"))).toBe(true);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(true);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it("does not persist a giving snapshot if the FY gift request fails after lifetime data succeeds", async () => {
+    listBlackbaudGifts.mockImplementation(async ({ searchParams }) => {
+      if (Array.isArray(searchParams.constituent_id)) throw Object.assign(new Error("Rate limited"), { httpStatus: 429, retryAfterMs: 30000 });
+      return { gifts: [], hasMore: false };
+    });
+    const response = await summary("giving_only=1&refresh=1");
+    expect(response.status).toBe(429);
+    expect((await response.json()).retryAfterMs).toBe(30000);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(false);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it("also lets badge loading reuse data fetched first by a summary", async () => {
+    const first = await (await summary()).json();
+    const second = await (await badges()).json();
+    expect(second.byConstituentId["123"]).toEqual(first.mapped.annualGivingSocieties);
+    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(1);
+  });
+
+  it("still fetches fresh giving data for an individual manual refresh", async () => {
+    await badges();
+    const response = await summary("refresh=1");
+    expect(response.status).toBe(200);
+    expect(listBlackbaudGifts).toHaveBeenCalledTimes(2);
+    expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(2);
+  });
+
+  it("keeps the weekly summary deadline separate from older giving data expiry", async () => {
+    await badges();
+    vi.setSystemTime(new Date("2026-09-03T20:00:00Z"));
+    const response = await summary();
+    expect((await response.json()).givingDataFreshUntil).toBe("2026-09-04T16:00:00.000Z");
+    const snapshotWrite = sql.mock.calls.find(([strings]) => strings.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"));
+    expect(snapshotWrite).toContain("2026-09-10T20:00:00.000Z");
+    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not overwrite a good summary when a forced gift-history refresh is incomplete", async () => {
+    await summary();
+    sql.mockClear();
+    listBlackbaudGifts.mockResolvedValue({ gifts: [], hasMore: true, pageCount: 20 });
+    const response = await summary("refresh=1");
+    expect((await response.json()).warnings.annualGivingSocieties).toContain("incomplete");
+    expect(sql.mock.calls.some(([strings]) => strings.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
   });
 });
