@@ -2,6 +2,11 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import {
+  groupDiscussionConstituents,
+  replaceDiscussionConstituentLinks,
+  resolveDiscussionConstituents,
+} from "@/app/api/utils/discussionConstituents";
 
 function normalizeNumericId(value) {
   const parsed = Number(value);
@@ -59,6 +64,7 @@ export async function GET(request) {
         di.*,
         p.prospect_name,
         c.name AS constituent_name,
+        c.blackbaud_constituent_id,
         assigned_user.name AS assigned_user_name,
         creator.name AS created_by_name,
         po.title AS opportunity_title
@@ -91,8 +97,9 @@ export async function GET(request) {
     `;
 
     const discussionIds = rows.map((row) => row.id);
-    const participants = discussionIds.length
-      ? await sql`
+    const [participants, linkedConstituents] = discussionIds.length
+      ? await Promise.all([
+          sql`
           SELECT
             dip.discussion_item_id,
             dip.user_id,
@@ -102,8 +109,20 @@ export async function GET(request) {
           JOIN users u ON u.id = dip.user_id
           WHERE dip.discussion_item_id = ANY(${discussionIds})
           ORDER BY LOWER(u.name) ASC, LOWER(u.email) ASC
-        `
-      : [];
+        `,
+          sql`
+          SELECT
+            dic.discussion_item_id,
+            c.id AS constituent_id,
+            c.blackbaud_constituent_id,
+            c.name
+          FROM discussion_item_constituents dic
+          JOIN constituents c ON c.id = dic.constituent_id
+          WHERE dic.discussion_item_id = ANY(${discussionIds})
+          ORDER BY dic.discussion_item_id, dic.sort_order, dic.created_at
+        `,
+        ])
+      : [[], []];
 
     const participantsByDiscussionId = participants.reduce((accumulator, participant) => {
       const key = String(participant.discussion_item_id);
@@ -117,12 +136,34 @@ export async function GET(request) {
       });
       return accumulator;
     }, {});
+    const constituentsByDiscussionId = groupDiscussionConstituents(linkedConstituents);
 
     return Response.json(
-      rows.map((row) => ({
-        ...row,
-        tagged_users: participantsByDiscussionId[String(row.id)] || [],
-      })),
+      rows.map((row) => {
+        const linked = constituentsByDiscussionId[String(row.id)] || [];
+        const primary = row.constituent_id
+          ? {
+              constituent_id: row.constituent_id,
+              blackbaudConstituentId: row.blackbaud_constituent_id,
+              name: row.constituent_name,
+              isPrimaryAnchor: Boolean(row.prospect_id),
+            }
+          : null;
+        const combined = primary ? [primary, ...linked] : linked;
+        const seenConstituentIds = new Set();
+        return {
+          ...row,
+          tagged_users: participantsByDiscussionId[String(row.id)] || [],
+          linked_constituents: combined.filter((constituent) => {
+            const key = String(
+              constituent.blackbaudConstituentId || constituent.constituent_id,
+            );
+            if (seenConstituentIds.has(key)) return false;
+            seenConstituentIds.add(key);
+            return true;
+          }),
+        };
+      }),
     );
   } catch (error) {
     console.error("Error fetching discussion items:", error);
@@ -161,6 +202,7 @@ export async function POST(request) {
       dueDate,
       assignedUserId,
       taggedUserIds,
+      linkedConstituents,
     } = body || {};
 
     if (!subject?.trim()) {
@@ -186,6 +228,13 @@ export async function POST(request) {
 
     if (!resolvedConstituentId && constituentId != null) {
       resolvedConstituentId = await resolveLocalConstituentId(constituentId);
+    }
+    const resolvedLinkedConstituents = await resolveDiscussionConstituents(
+      user.id,
+      linkedConstituents,
+    );
+    if (!resolvedConstituentId && resolvedLinkedConstituents.length) {
+      resolvedConstituentId = resolvedLinkedConstituents[0].constituentId;
     }
 
     // Portfolio and action workflows sometimes start with only a constituent ID.
@@ -241,6 +290,12 @@ export async function POST(request) {
     `;
 
     const discussionItem = result[0];
+    if (resolvedLinkedConstituents.length) {
+      await replaceDiscussionConstituentLinks(
+        discussionItem.id,
+        resolvedLinkedConstituents,
+      );
+    }
     const uniqueTaggedUserIds = Array.from(
       new Set(
         (Array.isArray(taggedUserIds) ? taggedUserIds : [])
@@ -274,6 +329,11 @@ export async function POST(request) {
       {
         ...discussionItem,
         tagged_users: taggedUsers,
+        linked_constituents: resolvedLinkedConstituents.map((constituent) => ({
+          constituent_id: constituent.constituentId,
+          blackbaudConstituentId: constituent.blackbaudConstituentId,
+          name: constituent.name,
+        })),
       },
       { status: 201 },
     );

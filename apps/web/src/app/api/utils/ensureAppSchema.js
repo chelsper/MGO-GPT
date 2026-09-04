@@ -1394,6 +1394,20 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS discussion_item_constituents (
+        discussion_item_id BIGINT NOT NULL REFERENCES discussion_items(id) ON DELETE CASCADE,
+        constituent_id BIGINT NOT NULL REFERENCES constituents(id) ON DELETE CASCADE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (discussion_item_id, constituent_id)
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_discussion_item_constituents_constituent
+      ON discussion_item_constituents (constituent_id, discussion_item_id)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS portfolio_categories (
         id BIGSERIAL PRIMARY KEY,
         owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

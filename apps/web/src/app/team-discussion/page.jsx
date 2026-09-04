@@ -11,6 +11,8 @@ import {
   ListTodo,
 } from "lucide-react";
 import useUser from "@/utils/useUser";
+import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import DiscussionConstituentPicker from "@/components/DiscussionConstituentPicker";
 
 function formatShortDate(value) {
   if (!value) return "";
@@ -39,6 +41,20 @@ function getAnchorLabel(item) {
     item.initiative_name ||
     "General internal discussion"
   );
+}
+
+function getLinkedConstituents(item) {
+  if (Array.isArray(item.linked_constituents) && item.linked_constituents.length) {
+    return item.linked_constituents;
+  }
+  if (!item.constituent_id || !item.constituent_name) return [];
+  return [
+    {
+      constituent_id: item.constituent_id,
+      blackbaudConstituentId: item.blackbaud_constituent_id,
+      name: item.constituent_name,
+    },
+  ];
 }
 
 function getAnchorGroupKey(item) {
@@ -154,6 +170,7 @@ function DiscussionCard({
   const anchorLabel = getAnchorLabel(item);
   const isEditing = editingItem?.id === item.id;
   const dueDateLabel = item.due_date ? "Update due date" : "Set due date";
+  const linkedConstituents = getLinkedConstituents(item);
 
   const toggleTaggedUser = (userId) => {
     const normalized = String(userId);
@@ -301,6 +318,58 @@ function DiscussionCard({
           ))}
         </div>
       ) : null}
+      {linkedConstituents.length ? (
+        <div style={{ marginTop: "12px" }}>
+          <div style={{ marginBottom: "6px", color: "#64748B", fontSize: "11px", fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+            Discussion topics
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {linkedConstituents.map((constituent) => {
+              const profileUrl = buildBlackbaudConstituentProfileUrl(
+                constituent.blackbaudConstituentId,
+              );
+              const content = (
+                <>
+                  <UserRound size={14} aria-hidden="true" />
+                  {constituent.name}
+                </>
+              );
+              const style = {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "7px 10px",
+                borderRadius: "999px",
+                backgroundColor: "#EFF6FF",
+                color: "#1E40AF",
+                border: "1px solid #BFDBFE",
+                fontSize: "12px",
+                fontWeight: 700,
+                textDecoration: "none",
+              };
+              return profileUrl ? (
+                <a
+                  key={constituent.blackbaudConstituentId || constituent.constituent_id}
+                  href={profileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={style}
+                  title="Open NXT profile"
+                >
+                  {content}
+                </a>
+              ) : (
+                <span
+                  key={constituent.constituent_id || constituent.name}
+                  style={style}
+                >
+                  {content}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {isEditing ? (
         <div
           style={{
@@ -342,6 +411,12 @@ function DiscussionCard({
               }}
             />
           </label>
+
+          <DiscussionConstituentPicker
+            selected={editingItem.linkedConstituents || []}
+            onChange={(linkedConstituents) => onEdit(item, { linkedConstituents })}
+            disabled={pending}
+          />
 
           <div
             style={{
@@ -477,6 +552,7 @@ export default function TeamDiscussionPage() {
   const [createDueDate, setCreateDueDate] = useState("");
   const [createAssignedUserId, setCreateAssignedUserId] = useState("");
   const [createTaggedUserIds, setCreateTaggedUserIds] = useState([]);
+  const [createLinkedConstituents, setCreateLinkedConstituents] = useState([]);
   const [createError, setCreateError] = useState("");
   const [recentlySavedId, setRecentlySavedId] = useState(null);
 
@@ -537,6 +613,7 @@ export default function TeamDiscussionPage() {
       setCreateDueDate("");
       setCreateAssignedUserId("");
       setCreateTaggedUserIds([]);
+      setCreateLinkedConstituents([]);
       setCreateError("");
       queryClient.invalidateQueries({ queryKey: ["team-discussion"] });
     },
@@ -585,6 +662,7 @@ export default function TeamDiscussionPage() {
       taggedUserIds: (matchedItem.tagged_users || []).map((taggedUser) =>
         String(taggedUser.user_id),
       ),
+      linkedConstituents: getLinkedConstituents(matchedItem),
     });
     setViewMode("date");
     setStatusFilter(matchedItem.status || "Open");
@@ -618,12 +696,23 @@ export default function TeamDiscussionPage() {
     }
 
     if (viewMode === "constituent") {
-      return groupItems(filteredItems, (item) => {
-        const anchorLabel = getAnchorLabel(item);
+      const constituentItems = filteredItems.flatMap((item) => {
+        const linked = getLinkedConstituents(item);
+        return linked.length
+          ? linked.map((constituent) => ({ ...item, constituent_group: constituent }))
+          : [item];
+      });
+      return groupItems(constituentItems, (item) => {
+        const constituent = item.constituent_group;
+        const anchorLabel = constituent?.name || getAnchorLabel(item);
         return {
-          key: getAnchorGroupKey(item),
+          key: constituent
+            ? `constituent-${constituent.blackbaudConstituentId || constituent.constituent_id}`
+            : getAnchorGroupKey(item),
           label: anchorLabel,
-          description: item.prospect_name
+          description: constituent
+            ? "Discussion connected to this constituent"
+            : item.prospect_name
             ? "Discussion connected to a prospect workspace"
             : item.constituent_name
               ? "Discussion connected to a constituent"
@@ -758,6 +847,7 @@ export default function TeamDiscussionPage() {
       dueDate: createDueDate || null,
       assignedUserId: createAssignedUserId || null,
       taggedUserIds: createTaggedUserIds,
+      linkedConstituents: createLinkedConstituents,
     });
   };
 
@@ -1002,6 +1092,12 @@ export default function TeamDiscussionPage() {
                   />
                 </label>
 
+                <DiscussionConstituentPicker
+                  selected={createLinkedConstituents}
+                  onChange={setCreateLinkedConstituents}
+                  disabled={createMutation.isPending}
+                />
+
                 <div
                   style={{
                     display: "grid",
@@ -1169,6 +1265,7 @@ export default function TeamDiscussionPage() {
                           taggedUserIds: (currentItem.tagged_users || []).map((taggedUser) =>
                             String(taggedUser.user_id),
                           ),
+                          linkedConstituents: getLinkedConstituents(currentItem),
                           ...partial,
                         };
                       }
@@ -1185,6 +1282,7 @@ export default function TeamDiscussionPage() {
                         dueDate: editingItem.dueDate || null,
                         assignedUserId: editingItem.assignedUserId || null,
                         taggedUserIds: editingItem.taggedUserIds || [],
+                        linkedConstituents: editingItem.linkedConstituents || [],
                       },
                     });
                   }}

@@ -2,6 +2,10 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import {
+  replaceDiscussionConstituentLinks,
+  resolveDiscussionConstituents,
+} from "@/app/api/utils/discussionConstituents";
 
 export async function PATCH(request, { params }) {
   try {
@@ -27,10 +31,11 @@ export async function PATCH(request, { params }) {
       assignedUserId,
       initiativeName,
       taggedUserIds,
+      linkedConstituents,
     } = body || {};
 
     const existing = await sql`
-      SELECT id
+      SELECT id, prospect_id
       FROM discussion_items
       WHERE id = ${discussionId}
         AND (
@@ -50,6 +55,11 @@ export async function PATCH(request, { params }) {
       return Response.json({ error: "Discussion item not found" }, { status: 404 });
     }
 
+    const resolvedLinkedConstituents =
+      linkedConstituents === undefined
+        ? null
+        : await resolveDiscussionConstituents(user.id, linkedConstituents);
+
     const updates = [];
     const values = [];
     let paramCount = 0;
@@ -66,6 +76,9 @@ export async function PATCH(request, { params }) {
     if (status !== undefined) assign("status", status || "Open");
     if (assignedUserId !== undefined) assign("assigned_user_id", assignedUserId || null);
     if (initiativeName !== undefined) assign("initiative_name", initiativeName?.trim() || null);
+    if (resolvedLinkedConstituents && !existing[0].prospect_id) {
+      assign("constituent_id", resolvedLinkedConstituents[0]?.constituentId || null);
+    }
 
     assign("updated_at", new Date().toISOString());
 
@@ -119,6 +132,13 @@ export async function PATCH(request, { params }) {
       }
     }
 
+    if (resolvedLinkedConstituents) {
+      await replaceDiscussionConstituentLinks(
+        discussionId,
+        resolvedLinkedConstituents,
+      );
+    }
+
     const taggedUsers = await sql`
       SELECT u.id AS user_id, u.name, u.email
       FROM discussion_item_participants dip
@@ -126,10 +146,25 @@ export async function PATCH(request, { params }) {
       WHERE dip.discussion_item_id = ${discussionId}
       ORDER BY LOWER(u.name) ASC, LOWER(u.email) ASC
     `;
+    const linkedConstituentRows = await sql`
+      SELECT
+        c.id AS constituent_id,
+        c.blackbaud_constituent_id,
+        c.name
+      FROM discussion_item_constituents dic
+      JOIN constituents c ON c.id = dic.constituent_id
+      WHERE dic.discussion_item_id = ${discussionId}
+      ORDER BY dic.sort_order, dic.created_at
+    `;
 
     return Response.json({
       ...result[0],
       tagged_users: taggedUsers,
+      linked_constituents: linkedConstituentRows.map((constituent) => ({
+        constituent_id: constituent.constituent_id,
+        blackbaudConstituentId: constituent.blackbaud_constituent_id,
+        name: constituent.name,
+      })),
     });
   } catch (error) {
     console.error("Error updating discussion item:", error);

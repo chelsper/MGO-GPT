@@ -37,6 +37,10 @@ function createRequest(body) {
   });
 }
 
+function listRequest() {
+  return new Request("https://example.com/api/discussion-items?status=Open");
+}
+
 describe("discussion items route", () => {
   beforeEach(() => {
     sqlQueue.length = 0;
@@ -155,5 +159,99 @@ describe("discussion items route", () => {
     expect(response.status).toBe(201);
     const insertCall = sqlMockImpl.mock.calls[2];
     expect(insertCall[5]).toBeNull();
+  });
+
+  it("creates one discussion linked to multiple selected NXT constituents", async () => {
+    const { POST } = await import("./route.js");
+
+    queueSqlResult([
+      { id: 501, name: "Anna Arribas", blackbaud_constituent_id: "242718" },
+    ]);
+    queueSqlResult([]);
+    queueSqlResult([
+      { id: 502, name: "Rafael Arribas", blackbaud_constituent_id: "227337" },
+    ]);
+    queueSqlResult([]);
+    queueSqlResult([
+      {
+        id: 15,
+        owner_user_id: 44,
+        constituent_id: 501,
+        subject: "PPC strategy",
+        status: "Open",
+      },
+    ]);
+    queueSqlResult([]);
+    queueSqlResult([]);
+
+    const response = await POST(
+      createRequest({
+        subject: "PPC strategy",
+        linkedConstituents: [
+          { blackbaudConstituentId: "242718", name: "Anna Arribas" },
+          { blackbaudConstituentId: "227337", name: "Rafael Arribas" },
+          { blackbaudConstituentId: "242718", name: "Duplicate" },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.linked_constituents).toEqual([
+      {
+        constituent_id: 501,
+        blackbaudConstituentId: "242718",
+        name: "Anna Arribas",
+      },
+      {
+        constituent_id: 502,
+        blackbaudConstituentId: "227337",
+        name: "Rafael Arribas",
+      },
+    ]);
+    expect(String(sqlMockImpl.mock.calls[6][0])).toContain(
+      "INSERT INTO discussion_item_constituents",
+    );
+    expect(sqlMockImpl.mock.calls[6][1]).toEqual([15, 501, 0, 502, 1]);
+  });
+
+  it("returns every constituent topic in saved order", async () => {
+    const { GET } = await import("./route.js");
+
+    queueSqlResult([
+      {
+        id: 16,
+        owner_user_id: 44,
+        prospect_id: 88,
+        constituent_id: 501,
+        constituent_name: "Anna Arribas",
+        blackbaud_constituent_id: "242718",
+        subject: "PPC strategy",
+      },
+    ]);
+    queueSqlResult([]);
+    queueSqlResult([
+      {
+        discussion_item_id: 16,
+        constituent_id: 501,
+        blackbaud_constituent_id: "242718",
+        name: "Anna Arribas",
+      },
+      {
+        discussion_item_id: 16,
+        constituent_id: 502,
+        blackbaud_constituent_id: "227337",
+        name: "Rafael Arribas",
+      },
+    ]);
+
+    const response = await GET(listRequest());
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload[0].linked_constituents.map((entry) => entry.name)).toEqual([
+      "Anna Arribas",
+      "Rafael Arribas",
+    ]);
+    expect(payload[0].linked_constituents[0].isPrimaryAnchor).toBe(true);
   });
 });
