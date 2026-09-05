@@ -1,197 +1,104 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { executeBlackbaudListQueryMock, listBlackbaudActionsMock } = vi.hoisted(() => ({
+const { executeBlackbaudListQueryMock, listBlackbaudActionsMock, identityLookupMock } = vi.hoisted(() => ({
   executeBlackbaudListQueryMock: vi.fn(),
   listBlackbaudActionsMock: vi.fn(),
+  identityLookupMock: vi.fn(),
 }));
-
 vi.mock("@/app/api/utils/blackbaud", () => ({
   executeBlackbaudListQuery: executeBlackbaudListQueryMock,
   listBlackbaudActions: listBlackbaudActionsMock,
-  getBlackbaudFundraiserById: vi.fn().mockResolvedValue(null),
-  getBlackbaudConstituentById: vi.fn().mockResolvedValue(null),
+  getBlackbaudFundraiserById: identityLookupMock,
+  getBlackbaudConstituentById: identityLookupMock,
 }));
-
 import { getNxtActionSummaryByWorkspaceUser } from "./nxtActionTotals";
+import { buildStandingsActionQuery } from "./standingsActionQuery";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
-describe("getNxtActionSummaryByWorkspaceUser", () => {
-  beforeEach(() => {
-    executeBlackbaudListQueryMock.mockReset();
-    listBlackbaudActionsMock.mockReset();
-  });
+const workspaceUsers = [
+  { id: 1, name: "Alex Rivera", blackbaud_constituent_id: "101", blackbaud_lookup_id: "901" },
+  { id: 2, name: "Jordan Rivera", blackbaud_constituent_id: "102" },
+];
+const options = { workspaceUsers, authUserId: 7, origin: "https://example.org", fiscalYearStart: "2026-07-01", fiscalYearEnd: "2027-06-30" };
+const action = (id, fields = {}) => ({ system_record_id: id, action_date: "2026-09-01", fundraisers: [{ system_record_id: "101" }], ...fields });
+const comparison = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
+const comparisonOptions = {
+  ...options,
+  fiscalYearStart: comparison.prior.startsOn,
+  fiscalYearEnd: comparison.current.endsOn,
+  fiscalYears: comparison.actionFiscalYears,
+  periods: { current: comparison.current, prior: comparison.prior, week: comparison.week },
+};
 
-  it("falls back to another connected workspace user when the first action fetch fails", async () => {
-    executeBlackbaudListQueryMock
-      .mockRejectedValueOnce(new Error("Blackbaud is not connected for this user"))
-      .mockResolvedValueOnce([
-        {
-          id: "action-1",
-          action_date: "2026-08-14",
-          fundraisers: [{ constituent_id: "436887" }],
-          constituent_summary: {
-            system_record_id: "186057",
-            formatted_name: "Leslie M. Redd",
-          },
-          type: { description: "Visit" },
-          action_summary: {
-            note_summary: "Leadership meeting",
-          },
-        },
-      ]);
-    listBlackbaudActionsMock.mockRejectedValueOnce(
-      new Error("Blackbaud is not connected for this user"),
-    );
+beforeEach(() => {
+  executeBlackbaudListQueryMock.mockReset().mockResolvedValue([]);
+  listBlackbaudActionsMock.mockReset();
+  identityLookupMock.mockReset();
+});
 
-    const results = await getNxtActionSummaryByWorkspaceUser({
-      workspaceUsers: [
-        {
-          id: 22,
-          blackbaud_constituent_id: "436887",
-          blackbaud_lookup_id: "436887",
-          blackbaud_fundraiser_alias_ids: [],
-        },
-      ],
-      authUserId: 7,
-      origin: "https://www.jumgogpt.app",
-      fiscalYearStart: "2026-07-01",
-      fiscalYearEnd: "2027-06-30",
-    });
-
+describe("solicitor and fiscal-year scoped action retrieval", () => {
+  it("queries each full fiscal year using only the listed solicitor system IDs", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValueOnce([action("current")]).mockResolvedValueOnce([action("prior", { action_date: "2025-07-01" })]);
+    const result = await getNxtActionSummaryByWorkspaceUser(comparisonOptions);
     expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
-    expect(executeBlackbaudListQueryMock).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        userId: 7,
-        authUserId: 7,
-      }),
-    );
-    expect(executeBlackbaudListQueryMock).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        userId: 22,
-        authUserId: 22,
-      }),
-    );
-    expect(listBlackbaudActionsMock).toHaveBeenCalled();
-
-    expect(results.get(22)).toEqual({
-      actionsThisFY: 1,
-      highValueActionsThisFY: 0,
-      actions: [
-        {
-          actionId: "action-1",
-          date: "2026-08-14",
-          category: "",
-          type: "Visit",
-          highValue: false,
-          summary: "Leadership meeting",
-          blackbaudConstituentId: "186057",
-          constituentName: "Leslie M. Redd",
-        },
-      ],
+    comparison.actionFiscalYears.forEach((window, index) => {
+      expect(executeBlackbaudListQueryMock).toHaveBeenNthCalledWith(index + 1, {
+        userId: 7, authUserId: 7, origin: options.origin, dataModelName: "renxt-action",
+        definition: buildStandingsActionQuery({ fundraiserIds: ["101", "102"], ...window }),
+        limit: 250, maxPages: 20, requireComplete: true,
+      });
     });
+    expect(result.get(1)).toMatchObject({ actionsThisFY: 1, periods: { prior: { actions: 1 } } });
+    expect(listBlackbaudActionsMock).not.toHaveBeenCalled();
+    expect(identityLookupMock).not.toHaveBeenCalled();
   });
 
-  it("falls back to the legacy action list when the sorted list query is unavailable", async () => {
-    executeBlackbaudListQueryMock.mockRejectedValueOnce(new Error("List v2 unavailable"));
-    listBlackbaudActionsMock.mockResolvedValueOnce([
-      {
-        id: "action-3",
-        completed_date: "2026-10-01",
-        fundraisers: [{ constituent_id: "436887" }],
-        constituent_id: "186057",
-        constituent_name: "Leslie M. Redd",
-        category: "Call",
-        summary: "Legacy action payload",
-      },
+  it("accepts an empty fiscal year without another connection or broader endpoint", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValueOnce([]).mockResolvedValueOnce([action("prior", { category: "Meeting", action_date: "2025-08-01" })]);
+    const result = await getNxtActionSummaryByWorkspaceUser(comparisonOptions);
+    expect(result.get(1)).toMatchObject({ actionsThisFY: 0, highValueActionsThisFY: 0, periods: { prior: { highValueActions: 1 } } });
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
+    expect(listBlackbaudActionsMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["401", "403 quota", "429", "404", "NXT_INCOMPLETE_RESULTS"])("propagates %s without an unfiltered or alternate-user fallback", async (message) => {
+    executeBlackbaudListQueryMock.mockRejectedValue(new Error(message));
+    await expect(getNxtActionSummaryByWorkspaceUser(comparisonOptions)).rejects.toThrow(message);
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudActionsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not return a partial comparison when the second FY fails", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValueOnce([action("current")]).mockRejectedValueOnce(new Error("FY26 incomplete"));
+    await expect(getNxtActionSummaryByWorkspaceUser(comparisonOptions)).rejects.toThrow("FY26 incomplete");
+    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
+    expect(listBlackbaudActionsMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses to query if no listed solicitor has a system ID mapping", async () => {
+    await expect(getNxtActionSummaryByWorkspaceUser({ ...options, workspaceUsers: [{ id: 1, blackbaud_lookup_id: "901" }] })).rejects.toThrow("solicitor system IDs");
+    expect(executeBlackbaudListQueryMock).not.toHaveBeenCalled();
+  });
+
+  it("includes explicitly configured aliases, never an unrelated lookup ID", async () => {
+    const users = [{ ...workspaceUsers[0], blackbaud_fundraiser_alias_ids: ["103"] }];
+    executeBlackbaudListQueryMock.mockResolvedValue([
+      action("alias", { category: "Meeting", fundraisers: [{ system_record_id: "103" }] }),
+      action("lookup", { category: "Meeting", fundraisers: [{ system_record_id: "901" }] }),
     ]);
-
-    const results = await getNxtActionSummaryByWorkspaceUser({
-      workspaceUsers: [
-        {
-          id: 22,
-          blackbaud_constituent_id: "436887",
-          blackbaud_lookup_id: "436887",
-          blackbaud_fundraiser_alias_ids: [],
-        },
-      ],
-      authUserId: 7,
-      origin: "https://www.jumgogpt.app",
-      fiscalYearStart: "2026-07-01",
-      fiscalYearEnd: "2027-06-30",
-    });
-
-    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
-    expect(listBlackbaudActionsMock).toHaveBeenCalled();
-    expect(results.get(22)?.actionsThisFY).toBe(1);
-    expect(results.get(22)?.actions?.[0]?.summary).toBe("Legacy action payload");
-  });
-
-  it("keeps searching candidate connections until it finds the one with in-range FY actions", async () => {
-    executeBlackbaudListQueryMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: "action-7",
-          action_date: "2026-08-14",
-          fundraisers: [{ constituent_id: "436887" }],
-          constituent_summary: {
-            system_record_id: "186057",
-            formatted_name: "Leslie M. Redd",
-          },
-          type: { description: "Visit" },
-          action_summary: {
-            note_summary: "FY27 match from second connection",
-          },
-        },
-      ]);
-    listBlackbaudActionsMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-
-    const results = await getNxtActionSummaryByWorkspaceUser({
-      workspaceUsers: [
-        {
-          id: 22,
-          blackbaud_constituent_id: "186057",
-          blackbaud_lookup_id: "436887",
-          blackbaud_fundraiser_alias_ids: [],
-        },
-      ],
-      authUserId: 7,
-      origin: "https://www.jumgogpt.app",
-      fiscalYearStart: "2026-07-01",
-      fiscalYearEnd: "2027-06-30",
-    });
-
-    expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
-    expect(results.get(22)?.actionsThisFY).toBe(1);
-    expect(results.get(22)?.actions?.[0]?.summary).toBe(
-      "FY27 match from second connection",
-    );
+    const result = await getNxtActionSummaryByWorkspaceUser({ ...options, workspaceUsers: users });
+    expect(executeBlackbaudListQueryMock.mock.calls[0][0].definition).toEqual(buildStandingsActionQuery({ fundraiserIds: ["101", "103"], startsOn: options.fiscalYearStart, endsOn: options.fiscalYearEnd }));
+    expect(result.get(1).highValueActionsThisFY).toBe(1);
   });
 });
 
 describe("high-value NXT action scoring", () => {
-  const workspaceUsers = [
-    { id: 1, name: "Alex Rivera", blackbaud_constituent_id: "101" },
-    { id: 2, name: "Jordan Rivera", blackbaud_constituent_id: "102" },
-  ];
-  const options = { workspaceUsers, authUserId: 1, origin: "https://example.org", fiscalYearStart: "2026-07-01", fiscalYearEnd: "2027-06-30" };
-  const action = (id, fields = {}) => ({ id, action_date: "2026-09-01", fundraisers: [{ constituent_id: "101" }], ...fields });
-  beforeEach(() => {
-    executeBlackbaudListQueryMock.mockReset().mockResolvedValue([]);
-    listBlackbaudActionsMock.mockReset().mockResolvedValue([]);
-  });
-  it("counts Meeting OR Solicitation once, deduplicates action IDs and honors FY boundaries", async () => {
+  it("counts Meeting OR Solicitation once, deduplicates system IDs and honors inclusive FY boundaries", async () => {
     executeBlackbaudListQueryMock.mockResolvedValue([
       action("meeting", { category: " Meeting ", type: "Visit" }),
-      action("ask", { category: "Phone Call", type: { description: "solicitation" } }),
-      action("both", { category: { description: "MEETING" }, "type.description": "Solicitation" }),
-      action("both", { category: "Meeting", type: "Solicitation" }),
+      action("ask", { category: "Phone call", type: { description: "solicitation" } }),
+      action("both", { id: "modern-1", category: { description: "MEETING" }, "type.description": "Solicitation" }),
+      action("both", { id: "modern-2", category: "Meeting", type: "Solicitation" }),
       action("wrong-fields", { category: "Solicitation", type: "Meeting" }),
       action("not-exact", { category: "Meeting preparation", type: "Pre-Solicitation" }),
       action("old", { category: "Meeting", action_date: "2026-06-30" }),
@@ -205,46 +112,48 @@ describe("high-value NXT action scoring", () => {
     expect(result.get(1).actions.filter((item) => item.highValue)).toHaveLength(5);
     expect(result.get(2)).toMatchObject({ actionsThisFY: 0, highValueActionsThisFY: 0 });
   });
-  it("does not credit the subject constituent or a different fundraiser with the same surname", async () => {
+
+  it("credits only explicit action solicitors, not the subject constituent or a guessed name", async () => {
     executeBlackbaudListQueryMock.mockResolvedValue([
-      action("subject", { constituent_id: "101", fundraisers: [] , category: "Meeting" }),
-      action("shared", { category: "Meeting", fundraisers: [{ constituent_id: "101" }, { constituent_id: "101" }, { constituent_id: "102" }] }),
-      action("wrong-person", { category: "Meeting", fundraisers: [{ id: "103", name: "Taylor Rivera" }] }),
+      action("subject", { constituent_id: "101", fundraisers: [], category: "Meeting" }),
+      action("shared", { category: "Meeting", fundraisers: [{ system_record_id: "101" }, { system_record_id: "101" }, { system_record_id: "102" }] }),
+      action("wrong-person", { category: "Meeting", fundraisers: [{ system_record_id: "103", formatted_name: "Alex Rivera" }] }),
     ]);
     const result = await getNxtActionSummaryByWorkspaceUser(options);
     expect(result.get(1).highValueActionsThisFY).toBe(1);
     expect(result.get(2).highValueActionsThisFY).toBe(1);
+    expect(identityLookupMock).not.toHaveBeenCalled();
   });
-  it("distinguishes a confirmed empty feed from missing fundraiser identity", async () => {
+
+  it("distinguishes a confirmed empty feed from a missing identity", async () => {
     const result = await getNxtActionSummaryByWorkspaceUser({ ...options, workspaceUsers: [...workspaceUsers, { id: 3, name: "No mapping" }] });
     expect(result.get(1).highValueActionsThisFY).toBe(0);
     expect(result.get(3).highValueActionsThisFY).toBeNull();
   });
-  it("does not turn connection errors into a zero score", async () => {
-    executeBlackbaudListQueryMock.mockRejectedValue(new Error("429"));
-    listBlackbaudActionsMock.mockRejectedValue(new Error("403"));
-    await expect(getNxtActionSummaryByWorkspaceUser(options)).rejects.toThrow("could not be refreshed");
-  });
-  it("calculates YTD, prior YTD and week from one deduplicated action feed", async () => {
-    const { current, prior, week } = getStandingsPeriods(new Date("2026-09-04T15:00:00Z"));
+
+  it("uses action dates, never completion, creation or modification dates", async () => {
     executeBlackbaudListQueryMock.mockResolvedValue([
+      action("created", { action_date: null, date_added: "2026-09-01" }),
+      action("modified", { action_date: null, date_last_changed: "2026-09-01" }),
+      action("completed", { action_date: null, completed_date: "2026-09-01" }),
+      action("prior-action", { action_date: "2026-06-30", completed_date: "2026-09-01" }),
+    ]);
+    expect((await getNxtActionSummaryByWorkspaceUser(options)).get(1).actionsThisFY).toBe(0);
+  });
+
+  it("preserves matching YTD and weekly cutoffs within the full fiscal-year windows", async () => {
+    executeBlackbaudListQueryMock.mockResolvedValueOnce([
       action("now", { category: "Meeting", type: "Solicitation", action_date: "2026-08-25" }),
       action("now", { category: "Meeting", action_date: "2026-08-25" }),
       action("today", { type: "Solicitation", action_date: "2026-09-04" }),
+      action("future", { category: "Meeting", action_date: "2026-09-05" }),
+    ]).mockResolvedValueOnce([
       action("prior", { category: "Meeting", action_date: "2025-09-04" }),
       action("after-cutoff", { category: "Meeting", action_date: "2025-09-05" }),
-      action("future", { category: "Meeting", action_date: "2026-09-05" }),
-      action("record-date-only", { category: "Meeting", action_date: null, date_added: "2026-09-04" }),
     ]);
-    const result = await getNxtActionSummaryByWorkspaceUser({ ...options, fiscalYearStart: prior.startsOn, fiscalYearEnd: current.endsOn, periods: { current, prior, week }, requireComplete: true });
+    const result = await getNxtActionSummaryByWorkspaceUser(comparisonOptions);
     expect(result.get(1)).toMatchObject({ actionsThisFY: 2, highValueActionsThisFY: 2, periods: { prior: { highValueActions: 1 }, week: { highValueActions: 1 } } });
     expect(result.get(1).actions).toHaveLength(2);
     expect(executeBlackbaudListQueryMock).toHaveBeenCalledTimes(2);
-    expect(executeBlackbaudListQueryMock).toHaveBeenCalledWith(expect.objectContaining({ requireComplete: true }));
-  });
-  it("does not replace a capped feed with a smaller fallback and call it complete", async () => {
-    executeBlackbaudListQueryMock.mockRejectedValue(Object.assign(new Error("Pagination cap"), { code: "NXT_INCOMPLETE_RESULTS" }));
-    await expect(getNxtActionSummaryByWorkspaceUser({ ...options, requireComplete: true })).rejects.toThrow("Pagination cap");
-    expect(listBlackbaudActionsMock).not.toHaveBeenCalled();
   });
 });

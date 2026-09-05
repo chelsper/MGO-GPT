@@ -269,6 +269,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
         origin,
         fiscalYearStart: comparison.prior.startsOn,
         fiscalYearEnd: comparison.current.endsOn,
+        fiscalYears: comparison.actionFiscalYears,
         periods,
         requireComplete: true,
       }).catch(() => new Map())

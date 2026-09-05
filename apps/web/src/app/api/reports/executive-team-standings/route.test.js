@@ -165,6 +165,12 @@ describe("Team Standings report route", () => {
     expect(saveReportSnapshotMock).toHaveBeenCalledTimes(1);
     expect(getPeriodGivingByWorkspaceUserMock).toHaveBeenCalledTimes(1);
     expect(getNxtActionSummaryByWorkspaceUserMock).toHaveBeenCalledTimes(1);
+    expect(getNxtActionSummaryByWorkspaceUserMock).toHaveBeenCalledWith(expect.objectContaining({
+      fiscalYears: [
+        { ...payload.comparison.current, endsOn: `${Number(payload.comparison.current.startsOn.slice(0, 4)) + 1}-06-30` },
+        { ...payload.comparison.prior, endsOn: `${Number(payload.comparison.prior.startsOn.slice(0, 4)) + 1}-06-30` },
+      ],
+    }));
     expect(payload.comparison.current.endsOn.slice(5)).toBe(payload.comparison.prior.endsOn.slice(5));
     expect(payload.standings[0].priorYearToDate).toEqual({ raised: 20000, highValueActions: 2 });
     expect(payload.standings).toEqual([

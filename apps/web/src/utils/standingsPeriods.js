@@ -20,6 +20,10 @@ export function getStandingsPeriods(now = new Date()) {
     timeZone: "America/New_York",
     asOf: dayString(asOf),
     fiscalYear: { label: `FY${String(startYear + 1).slice(-2)}`, startsOn: `${startYear}-07-01`, endsOn: `${startYear + 1}-06-30` },
+    actionFiscalYears: [
+      { label: `FY${String(startYear + 1).slice(-2)}`, startsOn: `${startYear}-07-01`, endsOn: `${startYear + 1}-06-30` },
+      { label: `FY${String(startYear).slice(-2)}`, startsOn: `${startYear - 1}-07-01`, endsOn: `${startYear}-06-30` },
+    ],
     current: { label: `FY${String(startYear + 1).slice(-2)}`, startsOn: `${startYear}-07-01`, endsOn: dayString(asOf) },
     prior: { label: `FY${String(startYear).slice(-2)}`, startsOn: `${startYear - 1}-07-01`, endsOn: dayString(new Date(Date.UTC(year - 1, month - 1, priorDay))) },
     week: { label: "Last completed week", startsOn: dayString(weekStart), endsOn: dayString(weekEnd) },

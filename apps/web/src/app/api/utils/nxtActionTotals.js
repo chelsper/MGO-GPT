@@ -2,8 +2,8 @@ import {
   executeBlackbaudListQuery,
   getBlackbaudConstituentById,
   getBlackbaudFundraiserById,
-  listBlackbaudActions,
 } from "@/app/api/utils/blackbaud";
+import { buildStandingsActionQuery } from "@/app/api/utils/standingsActionQuery";
 import { normalizeBlackbaudFundraiserAliasIds } from "@/app/api/utils/closedFyGiftTotals";
 import { getNxtActionCategory, getNxtActionType, isHighValueAction } from "@/utils/highValueActions";
 import { isInStandingsPeriod } from "@/utils/standingsPeriods";
@@ -25,29 +25,25 @@ function firstDefined(source, paths) {
   return null;
 }
 
-function getActionDate(action, includeRecordDates = true) {
+function getActionDate(action) {
   return firstDefined(action, [
     "action_date",
     "action_summary.action_date",
-    "completed_date",
-    "completedDate",
-    "status_composite.completed_date",
-    "statusComposite.completedDate",
     "date",
     "actionDate",
-    ...(includeRecordDates ? ["date_added", "dateAdded", "date_last_changed", "dateLastChanged", "created_at", "createdAt"] : []),
   ]);
 }
 
 function getActionId(action) {
   return String(
-    firstDefined(action, ["id", "action_id", "actionId"]) || "",
+    firstDefined(action, ["system_record_id", "id", "action_id", "actionId"]) || "",
   ).trim();
 }
 
 function getActionFundraiserId(fundraiser) {
   return String(
     firstDefined(fundraiser, [
+      "system_record_id",
       "fundraiser_id",
       "fundraiserId",
       "constituent_id",
@@ -252,7 +248,7 @@ function normalizeWorkspaceFundraiserIds(user) {
   const seen = new Set();
   const candidates = [
     String(user?.blackbaud_constituent_id || "").trim(),
-    String(user?.blackbaud_lookup_id || "").trim(),
+    // Lookup IDs are not system record IDs and must not match another solicitor.
     ...normalizeBlackbaudFundraiserAliasIds(user?.blackbaud_fundraiser_alias_ids),
   ];
 
@@ -263,12 +259,6 @@ function normalizeWorkspaceFundraiserIds(user) {
   }
 
   return results;
-}
-
-function isDateInRange(value, startDate, endDate) {
-  const parsed = value ? new Date(value).getTime() : Number.NaN;
-  if (!Number.isFinite(parsed)) return false;
-  return parsed >= startDate && parsed <= endDate;
 }
 
 function isWorkspaceFundraiserMatchByName(fundraiserName, workspaceUser) {
@@ -345,7 +335,7 @@ async function resolveActionFundraiserDisplayName({
   return resolvedName;
 }
 
-async function listBlackbaudActionsWithFallback({
+async function listScopedBlackbaudActions({
   authUserId,
   normalizedUsers,
   origin,
@@ -353,172 +343,35 @@ async function listBlackbaudActionsWithFallback({
   maxPages,
   fiscalYearStart,
   fiscalYearEnd,
-  requireComplete = false,
+  fiscalYears,
 }) {
-  const startDate = fiscalYearStart
-    ? new Date(`${fiscalYearStart}T00:00:00Z`).getTime()
-    : Number.NaN;
-  const endDate = fiscalYearEnd
-    ? new Date(`${fiscalYearEnd}T23:59:59Z`).getTime()
-    : Number.NaN;
-  const candidateUserIds = [];
-  const seen = new Set();
-  const candidateResults = [];
-
-  for (const candidate of [authUserId, ...normalizedUsers.map((user) => user?.id)]) {
-    const userId = Number(candidate);
-    if (!Number.isFinite(userId) || seen.has(userId)) continue;
-    seen.add(userId);
-    candidateUserIds.push(userId);
-  }
-
-  for (const candidateUserId of candidateUserIds) {
-    const attempts = [];
-
-    const runAttempt = async (source, loader) => {
-      try {
-        const actions = await loader();
-        const inRangeCount = actions.reduce((count, action) => {
-          return isDateInRange(getActionDate(action), startDate, endDate) ? count + 1 : count;
-        }, 0);
-        attempts.push({
-          source,
-          actions,
-          totalCount: actions.length,
-          inRangeCount,
-          error: null,
-        });
-      } catch (error) {
-        if (requireComplete && error?.code === "NXT_INCOMPLETE_RESULTS") throw error;
-        attempts.push({
-          source,
-          actions: [],
-          totalCount: 0,
-          inRangeCount: 0,
-          error: error instanceof Error ? error.message : String(error || "Unknown error"),
-        });
-      }
-    };
-
-    await runAttempt("list-v2-sorted", async () =>
-      executeBlackbaudListQuery({
-        userId: candidateUserId,
-        authUserId: candidateUserId,
-        origin,
-        dataModelName: "renxt-action",
-        definition: {
-          output: {
-            items: [
-              { field_id: "constituent_summary" },
-              { field_id: "action_date" },
-              { field_id: "status_composite" },
-              { field_id: "action_summary" },
-              { field_id: "type.description" },
-              { field_id: "category" },
-              { field_id: "priority" },
-              { field_id: "fundraisers" },
-              { field_id: "date_added" },
-              { field_id: "date_last_changed" },
-            ],
-          },
-          sort: {
-            sort_fields: [
-              {
-                field_name: "action_date",
-                field_id: "action_date",
-                sort_order: "desc",
-              },
-              {
-                field_name: "date_added",
-                field_id: "date_added",
-                sort_order: "desc",
-              },
-            ],
-          },
-        },
-        limit: Math.min(pageLimit, 1000),
-        maxPages,
-        requireComplete,
-      }),
-    );
-
-    await runAttempt("legacy-last-modified", async () =>
-      listBlackbaudActions({
-        userId: candidateUserId,
-        authUserId: candidateUserId,
-        origin,
-        searchParams: fiscalYearStart
-          ? {
-              last_modified: fiscalYearStart,
-            }
-          : undefined,
-        pageLimit,
-        maxPages,
-        requireComplete,
-      }),
-    );
-
-    await runAttempt("legacy-default", async () =>
-      listBlackbaudActions({
-        userId: candidateUserId,
-        authUserId: candidateUserId,
-        origin,
-        pageLimit,
-        maxPages,
-        requireComplete,
-      }),
-    );
-
-    const bestAttempt = attempts
-      .filter((attempt) => !attempt.error)
-      .sort((left, right) => {
-        if (right.inRangeCount !== left.inRangeCount) {
-          return right.inRangeCount - left.inRangeCount;
-        }
-        if (right.totalCount !== left.totalCount) {
-          return right.totalCount - left.totalCount;
-        }
-        return 0;
-      })[0];
-
-    candidateResults.push({
-      candidateUserId,
-      bestAttempt: bestAttempt || null,
-      attempts: attempts.map((attempt) => ({
-        source: attempt.source,
-        totalCount: attempt.totalCount,
-        inRangeCount: attempt.inRangeCount,
-        error: attempt.error,
-      })),
+  const fundraiserIds = [...new Set(normalizedUsers.flatMap(normalizeWorkspaceFundraiserIds))];
+  const windows = fiscalYears || [{ startsOn: fiscalYearStart, endsOn: fiscalYearEnd }];
+  if (!windows.length) throw new Error("Team Standings requires an action date range.");
+  // Validate every window before making any NXT calls. One connection reads the
+  // explicitly selected solicitors; neither errors nor empty results widen scope.
+  const definitions = windows.map((window) => buildStandingsActionQuery({ fundraiserIds, ...window }));
+  const actions = [];
+  const attempts = [];
+  for (const [index, definition] of definitions.entries()) {
+    const rows = await executeBlackbaudListQuery({
+      userId: authUserId,
+      authUserId,
+      origin,
+      dataModelName: "renxt-action",
+      definition,
+      limit: Math.min(pageLimit, 1000),
+      maxPages,
+      requireComplete: true,
     });
+    actions.push(...rows);
+    attempts.push({ source: "list-v2-filtered", ...windows[index], totalCount: rows.length, error: null });
   }
-
-  const bestCandidate = candidateResults
-    .filter((candidate) => candidate.bestAttempt)
-    .sort((left, right) => {
-      if (right.bestAttempt.inRangeCount !== left.bestAttempt.inRangeCount) {
-        return right.bestAttempt.inRangeCount - left.bestAttempt.inRangeCount;
-      }
-      if (right.bestAttempt.totalCount !== left.bestAttempt.totalCount) {
-        return right.bestAttempt.totalCount - left.bestAttempt.totalCount;
-      }
-      return 0;
-    })[0];
-
-  if (bestCandidate?.bestAttempt) {
-    return {
-      actions: bestCandidate.bestAttempt.actions,
-      connectionUserId: bestCandidate.candidateUserId,
-      source: bestCandidate.bestAttempt.source,
-      attempts: bestCandidate.attempts,
-    };
-  }
-
   return {
-    actions: [],
+    actions,
     connectionUserId: Number(authUserId) || null,
-    source: "none",
-    attempts: [],
+    source: "list-v2-filtered",
+    attempts,
   };
 }
 
@@ -528,8 +381,8 @@ export async function getNxtActionSummaryByWorkspaceUser({
   origin,
   fiscalYearStart,
   fiscalYearEnd,
+  fiscalYears,
   periods,
-  requireComplete = false,
 }) {
   const normalizedUsers = Array.isArray(workspaceUsers)
     ? workspaceUsers.filter((user) => user?.id)
@@ -547,9 +400,7 @@ export async function getNxtActionSummaryByWorkspaceUser({
     );
   }
 
-  const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
-  const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
-  const { actions, connectionUserId, source } = await listBlackbaudActionsWithFallback({
+  const { actions } = await listScopedBlackbaudActions({
     authUserId,
     normalizedUsers,
     origin,
@@ -557,10 +408,8 @@ export async function getNxtActionSummaryByWorkspaceUser({
     maxPages: 20,
     fiscalYearStart,
     fiscalYearEnd,
-    requireComplete,
+    fiscalYears,
   });
-  if (source === "none") throw new Error("NXT action totals could not be refreshed");
-  const resolvedNameCache = new Map();
 
   const countsByUserId = new Map(
     normalizedUsers.map((user) => [Number(user.id), {
@@ -582,10 +431,8 @@ export async function getNxtActionSummaryByWorkspaceUser({
       seenActionIds.add(actionId);
     }
 
-    const actionDate = getActionDate(action, !periods);
-    const inRange = periods
-      ? isInStandingsPeriod(actionDate, { startsOn: fiscalYearStart, endsOn: fiscalYearEnd })
-      : isDateInRange(actionDate, startDate, endDate);
+    const actionDate = getActionDate(action);
+    const inRange = isInStandingsPeriod(actionDate, { startsOn: fiscalYearStart, endsOn: fiscalYearEnd });
     if (!inRange) {
       continue;
     }
@@ -603,27 +450,7 @@ export async function getNxtActionSummaryByWorkspaceUser({
 
     for (const [userId, identitySet] of identitySetsByUserId.entries()) {
       if (!identitySet?.size) continue;
-      let matched = Array.from(identitySet).some((identity) => fundraiserIds.has(identity));
-      if (!matched) {
-        const workspaceUser = normalizedUsers.find((user) => Number(user.id) === userId);
-        if (workspaceUser) {
-          for (const fundraiser of getActionFundraiserCandidates(action)) {
-            const fundraiserValue = fundraiser?.id ? fundraiser : fundraiser;
-            const resolvedName = await resolveActionFundraiserDisplayName({
-              fundraiser: fundraiserValue,
-              workspaceUser,
-              authUserId: connectionUserId || authUserId,
-              apiUserId: connectionUserId || authUserId,
-              origin,
-              cache: resolvedNameCache,
-            });
-            if (resolvedName && isWorkspaceFundraiserMatchByName(resolvedName, workspaceUser)) {
-              matched = true;
-              break;
-            }
-          }
-        }
-      }
+      const matched = Array.from(identitySet).some((identity) => fundraiserIds.has(identity));
       if (!matched) continue;
       const current = countsByUserId.get(userId) || { actionsThisFY: 0, highValueActionsThisFY: 0, actions: [] };
       if (periods) for (const [key, period] of Object.entries(periods)) {
@@ -675,9 +502,7 @@ export async function getNxtActionSummaryDiagnostic({
     );
   }
 
-  const startDate = new Date(`${fiscalYearStart}T00:00:00Z`).getTime();
-  const endDate = new Date(`${fiscalYearEnd}T23:59:59Z`).getTime();
-  const { actions, connectionUserId, source, attempts } = await listBlackbaudActionsWithFallback({
+  const { actions, connectionUserId, source, attempts } = await listScopedBlackbaudActions({
     authUserId,
     normalizedUsers,
     origin,
@@ -703,7 +528,7 @@ export async function getNxtActionSummaryDiagnostic({
         constituentName: getActionConstituentName(action) || null,
       });
     }
-    const inRange = isDateInRange(actionDate, startDate, endDate);
+    const inRange = isInStandingsPeriod(actionDate, { startsOn: fiscalYearStart, endsOn: fiscalYearEnd });
     if (!inRange) {
       outOfRangeCount.count += 1;
       continue;

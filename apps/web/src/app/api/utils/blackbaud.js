@@ -40,7 +40,7 @@ const BLACKBAUD_QUERY_JOBS_URL = `${BLACKBAUD_QUERY_URL}/jobs`;
 const BLACKBAUD_QUERY_PRODUCT = "RE";
 const BLACKBAUD_QUERY_MODULE = "None";
 const BLACKBAUD_LIST_V2_EXECUTE_QUERY_URL =
-  "https://api.sky.blackbaud.com/list/v2/execute-query";
+  "https://api.sky.blackbaud.com/lst-lists/executequery";
 const BLACKBAUD_REQUEST_TIMEOUT_MS = 15000;
 const BLACKBAUD_MAX_RETRIES = 2;
 const BLACKBAUD_QUOTA_STATE_KEY = "subscription";
@@ -2261,6 +2261,9 @@ export async function executeBlackbaudListQuery({
 
     if (requireComplete && !Array.isArray(payload?.items)) {
       throw Object.assign(new Error("NXT returned a malformed list query response"), { code: "NXT_INCOMPLETE_RESULTS" });
+    }
+    if (requireComplete && payload?.status && payload.status !== "Completed") {
+      throw Object.assign(new Error("NXT list query has not completed"), { code: "NXT_INCOMPLETE_RESULTS" });
     }
     const rows = Array.isArray(payload?.items) ? payload.items : [];
     results.push(...rows);
