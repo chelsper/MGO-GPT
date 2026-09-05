@@ -351,22 +351,48 @@ export function calculatePeriodGivingByWorkspaceUser({ workspaceUsers, gifts, pe
   }));
 }
 
+export function getGivingQueryWindows(periods) {
+  const requested = Object.values(periods || {}).map(({ startsOn, endsOn }) => ({ startsOn, endsOn }));
+  if (!requested.length || requested.some((window) =>
+    !isInStandingsPeriod(window.startsOn, window) || !isInStandingsPeriod(window.endsOn, window))) {
+    throw new Error("Valid giving comparison periods are required");
+  }
+  requested.sort((a, b) => a.startsOn.localeCompare(b.startsOn));
+  const windows = [];
+  for (const window of requested) {
+    const previous = windows.at(-1);
+    if (previous && window.startsOn <= previous.endsOn) {
+      if (window.endsOn > previous.endsOn) previous.endsOn = window.endsOn;
+    } else {
+      windows.push({ ...window });
+    }
+  }
+  return windows;
+}
+
 export async function getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserId, origin, periods }) {
   if (!workspaceUsers.length) return new Map();
-  const startsOn = Object.values(periods).map((period) => period.startsOn).sort()[0];
-  const endsOn = Object.values(periods).map((period) => period.endsOn).sort().at(-1);
+  const windows = getGivingQueryWindows(periods);
   const gifts = [];
-  // One shared, sequential feed for all MGOs and periods, with the same FY credit rules.
-  for (const giftType of CLOSED_FY_GIFT_TYPE_QUERIES) {
+  // Share each feed across the team, but never fetch the gap between YTD windows.
+  // Merge overlapping periods so the weekly comparison needs no duplicate calls.
+  for (const { startsOn, endsOn } of windows) for (const giftType of CLOSED_FY_GIFT_TYPE_QUERIES) {
     const page = await listBlackbaudGifts({
       userId: workspaceUsers[0].id, authUserId, origin,
       searchParams: { limit: 500, gift_type: giftType, start_gift_date: startsOn, end_gift_date: endsOn },
       pageLimit: 500, maxPages: 20, includePageMetadata: true, strictResponse: true,
     });
-    if (!Array.isArray(page?.gifts) || page.hasMore !== false) throw new Error("NXT comparison gift results are incomplete");
+    if (!Array.isArray(page?.gifts) || page.hasMore !== false) {
+      throw Object.assign(new Error("NXT comparison gift results are incomplete"), { code: "NXT_INCOMPLETE_RESULTS" });
+    }
     gifts.push(...page.gifts);
   }
-  const realizedPlannedGiftIds = await getRealizedPlannedGiftIds({ gifts, userId: workspaceUsers[0].id, authUserId, origin, strict: true });
+  const identities = new Set(workspaceUsers.flatMap((user) => [...getWorkspaceFundraiserIdSet(user)]));
+  const creditedGifts = dedupeGiftsById(gifts).filter((gift) =>
+    Object.values(periods).some((period) => isInStandingsPeriod(getGiftDate(gift), period)) &&
+    getGiftFundraiserCandidates(gift).some(({ value }) => isWorkspaceFundraiserIdMatch(value, identities)));
+  // Unrelated donors' planned gifts must not consume this team's relationship budget.
+  const realizedPlannedGiftIds = await getRealizedPlannedGiftIds({ gifts: creditedGifts, userId: workspaceUsers[0].id, authUserId, origin, strict: true });
   return calculatePeriodGivingByWorkspaceUser({ workspaceUsers, gifts, periods, realizedPlannedGiftIds });
 }
 

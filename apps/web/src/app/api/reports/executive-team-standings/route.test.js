@@ -320,6 +320,23 @@ describe("Team Standings report route", () => {
     const payload = await response.json();
     expect(payload.snapshotStatus).toBe("stale");
     expect(payload.standings[0].highValueActionsThisFiscalYear).toBe(4);
+    expect(payload.refreshUnavailableSources).toEqual([source === "actions" ? "actions" : "giving_comparison"]);
+    expect(payload.refreshWarning).toContain(source === "actions" ? "Action totals" : "FY-to-date giving totals");
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("identifies an incomplete gift comparison without exposing provider messages or overwriting the snapshot", async () => {
+    getPeriodGivingByWorkspaceUserMock.mockRejectedValue(Object.assign(new Error("private donor information https://example.org/?token=secret"), { code: "NXT_INCOMPLETE_RESULTS", httpStatus: 200 }));
+    const snapshot = { standings: [{ userId: 8, fundedThisFiscalYear: 24000 }], generatedAt: "2026-09-03T22:00:00Z" };
+    getCachedReportSnapshotMock.mockResolvedValue(snapshot);
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://example.org/api/reports/executive-team-standings?refresh=1"));
+    const payload = await response.json();
+    expect(payload.refreshFailures).toEqual([{ source: "giving_comparison", reason: "incomplete_results", httpStatus: null }]);
+    expect(payload.refreshWarning).toContain("FY-to-date giving totals");
+    expect(JSON.stringify(payload)).not.toMatch(/private donor|token=secret/);
+    expect(payload.standings).toEqual(snapshot.standings);
+    expect(payload.generatedAt).toBe(snapshot.generatedAt);
     expect(saveReportSnapshotMock).not.toHaveBeenCalled();
   });
 

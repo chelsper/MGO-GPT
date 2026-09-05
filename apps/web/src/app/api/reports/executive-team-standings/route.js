@@ -56,6 +56,36 @@ function asText(value) {
   return String(value || "").trim();
 }
 
+async function loadRefreshMetric(source, loader, failures) {
+  try {
+    return await loader();
+  } catch (error) {
+    const httpStatus = Number(error?.httpStatus);
+    const failure = {
+      source,
+      reason: error?.code === "NXT_INCOMPLETE_RESULTS" ? "incomplete_results" : "unavailable",
+      httpStatus: Number.isInteger(httpStatus) && httpStatus >= 400 && httpStatus <= 599 ? httpStatus : null,
+    };
+    // Never log provider bodies, donor data, credentials, or signed URLs here.
+    console.warn("Team Standings metric refresh failed", failure);
+    failures.push(failure);
+    return new Map();
+  }
+}
+
+function refreshWarning(payload, previousSnapshot) {
+  const labels = {
+    lifetime_credit: "Lifetime solicitor credit",
+    giving_comparison: "FY-to-date giving totals",
+    actions: "Action totals",
+  };
+  const sources = (payload.refreshUnavailableSources || []).map((source) => labels[source]).filter(Boolean);
+  const description = sources.length ? sources.join(" and ") : "Some NXT metrics";
+  return `${description} could not be refreshed for every active MGO. ${previousSnapshot
+    ? "The previous Team Standings snapshot is still displayed."
+    : "Missing values are unavailable, not zero, and are excluded from ranking. Other saved metrics are current."}`;
+}
+
 async function getCurrentUser(request) {
   await ensureAppSchema();
   if (isAuthorizedReportRefreshRequest(request)) {
@@ -249,21 +279,22 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     blackbaud_lookup_id: row.blackbaud_lookup_id,
     blackbaud_fundraiser_alias_ids: row.blackbaud_fundraiser_alias_ids,
   }));
+  const refreshFailures = [];
   const lifetimeGivingByUser = origin
-    ? await getLifetimeGivingTotalsForWorkspaceUsers({
+    ? await loadRefreshMetric("lifetime_credit", () => getLifetimeGivingTotalsForWorkspaceUsers({
         workspaceUsers,
         authUserId: authUser.id,
         origin,
-      }).catch(() => new Map())
+      }), refreshFailures)
     : new Map();
   const lifetimeCreditUnavailableUserIds = workspaceUsers
-    .filter((workspaceUser) => !lifetimeGivingByUser.has(workspaceUser.id))
+    .filter((workspaceUser) => !Number.isFinite(lifetimeGivingByUser.get(workspaceUser.id)))
     .map((workspaceUser) => workspaceUser.id);
   const givingTotalsByUser = origin
-    ? await getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserId: authUser.id, origin, periods }).catch(() => new Map())
+    ? await loadRefreshMetric("giving_comparison", () => getPeriodGivingByWorkspaceUser({ workspaceUsers, authUserId: authUser.id, origin, periods }), refreshFailures)
     : new Map();
   const nxtActionSummaryByUser = origin
-    ? await getNxtActionSummaryByWorkspaceUser({
+    ? await loadRefreshMetric("actions", () => getNxtActionSummaryByWorkspaceUser({
         workspaceUsers,
         authUserId: authUser.id,
         origin,
@@ -272,7 +303,7 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
         fiscalYears: comparison.actionFiscalYears,
         periods,
         requireComplete: true,
-      }).catch(() => new Map())
+      }), refreshFailures)
     : new Map();
   const activeProspectsByUser = new Map();
   for (const row of activeProspectRows) {
@@ -368,6 +399,14 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     },
   }));
 
+  const refreshUnavailableSources = new Set(refreshFailures.map(({ source }) => source));
+  if (lifetimeCreditUnavailableUserIds.length) refreshUnavailableSources.add("lifetime_credit");
+  if (standings.some((entry) => entry.fundedThisFiscalYear === null || entry.priorYearToDate.raised === null || entry.lastCompletedWeek.raised === null)) {
+    refreshUnavailableSources.add("giving_comparison");
+  }
+  if (standings.some((entry) => entry.highValueActionsThisFiscalYear === null || entry.priorYearToDate.highValueActions === null || entry.lastCompletedWeek.highValueActions === null)) {
+    refreshUnavailableSources.add("actions");
+  }
   return {
     fiscalYear,
     trendWindowDays: TREND_WINDOW_DAYS,
@@ -376,6 +415,8 @@ export async function buildExecutiveTeamStandingsPayload({ authUser, origin }) {
     scoringVersion: 2,
     comparison,
     generatedAt: new Date().toISOString(),
+    refreshUnavailableSources: [...refreshUnavailableSources],
+    refreshFailures,
     lifetimeCreditUnavailableUserIds: [...new Set(lifetimeCreditUnavailableUserIds)],
     scoringUnavailableUserIds: standings
       .filter((entry) => entry.fundedThisFiscalYear === null || entry.highValueActionsThisFiscalYear === null
@@ -433,8 +474,9 @@ export async function GET(request) {
           {
             ...cachedPayload,
             snapshotStatus: "stale",
-            refreshWarning:
-              "NXT gift credit or action totals could not be refreshed for every active MGO, so the previous Team Standings snapshot is still displayed.",
+            refreshWarning: refreshWarning(payload, true),
+            refreshUnavailableSources: payload.refreshUnavailableSources,
+            refreshFailures: payload.refreshFailures,
           },
           { headers: getReportCacheHeaders("stale") },
         );
@@ -447,8 +489,7 @@ export async function GET(request) {
       const partialPayload = {
         ...payload,
         snapshotStatus: "partial",
-        refreshWarning:
-          "Some NXT metrics could not be refreshed. Missing values are unavailable, not zero, and are excluded from ranking. Other saved metrics are current.",
+        refreshWarning: refreshWarning(payload, false),
       };
       await saveReportSnapshot(EXECUTIVE_TEAM_STANDINGS_CACHE_KEY, partialPayload);
 
