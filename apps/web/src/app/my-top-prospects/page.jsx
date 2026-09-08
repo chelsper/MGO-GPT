@@ -8732,7 +8732,7 @@ export default function MyTopProspectsPage() {
   const { data: closedSummary, isLoading: isClosedSummaryLoading, isError: isClosedSummaryError } = useQuery({
     queryKey: ["prospect-summary-closed", activeWorkspaceUserId, "standings-snapshot"],
     queryFn: async () => {
-      const res = await fetch("/api/prospects/summary");
+      const res = await fetch("/api/prospects/summary?source=team_standings");
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },

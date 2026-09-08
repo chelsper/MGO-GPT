@@ -7,8 +7,8 @@ import {
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
 import { getWorkspaceStandingsSummary } from "@/app/api/utils/teamStandingsSnapshot";
+import { getClosedFiscalYearSummary, getClosedFiscalYearWindow } from "@/app/api/utils/closedFyGiftTotals";
 import { getReportCacheHeaders } from "@/app/api/utils/reportCache";
-import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
 
@@ -834,6 +834,7 @@ export async function GET(request) {
     const debug = requestUrl ? requestUrl.searchParams.get("debug") === "1" : false;
     const includeClosed =
       requestUrl ? requestUrl.searchParams.get("includeClosed") !== "0" : true;
+    const useStandingsSnapshot = requestUrl?.searchParams.get("source") === "team_standings";
 
     // Count active prospects
     const activeResult = await sql`
@@ -844,10 +845,7 @@ export async function GET(request) {
       WHERE user_id = ${user.id} AND status = 'Active'
     `;
 
-    const periods = getStandingsPeriods();
-    const currentFY = periods.fiscalYear.label;
-    const priorFY = periods.prior.label;
-    const [currentWindow, priorWindow] = periods.actionFiscalYears;
+    const { currentFY, priorFY, fiscalYearStart, fiscalYearEnd, priorFiscalYearStart, priorFiscalYearEnd } = getClosedFiscalYearWindow();
 
     let closedThisFY = null;
     let closedPriorFY = null;
@@ -856,24 +854,29 @@ export async function GET(request) {
     let standingsSummary = null;
 
     if (includeClosed) {
-      if (!debug) {
+      if (!debug && useStandingsSnapshot) {
         standingsSummary = await getWorkspaceStandingsSummary(user.id);
+      } else if (!debug && origin) {
+        // My Reports retains its existing full-FY calculation and cache policy.
+        const closedSummary = await getClosedFiscalYearSummary({ workspaceUser: user, authUserId, origin });
+        closedThisFY = Number(closedSummary.closedThisFY || 0);
+        closedPriorFY = Number(closedSummary.closedPriorFY || 0);
       } else if (origin) {
         const [closedPayload, priorClosedPayload] = await Promise.all([
           getLiveBlackbaudClosedThisFY({
             user,
             authUserId,
             origin,
-            fiscalYearStart: currentWindow.startsOn,
-            fiscalYearEnd: currentWindow.endsOn,
+            fiscalYearStart,
+            fiscalYearEnd,
             debug: true,
           }).catch(() => ({ closedTotal: 0, debug: null })),
           getLiveBlackbaudClosedThisFY({
             user,
             authUserId,
             origin,
-            fiscalYearStart: priorWindow.startsOn,
-            fiscalYearEnd: priorWindow.endsOn,
+            fiscalYearStart: priorFiscalYearStart,
+            fiscalYearEnd: priorFiscalYearEnd,
             debug: true,
           }).catch(() => ({ closedTotal: 0, debug: null })),
         ]);

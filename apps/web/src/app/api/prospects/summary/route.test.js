@@ -11,13 +11,15 @@ vi.mock("@/app/api/utils/sql", () => ({ default: sql }));
 vi.mock("@/app/api/utils/blackbaud", () => ({
   getBlackbaudConstituentById: blackbaud, getBlackbaudFundraiserById: blackbaud, listBlackbaudGifts: blackbaud,
 }));
-vi.mock("@/app/api/utils/closedFyGiftTotals", () => ({ getClosedFiscalYearSummary: oldSummary }));
+vi.mock("@/app/api/utils/closedFyGiftTotals", async (importOriginal) => ({
+  ...await importOriginal(), getClosedFiscalYearSummary: oldSummary,
+}));
 vi.mock("@/app/api/utils/reportCache", async (importOriginal) => ({
   ...await importOriginal(), getCachedReportSnapshotWithMetadata: readSnapshot,
 }));
 
 const { GET } = await import("./route");
-const request = (query = "") => new Request(`https://example.com/api/prospects/summary${query}`);
+const request = (query = "") => new Request(`https://example.com/api/prospects/summary?source=team_standings&${query.replace(/^\?/, "")}`);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -40,6 +42,13 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe("My Prospects summary", () => {
+  it("preserves the existing full-year My Reports calculation for other callers", async () => {
+    const response = await GET(new Request("https://example.com/api/prospects/summary"));
+    expect(await response.json()).toMatchObject({ closedThisFY: 4000000, closedPriorFY: 590593.12 });
+    expect(oldSummary).toHaveBeenCalledWith({ workspaceUser: { id: 8, role: "mgo" }, authUserId: 8, origin: "https://example.com" });
+    expect(readSnapshot).not.toHaveBeenCalled();
+  });
+
   it("returns the leaderboard amounts without modifying local portfolio counts or running NXT", async () => {
     const response = await GET(request());
     expect(await response.json()).toMatchObject({
