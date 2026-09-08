@@ -99,7 +99,7 @@ describe("constituency import source overrides route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeEducationRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
 
@@ -133,7 +133,7 @@ describe("constituency import source overrides route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeAddressRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 

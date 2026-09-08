@@ -111,7 +111,7 @@ describe("constituency import row detail route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     getBlackbaudConstituentByIdMock.mockResolvedValue({
@@ -168,6 +168,30 @@ describe("constituency import row detail route", () => {
     );
   });
 
+  it("does not reload a rejected match from the CSV's original system ID", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.matchReview = { decision: "rejected" };
+    row.preview.input.blackbaudConstituentId = "old-target";
+    sqlMock.mockResolvedValueOnce([row]);
+    const response = await POST(makeRequest({ scopes: ["profile"] }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(409);
+    expect(sqlMock).toHaveBeenCalledOnce();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a newer match decision with an older hydration response", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([makeRow()]).mockResolvedValueOnce([]);
+    const response = await POST(makeRequest({ scopes: [] }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("old details were not saved");
+    const sqlText = sqlMock.mock.calls[1][0].join(" ");
+    expect(sqlText).toContain("preview IS NOT DISTINCT FROM");
+    expect(sqlText).toContain("matched_blackbaud_constituent_id IS NOT DISTINCT FROM");
+  });
+
   it("clears a stale saved quota pause after a scoped profile refresh succeeds", async () => {
     const { POST } = await import("./route.js");
     const row = makeRow();
@@ -181,7 +205,7 @@ describe("constituency import row detail route", () => {
     row.blackbaud_error = quotaMessage;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     getBlackbaudConstituentByIdMock.mockResolvedValue({
@@ -250,7 +274,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
     getBlackbaudConstituentByIdMock.mockResolvedValue({
@@ -334,7 +358,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     getBlackbaudConstituentByIdMock.mockResolvedValue({
@@ -414,7 +438,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({ value: [] });
@@ -486,7 +510,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 
@@ -532,7 +556,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -613,7 +637,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -668,7 +692,7 @@ describe("constituency import row detail route", () => {
     row.requested_writes = row.preview.writePlan;
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -696,7 +720,7 @@ describe("constituency import row detail route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeContactRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -740,7 +764,7 @@ describe("constituency import row detail route", () => {
     const phoneFailure = new Error("NXT phone endpoint was unavailable.");
     sqlMock
       .mockResolvedValueOnce([makeContactRow({ includePhone: true })])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock

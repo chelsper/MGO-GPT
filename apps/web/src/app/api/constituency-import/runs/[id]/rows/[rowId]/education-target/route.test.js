@@ -72,7 +72,7 @@ describe("constituency import education-target review route", () => {
 
   it("returns every current NXT education row so the reviewer can select the source row", async () => {
     const { GET } = await import("./route.js");
-    sqlMock.mockResolvedValueOnce([makeRow()]);
+    sqlMock.mockResolvedValueOnce([makeRow()]).mockResolvedValueOnce([{ id: "9" }]);
     blackbaudApiFetchMock.mockResolvedValue({
       value: [
         { id: "e-1", school: "Jacksonville University", degree: "Bachelor of Science", class_of: 2010 },
@@ -116,7 +116,7 @@ describe("constituency import education-target review route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -149,7 +149,7 @@ describe("constituency import education-target review route", () => {
     ];
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 
@@ -255,7 +255,7 @@ describe("constituency import education-target review route", () => {
     sqlMock.mockReset();
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 

@@ -10,6 +10,14 @@
 
 Quick creation includes identity and the selected single email, phone, and address with their selected NXT types. Multiple contacts of one kind, address valid-from dates, and saved contact-review choices remain for individual review. This deliberately does not silently discard fields or override review decisions.
 
+## Comparing Suggested Matches
+
+Each selected match has a CSV/NXT comparison section and an **Open NXT record** link. Manual search results also link directly to their NXT system record, in a separate tab, before a match is selected.
+
+For an unsent saved row, **Not a match** records the review decision, clears the target and target-specific snapshots/write choices, and holds the row for further review. It does not delete an NXT record or authorize creating a new one. Select another verified record or leave the row for review. Rejected records remain in the review history. Save unsaved previews before rejecting a suggestion.
+
+Rows already created by the import, with uncertain creation attempts, or with attempted NXT writes cannot be rejected or retargeted here. Open NXT to verify those records. A row currently sending changes is protected from concurrent match changes; an interrupted send remains blocked rather than automatically replaying a write.
+
 ## Duplicate Rules
 
 - Any possible NXT ID, either email, first/last name, or similar address plus ZIP first five holds the row. The original preview's matches also remain held.

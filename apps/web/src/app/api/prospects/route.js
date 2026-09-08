@@ -5,6 +5,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
+import { withProspectDisplayData } from "@/utils/prospectDisplay";
 import {
   getBlackbaudAction,
   getBlackbaudConfigIssues,
@@ -217,6 +218,7 @@ export async function GET(request) {
           po.prospect_id,
           COUNT(*) AS linked_opportunity_count,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Active') AS active_opportunity_count,
+          JSONB_AGG(po.expected_date) FILTER (WHERE po.opportunity_status = 'Active') AS open_opportunity_dates,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Closed – Gift Secured') AS secured_opportunity_count,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Closed – Declined') AS declined_opportunity_count,
           COALESCE(
@@ -338,6 +340,10 @@ export async function GET(request) {
       SELECT
         up.*,
         c.blackbaud_constituent_id AS linked_blackbaud_constituent_id,
+        c.name AS linked_constituent_name,
+        identity_snapshot.normalized_payload #>> '{mapped,constituent,name}' AS cached_constituent_name,
+        identity_snapshot.summary_payload #>> '{mapped,constituent,name}' AS cached_summary_name,
+        COALESCE(os.open_opportunity_dates, '[]'::jsonb) AS open_opportunity_dates,
         COALESCE(os.linked_opportunity_count, 0) AS linked_opportunity_count,
         COALESCE(os.active_opportunity_count, 0) AS active_opportunity_count,
         COALESCE(os.secured_opportunity_count, 0) AS secured_opportunity_count,
@@ -357,6 +363,9 @@ export async function GET(request) {
         ls.latest_submission_updated_at
       FROM user_prospects up
       LEFT JOIN constituents c ON c.id = up.constituent_id
+      LEFT JOIN portfolio_constituent_snapshots identity_snapshot
+        ON identity_snapshot.workspace_user_id = up.user_id
+        AND identity_snapshot.constituent_id = COALESCE(up.blackbaud_constituent_id, c.blackbaud_constituent_id)
       LEFT JOIN opportunity_summary os ON os.prospect_id = up.id
       LEFT JOIN opportunity_gift_summary ogs ON ogs.prospect_id = up.id
       LEFT JOIN latest_activity la ON la.prospect_id = up.id
@@ -387,7 +396,7 @@ export async function GET(request) {
       const remoteActivityAt = blackbaudActivityByProspect.get(Number(prospect.id)) || null;
       const latestActivityAt = maxIsoTimestamp(prospect.latest_activity_at, remoteActivityAt);
       const merged = {
-        ...prospect,
+        ...withProspectDisplayData(prospect),
         latest_activity_at: latestActivityAt,
         latest_blackbaud_activity_at: remoteActivityAt,
       };

@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isImportMatchRejected, ImportMatchReviewConflict } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -37,6 +38,9 @@ function getWritePlan(row) {
 }
 
 function getMatchedConstituentId(row) {
+  if (isImportMatchRejected(row) || ["Applying", "Creating"].includes(row.status)) {
+    throw new ImportMatchReviewConflict();
+  }
   const preview = getPreview(row);
   return cleanText(
     row?.matched_blackbaud_constituent_id ||
@@ -563,7 +567,7 @@ export async function POST(request, { params }) {
       ],
     };
 
-    await sql`
+    const saved = await sql`
       UPDATE constituency_import_rows
       SET
         status = ${nextStatus},
@@ -573,7 +577,12 @@ export async function POST(request, { params }) {
         blackbaud_error = NULL,
         updated_at = NOW()
       WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+      AND status = ${row.status}
+      AND status NOT IN ('Applying', 'Creating')
+      AND preview IS NOT DISTINCT FROM ${JSON.stringify(getPreview(row))}::jsonb
+      RETURNING id
     `;
+    if (!saved.length) throw new ImportMatchReviewConflict();
     await refreshRunSummary(routeParams.runId);
 
     return Response.json({
@@ -588,6 +597,9 @@ export async function POST(request, { params }) {
       row: buildResponseRow(row, nextStatus, nextPreview, nextWritePlan, nextResult),
     });
   } catch (error) {
+    if (error instanceof ImportMatchReviewConflict) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
     console.error("Error saving combined constituency import row review:", error);
     return Response.json(
       { error: error instanceof Error ? error.message : "Failed to save this row review" },

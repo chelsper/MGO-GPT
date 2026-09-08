@@ -97,7 +97,7 @@ describe("constituency import review choices route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 
@@ -142,11 +142,37 @@ describe("constituency import review choices route", () => {
     expect(savedPreview.deferredHydration).toBeNull();
   });
 
+  it("does not overwrite a match decision saved during a review request", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+    const response = await POST(makeRequest({ saveContactDecisions: true }), {
+      params: { id: "42", rowId: "9" },
+    });
+    expect(response.status).toBe(409);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    const update = sqlMock.mock.calls[1];
+    expect(update[0].join("")).toContain("preview IS NOT DISTINCT FROM");
+    expect(update).toContain(JSON.stringify(row.preview));
+  });
+
+  it("rejects review choices for an explicitly rejected match", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.matchReview = { decision: "rejected" };
+    sqlMock.mockResolvedValueOnce([row]);
+    const response = await POST(makeRequest({ saveContactDecisions: true }), {
+      params: { id: "42", rowId: "9" },
+    });
+    expect(response.status).toBe(409);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+
   it("clears a deferred address review when the reviewer selects take no action", async () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeAddressSkipRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Skipped" }])
       .mockResolvedValueOnce([]);
 

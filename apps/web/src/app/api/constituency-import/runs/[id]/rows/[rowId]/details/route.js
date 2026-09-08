@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isImportMatchRejected } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -76,6 +77,7 @@ function getWritePlan(row) {
 }
 
 function getMatchedConstituentId(row) {
+  if (isImportMatchRejected(row)) return "";
   const preview = getPreview(row);
   return cleanText(
     row?.matched_blackbaud_constituent_id ||
@@ -534,6 +536,7 @@ export async function POST(request, { params }) {
     `;
     const row = rows[0];
     if (!row) return Response.json({ error: "Import row not found" }, { status: 404 });
+    if (["Applying", "Creating"].includes(row.status)) return Response.json({ error: "Wait for the current NXT operation before loading review details." }, { status: 409 });
 
     const preview = getPreview(row);
 
@@ -867,7 +870,7 @@ export async function POST(request, { params }) {
       },
     };
 
-    await sql`
+    const changed = await sql`
       UPDATE constituency_import_rows
       SET
         status = ${nextStatus},
@@ -877,7 +880,12 @@ export async function POST(request, { params }) {
         blackbaud_error = NULL,
         updated_at = NOW()
       WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+        AND status = ${row.status}
+        AND preview IS NOT DISTINCT FROM ${JSON.stringify(row.preview)}::jsonb
+        AND matched_blackbaud_constituent_id IS NOT DISTINCT FROM ${row.matched_blackbaud_constituent_id ?? null}
+      RETURNING id
     `;
+    if (!changed.length) return Response.json({ error: "The import row or selected match changed while details were loading. Reload this row; old details were not saved." }, { status: 409 });
     await refreshRunSummary(routeParams.runId);
 
     return Response.json({

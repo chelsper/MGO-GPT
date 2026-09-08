@@ -48,7 +48,7 @@ describe("constituency import row skip route", () => {
     const { PATCH } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Skipped" }, { status: "Ready" }])
       .mockResolvedValueOnce([]);
 
@@ -77,7 +77,7 @@ describe("constituency import row skip route", () => {
           },
         }),
       ])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
 
@@ -91,6 +91,17 @@ describe("constituency import row skip route", () => {
     expect(payload.summary).toMatchObject({ total: 1, needsReview: 1, skipped: 0 });
     expect(payload.message).toContain("Restored this record");
     expect(sqlMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not skip a row claimed for sending after it was loaded", async () => {
+    const { PATCH } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([makeRow({ status: "Ready", preview: {} })]).mockResolvedValueOnce([]);
+    const response = await PATCH(makeRequest({ action: "skip" }), {
+      params: { id: "42", rowId: "9" },
+    });
+    expect(response.status).toBe(409);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    expect(sqlMock.mock.calls[1][0].join("")).toContain("AND status =");
   });
 
   it("does not allow an applied row to be skipped", async () => {

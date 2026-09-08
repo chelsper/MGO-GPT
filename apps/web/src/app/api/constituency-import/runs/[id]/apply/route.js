@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { claimImportRowForApply } from "@/app/api/utils/importRowApplyClaim";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -2120,6 +2121,10 @@ async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
       message:
         "This failure does not include a write-level retry record. Re-preview the source row and review NXT before applying it again.",
     };
+  }
+
+  if (!(await claimImportRowForApply(row))) {
+    return { retryUnavailable: true, message: "This row or its selected NXT match changed, or another request is sending it. Reload and review it before sending any changes." };
   }
 
   const results = [];

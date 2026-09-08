@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { ImportMatchReviewConflict } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -131,14 +132,19 @@ export async function PATCH(request, { params }) {
         previousStatus: row.status,
         previousBlackbaudResult: row.blackbaud_result || null,
       };
-      await sql`
+      const saved = await sql`
         UPDATE constituency_import_rows
         SET
           status = 'Skipped',
           blackbaud_result = ${JSON.stringify(skipAudit)}::jsonb,
           blackbaud_error = NULL
         WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+        AND status = ${row.status}
+        AND preview IS NOT DISTINCT FROM ${JSON.stringify(row.preview)}::jsonb
+        AND blackbaud_result IS NOT DISTINCT FROM ${row.blackbaud_result == null ? null : JSON.stringify(row.blackbaud_result)}::jsonb
+        RETURNING id
       `;
+      if (!saved.length) throw new ImportMatchReviewConflict();
 
       const summary = await refreshRunSummary(routeParams.runId);
       return Response.json({
@@ -161,14 +167,19 @@ export async function PATCH(request, { params }) {
       ? skipAudit.previousStatus
       : "Needs Review";
     const previousResult = skipAudit.previousBlackbaudResult || null;
-    await sql`
+    const saved = await sql`
       UPDATE constituency_import_rows
       SET
         status = ${restoredStatus},
         blackbaud_result = ${JSON.stringify(previousResult)}::jsonb,
         blackbaud_error = NULL
       WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+      AND status = ${row.status}
+      AND preview IS NOT DISTINCT FROM ${JSON.stringify(row.preview)}::jsonb
+      AND blackbaud_result IS NOT DISTINCT FROM ${row.blackbaud_result == null ? null : JSON.stringify(row.blackbaud_result)}::jsonb
+      RETURNING id
     `;
+    if (!saved.length) throw new ImportMatchReviewConflict();
 
     const summary = await refreshRunSummary(routeParams.runId);
     return Response.json({
@@ -178,6 +189,9 @@ export async function PATCH(request, { params }) {
       message: "Restored this record to the import review. No Raiser's Edge NXT data was changed.",
     });
   } catch (error) {
+    if (error instanceof ImportMatchReviewConflict) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
     console.error("Error updating import row skip state:", error);
     return Response.json(
       { error: error instanceof Error ? error.message : "Failed to update import row" },

@@ -134,6 +134,24 @@ describe("prospect detail route", () => {
     expect(updateSql).not.toMatch(/updated_at\s*=/i);
   });
 
+  it("shows cached identity and open opportunity years in prospect detail", async () => {
+    const { GET } = await import("./route.js");
+    getBlackbaudConfigIssuesMock.mockReturnValue(["not connected"]);
+    queueSqlResult([{
+      id: 7, user_id: 44, status: "Active", expected_close_fy: "FY26",
+      prospect_name: "NXT constituent 123", cached_constituent_name: "Alex Prospect",
+    }]);
+    getProspectOpportunitiesMock.mockResolvedValue([
+      { opportunity_status: "Active", expected_date: "2027-06-30" },
+      { opportunity_status: "Closed – Gift Secured", expected_date: "2026-06-30" },
+    ]);
+    const response = await GET(new Request("https://example.com/api/prospects/7"), { params: { id: "7" } });
+    expect(response.status).toBe(200);
+    expect((await response.json()).prospect).toMatchObject({ prospect_name: "Alex Prospect", open_opportunity_fys: ["FY27"] });
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl.mock.calls[0][0].join("")).toContain("identity_snapshot.workspace_user_id = p.user_id");
+  });
+
   it("syncs the primary pending action when next step fields are updated", async () => {
     const { PUT } = await import("./route.js");
 

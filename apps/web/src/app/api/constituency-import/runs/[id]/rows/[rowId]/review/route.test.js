@@ -86,7 +86,7 @@ describe("combined constituency import row review route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 
@@ -139,7 +139,7 @@ describe("combined constituency import row review route", () => {
     });
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 

@@ -15,6 +15,7 @@ import {
 } from "@/app/api/constituency-import/preview/route";
 import { getQuotaPauseNotice } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { canChangeImportMatch, getSelectedImportMatchId, rejectedImportMatchPreview } from "@/utils/importMatchReview";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -239,6 +240,7 @@ function removeDeferredMatchReasons(reasons) {
     /This row is held for review and cannot be treated as a new record automatically/i,
     /No likely NXT match was found/i,
     /No NXT match selected/i,
+    /Selected NXT record marked not a match/i,
     /No constituent identifier, lookup ID, name, or email was supplied/i,
     /Education imports require a confirmed matched individual NXT constituent/i,
     /Organization relationship imports require a confirmed matched individual NXT constituent/i,
@@ -287,7 +289,7 @@ export async function POST(request, { params }) {
       return Response.json({ query, results, count: results.length });
     }
 
-    if (action !== "select") {
+    if (!["select", "reject"].includes(action)) {
       return Response.json({ error: "Choose a valid manual match action." }, { status: 400 });
     }
 
@@ -304,11 +306,45 @@ export async function POST(request, { params }) {
     `;
     const row = rows[0];
     if (!row) return Response.json({ error: "Import row not found" }, { status: 404 });
-    if (["Applied", "Failed"].includes(row.status)) {
+    if (!canChangeImportMatch(row)) {
       return Response.json(
-        { error: "A completed or failed NXT write cannot have its match changed from import review." },
+        { error: "A created record, an in-progress or uncertain creation, or a completed/attempted NXT write cannot have its match changed. Open NXT to verify it instead." },
         { status: 409 },
       );
+    }
+
+    const preview = getPreview(row);
+    if (action === "reject") {
+      if (getSelectedImportMatchId(row) !== constituentId) {
+        return Response.json({ error: "The selected match changed. Reload this row before rejecting a match." }, { status: 409 });
+      }
+      const decision = {
+        decision: "rejected", constituentId,
+        name: cleanText(preview.match?.name), lookupId: cleanText(preview.match?.lookupId),
+        reviewedAt: new Date().toISOString(), reviewedByUserId: String(authResult.user.id),
+      };
+      const nextPreview = rejectedImportMatchPreview(preview, decision);
+      nextPreview.rejectedMatches = [...(preview.rejectedMatches || []), decision];
+      const previousResult = row.blackbaud_result || {};
+      const nextResult = { ...previousResult, matchDecisions: [...(previousResult.matchDecisions || []), decision] };
+      const changed = await sql`
+        UPDATE constituency_import_rows SET status = 'Needs Review', match_status = 'unresolved',
+          match_method = 'Reviewer rejected NXT match', confidence = 0,
+          matched_blackbaud_constituent_id = NULL, matched_lookup_id = NULL,
+          preview = ${JSON.stringify(nextPreview)}::jsonb, requested_writes = '[]'::jsonb,
+          blackbaud_result = ${JSON.stringify(nextResult)}::jsonb, blackbaud_error = NULL,
+          quick_create_status = 'review', updated_at = NOW()
+        WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+          AND status = ${row.status} AND applied_at IS NULL
+          AND created_blackbaud_constituent_id IS NULL AND create_request_started_at IS NULL
+          AND create_approved_at IS NULL
+          AND preview IS NOT DISTINCT FROM ${JSON.stringify(row.preview)}::jsonb
+          AND blackbaud_result IS NOT DISTINCT FROM ${row.blackbaud_result == null ? null : JSON.stringify(row.blackbaud_result)}::jsonb
+        RETURNING id
+      `;
+      if (!changed.length) return Response.json({ error: "This row changed while you were reviewing it. Reload before trying again." }, { status: 409 });
+      await refreshRunSummary(routeParams.runId);
+      return Response.json({ status: "Needs Review", match: null, message: `${nextPreview.intentDisposition.message} No NXT changes were made.` });
     }
 
     // Never trust a browser-supplied search candidate. Re-read this one NXT
@@ -331,7 +367,6 @@ export async function POST(request, { params }) {
       return Response.json({ error: "That NXT constituent could not be verified." }, { status: 404 });
     }
 
-    const preview = getPreview(row);
     const input = preview.input || {};
     const verifiedMatch = {
       blackbaudConstituentId: cleanText(detailedMatch.blackbaudConstituentId),
@@ -343,9 +378,10 @@ export async function POST(request, { params }) {
         : {}),
     };
     const profileLoaded = hasUsableProfileSnapshot(detailedMatch);
-    let writePlan = getWritePlan(row);
+    const targetChanged = getSelectedImportMatchId(row) !== verifiedMatch.blackbaudConstituentId;
+    let writePlan = targetChanged ? [] : getWritePlan(row);
     const profileWrites = profileLoaded
-      ? buildProfileDetailWrites(input, detailedMatch, getFieldReviewDecisions(preview, writePlan))
+      ? buildProfileDetailWrites(input, detailedMatch, targetChanged ? {} : getFieldReviewDecisions(preview, writePlan))
       : writePlan.filter((write) => PROFILE_WRITE_TYPES.has(write?.type));
     writePlan = replaceWriteTypes(writePlan, PROFILE_WRITE_TYPES, profileWrites);
 
@@ -372,6 +408,9 @@ export async function POST(request, { params }) {
       matchMethod: "Reviewer-selected NXT match",
       confidence: 100,
       match: verifiedMatch,
+      matchReview: { decision: "selected", constituentId: verifiedMatch.blackbaudConstituentId },
+      contactReviewDecisions: {},
+      fieldReviewDecisions: targetChanged ? {} : preview.fieldReviewDecisions || {},
       profileSnapshot: profileLoaded && detailedMatch.raw && typeof detailedMatch.raw === "object"
         ? detailedMatch.raw
         : null,
@@ -411,7 +450,7 @@ export async function POST(request, { params }) {
       },
     };
 
-    await sql`
+    const changed = await sql`
       UPDATE constituency_import_rows
       SET
         status = ${"Needs Review"},
@@ -426,7 +465,14 @@ export async function POST(request, { params }) {
         blackbaud_error = NULL,
         updated_at = NOW()
       WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+        AND status = ${row.status} AND applied_at IS NULL
+        AND created_blackbaud_constituent_id IS NULL AND create_request_started_at IS NULL
+        AND create_approved_at IS NULL
+        AND preview IS NOT DISTINCT FROM ${JSON.stringify(row.preview)}::jsonb
+        AND blackbaud_result IS NOT DISTINCT FROM ${row.blackbaud_result == null ? null : JSON.stringify(row.blackbaud_result)}::jsonb
+      RETURNING id
     `;
+    if (!changed.length) return Response.json({ error: "This row changed while you were choosing a match. Reload before trying again." }, { status: 409 });
     await refreshRunSummary(routeParams.runId);
 
     return Response.json({

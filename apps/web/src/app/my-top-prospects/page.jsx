@@ -24,6 +24,7 @@ import {
 } from "@/utils/workspaceRoles";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
+import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/prospectDisplay";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -4866,9 +4867,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       border: "1px solid #E5E7EB",
                     }}
                   >
-                    <p style={sectionEyebrowStyle}>Expected close FY</p>
+                    <p style={sectionEyebrowStyle}>{prospect.status === "Active" ? "Opportunity timing" : "Expected close FY"}</p>
                     <div style={{ fontSize: "20px", fontWeight: "800", color: "#111827" }}>
-                      {prospect.expected_close_fy}
+                      {getProspectFiscalYearLabel(prospect)}
                     </div>
                   </div>
                   <div
@@ -5389,7 +5390,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                       letterSpacing: "0.5px",
                     }}
                   >
-                    Expected Close FY
+                    Prospect Planning FY (manual)
                   </label>
                   <select
                     defaultValue={prospect.expected_close_fy}
@@ -9625,7 +9626,6 @@ export default function MyTopProspectsPage() {
     setAddProspectError("");
     setAddProspectInitialData({
       prospectName: person.name || "",
-      expectedCloseFY: "FY26",
       askAmount: "",
       askType: "Major Gift",
       selectedBlackbaudMatch: {
@@ -9916,6 +9916,10 @@ export default function MyTopProspectsPage() {
         ]
       : []),
   ];
+  const opportunityYearOptions = [...new Set([
+    ...FY_OPTIONS,
+    ...activeProspects.flatMap((prospect) => prospect.open_opportunity_fys || []),
+  ])].sort();
   const filteredActiveProspects = activeProspects.filter((prospect) => {
     const nextAction = getProspectNextAction(prospect);
     const matchesSearch =
@@ -9926,8 +9930,7 @@ export default function MyTopProspectsPage() {
 
     const matchesStatus =
       statusFilter === "all" || prospect.status === statusFilter;
-    const matchesFY =
-      fyFilter === "all" || prospect.expected_close_fy === fyFilter;
+    const matchesFY = matchesProspectFiscalYear(prospect, fyFilter);
     const matchesAction =
       actionFilter === "all" ||
       (actionFilter === "clarification" &&
@@ -11102,7 +11105,7 @@ export default function MyTopProspectsPage() {
                 Filter Top Prospects
               </h2>
               <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
-                Refine the ranked list by prospect, status, fiscal year, or next-action state.
+                Refine the ranked list by prospect, status, open opportunity fiscal year, or next-action state. Years use the linked opportunities' expected close dates.
               </p>
             </div>
             <div
@@ -11160,6 +11163,7 @@ export default function MyTopProspectsPage() {
             </select>
             <select
               value={fyFilter}
+              aria-label="Filter by open opportunity fiscal year"
               onChange={(e) => setFyFilter(e.target.value)}
               style={{
                 width: "100%",
@@ -11171,8 +11175,8 @@ export default function MyTopProspectsPage() {
                 boxSizing: "border-box",
               }}
             >
-              <option value="all">All fiscal years</option>
-              {FY_OPTIONS.map((fy) => (
+              <option value="all">All open opportunity years</option>
+              {opportunityYearOptions.map((fy) => (
                 <option key={fy} value={fy}>
                   {fy}
                 </option>
@@ -11373,6 +11377,9 @@ export default function MyTopProspectsPage() {
                               {discussionBadge.label}
                             </button>
                           </div>
+                          {p.name_status === "unavailable" ? (
+                            <p className="mb-2 text-sm text-slate-600">Name is not available in the saved data. Open the NXT profile to verify this record.</p>
+                          ) : null}
                           {nextAction.meta ? (
                             <div
                               style={{
@@ -11474,7 +11481,7 @@ export default function MyTopProspectsPage() {
                                 color: "#374151",
                               }}
                             >
-                              {p.expected_close_fy}
+                              {getProspectFiscalYearLabel(p)}
                             </span>
                             <span
                               style={{

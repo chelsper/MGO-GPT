@@ -6,6 +6,7 @@ import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/bla
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { getPendingActionsForProspect, syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
+import { withProspectDisplayData } from "@/utils/prospectDisplay";
 
 function getNestedValue(source, path) {
   return path.split(".").reduce((current, key) => {
@@ -182,9 +183,15 @@ export async function GET(request, { params }) {
     const prospects = await sql`
       SELECT
         p.*,
+        c.name AS linked_constituent_name,
+        identity_snapshot.normalized_payload #>> '{mapped,constituent,name}' AS cached_constituent_name,
+        identity_snapshot.summary_payload #>> '{mapped,constituent,name}' AS cached_summary_name,
         COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) AS linked_blackbaud_constituent_id
       FROM prospects p
       LEFT JOIN constituents c ON c.id = p.constituent_id
+      LEFT JOIN portfolio_constituent_snapshots identity_snapshot
+        ON identity_snapshot.workspace_user_id = p.user_id
+        AND identity_snapshot.constituent_id = COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id)
       WHERE p.id = ${prospectId} AND p.user_id = ${user.id}
       LIMIT 1
     `;
@@ -263,7 +270,7 @@ export async function GET(request, { params }) {
     ]);
 
     return Response.json({
-      prospect: prospects[0],
+      prospect: withProspectDisplayData(prospects[0], opportunities),
       updates,
       opportunities,
       linkedSubmissions,

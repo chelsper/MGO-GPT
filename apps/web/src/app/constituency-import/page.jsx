@@ -11,6 +11,8 @@ import { isReviewerRole } from "@/utils/workspaceRoles";
 import QueueImportLink from "@/components/QueueImportLink";
 import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
+import ImportMatchReview from "@/components/ImportMatchReview";
+import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected } from "@/utils/importMatchReview";
 
 const IMPORT_FIELDS = [
   {
@@ -1419,6 +1421,7 @@ function findMatchingReviewContact(contacts, incoming, kind) {
 }
 
 function getImportMatchedConstituentId(row) {
+  if (isImportMatchRejected(row)) return "";
   return String(
     row?.match?.blackbaudConstituentId ||
       row?.matchedBlackbaudConstituentId ||
@@ -1517,18 +1520,19 @@ function needsCurrentConstituencyDetails(row) {
   );
 }
 
-function ManualNxtMatchSearchPanel({
+export function ManualNxtMatchSearchPanel({
   row,
   query,
   results = [],
   error = "",
   searching = false,
   selecting = false,
+  disabled = false,
   onQueryChange,
   onSearch,
   onSelect,
 }) {
-  const isBusy = searching || selecting;
+  const isBusy = searching || selecting || disabled;
 
   return (
     <section
@@ -1644,6 +1648,14 @@ function ManualNxtMatchSearchPanel({
                   {candidate.email ? ` · ${candidate.email}` : ""}
                 </span>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={buildBlackbaudConstituentProfileUrl(candidate.blackbaudConstituentId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-blue-200 px-3 py-2 text-sm font-bold text-blue-800"
+                aria-label={`Open NXT record for ${candidate.name || "this constituent"} in a new tab`}
+              >Open NXT record</a>
               <button
                 type="button"
                 onClick={() => onSelect(candidate)}
@@ -1661,6 +1673,7 @@ function ManualNxtMatchSearchPanel({
               >
                 {selecting ? "Saving match..." : "Use this NXT match"}
               </button>
+              </div>
             </div>
           ))}
         </div>
@@ -3418,6 +3431,7 @@ function getImportRowLabel(row) {
 }
 
 function getImportRowConstituentId(row) {
+  if (isImportMatchRejected(row)) return "";
   return (
     row?.match?.blackbaudConstituentId ||
     row?.input?.blackbaudConstituentId ||
@@ -4605,11 +4619,12 @@ export default function ConstituencyImportPage() {
     }
   }
 
-  async function selectImportRowNxtMatch(row, candidate) {
+  async function selectImportRowNxtMatch(row, candidate, action = "select") {
     const runId = preview?.savedRun?.id;
     const rowId = String(row?.id || "");
     const constituentId = String(candidate?.blackbaudConstituentId || "").trim();
     if (!runId || !rowId || !constituentId) return;
+    if (action === "reject" && !window.confirm("Mark this NXT record as not a match? This clears the selected target and its review choices, but keeps your CSV values. No NXT record will be changed, deleted, or created.")) return;
 
     const hydrationKey = `${runId}:${rowId}`;
     manualMatchHydrationSuppressionsRef.current.add(hydrationKey);
@@ -4626,21 +4641,32 @@ export default function ConstituencyImportPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "select", constituentId }),
+          body: JSON.stringify({ action, constituentId }),
         },
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Could not save this NXT match.");
       }
+      for (const key of hydratedDetailRowsRef.current) {
+        if (key.startsWith(`${hydrationKey}:`)) hydratedDetailRowsRef.current.delete(key);
+      }
+      automaticDetailHydrationRowsRef.current.delete(hydrationKey);
       const savedPayload = await loadSavedRun(runId, {
         focusRowId: row.id,
         message: payload?.message || "Saved the selected NXT match. No NXT record was changed.",
         preload: false,
-        resetReviewDrafts: false,
+        resetReviewDrafts: true,
       });
       if (!savedPayload) {
         throw new Error("The NXT match was saved, but the import row could not be reloaded.");
+      }
+      if (action === "select") {
+        const selectedRow = savedPayload.rows?.find((item) => String(item.id) === rowId);
+        if (selectedRow) {
+          automaticDetailHydrationRowsRef.current.add(hydrationKey);
+          void preloadRequiredReviewChoices(selectedRow, runId);
+        }
       }
       setManualMatchSearchQueryByRowId((current) => {
         const next = { ...current };
@@ -4660,6 +4686,7 @@ export default function ConstituencyImportPage() {
       void fetchSavedRuns();
     } catch (selectionError) {
       manualMatchHydrationSuppressionsRef.current.delete(hydrationKey);
+      setError(selectionError instanceof Error ? selectionError.message : "Could not save the match decision.");
       setManualMatchErrorByRowId((current) => ({
         ...current,
         [rowId]:
@@ -8378,6 +8405,7 @@ export default function ConstituencyImportPage() {
                 );
                 const canApplyRow = Boolean(
                   preview?.savedRun &&
+                    !isImportMatchRejected(row) &&
                     row.status === "Ready" &&
                     !row.appliedAt &&
                     row.intentDisposition?.key !== "ready_new" &&
@@ -8455,11 +8483,10 @@ export default function ConstituencyImportPage() {
                 const canSearchForManualMatch = Boolean(
                   preview?.savedRun &&
                     isReviewer &&
-                    !getImportMatchedConstituentId(row) &&
-                    !row.appliedAt &&
-                    row.status !== "Failed",
+                    canChangeImportMatch(row),
                 );
                 const manualMatchRowId = String(row.id || "");
+                const matchReviewBusy = Boolean(selectingManualMatchRowId || quickCreating || applyingRun || creatingRowId || hasDirtyReviewChoices || editingSavedRowId || savingCombinedReviewRowId || savingSavedRowCorrectionId);
                 return (
                   <article
                     key={row.rowNumber}
@@ -8498,7 +8525,7 @@ export default function ConstituencyImportPage() {
                           {isNxtChecksPaused
                             ? "NXT lookup paused by Blackbaud's call-volume quota"
                             : row.match?.name
-                            ? `Matched to ${row.match.name}${row.match.lookupId ? ` · Lookup ID ${row.match.lookupId}` : ""}`
+                            ? `${row.createdBlackbaudConstituentId ? "Created" : "Matched to"} ${row.match.name}${row.match.lookupId ? ` · Lookup ID ${row.match.lookupId}` : ""}`
                             : row.intentDisposition?.key === "potential_new" ||
                                 row.intentDisposition?.key === "ready_new"
                               ? "No likely NXT match found"
@@ -8627,7 +8654,17 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
+                    <ImportMatchReview
+                      row={row}
+                      saved={Boolean(preview?.savedRun)}
+                      reviewer={isReviewer}
+                      busy={matchReviewBusy}
+                      onReject={() => selectImportRowNxtMatch(row, { blackbaudConstituentId: getSelectedImportMatchId(row) }, "reject")}
+                    />
+
                     {canSearchForManualMatch ? (
+                      <details open={!getSelectedImportMatchId(row)}>
+                      <summary className="cursor-pointer text-sm font-bold text-blue-800">Find a different NXT record</summary>
                       <ManualNxtMatchSearchPanel
                         row={row}
                         query={getManualMatchSearchQuery(row)}
@@ -8635,10 +8672,12 @@ export default function ConstituencyImportPage() {
                         error={manualMatchErrorByRowId[manualMatchRowId] || ""}
                         searching={searchingManualMatchRowId === manualMatchRowId}
                         selecting={selectingManualMatchRowId === manualMatchRowId}
+                        disabled={matchReviewBusy}
                         onQueryChange={(value) => updateManualMatchSearchQuery(row, value)}
                         onSearch={() => searchImportRowNxtMatch(row)}
                         onSelect={(candidate) => selectImportRowNxtMatch(row, candidate)}
                       />
+                      </details>
                     ) : null}
 
                     {isEditingThisRow ? (

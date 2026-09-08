@@ -64,7 +64,7 @@ describe("constituency import constituency-target review route", () => {
 
   it("returns only the live NXT rows matching the source constituency", async () => {
     const { GET } = await import("./route.js");
-    sqlMock.mockResolvedValueOnce([makeRow()]);
+    sqlMock.mockResolvedValueOnce([makeRow()]).mockResolvedValueOnce([{ id: "9" }]);
     blackbaudApiFetchMock.mockResolvedValue({
       value: [
         { id: "student-1", description: "Student", date_from: "2020-08-15", date_to: "2024-05-04" },
@@ -106,7 +106,7 @@ describe("constituency import constituency-target review route", () => {
     const { POST } = await import("./route.js");
     sqlMock
       .mockResolvedValueOnce([makeRow()])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
     blackbaudApiFetchMock.mockResolvedValue({
@@ -135,7 +135,7 @@ describe("constituency import constituency-target review route", () => {
     ];
     sqlMock
       .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "9" }])
       .mockResolvedValueOnce([{ status: "Ready" }])
       .mockResolvedValueOnce([]);
 

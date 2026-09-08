@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isImportMatchRejected, rejectedImportMatchPreview } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -2640,6 +2641,10 @@ function removeDeferredDetailReasons(reasons) {
 }
 
 export function mergePriorReviewState(row, priorSavedRow) {
+  if (isImportMatchRejected(priorSavedRow)) {
+    const prior = priorSavedRow.preview || priorSavedRow;
+    return rejectedImportMatchPreview({ ...row, rejectedMatches: prior.rejectedMatches }, prior.matchReview);
+  }
   // A quota pause invalidates every partial NXT snapshot. Do not merge earlier
   // review choices or staged writes back into a no-op paused row.
   if (row?.nxtChecksPaused) return row;

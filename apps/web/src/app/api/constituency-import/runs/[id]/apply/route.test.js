@@ -6,6 +6,8 @@ const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 const getBlackbaudQuotaStatusMock = vi.fn();
+const claimImportRowForApplyMock = vi.fn();
+vi.mock("@/app/api/utils/importRowApplyClaim", () => ({ claimImportRowForApply: claimImportRowForApplyMock }));
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -75,6 +77,7 @@ describe("constituency import run apply route", () => {
     sqlMock.mockReset();
     blackbaudApiFetchMock.mockReset();
     getBlackbaudQuotaStatusMock.mockReset();
+    claimImportRowForApplyMock.mockReset().mockResolvedValue(true);
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -108,6 +111,18 @@ describe("constituency import run apply route", () => {
     expect(response.status).toBe(400);
     expect(payload.error).toBe("Select at least one Ready row before applying changes to NXT.");
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not send NXT writes when the target changes after loading the Ready row", async () => {
+    const { POST } = await import("./route.js");
+    const row = { id: "9", run_id: "42", status: "Ready", requested_writes: [], preview: {} };
+    sqlMock.mockResolvedValueOnce([makeRun()]).mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([makeRun()]).mockResolvedValueOnce([{ ...row, status: "Needs Review" }]);
+    claimImportRowForApplyMock.mockResolvedValueOnce(false);
+    const response = await POST(makeRequest("", { rowIds: ["9"] }), { params: { id: "42" } });
+    expect(response.status).toBe(409);
+    expect(claimImportRowForApplyMock).toHaveBeenCalledWith(row);
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 

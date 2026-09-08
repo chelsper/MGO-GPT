@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isImportMatchRejected, ImportMatchReviewConflict } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -266,6 +267,9 @@ export async function POST(request, { params }) {
       );
     }
 
+    if (isImportMatchRejected(row) || ["Applying", "Creating"].includes(row.status)) {
+      throw new ImportMatchReviewConflict();
+    }
     const preview = getPreview(row);
     const originalInput = objectOrEmpty(preview.input);
     const nextInput = {
@@ -393,7 +397,7 @@ export async function POST(request, { params }) {
       return Response.json({ error: "No staged CSV values changed." }, { status: 400 });
     }
 
-    const deferredHydration = objectOrEmpty(preview.deferredHydration);
+    const deferredHydration = { ...objectOrEmpty(preview.deferredHydration) };
     if (addressValuesChanged) {
       const contactDecisions = objectOrEmpty(preview.contactReviewDecisions);
       const contactSnapshotStatus = getContactSnapshotStatus(
@@ -428,7 +432,7 @@ export async function POST(request, { params }) {
       ],
     };
 
-    await sql`
+    const saved = await sql`
       UPDATE constituency_import_rows
       SET
         status = ${nextStatus},
@@ -436,7 +440,12 @@ export async function POST(request, { params }) {
         requested_writes = ${JSON.stringify(nextWritePlan)}::jsonb,
         updated_at = NOW()
       WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
+      AND status = ${row.status}
+      AND status NOT IN ('Applying', 'Creating')
+      AND preview IS NOT DISTINCT FROM ${JSON.stringify(getPreview(row))}::jsonb
+      RETURNING id
     `;
+    if (!saved.length) throw new ImportMatchReviewConflict();
     await refreshRunSummary(routeParams.runId);
 
     return Response.json({
@@ -445,6 +454,9 @@ export async function POST(request, { params }) {
         "Saved the staged CSV correction. The uploaded CSV and all NXT records remain unchanged until this row is later sent to NXT.",
     });
   } catch (error) {
+    if (error instanceof ImportMatchReviewConflict) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
     if (!(error instanceof InvalidCorrectionError)) {
       console.error("Error saving constituency import source override:", error);
     }

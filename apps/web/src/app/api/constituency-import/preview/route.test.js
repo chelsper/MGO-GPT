@@ -2179,6 +2179,15 @@ describe("constituency import preview route", () => {
     );
   });
 
+  it("preserves an explicit rejected match when a preview is rebuilt", async () => {
+    const { mergePriorReviewState } = await import("./route.js");
+    const decision = { decision: "rejected", constituentId: "123" };
+    const merged = mergePriorReviewState({
+      input: { firstName: "CSV" }, status: "Ready", match: { blackbaudConstituentId: "123" }, writePlan: [{ type: "email_address", targetId: "old-contact" }],
+    }, { preview: { matchReview: decision, rejectedMatches: [decision] } });
+    expect(merged).toMatchObject({ status: "Needs Review", match: null, matchReview: decision, rejectedMatches: [decision], writePlan: [], intentDisposition: { allowApply: false } });
+  });
+
   it("keeps a hydrated profile snapshot when the saved review is refreshed", async () => {
     const { mergePriorReviewState } = await import("./route.js");
     const row = {

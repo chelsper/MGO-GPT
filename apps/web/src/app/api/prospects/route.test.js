@@ -124,6 +124,27 @@ describe("prospects route", () => {
     expect(payload[0].latest_activity_at).toBe("2026-05-20T09:30:00.000Z");
   });
 
+  it("resolves cached identity and open years with no extra Blackbaud calls", async () => {
+    const { GET } = await import("./route.js");
+    getBlackbaudConfigIssuesMock.mockReturnValue(["not connected"]);
+    queueSqlResult([{
+      id: 7, user_id: 44, status: "Active", expected_close_fy: "FY26",
+      prospect_name: "NXT constituent 123", cached_constituent_name: "Alex Prospect",
+      open_opportunity_dates: ["2027-06-30"],
+    }]);
+    const response = await GET(new Request("https://example.com/api/prospects"));
+    const [prospect] = await response.json();
+    expect(response.status).toBe(200);
+    expect(prospect).toMatchObject({ prospect_name: "Alex Prospect", name_status: "loaded", open_opportunity_fys: ["FY27"] });
+    expect(getBlackbaudActionMock).not.toHaveBeenCalled();
+    expect(getBlackbaudOpportunityMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+    const query = sqlMockImpl.mock.calls[0][0].join("");
+    expect(query).toContain("identity_snapshot.workspace_user_id = up.user_id");
+    expect(query).toContain("identity_snapshot.constituent_id = COALESCE(up.blackbaud_constituent_id, c.blackbaud_constituent_id)");
+    expect(query).toContain("JSONB_AGG(po.expected_date) FILTER (WHERE po.opportunity_status = 'Active')");
+  });
+
   it("creates a top prospect with only a name and Blackbaud constituent link", async () => {
     const { POST } = await import("./route.js");
 
