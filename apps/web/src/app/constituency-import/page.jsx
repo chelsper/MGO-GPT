@@ -9,6 +9,8 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { addressesEquivalent } from "@/utils/contactMatching";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import QueueImportLink from "@/components/QueueImportLink";
+import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
+import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 
 const IMPORT_FIELDS = [
   {
@@ -3461,6 +3463,8 @@ export default function ConstituencyImportPage() {
   const [updateIndividualProfileFields, setUpdateIndividualProfileFields] = useState(false);
   const [updateNameFormatFields, setUpdateNameFormatFields] = useState(false);
   const [buildNameFormats, setBuildNameFormats] = useState(false);
+  const [newRecordNameFormats, setNewRecordNameFormats] = useState({ addressee: "", salutation: "" });
+  const [quickCreating, setQuickCreating] = useState(false);
   const [addresseeFormat, setAddresseeFormat] = useState("title-preferred-last-suffix");
   const [salutationFormat, setSalutationFormat] = useState("dear-preferred");
   const [updateEmailFields, setUpdateEmailFields] = useState(false);
@@ -4210,6 +4214,7 @@ export default function ConstituencyImportPage() {
       setUpdateIndividualProfileFields(false);
       setUpdateNameFormatFields(false);
       setBuildNameFormats(false);
+      setNewRecordNameFormats({ addressee: "", salutation: "" });
       setAddresseeFormat("title-preferred-last-suffix");
       setSalutationFormat("dear-preferred");
       setUpdateEmailFields(false);
@@ -4304,6 +4309,8 @@ export default function ConstituencyImportPage() {
       );
       const restoredDecisions = getSavedReviewDecisionState(payload);
       setPreview(payload);
+      if (payload.rows?.[0]?.importIntent) setImportIntent(payload.rows[0].importIntent);
+      setNewRecordNameFormats(payload.rows?.[0]?.input?.newRecordNameFormats || { addressee: "", salutation: "" });
       setContactDecisions(restoredDecisions.contact);
       setFieldDecisions(restoredDecisions.fields);
       setContactDecisionsDirty(false);
@@ -5884,6 +5891,7 @@ export default function ConstituencyImportPage() {
       buildNameFormats,
       addresseeFormat,
       salutationFormat,
+      newRecordNameFormats,
       updateEmailFields,
       updatePhoneFields,
       updateAddressFields,
@@ -6410,8 +6418,8 @@ export default function ConstituencyImportPage() {
               2. What does this file contain?
             </h2>
             <p style={{ margin: "6px 0 0", color: "#6B7280", lineHeight: 1.5 }}>
-              This determines how the import review classifies each row. A missing NXT match never
-              creates a constituent automatically.
+              Previewing never writes to NXT. Save a New or Mixed import, then approve Create clear
+              nonmatches to add eligible records while possible duplicates stay in review.
             </p>
           </div>
           <div
@@ -6465,6 +6473,7 @@ export default function ConstituencyImportPage() {
             address results are shown for human review. If NXT identifiers disagree, the row must
             be resolved before any NXT update.
           </div>
+          {["new", "mixed"].includes(importIntent) && <ImportNameFormatDefaults value={newRecordNameFormats} onChange={(value) => { setNewRecordNameFormats(value); setPreview(null); }} disabled={quickCreating || previewing || savingRun} />}
         </section>
 
         <section
@@ -8008,6 +8017,16 @@ export default function ConstituencyImportPage() {
             </div>
           ) : null}
 
+          {preview?.savedRun && preview.rows.some((row) => ["ready_new", "potential_new", "created_new_record"].includes(row.intentDisposition?.key)) ? (
+            <QuickNewConstituentImport
+              key={preview.savedRun.id}
+              runId={preview.savedRun.id}
+              rows={preview.rows}
+              disabled={Boolean(applyingRun || creatingRowId || previewing || savingRun || loadingRunId || preview.savedRun.status === "preparing")}
+              onReload={loadSavedRun}
+              onBusyChange={setQuickCreating}
+            />
+          ) : null}
           {preview?.savedRun ? (
             <div
               style={{

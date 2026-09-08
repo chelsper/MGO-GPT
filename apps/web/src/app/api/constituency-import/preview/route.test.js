@@ -2468,6 +2468,39 @@ describe("constituency import preview route", () => {
     expect(payload.summary.potentialNew).toBe(1);
   });
 
+  it("persists independent matching fields and configured defaults without enabling contact or custom-text writes", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    const response = await POST(makeRequest({
+      rows: [{ first: "Avery", last: "Newcomer", email2: "second@example.com", address: "42 Main St", zip: "32211-1234" }],
+      mappings: { firstName: "first", lastName: "last", email2: "email2", addressLine1: "address", postalCode: "zip" },
+      defaults: { importIntent: "new", newRecordNameFormats: { addressee: "5", salutation: "6" } },
+    }));
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.rows[0].input).toMatchObject({ duplicateCheckVersion: 1, email2: "second@example.com", addressLine1: "42 Main St", postalCode: "32211-1234", newRecordNameFormats: { addressee: "5", salutation: "6" } });
+    expect(payload.rows[0].input).not.toHaveProperty("nameFormatUpdate");
+    expect(payload.rows[0].input).not.toHaveProperty("addressUpdates");
+  });
+
+  it.each([false, true])("does not replace saved creation checkpoints when re-preparing a run (batch: %s)", async (appendRun) => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    sqlMock.mockImplementation((strings) => {
+      const query = strings.join(" ");
+      if (query.includes("SELECT *") && query.includes("FROM constituency_import_runs")) return Promise.resolve([{ id: 42, workspace_user_id: 7 }]);
+      if (query.includes("SELECT *") && query.includes("FROM constituency_import_rows")) return Promise.resolve([{ id: 9, row_number: 1, create_request_started_at: "2026-09-07" }]);
+      return Promise.resolve([]);
+    });
+    const response = await POST(makeRequest({
+      rows: [{ first: "Avery", last: "Newcomer" }], mappings: { firstName: "first", lastName: "last" },
+      defaults: { importIntent: "new" }, saveRun: true, existingRunId: "42", appendRun,
+    }));
+    expect(response.ok).toBe(false);
+    expect((await response.json()).error).toContain("creation attempts");
+    expect(sqlMock.mock.calls.some(([query]) => /DELETE FROM constituency_import_rows|INSERT INTO constituency_import_rows/.test(query.join(" ")))).toBe(false);
+  });
+
   it("keeps an external source ID as audit data without treating it as an NXT identifier", async () => {
     const { POST } = await import("./route.js");
     searchBlackbaudConstituentsMock.mockResolvedValue([]);

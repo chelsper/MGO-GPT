@@ -1961,6 +1961,27 @@ export default async function ensureAppSchema() {
     `;
     await sql`
       ALTER TABLE constituency_import_rows
+      ADD COLUMN IF NOT EXISTS quick_create_status TEXT,
+      ADD COLUMN IF NOT EXISTS create_request_started_at TIMESTAMPTZ
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS constituency_import_create_lock (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        token TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS constituency_import_create_attempts (
+        row_id BIGINT PRIMARY KEY,
+        input JSONB NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        constituent_id TEXT
+      )
+    `;
+    await sql`ALTER TABLE constituency_import_create_attempts ADD COLUMN IF NOT EXISTS outcome TEXT NOT NULL DEFAULT 'unconfirmed'`;
+    await sql`
+      ALTER TABLE constituency_import_rows
       ADD COLUMN IF NOT EXISTS run_id BIGINT REFERENCES constituency_import_runs(id) ON DELETE CASCADE
     `;
     await sql`

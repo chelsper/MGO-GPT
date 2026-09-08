@@ -276,7 +276,13 @@ function getRowInput(row, mappings, defaults = {}) {
     lookupId: getMappedValue(row, mappings, "lookupId"),
     externalConstituentId: getMappedValue(row, mappings, "externalConstituentId"),
     email: getMappedValue(row, mappings, "email"),
+    email2: getMappedValue(row, mappings, "email2"),
     addressLine1: getMappedValue(row, mappings, "addressLine1"),
+    postalCode: getMappedValue(row, mappings, "postalCode"),
+    duplicateCheckVersion: 1,
+    newRecordNameFormats: ["new", "mixed"].includes(defaults.importIntent)
+      ? { addressee: cleanText(defaults.newRecordNameFormats?.addressee), salutation: cleanText(defaults.newRecordNameFormats?.salutation) }
+      : {},
     sourceConstituency: getMappedValue(row, mappings, "sourceConstituency"),
     targetConstituency: getMappedValue(row, mappings, "targetConstituency"),
     action: normalizeAction(getMappedValue(row, mappings, "action"), defaultAction),
@@ -2902,9 +2908,15 @@ async function savePreviewRun({
     `;
     priorRowsByNumber = new Map(priorRows.map((row) => [String(row.row_number), row]));
 
+    if (priorRows.some((row) => row.create_approved_at || row.create_request_started_at || row.created_blackbaud_constituent_id || row.quick_create_status)) {
+      throw new Error("This run has saved new-record checks or creation attempts. Continue its individual review instead of replacing its preview.");
+    }
+
     await sql`
       DELETE FROM constituency_import_rows
       WHERE run_id = ${normalizedExistingRunId}
+        AND create_approved_at IS NULL AND create_request_started_at IS NULL
+        AND created_blackbaud_constituent_id IS NULL AND quick_create_status IS NULL
     `;
 
     const mergedPreviewRows = previewRows.map((row) =>
@@ -3140,6 +3152,10 @@ async function savePreviewBatch({
   const priorRowsByNumber = new Map(priorRows.map((row) => [String(row.row_number), row]));
   const persistedRowIds = new Map();
 
+  if (priorRows.some((row) => row.create_approved_at || row.create_request_started_at || row.created_blackbaud_constituent_id || row.quick_create_status)) {
+    throw new Error("This run has saved new-record checks or creation attempts. Continue its individual review instead of replacing its preview.");
+  }
+
   for (const sourcePreviewRow of previewRows) {
     const row = mergePriorReviewState(
       sourcePreviewRow,
@@ -3208,6 +3224,10 @@ async function savePreviewBatch({
         preview = EXCLUDED.preview,
         requested_writes = EXCLUDED.requested_writes,
         updated_at = NOW()
+      WHERE constituency_import_rows.create_approved_at IS NULL
+        AND constituency_import_rows.create_request_started_at IS NULL
+        AND constituency_import_rows.created_blackbaud_constituent_id IS NULL
+        AND constituency_import_rows.quick_create_status IS NULL
       RETURNING id, row_number
     `;
     const persistedRow = insertedRows?.[0];

@@ -9,6 +9,26 @@ const findBlackbaudConstituentByEmailMock = vi.fn();
 const findBlackbaudConstituentByLookupIdMock = vi.fn();
 const getBlackbaudConstituentByIdMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
+const claimMock = vi.fn();
+const renewMock = vi.fn();
+const releaseMock = vi.fn();
+const checkMock = vi.fn();
+const formatsMock = vi.fn();
+const checkpointMock = vi.fn();
+const localMatchMock = vi.fn();
+const recordCreatedMock = vi.fn();
+const rejectCreateMock = vi.fn();
+vi.mock("@/app/api/utils/safeConstituentCreate", () => ({
+  claimConstituentCreateLease: claimMock,
+  renewConstituentCreateLease: renewMock,
+  releaseConstituentCreateLease: releaseMock,
+  checkClearNonmatch: checkMock,
+  configuredNameFormatPayload: formatsMock,
+  markConstituentCreateStarted: checkpointMock,
+  findLocalImportDuplicate: localMatchMock,
+  recordCreatedConstituent: recordCreatedMock,
+  recordRejectedConstituentCreate: rejectCreateMock,
+}));
 
 vi.mock("@/auth", () => ({
   auth: authMock,
@@ -91,6 +111,15 @@ describe("constituency import new-record create route", () => {
     findBlackbaudConstituentByLookupIdMock.mockReset();
     getBlackbaudConstituentByIdMock.mockReset();
     searchBlackbaudConstituentsMock.mockReset();
+    claimMock.mockReset().mockResolvedValue("owned");
+    renewMock.mockReset().mockResolvedValue();
+    releaseMock.mockReset().mockResolvedValue();
+    checkMock.mockReset().mockResolvedValue(null);
+    formatsMock.mockReset().mockResolvedValue({});
+    checkpointMock.mockReset().mockResolvedValue();
+    localMatchMock.mockReset().mockResolvedValue(null);
+    recordCreatedMock.mockReset().mockResolvedValue();
+    rejectCreateMock.mockReset().mockResolvedValue();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -135,6 +164,8 @@ describe("constituency import new-record create route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
+      timeoutMs: 20000,
       body: {
         type: "Individual",
         first: "Jane",
@@ -321,6 +352,99 @@ describe("constituency import new-record create route", () => {
 
     expect(response.status).toBe(409);
     expect(payload.error).toContain("likely NXT duplicate");
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  function setupQuick(row = makeRow()) {
+    row.preview.input.duplicateCheckVersion = 1;
+    sqlMock.mockImplementation((strings) => {
+      const query = strings.join(" ");
+      if (query.includes("SELECT id, defaults")) return Promise.resolve([{ id: "42", defaults: { importIntent: "new" }, status: "ready" }]);
+      if (query.includes("SELECT *")) return Promise.resolve([row]);
+      if (query.includes("RETURNING *")) return Promise.resolve([row]);
+      if (query.includes("SELECT status")) return Promise.resolve([{ status: "Ready" }]);
+      return Promise.resolve([]);
+    });
+    blackbaudApiFetchMock.mockResolvedValue({ id: "456" });
+    checkpointMock.mockImplementation(async () => { row.create_request_started_at = "2026-09-07T12:00:00Z"; });
+    return row;
+  }
+  const quickRequest = () => new Request(`${makeRequest().url}?mode=clear_nonmatches`, { method: "POST" });
+
+  it("quick-creates one row with configured formats and selected contacts, after its checkpoint", async () => {
+    const row = setupQuick();
+    row.preview.input.emailUpdates = [{ address: "jane@example.com", type: "Email" }];
+    formatsMock.mockResolvedValue({ primary_addressee: { custom_format: false, configuration_id: "5" } });
+    const { POST } = await import("./route.js");
+    expect((await POST(quickRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(200);
+    expect(checkMock).toHaveBeenCalledOnce();
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents", expect.objectContaining({ maxRetries: 0, body: expect.objectContaining({
+      primary_addressee: { custom_format: false, configuration_id: "5" },
+      email: { address: "jane@example.com", type: "Email", primary: true },
+    }) }));
+    expect(checkpointMock.mock.invocationCallOrder[0]).toBeLessThan(blackbaudApiFetchMock.mock.invocationCallOrder[0]);
+    expect(releaseMock).toHaveBeenCalledWith("owned");
+  });
+  it("holds a quick match and persists the review checkpoint without any create", async () => {
+    setupQuick();
+    checkMock.mockResolvedValue("NXT found a matching address. Held for review.");
+    const { POST } = await import("./route.js");
+    const response = await POST(quickRequest(), { params: { id: "42", rowId: "9" } });
+    expect(await response.json()).toMatchObject({ held: true });
+    expect(sqlMock.mock.calls.some(([query]) => query.join(" ").includes("quick_create_status = 'review'"))).toBe(true);
+    expect(checkpointMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+  it.each([403, 429])("pauses instead of treating NXT %s as a nonmatch", async (status) => {
+    setupQuick();
+    checkMock.mockRejectedValue(Object.assign(new Error("Throttled"), { httpStatus: status, retryAfterMs: 30000 }));
+    const { POST } = await import("./route.js");
+    const response = await POST(quickRequest(), { params: { id: "42", rowId: "9" } });
+    expect(await response.json()).toMatchObject({ paused: true, held: false, retryAfterMs: 30000 });
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(sqlMock.mock.calls.some(([query]) => query.join(" ").includes("quick_create_status = 'review'"))).toBe(false);
+  });
+  it("never retries an uncertain POST, including a later request for the same row", async () => {
+    setupQuick();
+    blackbaudApiFetchMock.mockRejectedValue(new Error("Request timed out"));
+    const { POST } = await import("./route.js");
+    const response = await POST(quickRequest(), { params: { id: "42", rowId: "9" } });
+    expect(await response.json()).toMatchObject({ held: true });
+    expect((await POST(quickRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
+    expect(rejectCreateMock).not.toHaveBeenCalled();
+  });
+  it("allows manual correction after a confirmed rejection, without an automatic retry", async () => {
+    setupQuick();
+    blackbaudApiFetchMock.mockRejectedValue(Object.assign(new Error("Invalid type"), { httpStatus: 400 }));
+    const { POST } = await import("./route.js");
+    const response = await POST(quickRequest(), { params: { id: "42", rowId: "9" } });
+    expect((await response.json()).error).toContain("No new record was created");
+    expect(rejectCreateMock).toHaveBeenCalledWith("9");
+    expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
+  });
+  it("blocks duplicate creation when the post-create DB save fails", async () => {
+    setupQuick();
+    const impl = sqlMock.getMockImplementation();
+    sqlMock.mockImplementation((strings, ...args) => {
+      if (strings.join(" ").includes("match_method = 'Created NXT record'")) throw new Error("DB unavailable");
+      return impl(strings, ...args);
+    });
+    const { POST } = await import("./route.js");
+    const response = await POST(quickRequest(), { params: { id: "42", rowId: "9" } });
+    expect(await response.json()).toMatchObject({ paused: true });
+    expect((await POST(quickRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
+  });
+  it("requires reviewer permission and a free creation lock", async () => {
+    setupQuick();
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValueOnce({ sessionUser: { id: 8, role: "mgo" } });
+    expect((await POST(quickRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(403);
+    expect(checkMock).not.toHaveBeenCalled();
+    claimMock.mockResolvedValue(null);
+    expect((await POST(quickRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(423);
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 });

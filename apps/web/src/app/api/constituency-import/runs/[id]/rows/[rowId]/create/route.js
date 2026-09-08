@@ -10,6 +10,15 @@ import {
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { newRecordContactPayload, ImportReviewRequired } from "@/utils/newConstituentImport";
+import {
+  claimConstituentCreateLease, renewConstituentCreateLease, releaseConstituentCreateLease,
+  checkClearNonmatch, configuredNameFormatPayload,
+  markConstituentCreateStarted,
+  findLocalImportDuplicate,
+  recordCreatedConstituent,
+  recordRejectedConstituentCreate,
+} from "@/app/api/utils/safeConstituentCreate";
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -246,6 +255,10 @@ async function returnToReview({ rowId, message, result = null }) {
 }
 
 export async function POST(request, { params }) {
+  let lease = null;
+  let claimedRowId = null;
+  let createAttempted = false;
+  const quick = new URL(request.url).searchParams.get("mode") === "clear_nonmatches";
   try {
     await ensureAppSchema();
 
@@ -259,13 +272,16 @@ export async function POST(request, { params }) {
     }
 
     const runs = await sql`
-      SELECT id
+      SELECT id, defaults, status
       FROM constituency_import_runs
       WHERE id = ${runId}
       LIMIT 1
     `;
     if (!runs[0]) {
       return Response.json({ error: "Import run not found" }, { status: 404 });
+    }
+    if (quick && (!["new", "mixed"].includes(runs[0].defaults?.importIntent) || runs[0].status === "preparing")) {
+      return Response.json({ error: "Finish preparing a New or Mixed import before creating clear nonmatches." }, { status: 409 });
     }
 
     const rows = await sql`
@@ -308,22 +324,35 @@ export async function POST(request, { params }) {
         { status: 409 },
       );
     }
+    if (row.create_request_started_at) {
+      return Response.json({ error: "An earlier create request has an uncertain outcome. Reconcile this row with NXT; creating it again is blocked.", held: true }, { status: 409 });
+    }
+    if (quick && row.quick_create_status) {
+      return Response.json({ error: "This row was already checked. It remains saved for individual review.", held: true }, { status: 409 });
+    }
+    if (!["Needs Review", "Ready"].includes(row.status) || row.matched_blackbaud_constituent_id) {
+      return Response.json({ error: "This row has changed or is already matched. Reopen it for review.", held: true }, { status: 409 });
+    }
+    async function invalidInput(message) {
+      if (quick) {
+        await sql`UPDATE constituency_import_rows SET quick_create_status = 'review', blackbaud_error = ${message}, status = 'Needs Review' WHERE id = ${rowId} AND status IN ('Ready', 'Needs Review')`;
+        await refreshRunSummary(runId);
+      }
+      return Response.json({ error: message, held: quick }, { status: 400 });
+    }
     const firstName = cleanText(input.firstName);
     const lastName = cleanText(input.lastName);
     if (!firstName || !lastName) {
-      return Response.json(
-        { error: "First Name and Last Name are required before a new individual NXT record can be created." },
-        { status: 400 },
-      );
+      return invalidInput("First Name and Last Name are required before a new individual NXT record can be created.");
     }
 
     const birthdate = parseBirthDate(input.birthDate);
     if (cleanText(input.birthDate) && !birthdate) {
-      return Response.json(
-        { error: "Birth Date must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value before a new NXT record can be created." },
-        { status: 400 },
-      );
+      return invalidInput("Birth Date must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value before a new NXT record can be created.");
     }
+
+    lease = await claimConstituentCreateLease();
+    if (!lease) return Response.json({ error: "Another import is creating a constituent. Resume shortly; this row has not been changed.", paused: true }, { status: 423 });
 
     const lockedRows = await sql`
       UPDATE constituency_import_rows
@@ -338,6 +367,8 @@ export async function POST(request, { params }) {
         AND run_id = ${runId}
         AND status IN ('Needs Review', 'Ready')
         AND created_blackbaud_constituent_id IS NULL
+        AND create_request_started_at IS NULL
+        AND preview = ${JSON.stringify(preview)}::jsonb
       RETURNING *
     `;
     if (!lockedRows[0]) {
@@ -346,12 +377,51 @@ export async function POST(request, { params }) {
         { status: 409 },
       );
     }
+    claimedRowId = rowId;
 
     const origin = new URL(request.url).origin;
+    const credentials = { userId: authResult.user.id, authUserId: authResult.user.id, origin };
+    let newRecordFields = {};
+    try {
+      if (!quick) {
+        const localMatch = await findLocalImportDuplicate({ input, rowId, runId, includePendingUpload: false });
+        if (localMatch) {
+          await returnToReview({ rowId, message: localMatch });
+          await refreshRunSummary(runId);
+          return Response.json({ error: localMatch, held: true }, { status: 409 });
+        }
+      }
+      newRecordFields = await configuredNameFormatPayload(input, credentials);
+      if (quick) {
+        const reason = await checkClearNonmatch({ input, rowId, runId, credentials });
+        if (reason) {
+          await returnToReview({ rowId, message: reason });
+          await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
+          await refreshRunSummary(runId);
+          return Response.json({ error: reason, held: true }, { status: 409 });
+        }
+        if (Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
+          throw new ImportReviewRequired("Saved contact review choices require individual review.");
+        }
+        newRecordFields = { ...newRecordFields, ...newRecordContactPayload(input) };
+      }
+    } catch (error) {
+      const status = Number(error.httpStatus || error.status);
+      const paused = [401, 403, 429].includes(status) || error.retryAfterMs > 0 || /quota|not connected/i.test(error.message || "");
+      const message = paused
+        ? "NXT duplicate checking is paused. No record was created. Resume when the connection or quota is available."
+        : error instanceof ImportReviewRequired
+          ? `${error.message} No NXT record was created.`
+          : "This row needs review because its duplicate checks, contact selections, or NXT name format could not be confirmed. No NXT record was created.";
+      await returnToReview({ rowId, message });
+      if (quick && !paused) await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
+      await refreshRunSummary(runId);
+      return Response.json({ error: message, held: !paused, paused, retryAfterMs: error.retryAfterMs || null }, { status: paused ? 429 : 409 });
+    }
     let duplicate = null;
     let duplicateCheckMethod = null;
     try {
-      const identifierMatch = await findResolvedNxtIdentifier({
+      const identifierMatch = quick ? null : await findResolvedNxtIdentifier({
         input,
         userId: authResult.user.id,
         authUserId: authResult.user.id,
@@ -362,7 +432,7 @@ export async function POST(request, { params }) {
         duplicateCheckMethod = identifierMatch.method;
       }
 
-      if (!duplicate && cleanText(input.email)) {
+      if (!quick && !duplicate && cleanText(input.email)) {
         const emailMatch = await findBlackbaudConstituentByEmail({
           userId: authResult.user.id,
           authUserId: authResult.user.id,
@@ -375,7 +445,7 @@ export async function POST(request, { params }) {
         }
       }
 
-      if (!duplicate) {
+      if (!quick && !duplicate) {
         const candidates = await searchBlackbaudConstituents({
           userId: authResult.user.id,
           authUserId: authResult.user.id,
@@ -435,21 +505,32 @@ export async function POST(request, { params }) {
     if (cleanText(input.ethnicity)) createPayload.ethnicity = cleanText(input.ethnicity);
     if (cleanText(input.suffix)) createPayload.suffix = cleanText(input.suffix);
     if (birthdate) createPayload.birthdate = birthdate;
+    Object.assign(createPayload, newRecordFields);
 
     let createResult;
     try {
+      await renewConstituentCreateLease(lease);
+      // Persist BEFORE POST. A lost response or DB failure must never lead to
+      // automatically replaying a non-idempotent constituent creation.
+      await markConstituentCreateStarted(rowId, preview);
+      createAttempted = true;
       createResult = await blackbaudApiFetch("/constituent/v1/constituents", {
         userId: authResult.user.id,
         authUserId: authResult.user.id,
         origin,
         method: "POST",
         body: createPayload,
+        maxRetries: 0,
+        timeoutMs: 20000,
       });
     } catch (error) {
-      const providerMessage = error instanceof Error ? error.message : "NXT rejected the create request.";
-      const message = requestedNxtLookupId
-        ? `NXT rejected the new record with Lookup ID ${requestedNxtLookupId}. No record was created. ${providerMessage}`
-        : providerMessage;
+      const confirmedRejection = createAttempted && [400, 401, 403, 409, 422, 429].includes(Number(error.httpStatus));
+      if (confirmedRejection) await recordRejectedConstituentCreate(rowId);
+      const message = confirmedRejection
+        ? `NXT rejected the create request (HTTP ${error.httpStatus}). No new record was created. Review the row's field values, NXT types, and connection before a manual retry.`
+        : createAttempted
+        ? "The create request did not return a confirmed result. Check NXT and reconcile this row before any further creation; automatic retry is blocked."
+        : "The row or creation lock changed before sending to NXT. No create request was sent; review this row before retrying.";
       await returnToReview({
         rowId,
         message,
@@ -459,8 +540,9 @@ export async function POST(request, { params }) {
           createFailedAt: new Date().toISOString(),
         },
       });
+      if (quick) await sql`UPDATE constituency_import_rows SET quick_create_status = ${createAttempted && !confirmedRejection ? "uncertain" : "review"} WHERE id = ${rowId}`;
       await refreshRunSummary(runId);
-      return Response.json({ error: message }, { status: 502 });
+      return Response.json({ error: message, held: true, paused: [401, 403, 429].includes(Number(error.httpStatus || error.status)) || error.retryAfterMs > 0 }, { status: 502 });
     }
 
     const createdConstituentId = cleanText(
@@ -480,9 +562,12 @@ export async function POST(request, { params }) {
           createResult,
         },
       });
+      if (quick) await sql`UPDATE constituency_import_rows SET quick_create_status = 'uncertain' WHERE id = ${rowId}`;
       await refreshRunSummary(runId);
-      return Response.json({ error: message }, { status: 502 });
+      return Response.json({ error: message, held: true }, { status: 502 });
     }
+
+    await recordCreatedConstituent(rowId, createdConstituentId);
 
     const writePlan = (Array.isArray(row.requested_writes) ? row.requested_writes : []).map((write) => {
       if (!["education_relationship", "organization_relationship"].includes(write?.type)) {
@@ -545,6 +630,7 @@ export async function POST(request, { params }) {
         requested_writes = ${JSON.stringify(writePlan)}::jsonb,
         created_blackbaud_constituent_id = ${createdConstituentId},
         created_blackbaud_lookup_id = ${resolvedCreatedLookupId || null},
+        quick_create_status = ${quick ? "created" : null},
         blackbaud_result = ${JSON.stringify({
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
@@ -555,6 +641,8 @@ export async function POST(request, { params }) {
           externalSourceId: externalSourceId || null,
           unresolvedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
           createResult,
+          configuredNameFormats: input.newRecordNameFormats || null,
+          includedContactKinds: Object.keys(newRecordFields).filter((key) => ["email", "phone", "address"].includes(key)),
         })}::jsonb,
         blackbaud_error = NULL,
         updated_at = NOW()
@@ -570,10 +658,12 @@ export async function POST(request, { params }) {
       unresolvedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
     });
   } catch (error) {
-    console.error("Error creating NXT constituent from import row:", error);
+    console.error("Import constituent creation failed", { stage: createAttempted ? "create_or_checkpoint" : "preflight", rowId: claimedRowId, errorClass: error?.name });
     return Response.json(
-      { error: error instanceof Error ? error.message : "Failed to create NXT constituent from import row" },
+      { error: createAttempted ? "Creation may have reached NXT, but its checkpoint could not be confirmed. Reconcile this row; do not create it again." : "The import could not complete this row. Reopen the saved run to check its status.", paused: true },
       { status: 500 },
     );
+  } finally {
+    if (lease) await releaseConstituentCreateLease(lease).catch(() => {});
   }
 }

@@ -76,6 +76,8 @@ function serializeImportRow(row, { quotaPaused: blackbaudQuotaPaused = false } =
       : null,
     createdBlackbaudConstituentId: row.created_blackbaud_constituent_id || null,
     createdBlackbaudLookupId: row.created_blackbaud_lookup_id || null,
+    quickCreateStatus: row.quick_create_status || null,
+    createRequestStartedAt: row.create_request_started_at || null,
   };
 }
 
