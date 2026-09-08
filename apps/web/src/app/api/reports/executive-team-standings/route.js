@@ -18,6 +18,7 @@ import {
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { EXECUTIVE_TEAM_STANDINGS_CACHE_KEY } from "@/app/api/utils/teamStandingsSnapshot";
 import {
   EXECUTIVE_TEAM_STANDINGS_REPORT_KEY,
   getReportAccessForUser,
@@ -26,8 +27,7 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const TREND_WINDOW_DAYS = 7;
-export const EXECUTIVE_TEAM_STANDINGS_CACHE_KEY =
-  "report:executive-team-standings:v4-lifetime-gift-feed";
+export { EXECUTIVE_TEAM_STANDINGS_CACHE_KEY };
 
 export function getFiscalYearWindow(now = new Date()) {
   const currentYear = now.getUTCFullYear();

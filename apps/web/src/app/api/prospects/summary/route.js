@@ -6,7 +6,9 @@ import {
   getBlackbaudFundraiserById,
   listBlackbaudGifts,
 } from "@/app/api/utils/blackbaud";
-import { getClosedFiscalYearSummary } from "@/app/api/utils/closedFyGiftTotals";
+import { getWorkspaceStandingsSummary } from "@/app/api/utils/teamStandingsSnapshot";
+import { getReportCacheHeaders } from "@/app/api/utils/reportCache";
+import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { getRealizedPlannedGiftIds } from "@/app/api/utils/plannedGiftRevenue";
 
@@ -823,7 +825,7 @@ export async function GET(request) {
       return Response.json({
         activeCount: 0,
         totalAskPipeline: 0,
-        closedThisFY: 0,
+        closedThisFY: null,
       });
     }
     const authUserId = isActing ? sessionUser.id : user.id;
@@ -842,62 +844,36 @@ export async function GET(request) {
       WHERE user_id = ${user.id} AND status = 'Active'
     `;
 
-    // Calculate current fiscal year window (July 1 - June 30)
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    const fiscalStartYear = currentMonth >= 6 ? currentYear : currentYear - 1;
-    const fiscalEndYear = fiscalStartYear + 1;
-    const currentFY = `FY${String(fiscalEndYear).slice(-2)}`;
-    const fiscalYearStart = `${fiscalStartYear}-07-01`;
-    const fiscalYearEnd = `${fiscalEndYear}-06-30`;
-    const priorFiscalStartYear = fiscalStartYear - 1;
-    const priorFiscalEndYear = fiscalEndYear - 1;
-    const priorFY = `FY${String(priorFiscalEndYear).slice(-2)}`;
-    const priorFiscalYearStart = `${priorFiscalStartYear}-07-01`;
-    const priorFiscalYearEnd = `${priorFiscalEndYear}-06-30`;
-    const summaryCacheKey = [
-      "closed-summary-v2",
-      currentFY,
-      priorFY,
-      user.id,
-      user.blackbaud_constituent_id || "",
-      user.blackbaud_lookup_id || "",
-      normalizeBlackbaudFundraiserAliasIds(user.blackbaud_fundraiser_alias_ids).join(","),
-      user.email || "",
-      user.name || "",
-    ].join("|");
+    const periods = getStandingsPeriods();
+    const currentFY = periods.fiscalYear.label;
+    const priorFY = periods.prior.label;
+    const [currentWindow, priorWindow] = periods.actionFiscalYears;
 
     let closedThisFY = null;
     let closedPriorFY = null;
     let closedDebug = null;
     let closedPriorDebug = null;
+    let standingsSummary = null;
 
-    if (includeClosed && origin) {
+    if (includeClosed) {
       if (!debug) {
-        const closedSummary = await getClosedFiscalYearSummary({
-          workspaceUser: user,
-          authUserId,
-          origin,
-        });
-        closedThisFY = Number(closedSummary.closedThisFY || 0);
-        closedPriorFY = Number(closedSummary.closedPriorFY || 0);
-      } else {
+        standingsSummary = await getWorkspaceStandingsSummary(user.id);
+      } else if (origin) {
         const [closedPayload, priorClosedPayload] = await Promise.all([
           getLiveBlackbaudClosedThisFY({
             user,
             authUserId,
             origin,
-            fiscalYearStart,
-            fiscalYearEnd,
+            fiscalYearStart: currentWindow.startsOn,
+            fiscalYearEnd: currentWindow.endsOn,
             debug: true,
           }).catch(() => ({ closedTotal: 0, debug: null })),
           getLiveBlackbaudClosedThisFY({
             user,
             authUserId,
             origin,
-            fiscalYearStart: priorFiscalYearStart,
-            fiscalYearEnd: priorFiscalYearEnd,
+            fiscalYearStart: priorWindow.startsOn,
+            fiscalYearEnd: priorWindow.endsOn,
             debug: true,
           }).catch(() => ({ closedTotal: 0, debug: null })),
         ]);
@@ -916,8 +892,9 @@ export async function GET(request) {
       currentFY,
       closedPriorFY,
       priorFY,
+      ...standingsSummary,
       ...(debug ? { closedDebug, closedPriorDebug } : {}),
-    });
+    }, { headers: getReportCacheHeaders(standingsSummary ? "snapshot" : "none") });
   } catch (error) {
     console.error("Error fetching prospect summary:", error);
     return Response.json({ error: "Failed to fetch summary" }, { status: 500 });

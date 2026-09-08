@@ -25,6 +25,7 @@ import {
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/prospectDisplay";
+import ProspectRaisedCard from "./ProspectRaisedCard";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -8728,16 +8729,17 @@ export default function MyTopProspectsPage() {
     refetchOnWindowFocus: false,
   });
 
-  const { data: closedSummary, isLoading: isClosedSummaryLoading } = useQuery({
-    queryKey: ["prospect-summary-closed", activeWorkspaceUserId],
+  const { data: closedSummary, isLoading: isClosedSummaryLoading, isError: isClosedSummaryError } = useQuery({
+    queryKey: ["prospect-summary-closed", activeWorkspaceUserId, "standings-snapshot"],
     queryFn: async () => {
       const res = await fetch("/api/prospects/summary");
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },
     enabled: !!user && !!activeWorkspaceUserId,
-    staleTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    // This now reads a saved snapshot only; refocusing never reruns NXT.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   const { data: stewardshipActions = [], isLoading: isStewardshipLoading } = useQuery({
@@ -9705,6 +9707,7 @@ export default function MyTopProspectsPage() {
           priorFY: closedSummary?.priorFY ?? summary?.priorFY ?? null,
           closedThisFY: closedSummary?.closedThisFY,
           closedPriorFY: closedSummary?.closedPriorFY,
+          raisedSnapshot: closedSummary?.raisedSnapshot,
         }
       : null;
 
@@ -10860,63 +10863,7 @@ export default function MyTopProspectsPage() {
                 {formatCurrency(combinedSummary.totalAskPipeline)}
               </p>
             </div>
-            <div
-              style={{
-                backgroundColor: "white",
-                borderRadius: "12px",
-                border: "1px solid #E5E7EB",
-                padding: "20px",
-                flex: "1 1 180px",
-                minWidth: "180px",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  marginBottom: "8px",
-                }}
-              >
-                <Trophy size={18} color="#F59E0B" />
-                <span
-                  style={{
-                    fontSize: "13px",
-                    color: "#6B7280",
-                    fontWeight: "500",
-                  }}
-                >
-                  Closed {combinedSummary.currentFY}
-                </span>
-              </div>
-              <p
-                style={{
-                  fontSize: "28px",
-                  fontWeight: "700",
-                  color: "#111827",
-                  margin: 0,
-                }}
-              >
-                {isClosedSummaryLoading && combinedSummary.closedThisFY == null
-                  ? "Loading..."
-                  : formatCurrency(combinedSummary.closedThisFY)}
-              </p>
-              {combinedSummary.priorFY ? (
-                <div
-                  style={{
-                    marginTop: "6px",
-                    fontSize: "13px",
-                    color: "#6B7280",
-                    fontWeight: 600,
-                  }}
-                >
-                  {combinedSummary.priorFY}:{" "}
-                  {isClosedSummaryLoading && combinedSummary.closedPriorFY == null
-                    ? "Loading..."
-                    : formatCurrency(combinedSummary.closedPriorFY)}
-                </div>
-              ) : null}
-            </div>
+            <ProspectRaisedCard summary={combinedSummary} isLoading={isClosedSummaryLoading} isError={isClosedSummaryError} />
           </div>
         )}
 
