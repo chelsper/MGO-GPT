@@ -4,6 +4,13 @@ import QueueImportLink from "./QueueImportLink";
 afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 
 describe("queue import batch handoff", () => {
+  it("requests the exact blocking row without starting any create or apply action", async () => {
+    window.history.replaceState({}, "", "/constituency-import?queueRun=88&queueRow=2712");
+    const open = vi.fn();
+    render(<QueueImportLink onOpen={open} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open blocking import row" }));
+    expect(open).toHaveBeenCalledWith("88", { focusRowId: "2712", preload: false });
+  });
   it("opens the exact saved batch only after an explicit click", async () => {
     window.history.replaceState({}, "", "/constituency-import?queueRun=17");
     const open = vi.fn();

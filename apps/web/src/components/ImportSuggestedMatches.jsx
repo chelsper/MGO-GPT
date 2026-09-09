@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
-import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId } from "@/utils/importMatchReview";
+import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, getImportLocalDuplicate, needsLocalDuplicateContext } from "@/utils/importMatchReview";
 import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
+import ImportLocalDuplicateNotice from "./ImportLocalDuplicateNotice";
 
 export default function ImportSuggestedMatches({ row, runId, reviewer, busy, autoLoad, onSelect, onReject }) {
   const [loaded, setLoaded] = useState(null);
@@ -11,7 +12,7 @@ export default function ImportSuggestedMatches({ row, runId, reviewer, busy, aut
   const [showAll, setShowAll] = useState(false);
   const editable = reviewer && canChangeImportMatch(row);
   const known = getImportMatchCandidates(row, { includeRejected: true });
-  const outdated = row.matchCriteriaVersion !== IMPORT_MATCH_CRITERIA_VERSION;
+  const outdated = row.matchCriteriaVersion !== IMPORT_MATCH_CRITERIA_VERSION || needsLocalDuplicateContext(row);
   const shouldLoad = Boolean(runId && editable && !busy && (outdated || (!known.length && !row.matchSuggestionsCheckedAt)) && loaded === null && !error && (autoLoad || retry));
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export default function ImportSuggestedMatches({ row, runId, reviewer, busy, aut
   }, [shouldLoad, runId, row.id, retry]);
 
   const selectedId = getSelectedImportMatchId(row);
+  const localDuplicate = loaded ? loaded.localDuplicate : getImportLocalDuplicate(row);
   const candidates = getImportMatchCandidates({ ...row,
     ...(loaded ? { matchCandidates: loaded.results, matchCriteriaVersion: loaded.criteriaVersion,
       matchSuggestionsCheckedAt: new Date().toISOString(), blackbaudResult: null } : {}) })
@@ -66,6 +68,7 @@ export default function ImportSuggestedMatches({ row, runId, reviewer, busy, aut
       </div>
     </article>)}
     {candidates.length > 5 && <button type="button" className="font-bold text-blue-800 underline" onClick={() => setShowAll((value) => !value)}>{showAll ? "Show strongest 5" : `Show all ${candidates.length} qualifying matches`}</button>}
-    {checked && !candidates.length && !selectedId && <p className="text-sm text-slate-700">{loaded?.notice || "No remaining suggested matches."} Select an existing record using search below, or use Check for duplicates to confirm and create a new constituent.</p>}
+    <ImportLocalDuplicateNotice duplicate={localDuplicate} />
+    {checked && !candidates.length && !selectedId && !localDuplicate && <p className="text-sm text-slate-700">{loaded?.notice || "No remaining suggested matches."} Select an existing record using search below, or use Check for duplicates to confirm and create a new constituent.</p>}
   </section>;
 }

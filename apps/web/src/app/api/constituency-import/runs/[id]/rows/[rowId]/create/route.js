@@ -284,12 +284,14 @@ export async function POST(request, { params }) {
     try {
       newRecordFields = await configuredNameFormatPayload(input, credentials);
       let matchCandidates = [];
+      let localDuplicate = null;
       const reason = await checkClearNonmatch({ input, rowId, runId, credentials,
         ...(reviewed ? { reviewedCandidateIds: getReviewedNonmatchIds(row) } : {}),
-        onCandidates: (candidates) => { matchCandidates = candidates; } });
+        onCandidates: (candidates) => { matchCandidates = candidates; },
+        onLocalDuplicate: (found) => { localDuplicate = found; } });
       if (reason) {
         await returnToReview({ rowId, message: reason, preflight: true,
-          result: { ...(row.blackbaud_result || {}), type: "import_duplicate_review", matchCandidates, duplicateCheckAt: new Date().toISOString() } });
+          result: { ...(row.blackbaud_result || {}), type: "import_duplicate_review", matchCandidates, localDuplicate, duplicateCheckAt: new Date().toISOString() } });
         if (reviewed) await sql`UPDATE constituency_import_rows SET preview = jsonb_set(preview, '{newRecordReview}', ${JSON.stringify({ status: "blocked", message: reason, nextAction: reason.startsWith("Another import row") ? "review_batch" : "review_matches" })}::jsonb) WHERE id = ${rowId} AND status = 'Needs Review'`;
         await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
         await refreshRunSummary(runId);

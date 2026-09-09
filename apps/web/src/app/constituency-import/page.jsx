@@ -13,7 +13,7 @@ import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
-import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget } from "@/utils/importMatchReview";
+import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget, importErrorLabel, withFocusedImportRow } from "@/utils/importMatchReview";
 import { importMatchEvidence } from "@/utils/importMatchEvidence";
 
 const IMPORT_FIELDS = [
@@ -3751,7 +3751,7 @@ export default function ConstituencyImportPage() {
   const reviewActionRows = preview?.savedRun
     ? reviewQueueRows.filter((row) => row.status !== "Ready")
     : [];
-  const reviewNavigationRows = preview?.savedRun
+  const defaultNavigationRows = preview?.savedRun
     ? reviewingSkippedRows && manuallySkippedRows.length
       ? manuallySkippedRows
       : reviewActionRows.length
@@ -3762,6 +3762,7 @@ export default function ConstituencyImportPage() {
             ? reviewQueueRows
             : importRows
     : importRows;
+  const reviewNavigationRows = withFocusedImportRow(defaultNavigationRows, importRows, focusedRowId);
   const rowsNeedingAttention = reviewActionRows.length;
   const progressReviewRows = preview?.savedRun
     ? reviewActionRows
@@ -9453,7 +9454,7 @@ export default function ConstituencyImportPage() {
                           lineHeight: 1.4,
                         }}
                       >
-                        NXT apply failed: {row.blackbaudError}
+                        {importErrorLabel(row)}: {row.blackbaudError}
                       </div>
                     ) : null}
                     {Array.isArray(row.blackbaudResult?.results) &&

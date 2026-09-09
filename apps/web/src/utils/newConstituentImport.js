@@ -14,7 +14,8 @@ export function mostlySameAddress(left, right) {
 
 export function duplicateReason(left, right) {
   const evidence = importMatchEvidence(left, { ...right, blackbaudConstituentId: right.blackbaudConstituentId || "local-row" });
-  if (evidence.rank === 100) return "matching NXT ID";
+  if (evidence.rank === 100) return cleanImportText(left.blackbaudConstituentId) && cleanImportText(left.blackbaudConstituentId) === cleanImportText(right.blackbaudConstituentId)
+    ? "matching NXT system ID" : "matching NXT Lookup ID";
   if (evidence.rank === 90) return "matching email address";
   if (evidence.rank === 70) return "matching first and last name";
   if (evidence.rank === 60) return "similar name with supporting contact information";

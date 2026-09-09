@@ -30,6 +30,37 @@ export function isImportDuplicatePreflightHold(row) {
   );
 }
 
+export function getImportLocalDuplicate(row) {
+  const preview = getPreview(row) || {};
+  const result = row?.blackbaud_result || row?.blackbaudResult || {};
+  if (preview.localDuplicateCheckedAt && !(Date.parse(result.duplicateCheckAt) > Date.parse(preview.localDuplicateCheckedAt))) {
+    return preview.localDuplicate || null;
+  }
+  return result.localDuplicate || preview.localDuplicate || null;
+}
+
+export function needsLocalDuplicateContext(row) {
+  const preview = getPreview(row) || {};
+  const result = row?.blackbaud_result || row?.blackbaudResult || {};
+  if (getImportLocalDuplicate(row) || preview.localDuplicateCheckedAt) return false;
+  return [row?.blackbaud_error, row?.blackbaudError, preview.matchSuggestionsNotice, result.message]
+    .some((value) => String(value || "").startsWith("Another import row"));
+}
+
+export function importErrorLabel(row) {
+  const result = row?.blackbaud_result || row?.blackbaudResult || {};
+  if (result.results?.length || result.attempts?.length) return "NXT write needs review";
+  if (getPreview(row)?.identityVerification) return "Live identity check held this row";
+  if (isImportDuplicatePreflightHold(row) || getImportLocalDuplicate(row) || needsLocalDuplicateContext(row)) return "Import held before creation";
+  return "Import needs review";
+}
+
+export function withFocusedImportRow(queueRows, allRows, focusedId) {
+  const focused = allRows.find((row) => String(row.id) === String(focusedId));
+  return focused && !queueRows.some((row) => String(row.id) === String(focusedId))
+    ? [focused, ...queueRows] : queueRows;
+}
+
 export function canChangeImportMatch(row) {
   if (!row || !["Ready", "Needs Review", "Conflict", "Skipped"].includes(row.status)) return false;
   const result = row.blackbaud_result || row.blackbaudResult || {};

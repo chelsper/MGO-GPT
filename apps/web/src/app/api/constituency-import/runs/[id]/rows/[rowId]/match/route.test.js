@@ -364,4 +364,21 @@ describe("manual NXT import match route", () => {
     expect((await POST(makeRequest({ action: "reject", constituentId: "123" }), { params: { id: "42", rowId: "9" } })).status).toBe(403);
     expect(sqlMock).not.toHaveBeenCalled();
   });
+
+  it("recovers missing context on an older local hold even when suggestions were already checked", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.preview.input.duplicateCheckVersion = 1;
+    row.preview.matchCriteriaVersion = 2;
+    row.preview.matchSuggestionsCheckedAt = "2026-09-09";
+    row.blackbaud_error = "Another import row has a matching NXT ID (saved row ID 2712).";
+    const localDuplicate = { rowId: "2712", runId: "42", rowNumber: 4, kind: "pending_row" };
+    checkClearNonmatchMock.mockImplementation(async ({ onLocalDuplicate }) => { onLocalDuplicate(localDuplicate); return row.blackbaud_error; });
+    sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "9" }]);
+    const response = await POST(makeRequest({ action: "suggestions" }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [], localDuplicate });
+    expect(JSON.parse(sqlMock.mock.calls[1][1])).toMatchObject({ localDuplicate, matchSuggestionsNotice: row.blackbaud_error });
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+  });
 });

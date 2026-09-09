@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, normalizeImportMatchCandidate, rejectedImportMatchPreview, sameReviewedImportTarget } from "./importMatchReview";
+import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, normalizeImportMatchCandidate, rejectedImportMatchPreview, sameReviewedImportTarget, getImportLocalDuplicate, needsLocalDuplicateContext, importErrorLabel, withFocusedImportRow } from "./importMatchReview";
 import { quickImportCandidates } from "./newConstituentImport";
 
 describe("import match review safety", () => {
+  it("refreshes legacy local holds and does not label them NXT write failures", () => {
+    const row = { status: "Needs Review", blackbaudError: "Another import row has a matching NXT ID (saved row ID 2712).", blackbaudResult: { type: "import_duplicate_review" } };
+    expect(needsLocalDuplicateContext(row)).toBe(true);
+    expect(importErrorLabel(row)).toBe("Import held before creation");
+    expect(needsLocalDuplicateContext({ ...row, localDuplicateCheckedAt: "2026-09-09" })).toBe(false);
+    expect(importErrorLabel({ ...row, blackbaudResult: { results: [{ status: "failed" }] } })).toBe("NXT write needs review");
+  });
+  it("uses a newer completed check to clear obsolete local conflict details", () => {
+    const old = { rowId: "2712" };
+    const row = { blackbaudResult: { localDuplicate: old, duplicateCheckAt: "2026-09-08" } };
+    expect(getImportLocalDuplicate(row)).toEqual(old);
+    expect(getImportLocalDuplicate({ ...row, localDuplicate: null, localDuplicateCheckedAt: "2026-09-09" })).toBeNull();
+    expect(getImportLocalDuplicate({ ...row, localDuplicate: null, localDuplicateCheckedAt: "2026-09-07" })).toEqual(old);
+  });
+  it.each(["Ready", "Applied", "Skipped"])("keeps an explicitly linked %s row visible when other rows need review", (status) => {
+    const ready = { id: "2712", status }, needsReview = { id: "2711", status: "Needs Review" };
+    expect(withFocusedImportRow([needsReview], [ready, needsReview], "2712")).toEqual([ready, needsReview]);
+    expect(withFocusedImportRow([needsReview], [ready, needsReview], "missing")).toEqual([needsReview]);
+  });
   it("requires a new send confirmation when the saved target or Lookup ID changes", () => {
     const before = { input: {}, match: { blackbaudConstituentId: "100", lookupId: "629381", name: "Test Person" } };
     expect(sameReviewedImportTarget(before, before)).toBe(true);

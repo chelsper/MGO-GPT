@@ -74,9 +74,20 @@ describe("checked new-record review", () => {
     expect(savedPreview().newRecordReview.nextAction).toBe("correct_csv");
   });
   it("offers batch review for a local duplicate", async () => {
-    check.mockResolvedValue("Another import row has a matching email");
+    const duplicate = { runId: "42", rowId: "2712", rowNumber: 4, kind: "pending_row" };
+    check.mockImplementation(async ({ onLocalDuplicate }) => { onLocalDuplicate(duplicate); return "Another import row has a matching email"; });
     await prepare();
     expect(savedPreview().newRecordReview.nextAction).toBe("review_batch");
+    expect(savedPreview().localDuplicate).toEqual(duplicate);
+    expect(savedPreview().newRecordReview.token).toBeUndefined();
+  });
+  it("clears a resolved local hold only after fresh complete duplicate checks", async () => {
+    const value = row(); value.preview.localDuplicate = { rowId: "2712" };
+    value.blackbaud_error = "Another import row has a matching email";
+    await prepare(value);
+    expect(savedPreview().localDuplicate).toBeNull();
+    expect(savedPreview().newRecordReview.status).toBe("clear");
+    expect(sql.mock.calls[0][2]).toBeNull();
   });
   it("fails closed if the row changed during checking", async () => {
     sql.mockResolvedValue([]);

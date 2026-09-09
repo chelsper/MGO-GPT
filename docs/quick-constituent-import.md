@@ -36,6 +36,10 @@ For a saved New or Mixed import, an unmatched row now has an **Is this a new con
 
 Blocked checks explain the next action: retry NXT checks, **Choose corrected CSV** and prepare a new preview, review suggested matches, or **Review batch rows**. For duplicate unsent rows in the same upload, skip the extra row and retry the retained row. Skipping does not exempt a created record, started request, or durable prior creation attempt. Update-only imports explain that creation requires a New or Mixed import. Source conflicts must be corrected rather than overridden.
 
+Local duplicate holds show a separate **Import history conflict** card, not a suggested live NXT match or an "NXT apply failed" error. The card identifies the import number, CSV row, saved name, matching field, and whether the other row is pending, already created, or has an uncertain creation. **Review blocking import row** opens that exact row, including older batches and completed/skipped rows. A known created system record has a separate NXT link. CSV identifiers are labeled as saved source values, not current NXT identity. Orphaned creation audits remain blocked without inventing a link to a deleted import row.
+
+Older holds missing this context are checked again when opened for review. After correcting/skipping an extra unsent row, use **Check for duplicates** on the retained row; only a fresh complete check can clear the hold. Uncertain and created records remain protected, even if their saved row is skipped or an NXT search returns no results. These safeguards are not bypassed by rejecting suggestions.
+
 These review fields use existing preview/audit JSON; no additional schema migration is required for the manual resolution workflow. The quick batch path does not inherit reviewer exceptions and continues to hold all possible matches.
 
 ## Duplicate Rules

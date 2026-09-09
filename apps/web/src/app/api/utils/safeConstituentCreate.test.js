@@ -128,7 +128,7 @@ describe("live duplicate preflight", () => {
   });
   it("retains prior attempts even if their original import row was replaced", async () => {
     sql.mockResolvedValue([{ id: 99, input: { firstName: "Different", lastName: "Name", email: "old@example.com" }, created_blackbaud_constituent_id: "777" }]);
-    expect(await check({ blackbaudConstituentId: "777" })).toContain("matching NXT ID");
+    expect(await check({ blackbaudConstituentId: "777" })).toContain("matching NXT system ID");
     expect(api).not.toHaveBeenCalled();
     expect(sql.mock.calls[0][0].join(" ")).toContain("FROM constituency_import_create_attempts");
   });
@@ -137,6 +137,30 @@ describe("live duplicate preflight", () => {
     expect(await configuredNameFormatPayload({ newRecordNameFormats: { addressee: "5" } }, {})).toEqual({ primary_addressee: { custom_format: false, configuration_id: "5" } });
     await expect(configuredNameFormatPayload({ newRecordNameFormats: { addressee: "6" } }, {})).rejects.toThrow(/no longer exists/);
     await expect(configuredNameFormatPayload({ newRecordNameFormats: { addressee: "5" }, nameFormatUpdate: { addressee: "Custom" } }, {})).rejects.toThrow(/not both/);
+  });
+
+  it("returns actionable same-batch duplicate context without inventing an NXT match", async () => {
+    sql.mockResolvedValue([{ id: 2712, run_id: 88, row_number: 4, status: "Ready", input: { ...input, lookupId: "628866" } }]);
+    const onLocalDuplicate = vi.fn(), onCandidates = vi.fn();
+    const message = await checkClearNonmatch({ input: { ...input, lookupId: "628866" }, rowId: "2711", runId: "88", onLocalDuplicate, onCandidates, credentials: {} });
+    expect(message).toContain("import #88, CSV row 4");
+    expect(message).toContain("matching NXT Lookup ID");
+    expect(onLocalDuplicate).toHaveBeenCalledWith(expect.objectContaining({ rowId: "2712", runId: "88", rowNumber: 4, kind: "pending_row", sameRun: true, name: "Jane Dolphin", createdConstituentId: null }));
+    expect(onCandidates).not.toHaveBeenCalled();
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ created_blackbaud_constituent_id: "777" }, "created"],
+    [{ create_request_started_at: "2026-09-09" }, "unconfirmed_creation"],
+    [{ source: "creation_history" }, "unconfirmed_creation"],
+  ])("retains prior creation safeguards and identifies their kind (%j)", async (fields, kind) => {
+    sql.mockResolvedValue([{ id: 90, run_id: 20, row_number: 2, input, ...fields }]);
+    const onLocalDuplicate = vi.fn();
+    const message = await checkClearNonmatch({ input, rowId: "9", runId: "42", credentials: {}, onLocalDuplicate, reviewedCandidateIds: ["777"] });
+    expect(message).not.toContain("skip the extra unsent row");
+    expect(onLocalDuplicate).toHaveBeenCalledWith(expect.objectContaining({ runId: "20", kind, sameRun: false }));
+    expect(api).not.toHaveBeenCalled();
   });
   it("requires a durable pre-POST checkpoint and an owned live lease", async () => {
     await expect(markConstituentCreateStarted(9, {})).rejects.toThrow(/row changed/);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { canChangeImportMatch, canReviewNewImportRecord, getReviewedNonmatchIds, getSelectedImportMatchId } from "@/utils/importMatchReview";
+import { canChangeImportMatch, canReviewNewImportRecord, getReviewedNonmatchIds, getSelectedImportMatchId, getImportLocalDuplicate } from "@/utils/importMatchReview";
 
 export default function ImportNewRecordReview({ row, importIntent, busy, onAction, onCorrectCsv, onReviewBatch }) {
   const [note, setNote] = useState("");
@@ -47,7 +47,7 @@ export default function ImportNewRecordReview({ row, importIntent, busy, onActio
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={button} disabled={disabled} onClick={() => run("review_new_check")}>{working === "review_new_check" ? "Checking NXT duplicates..." : review ? "Retry duplicate checks" : "Check for duplicates"}</button>
         {(review?.nextAction === "correct_csv" || error) && <button type="button" className={button} disabled={disabled} onClick={onCorrectCsv}>Choose corrected CSV</button>}
-        {review?.nextAction === "review_batch" && <button type="button" className={button} disabled={disabled} onClick={onReviewBatch}>Review batch rows</button>}
+        {review?.nextAction === "review_batch" && !getImportLocalDuplicate(row) && <button type="button" className={button} disabled={disabled} onClick={onReviewBatch}>Review batch rows</button>}
       </div>
       {clear && <div className="mt-4 space-y-3 border-t border-blue-200 pt-4">
         <p className="text-sm text-slate-700">Create one individual with fresh NXT identifiers and the saved table-based name formats. Original CSV IDs remain in the audit only. Contacts, constituencies, education, and relationships remain staged for separate review.</p>

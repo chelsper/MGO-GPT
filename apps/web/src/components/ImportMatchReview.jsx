@@ -38,7 +38,7 @@ export default function ImportMatchReview({ row, saved, reviewer, busy, onReject
           : !saved ? "Save this preview to record a Not a match decision. Opening NXT does not select or change a record."
             : "Open NXT in a new tab to compare full details. Not a match clears this selection only; it does not delete, update, or create an NXT record."}
     </p>
-    {!created && <ImportSuggestedMatches key={`${runId}:${row.id}:${JSON.stringify(row.input)}`} row={row} runId={saved ? runId : null} reviewer={reviewer} busy={busy} autoLoad={autoLoad} onSelect={onSelect} onReject={onReject} />}
+    {!created && <ImportSuggestedMatches key={`${runId}:${row.id}:${JSON.stringify(row.input)}:${row.localDuplicateCheckedAt || ""}:${row.blackbaudResult?.duplicateCheckAt || ""}`} row={row} runId={saved ? runId : null} reviewer={reviewer} busy={busy} autoLoad={autoLoad} onSelect={onSelect} onReject={onReject} />}
     {row.rejectedMatches?.length > 0 && <details className="text-sm">
       <summary className="cursor-pointer font-semibold">Rejected matches ({row.rejectedMatches.length})</summary>
       <ul className="mt-2 space-y-2">{row.rejectedMatches.map((match, index) => <li key={`${match.constituentId}-${index}`}>

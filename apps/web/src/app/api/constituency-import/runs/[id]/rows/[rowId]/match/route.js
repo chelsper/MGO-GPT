@@ -15,7 +15,7 @@ import {
 } from "@/app/api/constituency-import/preview/route";
 import { getQuotaPauseNotice } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
-import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
+import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, getReviewedNonmatchIds, rejectedImportMatchPreview, getImportLocalDuplicate, needsLocalDuplicateContext } from "@/utils/importMatchReview";
 import { IMPORT_MATCH_CRITERIA_VERSION, qualifyImportMatchCandidates } from "@/utils/importMatchEvidence";
 import { checkClearNonmatch } from "@/app/api/utils/safeConstituentCreate";
 
@@ -317,11 +317,12 @@ export async function POST(request, { params }) {
 
     const preview = getPreview(row);
     if (action === "suggestions") {
-      if (preview.matchCriteriaVersion === IMPORT_MATCH_CRITERIA_VERSION && preview.matchSuggestionsCheckedAt) {
-        return Response.json({ results: getImportMatchCandidates(row), criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION });
+      if (preview.matchCriteriaVersion === IMPORT_MATCH_CRITERIA_VERSION && preview.matchSuggestionsCheckedAt && !needsLocalDuplicateContext(row)) {
+        return Response.json({ results: getImportMatchCandidates(row), localDuplicate: getImportLocalDuplicate(row), notice: preview.matchSuggestionsNotice || "", criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION });
       }
       let candidates = getImportMatchCandidates(row);
       let notice = "";
+      let localDuplicate = null;
       const input = preview.input || {};
       if (input.duplicateCheckVersion === 1) {
         // Recover legacy holds with the same read-only duplicate checks. This
@@ -329,13 +330,14 @@ export async function POST(request, { params }) {
         notice = await checkClearNonmatch({ input, rowId: routeParams.rowId, runId: routeParams.runId,
           credentials: { userId: authResult.user.id, authUserId: authResult.user.id, origin },
           reviewedCandidateIds: getReviewedNonmatchIds(row),
-          onCandidates: (matches) => { candidates = [...candidates, ...matches]; } }) || "";
+          onCandidates: (matches) => { candidates = [...candidates, ...matches]; },
+          onLocalDuplicate: (found) => { localDuplicate = found; } }) || "";
       } else {
         const query = cleanText(input.lookupId || input.blackbaudConstituentId || input.constituentName || input.email || [input.firstName, input.lastName].filter(Boolean).join(" "));
         if (query.length < 2) return Response.json({ error: "There is not enough identifying information to load suggestions. Correct the staged CSV values or search NXT below." }, { status: 400 });
         candidates = qualifyImportMatchCandidates(input, await searchCandidates({ user: authResult.user, origin, query }));
       }
-      const nextPreview = { ...preview, matchCandidates: candidates, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
+      const nextPreview = { ...preview, localDuplicate, localDuplicateCheckedAt: new Date().toISOString(), matchSuggestionsNotice: notice, matchCandidates: candidates, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
         newRecordReview: null, matchSuggestionsCheckedAt: new Date().toISOString() };
       const saved = await sql`
         UPDATE constituency_import_rows SET preview = ${JSON.stringify(nextPreview)}::jsonb, updated_at = NOW()
@@ -348,7 +350,7 @@ export async function POST(request, { params }) {
         RETURNING id
       `;
       if (!saved.length) return Response.json({ error: "The import row changed while suggestions loaded. Reload it before continuing." }, { status: 409 });
-      return Response.json({ results: getImportMatchCandidates(nextPreview), notice, criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION });
+      return Response.json({ results: getImportMatchCandidates(nextPreview), localDuplicate, notice, criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION });
     }
     if (action === "reject") {
       const selectedId = getSelectedImportMatchId(row);

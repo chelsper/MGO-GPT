@@ -55,12 +55,14 @@ export async function prepareNewRecordReview({ row, runId, user, origin }) {
   let nextAction;
   let retryAfterMs;
   let checked = false;
+  let localDuplicate = null;
   try {
     message = await checkClearNonmatch({
       input: row.preview.input || {}, rowId: row.id, runId,
       credentials: { userId: user.id, authUserId: user.id, origin },
       reviewedCandidateIds: getReviewedNonmatchIds(row),
       onCandidates: (found) => { candidates = [...candidates, ...found]; },
+      onLocalDuplicate: (found) => { localDuplicate = found; },
     });
     checked = true;
     nextAction = message?.startsWith("Another import row") ? "review_batch" : "review_matches";
@@ -68,7 +70,7 @@ export async function prepareNewRecordReview({ row, runId, user, origin }) {
     ({ message, nextAction, retryAfterMs } = duplicateReviewFailure(error));
   }
   const nextPreview = { ...row.preview,
-    ...(checked ? { matchCandidates: candidates, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
+    ...(checked ? { localDuplicate, localDuplicateCheckedAt: new Date().toISOString(), matchCandidates: candidates, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
       matchSuggestionsCheckedAt: new Date().toISOString() } : {}) };
   const nextRow = { ...row, preview: nextPreview };
   if (!message && getImportMatchCandidates(nextRow).length) {
@@ -85,7 +87,8 @@ export async function prepareNewRecordReview({ row, runId, user, origin }) {
   };
   nextPreview.newRecordReview = review;
   const saved = await sql`
-    UPDATE constituency_import_rows SET preview = ${JSON.stringify(nextPreview)}::jsonb, updated_at = NOW()
+    UPDATE constituency_import_rows SET preview = ${JSON.stringify(nextPreview)}::jsonb,
+      blackbaud_error = ${message || null}, updated_at = NOW()
     WHERE id = ${row.id} AND run_id = ${runId} AND status = ${row.status}
       AND applied_at IS NULL AND created_blackbaud_constituent_id IS NULL AND create_request_started_at IS NULL
       AND create_approved_at IS NOT DISTINCT FROM ${row.create_approved_at || null}::timestamptz

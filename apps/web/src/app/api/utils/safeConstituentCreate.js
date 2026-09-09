@@ -86,7 +86,7 @@ async function search(credentials, params) {
   return result.results.map(candidateInput);
 }
 
-export async function checkClearNonmatch({ input, rowId, runId, credentials, onCandidates, reviewedCandidateIds = [] }) {
+export async function checkClearNonmatch({ input, rowId, runId, credentials, onCandidates, onLocalDuplicate, reviewedCandidateIds = [] }) {
   const reviewed = new Set(reviewedCandidateIds.map(String));
   function hold(message, candidates) {
     const normalized = candidates.map((candidate) => normalizeImportMatchCandidate({ ...candidate, reason: message }));
@@ -156,7 +156,7 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
 
   // Include other uploaded rows and prior attempts, even before NXT search indexes
   // a new record. Never automatically repeat an uncertain create operation.
-  const localMatch = await findLocalImportDuplicate({ input, rowId, runId });
+  const localMatch = await findLocalImportDuplicate({ input, rowId, runId, onLocalDuplicate });
   if (localMatch) return localMatch;
 
   for (const id of [text(input.blackbaudConstituentId)].filter(Boolean)) {
@@ -202,19 +202,46 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
   return null;
 }
 
-export async function findLocalImportDuplicate({ input, rowId, runId, includePendingUpload = true }) {
+export async function findLocalImportDuplicate({ input, rowId, runId, includePendingUpload = true, onLocalDuplicate }) {
   const localRows = await sql`
-    SELECT id, preview->'input' AS input, created_blackbaud_constituent_id FROM constituency_import_rows
+    SELECT id, run_id, row_number, status, create_request_started_at,
+      preview->'input' AS input, created_blackbaud_constituent_id,
+      'import_row' AS source
+    FROM constituency_import_rows
     WHERE id <> ${rowId} AND ((run_id = ${runId} AND ${includePendingUpload} AND status <> 'Skipped') OR create_request_started_at IS NOT NULL
       OR created_blackbaud_constituent_id IS NOT NULL OR status = 'Creating')
     UNION ALL
-    SELECT row_id AS id, input, constituent_id AS created_blackbaud_constituent_id
-    FROM constituency_import_create_attempts WHERE outcome <> 'rejected'
+    SELECT attempt.row_id AS id, saved.run_id, saved.row_number, saved.status,
+      attempt.started_at AS create_request_started_at, attempt.input,
+      attempt.constituent_id AS created_blackbaud_constituent_id, 'creation_history' AS source
+    FROM constituency_import_create_attempts attempt
+    LEFT JOIN constituency_import_rows saved ON saved.id = attempt.row_id
+    WHERE outcome <> 'rejected'
   `;
   for (const row of localRows) {
     const previous = row.input || {};
     const reason = duplicateReason(input, previous) || duplicateReason(input, { ...previous, blackbaudConstituentId: row.created_blackbaud_constituent_id });
-    if (reason) return `Another import row has a ${reason} (saved row ID ${row.id}). Review the batch and skip the extra unsent row, or select the existing NXT record if already created. No NXT record was created.`;
+    if (reason) {
+      const createdId = text(row.created_blackbaud_constituent_id);
+      const started = Boolean(row.create_request_started_at || row.source === "creation_history" || row.status === "Creating");
+      const duplicate = {
+        rowId: text(row.id), runId: text(row.run_id) || null, rowNumber: Number(row.row_number) || null,
+        name: text(previous.constituentName) || [previous.firstName, previous.lastName].map(text).filter(Boolean).join(" ") || "Unnamed saved import row",
+        lookupId: text(previous.lookupId) || null,
+        systemId: text(previous.blackbaudConstituentId) || null,
+        createdConstituentId: createdId || null,
+        kind: createdId ? "created" : started ? "unconfirmed_creation" : "pending_row",
+        sameRun: text(row.run_id) === text(runId), reason,
+      };
+      onLocalDuplicate?.(duplicate);
+      const location = duplicate.runId ? `import #${duplicate.runId}, ${duplicate.rowNumber ? `CSV row ${duplicate.rowNumber}` : `saved row ${duplicate.rowId}`}` : `creation history, saved row ${duplicate.rowId}`;
+      const nextStep = duplicate.kind === "pending_row"
+        ? "Compare the two CSV rows. If they are the same person, keep one and skip the extra unsent row. If they are different people, correct the conflicting source values."
+        : duplicate.kind === "created"
+          ? "An earlier import created a record. Open that NXT record and the earlier import to compare before proceeding."
+          : "An earlier creation may have been sent. Verify its outcome in NXT before any retry; do not skip it to bypass this safeguard.";
+      return `Another import row has a ${reason} (${location}). ${nextStep} No new NXT record was created by this attempt.`;
+    }
   }
 
   return null;
