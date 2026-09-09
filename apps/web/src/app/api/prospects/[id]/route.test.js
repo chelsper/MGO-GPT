@@ -132,6 +132,8 @@ describe("prospect detail route", () => {
     expect(updateCall).toBeTruthy();
     const updateSql = Array.isArray(updateCall[0]) ? updateCall[0].join("") : String(updateCall[0]);
     expect(updateSql).not.toMatch(/updated_at\s*=/i);
+    expect(updateSql).toContain("updated_at::text IS NOT DISTINCT FROM");
+    expect(updateSql).toContain("expected_date IS NOT DISTINCT FROM");
   });
 
   it("shows cached identity and open opportunity years in prospect detail", async () => {

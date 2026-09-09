@@ -103,7 +103,7 @@ async function refreshImportedBlackbaudOpportunities({
   if (configIssues.length > 0) return;
 
   const rowsNeedingRefresh = await sql`
-    SELECT po.id, po.blackbaud_opportunity_id, po.opportunity_status, po.ask_date, po.expected_date, po.closed_amount, po.close_date
+    SELECT po.id, po.blackbaud_opportunity_id, po.opportunity_status, po.ask_date, po.expected_date, po.closed_amount, po.close_date, po.updated_at::text AS revision
     FROM prospect_opportunities po
     INNER JOIN prospects p ON p.id = po.prospect_id
     WHERE po.prospect_id = ${prospectId}
@@ -154,6 +154,8 @@ async function refreshImportedBlackbaudOpportunities({
             closed_amount = ${nextClosedAmount},
             close_date = ${nextCloseDate}
           WHERE id = ${row.id}
+            AND updated_at::text IS NOT DISTINCT FROM ${row.revision}
+            AND expected_date IS NOT DISTINCT FROM ${row.expected_date}::date
         `;
       } catch (error) {
         console.error("Refresh imported Blackbaud opportunity error:", error);

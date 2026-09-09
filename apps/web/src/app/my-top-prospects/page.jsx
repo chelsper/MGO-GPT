@@ -26,6 +26,9 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/prospectDisplay";
 import ProspectRaisedCard from "./ProspectRaisedCard";
+import OpportunityRollover from "./OpportunityRollover";
+import ProspectActivityHighlights from "./ProspectActivityHighlights";
+import { closedOpportunityKind, formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -391,6 +394,8 @@ function CurrentFiscalYearGiving({ giving, yearLabel }) {
 }
 
 function getOpportunityDisplayStatus(opportunity = {}) {
+  const closedKind = closedOpportunityKind(opportunity);
+  if (closedKind) return closedKind;
   const stage = opportunity?.current_stage || "";
   const status = opportunity?.opportunity_status || "Active";
 
@@ -419,12 +424,7 @@ function isDeclinedOpportunity(opportunity = {}) {
 }
 
 function formatLongDate(value) {
-  if (!value) return "";
-  return new Date(value).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatCalendarDate(value);
 }
 
 function getSubmissionTimelineLabel(submission) {
@@ -458,8 +458,7 @@ function getSubmissionTimelineDescription(submission) {
 }
 
 function formatShortDate(value) {
-  if (!value) return "";
-  return new Date(value).toLocaleDateString("en-US", {
+  return formatCalendarDate(value, {
     month: "short",
     day: "numeric",
   });
@@ -3055,7 +3054,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -3681,6 +3680,7 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
   const prospect = data?.prospect;
   const updates = data?.updates || [];
   const opportunities = data?.opportunities || [];
+  const opportunityGroups = partitionOpportunities(opportunities);
   const linkedSubmissions = data?.linkedSubmissions || [];
   const discussionItems = data?.discussionItems || [];
   const pendingActions = data?.pendingActions || [];
@@ -4233,22 +4233,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       background: "#F5F3FF",
       raw: update,
     })),
-    ...opportunities.map((opportunity) => ({
-      id: `opportunity-${opportunity.id}`,
-      occurredAt: opportunity.updated_at || opportunity.created_at,
-      kind: "opportunity",
-      title: `${opportunity.title}`,
-      description:
-        opportunity.latest_notes ||
-        getOpportunityDisplayStatus(opportunity),
-      meta: `${getOpportunityDisplayStatus(opportunity)} · ${formatLongDate(
-        opportunity.updated_at || opportunity.created_at,
-      )}`,
-      accent: "#1D4ED8",
-      border: "#BFDBFE",
-      background: "#EFF6FF",
-      raw: opportunity,
-    })),
     ...linkedSubmissions.map((submission) => ({
       id: `submission-${submission.id}`,
       occurredAt:
@@ -4692,6 +4676,672 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
       </div>
     );
   };
+
+  const renderOpportunityCard = (opportunity) => (
+    <div
+      key={opportunity.id}
+      style={{
+        padding: "14px",
+        backgroundColor: "#EFF6FF",
+        borderRadius: "10px",
+        border: "1px solid #BFDBFE",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: "12px",
+          marginBottom: "6px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: "14px",
+              fontWeight: "700",
+              color: "#1E3A8A",
+              marginBottom: "2px",
+            }}
+          >
+            {opportunity.title}
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+            <OpportunityStatusBadge status={getOpportunityDisplayStatus(opportunity)} />
+          </div>
+        </div>
+        <div
+          style={{
+            fontSize: "14px",
+            fontWeight: "700",
+            color: "#111827",
+          }}
+        >
+          {formatCurrency(getOpportunityDisplayAmount(opportunity))}
+        </div>
+      </div>
+      {editingOpportunityId === opportunity.id ? (
+        <div style={{ marginTop: "10px" }}>
+          <div style={{ marginBottom: "10px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "12px",
+                fontWeight: "600",
+                color: "#1D4ED8",
+                marginBottom: "4px",
+              }}
+            >
+              Opportunity title
+            </label>
+            <input
+              type="text"
+              value={opportunityEditData.title || ""}
+              onChange={(e) =>
+                setOpportunityEditData((prev) => ({
+                  ...prev,
+                  title: e.target.value,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                border: "1px solid #93C5FD",
+                borderRadius: "8px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "10px",
+              marginBottom: "10px",
+            }}
+          >
+            <div>
+            <label
+              style={{
+                display: "block",
+                fontSize: "12px",
+                fontWeight: "600",
+                color: "#1D4ED8",
+                marginBottom: "4px",
+              }}
+            >
+                Status
+            </label>
+            <select
+              value={opportunityEditData.currentStage || "Identification"}
+                onChange={(e) =>
+                  setOpportunityEditData((prev) => ({
+                    ...prev,
+                    currentStage: e.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  backgroundColor: "white",
+                }}
+              >
+                {OPPORTUNITY_STAGE_OPTIONS.map(
+                  (stage) => (
+                    <option key={stage} value={stage}>
+                      {stage}
+                    </option>
+                  ),
+                )}
+              </select>
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: "#1D4ED8",
+                  marginBottom: "4px",
+                }}
+              >
+                Amount
+              </label>
+              <input
+                type="number"
+                value={opportunityEditData.estimatedAmount || ""}
+                onChange={(e) =>
+                  setOpportunityEditData((prev) => ({
+                    ...prev,
+                    estimatedAmount: e.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "10px",
+              marginBottom: "10px",
+            }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: "#1D4ED8",
+                  marginBottom: "4px",
+                }}
+              >
+                Ask Date
+              </label>
+              <input
+                type="date"
+                value={opportunityEditData.askDate || ""}
+                onChange={(e) =>
+                  setOpportunityEditData((prev) => ({
+                    ...prev,
+                    askDate: e.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: "#1D4ED8",
+                  marginBottom: "4px",
+                }}
+              >
+                Date Expected
+              </label>
+              <input
+                type="date"
+                value={opportunityEditData.expectedDate || ""}
+                onChange={(e) =>
+                  setOpportunityEditData((prev) => ({
+                    ...prev,
+                    expectedDate: e.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          </div>
+          {opportunityEditData.currentStage === "Funded" ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "10px",
+                marginBottom: "10px",
+              }}
+            >
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#1D4ED8",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Amount Funded
+                </label>
+                <input
+                  type="number"
+                  value={opportunityEditData.closedAmount || ""}
+                  onChange={(e) =>
+                    setOpportunityEditData((prev) => ({
+                      ...prev,
+                      closedAmount: e.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #93C5FD",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#1D4ED8",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Date Funded
+                </label>
+                <input
+                  type="date"
+                  value={opportunityEditData.closeDate || ""}
+                  onChange={(e) =>
+                    setOpportunityEditData((prev) => ({
+                      ...prev,
+                      closeDate: e.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #93C5FD",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+          {opportunityEditData.currentStage === "Declined" ? (
+            <div style={{ marginBottom: "10px" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: "#1D4ED8",
+                  marginBottom: "4px",
+                }}
+              >
+                Decline reason
+              </label>
+              <textarea
+                value={opportunityEditData.declineReason || ""}
+                onChange={(e) =>
+                  setOpportunityEditData((prev) => ({
+                    ...prev,
+                    declineReason: e.target.value,
+                  }))
+                }
+                rows={2}
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "1px solid #93C5FD",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  fontFamily: "inherit",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+          ) : null}
+          <div style={{ marginBottom: "10px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "12px",
+                fontWeight: "600",
+                color: "#1D4ED8",
+                marginBottom: "4px",
+              }}
+            >
+              Notes
+            </label>
+            <textarea
+              value={opportunityEditData.latestNotes || ""}
+              onChange={(e) =>
+                setOpportunityEditData((prev) => ({
+                  ...prev,
+                  latestNotes: e.target.value,
+                }))
+              }
+              rows={3}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                border: "1px solid #93C5FD",
+                borderRadius: "8px",
+                fontSize: "14px",
+                boxSizing: "border-box",
+                fontFamily: "inherit",
+                resize: "vertical",
+              }}
+            />
+          </div>
+          {opportunityEditError ? (
+            <div
+              style={{
+                marginBottom: "10px",
+                padding: "10px 12px",
+                borderRadius: "8px",
+                backgroundColor: "#FEF2F2",
+                border: "1px solid #FECACA",
+                color: "#991B1B",
+                fontSize: "13px",
+                lineHeight: 1.5,
+              }}
+            >
+              {opportunityEditError}
+            </div>
+          ) : null}
+          {opportunityEditFeedback ? (
+            <div
+              style={{
+                marginBottom: "10px",
+                padding: "10px 12px",
+                borderRadius: "8px",
+                backgroundColor: "#ECFDF5",
+                border: "1px solid #A7F3D0",
+                color: "#166534",
+                fontSize: "13px",
+                lineHeight: 1.5,
+              }}
+            >
+              {opportunityEditFeedback}
+            </div>
+          ) : null}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={saveOpportunityEdit}
+              disabled={updateOpportunityMutation.isPending}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "8px",
+                border: "none",
+                backgroundColor: "#1D4ED8",
+                color: "white",
+                fontWeight: "600",
+                cursor: updateOpportunityMutation.isPending ? "not-allowed" : "pointer",
+              }}
+            >
+              {updateOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingOpportunityId(null);
+                setOpportunityEditData({});
+                setOpportunityEditError("");
+                setOpportunityEditFeedback("");
+              }}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "8px",
+                border: "1px solid #BFDBFE",
+                backgroundColor: "white",
+                color: "#1D4ED8",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {opportunity.latest_notes ? (
+            <p
+              style={{
+                fontSize: "13px",
+                color: "#374151",
+                lineHeight: 1.5,
+                margin: "0 0 6px 0",
+              }}
+            >
+              {opportunity.latest_notes}
+            </p>
+          ) : null}
+          {isFundedOpportunity(opportunity) &&
+          (hasOpportunityFundedAmount(opportunity) || opportunity.close_date) ? (
+            <div
+              style={{
+                fontSize: "12px",
+                color: "#166534",
+                marginBottom: "6px",
+                lineHeight: 1.5,
+              }}
+            >
+              {hasOpportunityFundedAmount(opportunity)
+                ? `Amount Funded ${formatCurrency(getOpportunityFundedDisplayAmount(opportunity))}`
+                : null}
+              {hasOpportunityFundedAmount(opportunity) && opportunity.close_date ? " · " : ""}
+              {opportunity.close_date
+                ? `Funded ${formatLongDate(opportunity.close_date)}`
+                : null}
+            </div>
+          ) : null}
+          {Array.isArray(opportunity.linked_gifts) &&
+          opportunity.linked_gifts.length > 0 ? (
+            <div
+              style={{
+                margin: "8px 0",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #A7F3D0",
+                backgroundColor: "#F0FDF4",
+                color: "#166534",
+                fontSize: "12px",
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ fontWeight: "800", marginBottom: "4px" }}>
+                Linked gifts in JUMGOGPT
+              </div>
+              {opportunity.linked_gifts.map((giftLink) => {
+                const giftLinkKey =
+                  giftLink.id || giftLink.blackbaud_gift_id;
+                const isUnlinking =
+                  String(unlinkingGiftLinkId) === String(giftLinkKey);
+
+                return (
+                  <div
+                    key={giftLinkKey}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span>
+                      {formatLongDate(giftLink.gift_date) ||
+                        "Gift date unavailable"}
+                      {" · "}
+                      {formatCurrency(giftLink.gift_amount)}
+                      {giftLink.gift_type ? ` · ${giftLink.gift_type}` : ""}
+                      {giftLink.gift_fund ? ` · ${giftLink.gift_fund}` : ""}
+                      {giftLink.nxt_sync_state === "manual_required"
+                        ? " · NXT link needs manual review"
+                        : ""}
+                    </span>
+                    {!readOnly ? (
+                      <button
+                        type="button"
+                        disabled={isUnlinking}
+                        onClick={() => {
+                          const confirmed = window.confirm(
+                            "Unlink this gift from the opportunity in JUMGOGPT? This will not delete the gift record in NXT.",
+                          );
+                          if (!confirmed) return;
+                          setUnlinkingGiftLinkId(String(giftLinkKey));
+                          unlinkOpportunityGiftMutation.mutate({
+                            opportunityId: opportunity.id,
+                            giftLinkId: giftLink.id,
+                            blackbaudGiftId: giftLink.blackbaud_gift_id,
+                          });
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "999px",
+                          border: "1px solid #BBF7D0",
+                          backgroundColor: "white",
+                          color: "#166534",
+                          fontSize: "11px",
+                          fontWeight: "800",
+                          cursor: isUnlinking ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {isUnlinking ? "Unlinking..." : "Unlink gift"}
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          {isFundedOpportunity(opportunity) &&
+          !readOnly &&
+          getProspectBlackbaudConstituentId() ? (
+            <button
+              type="button"
+              onClick={() =>
+                setGiftLinkPrompt({
+                  opportunityId: opportunity.id,
+                  constituentId: getProspectBlackbaudConstituentId(),
+                  opportunityTitle:
+                    opportunity.title || "this funded opportunity",
+                })
+              }
+              style={{
+                marginBottom: "8px",
+                padding: "7px 12px",
+                borderRadius: "999px",
+                border: "1px solid #86EFAC",
+                backgroundColor: "white",
+                color: "#166534",
+                fontSize: "12px",
+                fontWeight: "800",
+                cursor: "pointer",
+              }}
+            >
+              Link recent gift
+            </button>
+          ) : null}
+          {isDeclinedOpportunity(opportunity) &&
+          (opportunity.decline_reason || opportunity.close_date) ? (
+            <div
+              style={{
+                fontSize: "12px",
+                color: "#991B1B",
+                marginBottom: "6px",
+                lineHeight: 1.5,
+              }}
+            >
+              {opportunity.decline_reason || "Opportunity declined"}
+              {opportunity.close_date
+                ? ` · Closed ${formatLongDate(opportunity.close_date)}`
+              : ""}
+            </div>
+          ) : null}
+          <OpportunityRollover opportunity={opportunity} readOnly={readOnly} onUpdated={() => {
+            queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+            queryClient.invalidateQueries({ queryKey: ["prospects"] });
+            queryClient.invalidateQueries({ queryKey: ["blackbaud-summary", linkedBlackbaudConstituentId] });
+            setOpportunityEditFeedback("Expected date updated and verified in JUMGOGPT and NXT.");
+          }} />
+          {renderStewardshipOpportunitySection(opportunity)}
+          {(opportunity.ask_date || opportunity.expected_date) ? (
+            <div
+              style={{
+                fontSize: "12px",
+                color: "#6B7280",
+                marginBottom: "6px",
+                lineHeight: 1.5,
+              }}
+            >
+              {opportunity.ask_date
+                ? `Ask date ${formatLongDate(opportunity.ask_date)}`
+                : null}
+              {opportunity.ask_date && opportunity.expected_date ? " · " : ""}
+              {opportunity.expected_date
+                ? `Expected ${formatLongDate(opportunity.expected_date)}`
+                : null}
+            </div>
+          ) : null}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ fontSize: "12px", color: "#6B7280" }}>
+              Last updated{" "}
+              {new Date(opportunity.updated_at).toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              })}
+              {opportunity.close_date
+                ? ` · Closed ${formatLongDate(opportunity.close_date)}`
+                : ""}
+            </div>
+            {!readOnly ? (
+            <button
+              type="button"
+              onClick={() => startEditingOpportunity(opportunity)}
+              style={{
+                padding: "7px 12px",
+                borderRadius: "999px",
+                border: "1px solid #93C5FD",
+                backgroundColor: "white",
+                color: "#1D4ED8",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: "pointer",
+              }}
+            >
+              Edit Opportunity
+            </button>
+            ) : null}
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -7325,9 +7975,10 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                 margin: "0 0 12px 0",
               }}
             >
-              Linked Opportunities
+              Active Opportunities ({opportunityGroups.active.length})
             </h3>
-            {opportunities.length === 0 ? (
+            {!editingOpportunityId && opportunityEditFeedback ? <p role="status" className="mb-3 text-sm text-green-800">{opportunityEditFeedback}</p> : null}
+            {opportunityGroups.active.length === 0 ? (
               <p
                 style={{
                   fontSize: "14px",
@@ -7335,680 +7986,11 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                   fontStyle: "italic",
                 }}
               >
-                No linked opportunities yet. New opportunity updates for this prospect will appear here and roll into
-                the total ask pipeline.
+                No active linked opportunities. Closed opportunities are available in the history below.
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {opportunities.map((opportunity) => (
-                  <div
-                    key={opportunity.id}
-                    style={{
-                      padding: "14px",
-                      backgroundColor: "#EFF6FF",
-                      borderRadius: "10px",
-                      border: "1px solid #BFDBFE",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: "12px",
-                        marginBottom: "6px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "14px",
-                            fontWeight: "700",
-                            color: "#1E3A8A",
-                            marginBottom: "2px",
-                          }}
-                        >
-                          {opportunity.title}
-                        </div>
-                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                          <OpportunityStatusBadge status={getOpportunityDisplayStatus(opportunity)} />
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "14px",
-                          fontWeight: "700",
-                          color: "#111827",
-                        }}
-                      >
-                        {formatCurrency(getOpportunityDisplayAmount(opportunity))}
-                      </div>
-                    </div>
-                    {editingOpportunityId === opportunity.id ? (
-                      <div style={{ marginTop: "10px" }}>
-                        <div style={{ marginBottom: "10px" }}>
-                          <label
-                            style={{
-                              display: "block",
-                              fontSize: "12px",
-                              fontWeight: "600",
-                              color: "#1D4ED8",
-                              marginBottom: "4px",
-                            }}
-                          >
-                            Opportunity title
-                          </label>
-                          <input
-                            type="text"
-                            value={opportunityEditData.title || ""}
-                            onChange={(e) =>
-                              setOpportunityEditData((prev) => ({
-                                ...prev,
-                                title: e.target.value,
-                              }))
-                            }
-                            style={{
-                              width: "100%",
-                              padding: "8px 12px",
-                              border: "1px solid #93C5FD",
-                              borderRadius: "8px",
-                              fontSize: "14px",
-                              boxSizing: "border-box",
-                            }}
-                          />
-                        </div>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 1fr",
-                            gap: "10px",
-                            marginBottom: "10px",
-                          }}
-                        >
-                          <div>
-                          <label
-                            style={{
-                              display: "block",
-                              fontSize: "12px",
-                              fontWeight: "600",
-                              color: "#1D4ED8",
-                              marginBottom: "4px",
-                            }}
-                          >
-                              Status
-                          </label>
-                          <select
-                            value={opportunityEditData.currentStage || "Identification"}
-                              onChange={(e) =>
-                                setOpportunityEditData((prev) => ({
-                                  ...prev,
-                                  currentStage: e.target.value,
-                                }))
-                              }
-                              style={{
-                                width: "100%",
-                                padding: "8px 12px",
-                                border: "1px solid #93C5FD",
-                                borderRadius: "8px",
-                                fontSize: "14px",
-                                boxSizing: "border-box",
-                                backgroundColor: "white",
-                              }}
-                            >
-                              {OPPORTUNITY_STAGE_OPTIONS.map(
-                                (stage) => (
-                                  <option key={stage} value={stage}>
-                                    {stage}
-                                  </option>
-                                ),
-                              )}
-                            </select>
-                          </div>
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                color: "#1D4ED8",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Amount
-                            </label>
-                            <input
-                              type="number"
-                              value={opportunityEditData.estimatedAmount || ""}
-                              onChange={(e) =>
-                                setOpportunityEditData((prev) => ({
-                                  ...prev,
-                                  estimatedAmount: e.target.value,
-                                }))
-                              }
-                              style={{
-                                width: "100%",
-                                padding: "8px 12px",
-                                border: "1px solid #93C5FD",
-                                borderRadius: "8px",
-                                fontSize: "14px",
-                                boxSizing: "border-box",
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 1fr",
-                            gap: "10px",
-                            marginBottom: "10px",
-                          }}
-                        >
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                color: "#1D4ED8",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Ask Date
-                            </label>
-                            <input
-                              type="date"
-                              value={opportunityEditData.askDate || ""}
-                              onChange={(e) =>
-                                setOpportunityEditData((prev) => ({
-                                  ...prev,
-                                  askDate: e.target.value,
-                                }))
-                              }
-                              style={{
-                                width: "100%",
-                                padding: "8px 12px",
-                                border: "1px solid #93C5FD",
-                                borderRadius: "8px",
-                                fontSize: "14px",
-                                boxSizing: "border-box",
-                              }}
-                            />
-                          </div>
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                color: "#1D4ED8",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Date Expected
-                            </label>
-                            <input
-                              type="date"
-                              value={opportunityEditData.expectedDate || ""}
-                              onChange={(e) =>
-                                setOpportunityEditData((prev) => ({
-                                  ...prev,
-                                  expectedDate: e.target.value,
-                                }))
-                              }
-                              style={{
-                                width: "100%",
-                                padding: "8px 12px",
-                                border: "1px solid #93C5FD",
-                                borderRadius: "8px",
-                                fontSize: "14px",
-                                boxSizing: "border-box",
-                              }}
-                            />
-                          </div>
-                        </div>
-                        {opportunityEditData.currentStage === "Funded" ? (
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr 1fr",
-                              gap: "10px",
-                              marginBottom: "10px",
-                            }}
-                          >
-                            <div>
-                              <label
-                                style={{
-                                  display: "block",
-                                  fontSize: "12px",
-                                  fontWeight: "600",
-                                  color: "#1D4ED8",
-                                  marginBottom: "4px",
-                                }}
-                              >
-                                Amount Funded
-                              </label>
-                              <input
-                                type="number"
-                                value={opportunityEditData.closedAmount || ""}
-                                onChange={(e) =>
-                                  setOpportunityEditData((prev) => ({
-                                    ...prev,
-                                    closedAmount: e.target.value,
-                                  }))
-                                }
-                                style={{
-                                  width: "100%",
-                                  padding: "8px 12px",
-                                  border: "1px solid #93C5FD",
-                                  borderRadius: "8px",
-                                  fontSize: "14px",
-                                  boxSizing: "border-box",
-                                }}
-                              />
-                            </div>
-                            <div>
-                              <label
-                                style={{
-                                  display: "block",
-                                  fontSize: "12px",
-                                  fontWeight: "600",
-                                  color: "#1D4ED8",
-                                  marginBottom: "4px",
-                                }}
-                              >
-                                Date Funded
-                              </label>
-                              <input
-                                type="date"
-                                value={opportunityEditData.closeDate || ""}
-                                onChange={(e) =>
-                                  setOpportunityEditData((prev) => ({
-                                    ...prev,
-                                    closeDate: e.target.value,
-                                  }))
-                                }
-                                style={{
-                                  width: "100%",
-                                  padding: "8px 12px",
-                                  border: "1px solid #93C5FD",
-                                  borderRadius: "8px",
-                                  fontSize: "14px",
-                                  boxSizing: "border-box",
-                                }}
-                              />
-                            </div>
-                          </div>
-                        ) : null}
-                        {opportunityEditData.currentStage === "Declined" ? (
-                          <div style={{ marginBottom: "10px" }}>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                color: "#1D4ED8",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              Decline reason
-                            </label>
-                            <textarea
-                              value={opportunityEditData.declineReason || ""}
-                              onChange={(e) =>
-                                setOpportunityEditData((prev) => ({
-                                  ...prev,
-                                  declineReason: e.target.value,
-                                }))
-                              }
-                              rows={2}
-                              style={{
-                                width: "100%",
-                                padding: "8px 12px",
-                                border: "1px solid #93C5FD",
-                                borderRadius: "8px",
-                                fontSize: "14px",
-                                boxSizing: "border-box",
-                                fontFamily: "inherit",
-                                resize: "vertical",
-                              }}
-                            />
-                          </div>
-                        ) : null}
-                        <div style={{ marginBottom: "10px" }}>
-                          <label
-                            style={{
-                              display: "block",
-                              fontSize: "12px",
-                              fontWeight: "600",
-                              color: "#1D4ED8",
-                              marginBottom: "4px",
-                            }}
-                          >
-                            Notes
-                          </label>
-                          <textarea
-                            value={opportunityEditData.latestNotes || ""}
-                            onChange={(e) =>
-                              setOpportunityEditData((prev) => ({
-                                ...prev,
-                                latestNotes: e.target.value,
-                              }))
-                            }
-                            rows={3}
-                            style={{
-                              width: "100%",
-                              padding: "8px 12px",
-                              border: "1px solid #93C5FD",
-                              borderRadius: "8px",
-                              fontSize: "14px",
-                              boxSizing: "border-box",
-                              fontFamily: "inherit",
-                              resize: "vertical",
-                            }}
-                          />
-                        </div>
-                        {opportunityEditError ? (
-                          <div
-                            style={{
-                              marginBottom: "10px",
-                              padding: "10px 12px",
-                              borderRadius: "8px",
-                              backgroundColor: "#FEF2F2",
-                              border: "1px solid #FECACA",
-                              color: "#991B1B",
-                              fontSize: "13px",
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            {opportunityEditError}
-                          </div>
-                        ) : null}
-                        {opportunityEditFeedback ? (
-                          <div
-                            style={{
-                              marginBottom: "10px",
-                              padding: "10px 12px",
-                              borderRadius: "8px",
-                              backgroundColor: "#ECFDF5",
-                              border: "1px solid #A7F3D0",
-                              color: "#166534",
-                              fontSize: "13px",
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            {opportunityEditFeedback}
-                          </div>
-                        ) : null}
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            onClick={saveOpportunityEdit}
-                            disabled={updateOpportunityMutation.isPending}
-                            style={{
-                              padding: "8px 14px",
-                              borderRadius: "8px",
-                              border: "none",
-                              backgroundColor: "#1D4ED8",
-                              color: "white",
-                              fontWeight: "600",
-                              cursor: updateOpportunityMutation.isPending ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            {updateOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingOpportunityId(null);
-                              setOpportunityEditData({});
-                              setOpportunityEditError("");
-                              setOpportunityEditFeedback("");
-                            }}
-                            style={{
-                              padding: "8px 14px",
-                              borderRadius: "8px",
-                              border: "1px solid #BFDBFE",
-                              backgroundColor: "white",
-                              color: "#1D4ED8",
-                              fontWeight: "600",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {opportunity.latest_notes ? (
-                          <p
-                            style={{
-                              fontSize: "13px",
-                              color: "#374151",
-                              lineHeight: 1.5,
-                              margin: "0 0 6px 0",
-                            }}
-                          >
-                            {opportunity.latest_notes}
-                          </p>
-                        ) : null}
-                        {isFundedOpportunity(opportunity) &&
-                        (hasOpportunityFundedAmount(opportunity) || opportunity.close_date) ? (
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              color: "#166534",
-                              marginBottom: "6px",
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            {hasOpportunityFundedAmount(opportunity)
-                              ? `Amount Funded ${formatCurrency(getOpportunityFundedDisplayAmount(opportunity))}`
-                              : null}
-                            {hasOpportunityFundedAmount(opportunity) && opportunity.close_date ? " · " : ""}
-                            {opportunity.close_date
-                              ? `Funded ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
-                                  month: "long",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}`
-                              : null}
-                          </div>
-                        ) : null}
-                        {Array.isArray(opportunity.linked_gifts) &&
-                        opportunity.linked_gifts.length > 0 ? (
-                          <div
-                            style={{
-                              margin: "8px 0",
-                              padding: "10px 12px",
-                              borderRadius: "10px",
-                              border: "1px solid #A7F3D0",
-                              backgroundColor: "#F0FDF4",
-                              color: "#166534",
-                              fontSize: "12px",
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            <div style={{ fontWeight: "800", marginBottom: "4px" }}>
-                              Linked gifts in JUMGOGPT
-                            </div>
-                            {opportunity.linked_gifts.map((giftLink) => {
-                              const giftLinkKey =
-                                giftLink.id || giftLink.blackbaud_gift_id;
-                              const isUnlinking =
-                                String(unlinkingGiftLinkId) === String(giftLinkKey);
-
-                              return (
-                                <div
-                                  key={giftLinkKey}
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: "10px",
-                                    flexWrap: "wrap",
-                                  }}
-                                >
-                                  <span>
-                                    {formatLongDate(giftLink.gift_date) ||
-                                      "Gift date unavailable"}
-                                    {" · "}
-                                    {formatCurrency(giftLink.gift_amount)}
-                                    {giftLink.gift_type ? ` · ${giftLink.gift_type}` : ""}
-                                    {giftLink.gift_fund ? ` · ${giftLink.gift_fund}` : ""}
-                                    {giftLink.nxt_sync_state === "manual_required"
-                                      ? " · NXT link needs manual review"
-                                      : ""}
-                                  </span>
-                                  {!readOnly ? (
-                                    <button
-                                      type="button"
-                                      disabled={isUnlinking}
-                                      onClick={() => {
-                                        const confirmed = window.confirm(
-                                          "Unlink this gift from the opportunity in JUMGOGPT? This will not delete the gift record in NXT.",
-                                        );
-                                        if (!confirmed) return;
-                                        setUnlinkingGiftLinkId(String(giftLinkKey));
-                                        unlinkOpportunityGiftMutation.mutate({
-                                          opportunityId: opportunity.id,
-                                          giftLinkId: giftLink.id,
-                                          blackbaudGiftId: giftLink.blackbaud_gift_id,
-                                        });
-                                      }}
-                                      style={{
-                                        padding: "4px 8px",
-                                        borderRadius: "999px",
-                                        border: "1px solid #BBF7D0",
-                                        backgroundColor: "white",
-                                        color: "#166534",
-                                        fontSize: "11px",
-                                        fontWeight: "800",
-                                        cursor: isUnlinking ? "not-allowed" : "pointer",
-                                      }}
-                                    >
-                                      {isUnlinking ? "Unlinking..." : "Unlink gift"}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        {isFundedOpportunity(opportunity) &&
-                        !readOnly &&
-                        getProspectBlackbaudConstituentId() ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setGiftLinkPrompt({
-                                opportunityId: opportunity.id,
-                                constituentId: getProspectBlackbaudConstituentId(),
-                                opportunityTitle:
-                                  opportunity.title || "this funded opportunity",
-                              })
-                            }
-                            style={{
-                              marginBottom: "8px",
-                              padding: "7px 12px",
-                              borderRadius: "999px",
-                              border: "1px solid #86EFAC",
-                              backgroundColor: "white",
-                              color: "#166534",
-                              fontSize: "12px",
-                              fontWeight: "800",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Link recent gift
-                          </button>
-                        ) : null}
-                        {isDeclinedOpportunity(opportunity) &&
-                        (opportunity.decline_reason || opportunity.close_date) ? (
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              color: "#991B1B",
-                              marginBottom: "6px",
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            {opportunity.decline_reason || "Opportunity declined"}
-                            {opportunity.close_date
-                              ? ` · Closed ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
-                                  month: "long",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}`
-                            : ""}
-                          </div>
-                        ) : null}
-                        {renderStewardshipOpportunitySection(opportunity)}
-                        {(opportunity.ask_date || opportunity.expected_date) ? (
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              color: "#6B7280",
-                              marginBottom: "6px",
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            {opportunity.ask_date
-                              ? `Ask date ${formatLongDate(opportunity.ask_date)}`
-                              : null}
-                            {opportunity.ask_date && opportunity.expected_date ? " · " : ""}
-                            {opportunity.expected_date
-                              ? `Expected ${formatLongDate(opportunity.expected_date)}`
-                              : null}
-                          </div>
-                        ) : null}
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: "12px",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <div style={{ fontSize: "12px", color: "#6B7280" }}>
-                            Last updated{" "}
-                            {new Date(opportunity.updated_at).toLocaleDateString("en-US", {
-                              month: "long",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
-                            {opportunity.close_date
-                              ? ` · Closed ${new Date(opportunity.close_date).toLocaleDateString("en-US", {
-                                  month: "long",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}`
-                              : ""}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => startEditingOpportunity(opportunity)}
-                            style={{
-                              padding: "7px 12px",
-                              borderRadius: "999px",
-                              border: "1px solid #93C5FD",
-                              backgroundColor: "white",
-                              color: "#1D4ED8",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Edit Opportunity
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
+                {opportunityGroups.active.map(renderOpportunityCard)}
               </div>
             )}
           </div>
@@ -8025,6 +8007,9 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
             >
               Recent Actions & Activity
             </h3>
+            <ProspectActivityHighlights prospectId={prospectId} linked={Boolean(linkedBlackbaudConstituentId)} updates={updates} />
+            <details open={Boolean(expandedTimelineId || editingUpdateId)}>
+            <summary className="mb-3 cursor-pointer text-sm font-semibold text-gray-700">Activity log ({timelineEvents.length})</summary>
             {timelineEvents.length === 0 ? (
               <p
                 style={{
@@ -8431,47 +8416,6 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                                 </div>
                               </>
                             ) : null}
-                            {event.kind === "opportunity" ? (
-                              <>
-                                <div>
-                                  <p style={detailLabelStyle}>Status</p>
-                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    {getOpportunityDisplayStatus(event.raw)}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p style={detailLabelStyle}>Ask amount</p>
-                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    {formatCurrency(getOpportunityDisplayAmount(event.raw))}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p style={detailLabelStyle}>Ask timing</p>
-                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    {event.raw?.ask_date
-                                      ? `Ask ${formatLongDate(event.raw.ask_date)}`
-                                      : "No ask date"}
-                                    {event.raw?.expected_date
-                                      ? ` · Expected ${formatLongDate(event.raw.expected_date)}`
-                                      : ""}
-                                  </p>
-                                </div>
-                                <div style={{ gridColumn: "1 / -1" }}>
-                                  <p style={detailLabelStyle}>Opportunity notes</p>
-                                  <p
-                                    style={{
-                                      fontSize: "14px",
-                                      color: "#374151",
-                                      margin: 0,
-                                      whiteSpace: "pre-line",
-                                      lineHeight: 1.6,
-                                    }}
-                                  >
-                                    {event.raw?.latest_notes || "No opportunity notes recorded."}
-                                  </p>
-                                </div>
-                              </>
-                            ) : null}
                             {event.kind === "submission" ? (
                               <>
                                 <div>
@@ -8531,7 +8475,19 @@ function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = fal
                 ))}
               </div>
             )}
+            </details>
           </div>
+          {opportunityGroups.recentClosed.length || opportunityGroups.olderClosed.length ? (
+            <section style={workspaceCardStyle} aria-label="Closed opportunity history">
+              <h3 className="mb-2 font-bold text-gray-900">Closed Opportunities ({opportunityGroups.recentClosed.length})</h3>
+              <p className="mb-3 text-sm text-gray-500">Funded, withdrawn, and declined opportunities closed in the last two years. Stewardship stays with its opportunity.</p>
+              <div className="flex flex-col gap-3">{opportunityGroups.recentClosed.map(renderOpportunityCard)}</div>
+              {opportunityGroups.olderClosed.length ? <details className="mt-4">
+                <summary className="mb-3 cursor-pointer text-sm font-semibold text-gray-700">Older or undated closed history ({opportunityGroups.olderClosed.length})</summary>
+                <div className="flex flex-col gap-3">{opportunityGroups.olderClosed.map(renderOpportunityCard)}</div>
+              </details> : null}
+            </section>
+          ) : null}
         </div>
       </div>
     </div>
