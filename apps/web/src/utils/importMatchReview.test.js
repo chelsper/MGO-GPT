@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, normalizeImportMatchCandidate, rejectedImportMatchPreview } from "./importMatchReview";
+import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, normalizeImportMatchCandidate, rejectedImportMatchPreview, sameReviewedImportTarget } from "./importMatchReview";
 import { quickImportCandidates } from "./newConstituentImport";
 
 describe("import match review safety", () => {
+  it("requires a new send confirmation when the saved target or Lookup ID changes", () => {
+    const before = { input: {}, match: { blackbaudConstituentId: "100", lookupId: "629381", name: "Test Person" } };
+    expect(sameReviewedImportTarget(before, before)).toBe(true);
+    expect(sameReviewedImportTarget(before, { ...before, match: { ...before.match, lookupId: "729381" } })).toBe(false);
+    expect(sameReviewedImportTarget(before, { ...before, match: { ...before.match, blackbaudConstituentId: "200" } })).toBe(false);
+    expect(sameReviewedImportTarget(before, {})).toBe(false);
+  });
   it.each(["Ready", "Needs Review", "Conflict", "Skipped"])("allows unsent %s records to be reviewed", (status) => {
     expect(canChangeImportMatch({ status })).toBe(true);
   });
@@ -45,16 +52,16 @@ describe("import match review safety", () => {
     const first = { blackbaudConstituentId: "123", name: "First Person" };
     const second = { blackbaudConstituentId: "456", name: "Second Person" };
     const row = { preview: { matchCandidates: [first] }, blackbaud_result: { matchCandidates: [first, second], duplicateCandidate: { constituentId: "789", name: "Legacy Person" } } };
-    expect(getImportMatchCandidates(row).map((item) => item.blackbaudConstituentId)).toEqual(["123", "456", "789"]);
+    expect(getImportMatchCandidates(row).map((item) => item.blackbaudConstituentId)).toEqual(["123", "789", "456"]);
     const rejected = rejectedImportMatchPreview({ matchCandidates: getImportMatchCandidates(row) }, { decision: "rejected", constituentId: "123" });
     rejected.rejectedMatches = [{ constituentId: "123" }];
-    expect(getImportMatchCandidates(JSON.parse(JSON.stringify(rejected))).map((item) => item.blackbaudConstituentId)).toEqual(["456", "789"]);
+    expect(getImportMatchCandidates(JSON.parse(JSON.stringify(rejected))).map((item) => item.blackbaudConstituentId)).toEqual(["789", "456"]);
     expect(getImportMatchCandidates(rejected, { includeRejected: true })).toHaveLength(3);
     expect(quickImportCandidates([rejected])).toEqual([]);
   });
 
   it("maps search fields without confusing lookup IDs with record IDs or leaking raw data", () => {
-    expect(normalizeImportMatchCandidate({ record_id: 123, constituent_id: "LOOKUP", first_name: "Jane", last_name: "Doe", address_block: "42 Main St", address_post_code: "32211", primary_email: "jane@example.com", token: "secret", raw: { private: true } })).toEqual({ blackbaudConstituentId: "123", lookupId: "LOOKUP", name: "Jane Doe", address: "42 Main St", postalCode: "32211", email: "jane@example.com", email2: "", reason: "" });
+    expect(normalizeImportMatchCandidate({ record_id: 123, constituent_id: "LOOKUP", first_name: "Jane", last_name: "Doe", address_block: "42 Main St", address_post_code: "32211", primary_email: "jane@example.com", token: "secret", raw: { private: true } })).toEqual({ blackbaudConstituentId: "123", lookupId: "LOOKUP", name: "Jane Doe", firstName: "Jane", lastName: "Doe", preferredName: "", phone: "", matchCategory: "", matchRank: 0, address: "42 Main St", postalCode: "32211", email: "jane@example.com", email2: "", reason: "" });
     expect(normalizeImportMatchCandidate({ constituent_id: "lookup-only" })).toBeNull();
   });
 });

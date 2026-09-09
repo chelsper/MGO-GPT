@@ -5,7 +5,7 @@ import { ManualNxtMatchSearchPanel } from "@/app/constituency-import/page";
 import { rejectedImportMatchPreview } from "@/utils/importMatchReview";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const row = { id: "9", status: "Needs Review", input: { constituentName: "CSV Person", email: "csv@example.com" }, match: { blackbaudConstituentId: "123", name: "NXT Person", lookupId: "ABC" } };
+const row = { id: "9", status: "Needs Review", input: { constituentName: "CSV Person", email: "csv@example.com" }, match: { blackbaudConstituentId: "123", name: "NXT Person", lookupId: "ABC", email: "csv@example.com" } };
 
 describe("import match comparison", () => {
   it("compares source and selected identities and opens the selected system ID, not the lookup ID", () => {
@@ -36,7 +36,7 @@ describe("import match comparison", () => {
     rejected.rejectedMatches = [{ constituentId: "123", name: "NXT Person" }];
     render(<ImportMatchReview row={rejected} reviewer saved />);
     expect(screen.getByText("No match selected")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("does not approve creating");
+    expect(screen.getByRole("status")).toHaveTextContent("alone does not create");
     expect(screen.queryByRole("button", { name: "Not a match" })).not.toBeInTheDocument();
   });
   it("gives each search result its own profile link before selection", () => {
@@ -54,9 +54,9 @@ describe("import match comparison", () => {
     const onSelect = vi.fn();
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const suggestions = [{ ...row.match, email: "first@example.com", address: "42 Main St", postalCode: "32211" }, { blackbaudConstituentId: "456", name: "Second Person" }];
-    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: suggestions }} saved reviewer runId="42" autoLoad onReject={onReject} onSelect={onSelect} />);
-    expect(screen.getByText("first@example.com")).toBeInTheDocument();
+    const suggestions = [{ ...row.match, email: "first@example.com", email2: "csv@example.com", address: "42 Main St", postalCode: "32211" }, { blackbaudConstituentId: "456", name: "Second Person", email: "csv@example.com" }];
+    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: suggestions, matchCriteriaVersion: 2, matchSuggestionsCheckedAt: "2026-09-09" }} saved reviewer runId="42" autoLoad onReject={onReject} onSelect={onSelect} />);
+    expect(screen.getByText("first@example.com / csv@example.com")).toBeInTheDocument();
     expect(screen.getByText("42 Main St, 32211")).toBeInTheDocument();
     expect(screen.getByText("Second Person")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Not a match" })).toHaveLength(2);
@@ -70,7 +70,7 @@ describe("import match comparison", () => {
   });
 
   it("shows legacy duplicate candidates even when a preflight approval was left set", () => {
-    render(<ImportMatchReview row={{ ...row, match: null, createApprovedAt: "2026-09-08", blackbaudResult: { duplicateCheckAt: "2026-09-08", duplicateCandidate: { constituentId: "456", name: "Held Person" } } }} saved reviewer runId="42" />);
+    render(<ImportMatchReview row={{ ...row, match: null, createApprovedAt: "2026-09-08", blackbaudResult: { duplicateCheckAt: "2026-09-08", duplicateCandidate: { constituentId: "456", name: "Held Person", email: "csv@example.com" } } }} saved reviewer runId="42" />);
     expect(screen.getByText("Held Person")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Not a match" })).toBeEnabled();
     expect(screen.getByRole("link")).toHaveAttribute("href", "https://renxt.blackbaud.com/constituents/456");
@@ -118,5 +118,23 @@ describe("import match comparison", () => {
     expect(fetch).not.toHaveBeenCalled();
     view.rerender(<ImportMatchReview {...props} autoLoad busy />);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("shows the strongest five first and lets the reviewer inspect every qualifying match", () => {
+    const matches = Array.from({ length: 8 }, (_, i) => ({ blackbaudConstituentId: String(i + 1), name: `Person ${i + 1}`, email: row.input.email }));
+    const onReject = vi.fn();
+    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: matches, matchCriteriaVersion: 2, matchSuggestionsCheckedAt: "2026-09-09" }} saved reviewer runId="42" onReject={onReject} />);
+    expect(screen.getAllByRole("button", { name: "Not a match" })).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 8 qualifying matches" }));
+    expect(screen.getAllByRole("button", { name: "Not a match" })).toHaveLength(8);
+    fireEvent.click(screen.getAllByRole("button", { name: "Not a match" })[7]);
+    expect(onReject).toHaveBeenCalledWith(expect.objectContaining({ blackbaudConstituentId: "8" }));
+  });
+  it("refreshes old broad suggestions once when the row is opened", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [], criteriaVersion: 2 }) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: [{ blackbaudConstituentId: "555", name: "Unrelated Person" }], matchSuggestionsCheckedAt: "2026-09-08" }} saved reviewer runId="42" autoLoad />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Unrelated Person")).not.toBeInTheDocument();
+    expect(await screen.findByText(/use Check for duplicates to confirm/)).toBeInTheDocument();
   });
 });

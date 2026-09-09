@@ -1,3 +1,6 @@
+import { IMPORT_MATCH_CRITERIA_VERSION, normalizeImportMatchCandidate, importMatchEvidence } from "./importMatchEvidence";
+export { normalizeImportMatchCandidate } from "./importMatchEvidence";
+
 function getPreview(row) {
   return row?.input || row?.matchStatus ? row : row?.preview || row;
 }
@@ -39,31 +42,16 @@ export function canChangeImportMatch(row) {
   );
 }
 
-export function normalizeImportMatchCandidate(candidate) {
-  if (!candidate || typeof candidate !== "object") return null;
-  const text = (value) => typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
-  // Lookup IDs are not system IDs and must not be used for NXT profile links.
-  const id = text(candidate.blackbaudConstituentId || candidate.constituentId || candidate.record_id || candidate.id);
-  if (!id) return null;
-  return {
-    blackbaudConstituentId: id,
-    lookupId: text(candidate.lookupId || candidate.blackbaudLookupId || candidate.lookup_id || candidate.constituent_id),
-    name: text(candidate.name) || [candidate.firstName || candidate.first_name || candidate.first, candidate.middle_name || candidate.middle, candidate.lastName || candidate.last_name || candidate.last].map(text).filter(Boolean).join(" ") || text(candidate.display_name || candidate.org_name) || "Unnamed constituent",
-    email: text(candidate.email?.address || candidate.email || candidate.primary_email),
-    email2: text(candidate.email2 || candidate.matched_email),
-    address: text(candidate.address?.address_lines || candidate.address || candidate.addressLine1 || candidate.address_block),
-    postalCode: text(candidate.postalCode || candidate.address?.postal_code || candidate.address_post_code),
-    reason: text(candidate.reason),
-  };
-}
-
 export function getImportMatchCandidates(row, { includeRejected = false } = {}) {
   const preview = getPreview(row) || {};
   const result = row?.blackbaud_result || row?.blackbaudResult || {};
   const rejected = new Set((preview.rejectedMatches || []).map((entry) => String(entry.constituentId)));
   const selectedId = getSelectedImportMatchId(row);
   const candidates = new Map();
-  for (const raw of [preview.match, ...(preview.matchCandidates || []), ...(result.matchCandidates || []), result.duplicateCandidate]) {
+  // A completed fresh check supersedes old broad-search hits, not their audit.
+  const fresh = preview.matchCriteriaVersion === IMPORT_MATCH_CRITERIA_VERSION && preview.matchSuggestionsCheckedAt &&
+    !(Date.parse(result.duplicateCheckAt) > Date.parse(preview.matchSuggestionsCheckedAt));
+  for (const raw of [preview.match, ...(preview.matchCandidates || []), ...(fresh ? [] : [...(result.matchCandidates || []), result.duplicateCandidate])]) {
     const candidate = normalizeImportMatchCandidate(raw);
     if (!candidate) continue;
     const existing = candidates.get(candidate.blackbaudConstituentId);
@@ -73,7 +61,17 @@ export function getImportMatchCandidates(row, { includeRejected = false } = {}) 
       }
     } else candidates.set(candidate.blackbaudConstituentId, candidate);
   }
-  return [...candidates.values()].filter((candidate) => includeRejected || candidate.blackbaudConstituentId === selectedId || !rejected.has(candidate.blackbaudConstituentId));
+  return [...candidates.values()].map((candidate) => {
+    const evidence = importMatchEvidence(preview.input || {}, candidate);
+    if (evidence.rank) return { ...candidate, matchCategory: evidence.category, matchRank: evidence.rank, reason: evidence.reasons.join("; ") };
+    if (candidate.blackbaudConstituentId === selectedId) return candidate;
+    // Legacy suggestions without comparison fields cannot safely be dismissed
+    // until a fresh, complete server check replaces them.
+    const hasComparisonInput = ["firstName", "lastName", "constituentName", "email", "email2", "blackbaudConstituentId", "lookupId", "addressLine1"].some((key) => preview.input?.[key]);
+    if (!hasComparisonInput || !candidate.firstName || !candidate.lastName) return { ...candidate, matchCategory: "Needs comparison" };
+    return null;
+  }).filter((candidate) => candidate && (includeRejected || candidate.blackbaudConstituentId === selectedId || !rejected.has(candidate.blackbaudConstituentId)))
+    .sort((a, b) => b.matchRank - a.matchRank || a.name.localeCompare(b.name));
 }
 
 export function getSelectedImportMatchId(row) {
@@ -81,6 +79,13 @@ export function getSelectedImportMatchId(row) {
   const preview = getPreview(row);
   return String(row?.matched_blackbaud_constituent_id || row?.matchedBlackbaudConstituentId ||
     preview?.match?.blackbaudConstituentId || "").trim();
+}
+
+export function sameReviewedImportTarget(before, after) {
+  const a = normalizeImportMatchCandidate(getPreview(before)?.match);
+  const b = normalizeImportMatchCandidate(getPreview(after)?.match);
+  return Boolean(a && b && a.blackbaudConstituentId === b.blackbaudConstituentId &&
+    a.lookupId === b.lookupId && a.name === b.name);
 }
 
 export function canReviewNewImportRecord(row) {
@@ -94,7 +99,7 @@ export function getReviewedNonmatchIds(row) {
 }
 
 export function rejectedImportMatchPreview(preview, matchReview) {
-  const message = "Selected NXT record marked not a match. Choose another record or leave this row for review. This does not approve creating a new record.";
+  const message = "Selected NXT record marked not a match. Select another record to update, or run Check for duplicates below and confirm a new constituent. Rejecting a match alone does not create a record.";
   // Retain source input and review history, but never target-specific snapshots,
   // contact replacement IDs, or writes from the rejected constituent.
   return {
@@ -110,6 +115,7 @@ export function rejectedImportMatchPreview(preview, matchReview) {
     matchReview,
     matchCandidates: getImportMatchCandidates(preview, { includeRejected: true }),
     matchSuggestionsCheckedAt: preview.matchSuggestionsCheckedAt || null,
+    matchCriteriaVersion: preview.matchCriteriaVersion || null,
     rejectedMatches: preview.rejectedMatches || [],
     currentContacts: { emails: [], phones: [], addresses: [] },
     contactSnapshotStatus: { emails: false, phones: false, addresses: false },

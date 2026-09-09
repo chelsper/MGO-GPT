@@ -7,6 +7,8 @@ const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 const getBlackbaudQuotaStatusMock = vi.fn();
 const claimImportRowForApplyMock = vi.fn();
+const verifyImportTargetIdentityMock = vi.fn();
+vi.mock("@/app/api/utils/importTargetIdentity", () => ({ verifyImportTargetIdentity: verifyImportTargetIdentityMock }));
 vi.mock("@/app/api/utils/importRowApplyClaim", () => ({ claimImportRowForApply: claimImportRowForApplyMock }));
 
 vi.mock("@/auth", () => ({
@@ -78,6 +80,7 @@ describe("constituency import run apply route", () => {
     blackbaudApiFetchMock.mockReset();
     getBlackbaudQuotaStatusMock.mockReset();
     claimImportRowForApplyMock.mockReset().mockResolvedValue(true);
+    verifyImportTargetIdentityMock.mockReset().mockResolvedValue({ ok: true });
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -220,6 +223,36 @@ describe("constituency import run apply route", () => {
     );
     expect(payload.applySummary.applied).toBe(1);
     expect(payload.savedRun.appliedCount).toBe(1);
+  });
+
+  it.each([false, true])("uses the real identity guard before any update and retains earlier audits (retry=%s)", async (retry) => {
+    const { POST } = await import("./route.js");
+    const { verifyImportTargetIdentity } = await vi.importActual("@/app/api/utils/importTargetIdentity");
+    verifyImportTargetIdentityMock.mockImplementation(verifyImportTargetIdentity);
+    const write = { type: "constituent_code", action: "add", targetConstituency: "Student" };
+    const priorAudit = { results: [{ status: "failed", writeIndex: 0, type: "constituent_code" }], attempts: [{ results: [{ status: "failed", writeIndex: 0 }] }] };
+    const row = {
+      id: "9", run_id: "42", row_number: 1, status: retry ? "Failed" : "Ready",
+      matched_blackbaud_constituent_id: "100", matched_lookup_id: "629381", requested_writes: [write],
+      preview: { input: { lookupId: "629381" }, match: { blackbaudConstituentId: "100", lookupId: "629381", name: "Test Friend" }, writePlan: [write] },
+      ...(retry ? { blackbaud_result: priorAudit } : {}),
+    };
+    const held = { ...row, status: "Needs Review" };
+    sqlMock.mockResolvedValueOnce([makeRun()]).mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([]).mockResolvedValueOnce([held]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeRun({ needs_review_count: 1, ready_count: 0 })]).mockResolvedValueOnce([held]);
+    blackbaudApiFetchMock.mockResolvedValue({ id: "100", lookup_id: "729381", first: "Test", last: "Friend", name: "Test Friend" });
+    const response = await POST(makeRequest(retry ? "?retryRowId=9" : "", retry ? undefined : { rowIds: ["9"] }), { params: { id: "42" } });
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.applySummary).toMatchObject({ applied: 0, manualRequired: 1, failed: 0 });
+    expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(1);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents/100", expect.objectContaining({ method: "GET" }));
+    const update = sqlMock.mock.calls[2];
+    expect(update[0].join(" ")).toContain("status = 'Needs Review'");
+    expect(update[0].join(" ")).not.toContain("blackbaud_result");
+    expect(JSON.parse(update[1])).toMatchObject({ identityVerification: { code: "lookup_id_changed" }, intentDisposition: { allowApply: false } });
+    if (retry) expect(row.blackbaud_result).toEqual(priorAudit);
   });
 
   it("applies a staged preferred-name correction without clearing other name fields", async () => {

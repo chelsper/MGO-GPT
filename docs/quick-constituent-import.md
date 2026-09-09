@@ -14,6 +14,8 @@ Quick creation includes identity and the selected single email, phone, and addre
 
 The review section displays saved **Suggested NXT matches** directly, including names, lookup IDs, available email/address details, and **Open NXT record**, **Use this match**, and **Not a match** controls. A selected record also appears beside the CSV identity. NXT links open the actual system record in a separate tab; no manual lookup is required.
 
+Suggestions use evidence labels (**Strong match**, **Needs comparison**, **Possible household**), not percentage confidence. The strongest five appear first; **Show all qualifying matches** exposes the rest. First-name-only, last-name-only, ZIP-only, and house-number-only results are not suggestions. Older saved runs are rechecked once when their focused row opens; fresh checks supersede obsolete broad-search results without removing rejection history or silently changing a selected target.
+
 Quick-import duplicate checks now retain the matching candidates instead of only a warning. Older held rows missing this information load suggestions automatically when opened in focused review, using the saved CSV identity checks. Results are persisted on that row. The all-records view does not start searches across the batch; an individual **Load suggested matches** button is available there. Failed lookups show an error and retry action, not a confirmed nonmatch.
 
 For an unsent saved row, **Not a match** records the decision and removes that suggestion from the active list. Rejecting the selected target also clears its snapshots/write choices and holds the row for further review. Rejecting a different candidate preserves the selected target and its choices. Neither action deletes an NXT record nor authorizes creating a new one, even when every suggestion has been rejected. Select another verified record or use the separate checked creation workflow below. Rejected records remain in the review history across reloads. Save unsaved previews before rejecting a suggestion.
@@ -26,7 +28,7 @@ Rows already created by the import, with uncertain creation attempts, or with at
 
 For a saved New or Mixed import, an unmatched row now has an **Is this a new constituent?** section. **Open required review** navigates to match resolution rather than an unrelated contact field.
 
-1. Select the correct suggestion, or mark unrelated suggestions **Not a match**. All suggestions must be resolved before new creation can be approved.
+1. Select the correct suggestion, or mark unrelated qualifying suggestions **Not a match**. Known matching evidence and incomplete saved suggestions must be resolved before new creation can be approved; demonstrably irrelevant legacy hits no longer require individual rejection.
 2. Select **Check for duplicates**. This runs the complete ID, both-email, name, address/ZIP, and local-import checks. It creates nothing. Only individually audited rejected NXT IDs are exempted; checking continues through all remaining search channels.
 3. If checks clear, acknowledge that this is a separate person and select **Confirm as new constituent**. After any rejected suggestions, a review note of at least 10 characters is required. The approval, reviewer, and rejected IDs are saved before the NXT POST.
 4. The server rechecks duplicates under the shared creation lease. New candidates, failed/truncated lookups, changed source/review data, and checks older than 30 minutes block creation. Neither a browser-supplied ID exception nor a stale check token can authorize creation.
@@ -38,11 +40,24 @@ These review fields use existing preview/audit JSON; no additional schema migrat
 
 ## Duplicate Rules
 
-- Any possible NXT ID, either email, first/last name, or similar address plus ZIP first five holds the row. The original preview's matches also remain held.
-- Name and address punctuation/abbreviations are normalized for local comparisons; email punctuation is preserved. External source IDs are audit-only, not NXT IDs.
-- Address candidate retrieval is broader than exact full-address matching. Enhanced and general NXT searches are both checked. Possible matches with incomplete/ambiguous address information are held, not cleared using their preferred address alone.
+- System IDs match only system IDs; Lookup IDs match only Lookup IDs. Numeric Lookup IDs are no longer retried as system IDs. Conflicting supplied identifiers or names require comparison rather than automatic matching. External source IDs remain audit-only.
+- Exact full email is strong evidence but does not automatically select an update target: family members may share it. Email punctuation is preserved. Both mapped email fields are checked before creation.
+- Exact normalized first AND last name qualifies for comparison, ignoring middle names in display names. A nickname or one-character first-name variation requires the same last name plus an exact phone or matching full address/ZIP. Initials and weak partial-name hits do not qualify on their own.
+- Household evidence requires the same house number, normalized street, and ZIP first five. Conflicting apartment/unit numbers rule out address-only evidence. A missing unit does not prove two people are the same; even a matching household always requires review.
+- Full-street general searches use `strict_search: true`, replacing house-number-only queries. Candidates are validated against returned fields, not provider search rank. When email or address search returns only a nonmatching preferred contact, complete per-constituent contact lists are checked before dismissing the result. Detail reads are serial, reused within the check, and bounded at 20; missing, malformed, truncated, or over-budget comparisons block creation rather than being treated as nonmatches.
+- The same classifier is used in preview, local-file matching, saved suggestions, checked manual creation, and every final creation check. Genuine saved matches remain held until reviewed even if a later search omits them. Criteria-versioned checks invalidate older approval tokens.
 - Search errors, incomplete results, truncation, unsupported addresses, and missing ZIP data never mean 'no duplicate'. Quota/authentication pauses stop the batch.
 - Other uploaded rows and prior creation attempts are also checked, protecting against duplicates before NXT search indexing catches up. There is no automatic merge or change to an existing constituent.
+
+## Existing-Record Identity Safety
+
+Preview no longer reads or writes the 30-day import identity cache. Every new preview resolves identifiers live; identical inputs may share a lookup only within that one request. Lookup IDs are never interpreted as system IDs.
+
+Before any staged update, the server claims the saved row and reads its exact system record from NXT. The current Lookup ID and identity must agree with the saved review. Automatic matches additionally require exact source identifiers without conflicting names. Legacy name/email-only targets require explicit selection. A deliberate reviewer selection or an audited new creation may override original CSV identifiers, but cannot override later changes to the selected identity.
+
+Changed IDs, missing/malformed identity responses, and failed/throttled reads hold the row in **Needs Review** without sending any writes for that attempt. The UI explains how to open the record and reject/reselect it. Earlier write audits remain intact; partially written rows cannot be silently retargeted. A rebuilt preview cannot transfer prior contact selections to a different identity, and one-click send asks for review again if saving changed the target.
+
+These checks protect older saved import runs as well as new previews. They do not reverse earlier incorrect writes. Investigate an affected run/row and compare its audit with NXT before making a separate correction. As with other NXT writes, a remote change between the final read and the write cannot be made atomic by the app.
 
 ## Creation Safety
 

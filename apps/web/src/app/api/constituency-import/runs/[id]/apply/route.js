@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { claimImportRowForApply } from "@/app/api/utils/importRowApplyClaim";
+import { verifyImportTargetIdentity } from "@/app/api/utils/importTargetIdentity";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -2125,6 +2126,26 @@ async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
 
   if (!(await claimImportRowForApply(row))) {
     return { retryUnavailable: true, message: "This row or its selected NXT match changed, or another request is sending it. Reload and review it before sending any changes." };
+  }
+
+  const identity = await verifyImportTargetIdentity({ request, user, row });
+  if (!identity.ok) {
+    const heldPreview = {
+      ...row.preview,
+      status: "Needs Review",
+      identityVerification: identity.diagnostic,
+      reasons: [...new Set([identity.message, ...(row.preview?.reasons || [])])],
+      intentDisposition: { key: "needs_resolution", label: "Live identity review required", allowApply: false, message: identity.message },
+    };
+    // Keep earlier write attempts intact. A read-only preflight hold is not a
+    // write attempt and must not prevent an otherwise untouched match review.
+    await sql`
+      UPDATE constituency_import_rows
+      SET status = 'Needs Review', preview = ${JSON.stringify(heldPreview)}::jsonb,
+        blackbaud_error = ${identity.message}, updated_at = NOW()
+      WHERE id = ${row.id} AND status = 'Applying'
+    `;
+    return { applied: false, manualRequired: true, failed: false, results: [] };
   }
 
   const results = [];

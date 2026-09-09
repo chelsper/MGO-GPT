@@ -129,9 +129,15 @@ describe("manual NXT import match route", () => {
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
-  it("persists the reviewer-selected match without sending an NXT write", async () => {
+  it.each([false, true])("persists the reviewer-selected match without NXT writes, clearing identity holds (%s)", async (identityHeld) => {
     const { POST } = await import("./route.js");
     const row = makeRow();
+    if (identityHeld) {
+      row.matched_blackbaud_constituent_id = "5566";
+      row.preview.match = { blackbaudConstituentId: "5566", lookupId: "JH-104" };
+      row.preview.identityVerification = { code: "identity_read_failed" };
+      row.requested_writes = [{ type: "email_address", action: "replace", targetId: "old-contact" }];
+    }
     sqlMock
       .mockResolvedValueOnce([row])
       .mockResolvedValueOnce([{ id: row.id }])
@@ -174,6 +180,7 @@ describe("manual NXT import match route", () => {
     const savedResult = JSON.parse(updateCall[9]);
     expect(savedPreview).toMatchObject({
       matchStatus: "matched",
+      identityVerification: null,
       matchMethod: "Reviewer-selected NXT match",
       confidence: 100,
       match: { blackbaudConstituentId: "5566", lookupId: "JH-104" },
@@ -242,6 +249,9 @@ describe("manual NXT import match route", () => {
   it("rejects an unselected duplicate candidate and keeps the remaining suggestions across reload", async () => {
     const { POST } = await import("./route.js");
     const row = makeRow();
+    row.preview.matchCriteriaVersion = 2;
+    row.preview.matchSuggestionsCheckedAt = "2026-09-09";
+    row.preview.matchCandidates = [{ blackbaudConstituentId: "123", name: "First Person" }, { blackbaudConstituentId: "456", name: "Second Person" }];
     row.create_approved_at = "2026-09-08";
     row.blackbaud_result = { type: "import_duplicate_review", matchCandidates: [
       { blackbaudConstituentId: "123", name: "First Person" }, { blackbaudConstituentId: "456", name: "Second Person" },
@@ -288,14 +298,14 @@ describe("manual NXT import match route", () => {
     row.quick_create_status = "review";
     row.blackbaud_error = "NXT found a possible email match. Held for review.";
     row.preview.input = { firstName: "Jane", lastName: "Dolphin", email: "jane@example.com", duplicateCheckVersion: 1 };
-    checkClearNonmatchMock.mockImplementation(async ({ onCandidates }) => { onCandidates([{ blackbaudConstituentId: "123", name: "Suggested Person" }]); return row.blackbaud_error; });
+    checkClearNonmatchMock.mockImplementation(async ({ onCandidates }) => { onCandidates([{ blackbaudConstituentId: "123", name: "Suggested Person", email: "jane@example.com" }]); return row.blackbaud_error; });
     sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "9" }]);
     const response = await POST(makeRequest({ action: "suggestions", query: "ignore this browser input" }), { params: { id: "42", rowId: "9" } });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ results: [{ blackbaudConstituentId: "123" }] });
     expect(checkClearNonmatchMock).toHaveBeenCalledWith(expect.objectContaining({ input: row.preview.input, credentials: { userId: 7, authUserId: 7, origin: "https://example.com" } }));
     const saved = JSON.parse(sqlMock.mock.calls[1][1]);
-    expect(saved.matchCandidates).toEqual([{ blackbaudConstituentId: "123", name: "Suggested Person" }]);
+    expect(saved.matchCandidates).toEqual([{ blackbaudConstituentId: "123", name: "Suggested Person", email: "jane@example.com" }]);
     expect(saved.matchSuggestionsCheckedAt).toBeTruthy();
     expect(saved.writePlan).toEqual(row.preview.writePlan);
     expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();

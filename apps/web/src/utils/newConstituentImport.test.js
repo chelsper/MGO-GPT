@@ -3,7 +3,7 @@ import { duplicateReason, mostlySameAddress, newRecordContactPayload, quickImpor
 
 describe("safe new constituent matching", () => {
   it.each([
-    [{ lookupId: "ABC" }, { lookupId: "abc" }, "ID"],
+    [{ lookupId: "ABC" }, { lookupId: "ABC" }, "ID"],
     [{ blackbaudConstituentId: "123" }, { blackbaudConstituentId: "123" }, "ID"],
     [{ email: "Person@Example.com " }, { email2: "person@example.com" }, "email"],
     [{ firstName: "Jane", lastName: "O'Neil" }, { firstName: "JANE", lastName: "ONeil" }, "first and last"],

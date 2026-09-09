@@ -13,7 +13,8 @@ import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
-import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected } from "@/utils/importMatchReview";
+import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget } from "@/utils/importMatchReview";
+import { importMatchEvidence } from "@/utils/importMatchEvidence";
 
 const IMPORT_FIELDS = [
   {
@@ -5432,6 +5433,11 @@ export default function ConstituencyImportPage() {
         return;
       }
 
+      if (!sameReviewedImportTarget(row, savedRow)) {
+        setError("The live NXT match changed while saving. No changes were sent. Review the saved record and confirm the correct match before sending again.");
+        return;
+      }
+
       await applyRowsToNxt([savedRow], {
         singleRecord: true,
         runIdOverride: savedRunId,
@@ -8534,7 +8540,7 @@ export default function ConstituencyImportPage() {
                         >
                           {row.status}
                         </span>
-                        <Pill tone="neutral">{row.confidence}% confidence</Pill>
+                        <Pill tone="neutral">{row.createdBlackbaudConstituentId ? "Created record" : row.matchReview?.decision === "selected" ? "Reviewer selected" : importMatchEvidence(row.input || {}, row.match).category || "Match not confirmed"}</Pill>
                         <Pill tone="blue">{row.matchMethod}</Pill>
                         {row.intentDisposition?.label ? (
                           <Pill tone={row.intentDisposition.key === "potential_new" || row.intentDisposition.key === "ready_new" ? "blue" : row.intentDisposition.key === "needs_resolution" || row.intentDisposition.key === "possible_duplicate" || row.intentDisposition.key === "nxt_checks_paused" ? "amber" : "green"}>

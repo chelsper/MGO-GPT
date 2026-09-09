@@ -13,9 +13,8 @@ describe("live duplicate preflight", () => {
     expect(api.mock.calls.map(([, options]) => options.searchParams)).toEqual([
       { email: "jane@example.com", limit: 1000 },
       { first_name: "Jane", last_name: "Dolphin", include_alias: true, include_maiden_name: true, limit: 1000 },
-      { address_lines: "42", limit: 1000 },
-      { search_text: "42 North Main Street", include_inactive: true, strict_search: false, limit: 500 },
-      { search_text: "42 n main st", include_inactive: true, strict_search: false, limit: 500 },
+      { search_text: "42 North Main Street", include_inactive: true, strict_search: true, limit: 500 },
+      { search_text: "42 n main st", include_inactive: true, strict_search: true, limit: 500 },
     ]);
   });
   it("continues every duplicate channel after an explicitly reviewed ID, email, name, or address match", async () => {
@@ -26,11 +25,11 @@ describe("live duplicate preflight", () => {
     });
     const onCandidates = vi.fn();
     expect(await checkClearNonmatch({ input: { ...input, blackbaudConstituentId: "8", lookupId: "8", email2: "second@example.com" }, rowId: "9", runId: "42", reviewedCandidateIds: ["8"], credentials: {}, onCandidates })).toBeNull();
-    expect(api).toHaveBeenCalledTimes(8);
+    expect(api).toHaveBeenCalledTimes(7);
     expect(onCandidates).not.toHaveBeenCalled();
   });
   it("still holds a newly discovered candidate after ignoring a reviewed suggestion", async () => {
-    api.mockResolvedValueOnce({ results: [{ record_id: "8" }] }).mockResolvedValueOnce({ results: [{ record_id: "9" }] });
+    api.mockResolvedValueOnce({ results: [{ record_id: "8" }] }).mockResolvedValueOnce({ results: [{ record_id: "9", first_name: "Jane", last_name: "Dolphin" }] });
     const onCandidates = vi.fn();
     expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", reviewedCandidateIds: ["8"], credentials: {}, onCandidates })).toContain("first and last name");
     expect(onCandidates).toHaveBeenCalledWith([expect.objectContaining({ blackbaudConstituentId: "9" })]);
@@ -48,14 +47,17 @@ describe("live duplicate preflight", () => {
     expect(query).toContain("WHERE outcome <> 'rejected'");
   });
   it("holds a different name/email with similar address and ZIP+4", async () => {
-    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [{ record_id: 8, address_block: "42 N Main St", address_post_code: "32211" }] });
+    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ value: [{ id: "8", address: { address_lines: "42 N Main St", postal_code: "32211" } }], count: 1 });
     expect(await check()).toContain("similar address");
   });
-  it("shows identifiable address candidates even when their address details require manual comparison", async () => {
-    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [{ record_id: 8, first_name: "Janet", last_name: "Other" }] });
+  it("verifies historical addresses before suggesting a household match", async () => {
+    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] })
+      .mockResolvedValueOnce({ value: [{ id: "8", first: "Janet", last: "Other" }], count: 1 })
+      .mockResolvedValueOnce({ value: [{ address_lines: "42 N Main St", postal_code: "32211" }], count: 1 });
     const onCandidates = vi.fn();
-    expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", credentials: {}, onCandidates })).toContain("Open the suggested records");
-    expect(onCandidates).toHaveBeenCalledWith([expect.objectContaining({ blackbaudConstituentId: "8", name: "Janet Other" })]);
+    expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", credentials: {}, onCandidates })).toContain("similar address");
+    expect(onCandidates).toHaveBeenCalledWith([expect.objectContaining({ blackbaudConstituentId: "8", name: "Janet Other", matchCategory: "Possible household" })]);
+    expect(api.mock.calls.at(-1)[0]).toBe("/constituent/v1/constituents/8/addresses");
   });
   it("retains all suggested email matches and their comparison fields without weakening the hold", async () => {
     api.mockResolvedValueOnce({ results: [
@@ -83,7 +85,7 @@ describe("live duplicate preflight", () => {
   it("allows a genuine 404 ID lookup to continue other matching checks", async () => {
     api.mockRejectedValueOnce(Object.assign(new Error("Not Found"), { httpStatus: 404 }));
     expect(await check({ blackbaudConstituentId: "8" })).toBeNull();
-    expect(api).toHaveBeenCalledTimes(6);
+    expect(api).toHaveBeenCalledTimes(5);
   });
   it.each([null, {}, { results: {} }, { results: [{ bad: true }] }, { results: [], count: 2 }, { results: Array.from({ length: 1000 }, () => ({ record_id: 1 })) }])("fails closed for malformed or truncated results", async (result) => {
     api.mockResolvedValue(result);
@@ -93,6 +95,32 @@ describe("live duplicate preflight", () => {
     const error = Object.assign(new Error("Throttled"), { httpStatus: status, retryAfterMs: 30000 });
     api.mockRejectedValue(error);
     await expect(check()).rejects.toBe(error);
+  });
+  it("ignores unrelated name hits without asking the reviewer to reject each", async () => {
+    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: Array.from({ length: 28 }, (_, i) => ({ record_id: i + 1, first_name: "Someone", last_name: `Unrelated${i}` })) });
+    expect(await check()).toBeNull();
+    expect(api).toHaveBeenCalledTimes(4);
+  });
+  it("never uses a numeric Lookup ID as a system ID", async () => {
+    expect(await check({ lookupId: "123" })).toBeNull();
+    expect(api.mock.calls.some(([path]) => path.endsWith("/123"))).toBe(false);
+    expect(api.mock.calls[0][1].searchParams).toMatchObject({ lookup_id: "123" });
+  });
+  it("dismisses an unrelated address result only after checking all returned mailing addresses", async () => {
+    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] })
+      .mockResolvedValueOnce({ value: [{ id: "8", first: "Other", last: "Person" }], count: 1 })
+      .mockResolvedValueOnce({ value: [{ address_lines: "42 Different Street", postal_code: "32211" }], count: 1 });
+    expect(await check()).toBeNull();
+  });
+  it("checks alternate emails rather than assuming a different preferred email means no match", async () => {
+    api.mockResolvedValueOnce({ results: [{ record_id: "8", first_name: "Other", last_name: "Person", primary_email: "other@example.com" }] })
+      .mockResolvedValueOnce({ value: [{ address: input.email }], count: 1 });
+    expect(await check()).toContain("email match");
+  });
+  it("fails closed when a contact comparison is partial", async () => {
+    api.mockResolvedValueOnce({ results: [{ record_id: "8", first_name: "Other", last_name: "Person" }] })
+      .mockResolvedValueOnce({ value: [], count: 2 });
+    await expect(check()).rejects.toThrow(/incomplete/);
   });
   it("does not guess that an old preview checked ZIP and secondary email", async () => {
     await expect(check({ duplicateCheckVersion: undefined })).rejects.toThrow(/new preview/);

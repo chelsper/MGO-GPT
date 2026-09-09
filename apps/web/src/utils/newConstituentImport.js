@@ -1,36 +1,24 @@
+import { importMatchEvidence, matchingHouseholdAddress, streetParts } from "./importMatchEvidence";
 export const cleanImportText = (value) => String(value ?? "").trim();
 export class ImportReviewRequired extends Error {}
 const text = cleanImportText;
-const name = (value) => text(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-const email = (value) => text(value).toLowerCase();
-const zip = (value) => text(value).match(/^\d{5}/)?.[0] || "";
-
-function streetTokens(value) {
-  const aliases = { street: "st", road: "rd", avenue: "ave", boulevard: "blvd", drive: "dr", lane: "ln", court: "ct", place: "pl", highway: "hwy", north: "n", south: "s", east: "e", west: "w" };
-  return text(value).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).map((token) => aliases[token] || token);
-}
 
 export function addressSearchTerms(value) {
   const withoutUnit = text(value).split(/\s+(?:apt\.?|apartment|suite|unit|#)\s*/i)[0];
-  return [...new Set([withoutUnit, streetTokens(withoutUnit).join(" ")])];
+  return [...new Set([withoutUnit, streetParts(withoutUnit).tokens.join(" ")])];
 }
 
 export function mostlySameAddress(left, right) {
-  if (!zip(left.postalCode) || zip(left.postalCode) !== zip(right.postalCode)) return false;
-  const a = streetTokens(left.addressLine1);
-  const b = streetTokens(right.addressLine1);
-  if (a.length < 2 || b.length < 2 || a[0] !== b[0]) return false;
-  const overlap = a.filter((token) => b.includes(token)).length;
-  return overlap / Math.min(a.length, b.length) >= 0.8;
+  return matchingHouseholdAddress(left, right);
 }
 
 export function duplicateReason(left, right) {
-  const ids = [left.blackbaudConstituentId, left.lookupId].map((value) => text(value).toLowerCase()).filter(Boolean);
-  if ([right.blackbaudConstituentId, right.lookupId].some((value) => text(value) && ids.includes(text(value).toLowerCase()))) return "matching NXT ID";
-  const leftEmails = [left.email, left.email2].map(email).filter(Boolean);
-  if ([right.email, right.email2].some((value) => email(value) && leftEmails.includes(email(value)))) return "matching email address";
-  if (name(left.firstName) && name(left.lastName) && name(left.firstName) === name(right.firstName) && name(left.lastName) === name(right.lastName)) return "matching first and last name";
-  if (mostlySameAddress(left, right)) return "similar address line 1 and matching ZIP first five";
+  const evidence = importMatchEvidence(left, { ...right, blackbaudConstituentId: right.blackbaudConstituentId || "local-row" });
+  if (evidence.rank === 100) return "matching NXT ID";
+  if (evidence.rank === 90) return "matching email address";
+  if (evidence.rank === 70) return "matching first and last name";
+  if (evidence.rank === 60) return "similar name with supporting contact information";
+  if (evidence.rank === 40) return "similar address line 1 and matching ZIP first five";
   return null;
 }
 

@@ -15,7 +15,8 @@ import {
 } from "@/app/api/constituency-import/preview/route";
 import { getQuotaPauseNotice } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
-import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, rejectedImportMatchPreview } from "@/utils/importMatchReview";
+import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
+import { IMPORT_MATCH_CRITERIA_VERSION, qualifyImportMatchCandidates } from "@/utils/importMatchEvidence";
 import { checkClearNonmatch } from "@/app/api/utils/safeConstituentCreate";
 
 export const runtime = "nodejs";
@@ -316,10 +317,10 @@ export async function POST(request, { params }) {
 
     const preview = getPreview(row);
     if (action === "suggestions") {
-      if (getImportMatchCandidates(row, { includeRejected: true }).length || preview.matchSuggestionsCheckedAt) {
-        return Response.json({ results: getImportMatchCandidates(row) });
+      if (preview.matchCriteriaVersion === IMPORT_MATCH_CRITERIA_VERSION && preview.matchSuggestionsCheckedAt) {
+        return Response.json({ results: getImportMatchCandidates(row), criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION });
       }
-      let candidates = [];
+      let candidates = getImportMatchCandidates(row);
       let notice = "";
       const input = preview.input || {};
       if (input.duplicateCheckVersion === 1) {
@@ -327,13 +328,15 @@ export async function POST(request, { params }) {
         // action never invokes constituent creation or approves a nonmatch.
         notice = await checkClearNonmatch({ input, rowId: routeParams.rowId, runId: routeParams.runId,
           credentials: { userId: authResult.user.id, authUserId: authResult.user.id, origin },
-          onCandidates: (matches) => { candidates = matches; } }) || "";
+          reviewedCandidateIds: getReviewedNonmatchIds(row),
+          onCandidates: (matches) => { candidates = [...candidates, ...matches]; } }) || "";
       } else {
         const query = cleanText(input.lookupId || input.blackbaudConstituentId || input.constituentName || input.email || [input.firstName, input.lastName].filter(Boolean).join(" "));
         if (query.length < 2) return Response.json({ error: "There is not enough identifying information to load suggestions. Correct the staged CSV values or search NXT below." }, { status: 400 });
-        candidates = await searchCandidates({ user: authResult.user, origin, query });
+        candidates = qualifyImportMatchCandidates(input, await searchCandidates({ user: authResult.user, origin, query }));
       }
-      const nextPreview = { ...preview, matchCandidates: candidates, matchSuggestionsCheckedAt: new Date().toISOString() };
+      const nextPreview = { ...preview, matchCandidates: candidates, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
+        newRecordReview: null, matchSuggestionsCheckedAt: new Date().toISOString() };
       const saved = await sql`
         UPDATE constituency_import_rows SET preview = ${JSON.stringify(nextPreview)}::jsonb, updated_at = NOW()
         WHERE id = ${routeParams.rowId} AND run_id = ${routeParams.runId}
@@ -345,7 +348,7 @@ export async function POST(request, { params }) {
         RETURNING id
       `;
       if (!saved.length) return Response.json({ error: "The import row changed while suggestions loaded. Reload it before continuing." }, { status: 409 });
-      return Response.json({ results: getImportMatchCandidates(nextPreview), notice });
+      return Response.json({ results: getImportMatchCandidates(nextPreview), notice, criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION });
     }
     if (action === "reject") {
       const selectedId = getSelectedImportMatchId(row);
@@ -432,7 +435,8 @@ export async function POST(request, { params }) {
         : {}),
     };
     const profileLoaded = hasUsableProfileSnapshot(detailedMatch);
-    const targetChanged = getSelectedImportMatchId(row) !== verifiedMatch.blackbaudConstituentId;
+    const targetChanged = getSelectedImportMatchId(row) !== verifiedMatch.blackbaudConstituentId ||
+      cleanText(preview.match?.lookupId) !== verifiedMatch.lookupId || Boolean(preview.identityVerification);
     let writePlan = targetChanged ? [] : getWritePlan(row);
     const profileWrites = profileLoaded
       ? buildProfileDetailWrites(input, detailedMatch, targetChanged ? {} : getFieldReviewDecisions(preview, writePlan))
@@ -463,6 +467,7 @@ export async function POST(request, { params }) {
       confidence: 100,
       match: verifiedMatch,
       matchReview: { decision: "selected", constituentId: verifiedMatch.blackbaudConstituentId },
+      identityVerification: null,
       contactReviewDecisions: {},
       fieldReviewDecisions: targetChanged ? {} : preview.fieldReviewDecisions || {},
       profileSnapshot: profileLoaded && detailedMatch.raw && typeof detailedMatch.raw === "object"

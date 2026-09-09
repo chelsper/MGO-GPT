@@ -3,6 +3,7 @@ import sql from "./sql";
 import { checkClearNonmatch } from "./safeConstituentCreate";
 import { ImportReviewRequired } from "@/utils/newConstituentImport";
 import { canReviewNewImportRecord, getImportMatchCandidates, getReviewedNonmatchIds } from "@/utils/importMatchReview";
+import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -12,6 +13,7 @@ function stable(value) {
 
 export function newRecordReviewFingerprint(row) {
   return createHash("sha256").update(JSON.stringify(stable({
+    criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
     input: row.preview.input,
     rejectedMatches: row.preview.rejectedMatches || [],
     remaining: getImportMatchCandidates(row).map((entry) => entry.blackbaudConstituentId).sort(),
@@ -46,7 +48,9 @@ export function duplicateReviewFailure(error) {
 
 // Read-only in NXT. Only a saved, current review token can reach the separate create action.
 export async function prepareNewRecordReview({ row, runId, user, origin }) {
-  let candidates = getImportMatchCandidates(row, { includeRejected: true });
+  // Keep genuine/unknown saved candidates until reviewed. The shared filter
+  // removes demonstrably unrelated legacy hits, not known duplicate evidence.
+  let candidates = getImportMatchCandidates(row);
   let message;
   let nextAction;
   let retryAfterMs;
@@ -63,8 +67,9 @@ export async function prepareNewRecordReview({ row, runId, user, origin }) {
   } catch (error) {
     ({ message, nextAction, retryAfterMs } = duplicateReviewFailure(error));
   }
-  const nextPreview = { ...row.preview, matchCandidates: candidates,
-    ...(checked ? { matchSuggestionsCheckedAt: new Date().toISOString() } : {}) };
+  const nextPreview = { ...row.preview,
+    ...(checked ? { matchCandidates: candidates, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION,
+      matchSuggestionsCheckedAt: new Date().toISOString() } : {}) };
   const nextRow = { ...row, preview: nextPreview };
   if (!message && getImportMatchCandidates(nextRow).length) {
     message = "Review the remaining suggested matches. Select a match or mark each unrelated record Not a match, then run checks again.";

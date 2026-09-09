@@ -3,6 +3,7 @@ import sql from "./sql";
 import { blackbaudApiFetch } from "./blackbaud";
 import { cleanImportText as text, duplicateReason, addressSearchTerms, ImportReviewRequired } from "@/utils/newConstituentImport";
 import { normalizeImportMatchCandidate } from "@/utils/importMatchReview";
+import { importMatchEvidence, qualifyImportMatchCandidates } from "@/utils/importMatchEvidence";
 
 const SEARCH = "/nxt-data-integration/v1/re/constituents/customsearch";
 const LIMIT = 1000;
@@ -71,6 +72,7 @@ function candidateInput(candidate) {
     blackbaudConstituentId: text(candidate.record_id), lookupId: candidate.constituent_id,
     name: [candidate.first_name, candidate.middle_name, candidate.last_name].filter(Boolean).join(" ") || candidate.display_name || candidate.org_name,
     firstName: candidate.first_name, lastName: candidate.last_name,
+    preferredName: candidate.preferred_name, phone: candidate.primary_phone || candidate.matched_phone,
     email: candidate.primary_email, email2: candidate.matched_email,
     addressLine1: text(candidate.address_block).split(/\r?\n/)[0], postalCode: candidate.address_post_code,
   };
@@ -94,6 +96,59 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
     onCandidates?.(remaining);
     return message;
   }
+  let detailCalls = 0;
+  const details = new Map();
+  async function readDetails(id, suffix = "") {
+    const path = `/constituent/v1/constituents/${encodeURIComponent(id)}${suffix}`;
+    if (details.has(path)) return details.get(path);
+    if (++detailCalls > 20) throw new ImportReviewRequired("NXT returned too many incomplete comparison records. Narrow or correct the source details, then retry duplicate checks. Nothing was created.");
+    const result = await blackbaudApiFetch(path, credentials);
+    if (suffix) {
+      if (!Array.isArray(result?.value) || result.next_link || result.nextLink || Number(result.count) > result.value.length || result.value.some((entry) => !entry || typeof entry !== "object")) {
+        throw new ImportReviewRequired("NXT contact comparison was incomplete. Retry duplicate checks before creating a record.");
+      }
+    } else if (text(result?.id) !== id) throw new ImportReviewRequired("NXT returned an incomplete identity comparison.");
+    details.set(path, result);
+    return result;
+  }
+  async function compare(candidates, channel) {
+    const qualified = [];
+    for (const value of candidates) {
+      let candidate = normalizeImportMatchCandidate(value);
+      if (!candidate) throw new ImportReviewRequired("NXT returned an incomplete comparison record.");
+      const id = candidate.blackbaudConstituentId;
+      if (reviewed.has(id)) continue;
+      if (importMatchEvidence(input, candidate).rank) { qualified.push(candidate); continue; }
+      if (channel === "name" && (!candidate.firstName || !candidate.lastName)) {
+        candidate = normalizeImportMatchCandidate(await readDetails(id));
+        if (!candidate.firstName || !candidate.lastName) throw new ImportReviewRequired("NXT did not return enough identity information. Retry checks or select the verified record manually.");
+      }
+      if (channel === "lookup" && !candidate.lookupId) {
+        candidate = normalizeImportMatchCandidate(await readDetails(id));
+        if (!candidate.lookupId) throw new ImportReviewRequired("NXT did not return the Lookup ID needed for comparison.");
+      }
+      if (channel === "email") {
+        const contacts = (await readDetails(id, "/emailaddresses")).value;
+        if (contacts.some((entry) => !text(entry.address))) throw new ImportReviewRequired("NXT returned an incomplete email comparison.");
+        for (const contact of contacts) {
+          const compared = { ...candidate, email2: text(contact.address).toLowerCase() };
+          if (importMatchEvidence(input, compared).rank) { candidate = compared; break; }
+        }
+      }
+      if (channel === "address") {
+        // Search may match an old mailing address, not the preferred address
+        // shown in the search result. Verify those contacts before dismissing it.
+        const contacts = (await readDetails(id, "/addresses")).value;
+        if (contacts.some((entry) => !text(entry.address_lines) || !text(entry.postal_code))) throw new ImportReviewRequired("NXT returned an incomplete mailing-address comparison.");
+        for (const contact of contacts) {
+          const compared = { ...candidate, address: contact.address_lines, postalCode: contact.postal_code };
+          if (importMatchEvidence(input, compared).rank) { candidate = compared; break; }
+        }
+      }
+      if (importMatchEvidence(input, candidate).rank) qualified.push(candidate);
+    }
+    return qualifyImportMatchCandidates(input, qualified);
+  }
   if (input.duplicateCheckVersion !== 1) throw new ImportReviewRequired("Prepare a new preview so all mapped duplicate-check fields are included.");
   if (!text(input.firstName) || !text(input.lastName)) throw new ImportReviewRequired("First and last name are required.");
   if (text(input.addressLine1) && !/^\d{5}(?:-?\d{4})?$/.test(text(input.postalCode))) throw new ImportReviewRequired("Address matching requires a valid US ZIP code; review this address individually.");
@@ -104,11 +159,11 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
   const localMatch = await findLocalImportDuplicate({ input, rowId, runId });
   if (localMatch) return localMatch;
 
-  for (const id of [...new Set([input.blackbaudConstituentId, /^\d+$/.test(text(input.lookupId)) ? input.lookupId : ""].map(text).filter(Boolean))]) {
+  for (const id of [text(input.blackbaudConstituentId)].filter(Boolean)) {
     try {
       const result = await blackbaudApiFetch(`/constituent/v1/constituents/${encodeURIComponent(id)}`, credentials);
-      if (!text(result?.id)) throw new ImportReviewRequired("NXT returned an incomplete ID lookup.");
-      const reason = hold("An NXT system ID already exists. Held for review.", [result]);
+      if (text(result?.id) !== id) throw new ImportReviewRequired("NXT returned an incomplete ID lookup.");
+      const reason = hold("An NXT system ID already exists. Held for review.", qualifyImportMatchCandidates(input, [result]));
       if (reason) return reason;
     } catch (error) {
       if (Number(error.httpStatus) !== 404) throw error;
@@ -116,44 +171,31 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
   }
   if (text(input.lookupId)) {
     const candidates = await search(credentials, { lookup_id: text(input.lookupId) });
-    const reason = hold("NXT found a possible lookup ID match. Held for review.", candidates);
+    const reason = hold("NXT found a possible lookup ID match. Held for review.", await compare(candidates, "lookup"));
     if (reason) return reason;
   }
   for (const address of [...new Set([input.email, input.email2].map((value) => text(value).toLowerCase()).filter(Boolean))]) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new ImportReviewRequired("An email address needs review before duplicate checking.");
     const candidates = await search(credentials, { email: address });
-    const reason = hold("NXT found a possible email match. Held for review.", candidates);
+    const reason = hold("NXT found a possible email match. Held for review.", await compare(candidates, "email"));
     if (reason) return reason;
   }
   const names = await search(credentials, { first_name: text(input.firstName), last_name: text(input.lastName), include_alias: true, include_maiden_name: true });
-  const nameReason = hold("NXT found a possible first and last name match. Held for review.", names);
+  const nameReason = hold("NXT found a possible first and last name match. Held for review.", await compare(names, "name"));
   if (nameReason) return nameReason;
   if (text(input.addressLine1)) {
-    // Search on the house number, not the full address or exact ZIP: spelling,
-    // street abbreviations and ZIP+4 must not hide a potential match.
     const houseNumber = text(input.addressLine1).match(/^\d+[a-z]?\b/i)?.[0];
     if (!houseNumber) throw new ImportReviewRequired("This address needs an individual duplicate review.");
-    const candidates = await search(credentials, { address_lines: houseNumber });
-    for (const candidate of candidates) {
-      if (reviewed.has(candidate.blackbaudConstituentId)) continue;
-      if (!text(candidate.addressLine1) || !text(candidate.postalCode)) return hold("NXT did not return enough address information to rule out a duplicate. Open the suggested records to compare their addresses, then select a match or reject unrelated records.", candidates);
-      if (duplicateReason(input, candidate)) return hold("NXT found a similar address and matching ZIP first five. Held for review.", candidates);
-    }
-    // Enhanced search may display the preferred address rather than the
-    // address that matched. Do not clear a candidate using that display alone.
-    const addressReason = hold("NXT found possible address matches. Review their ZIP codes and other addresses before creating this record.", candidates);
-    if (addressReason) return addressReason;
-    // NXT's general search requires digits followed by street text to trigger
-    // address searching. Cover that path too, including common abbreviations.
-    // https://community.blackbaud.com/discussion/50765/constituent-search-not-updating-addresses
+    // Full street searches replace the house-number-only query. Strict search
+    // removes phonetic expansion; returned fields still require comparison.
     for (const searchText of addressSearchTerms(input.addressLine1)) {
       const result = await blackbaudApiFetch("/constituent/v1/constituents/search", {
-        ...credentials, searchParams: { search_text: searchText, include_inactive: true, strict_search: false, limit: 500 },
+        ...credentials, searchParams: { search_text: searchText, include_inactive: true, strict_search: true, limit: 500 },
       });
       if (!Array.isArray(result?.value) || !Number.isInteger(result.count) || result.count !== result.value.length || result.value.length >= 500 || result.next_link) {
         throw new ImportReviewRequired("The additional NXT address search was incomplete. This row needs review.");
       }
-      const reason = hold("NXT found a possible mailing-address match. Held for ZIP and duplicate review.", result.value);
+      const reason = hold("NXT found a similar address and matching ZIP first five. Held for review.", await compare(result.value, "address"));
       if (reason) return reason;
     }
   }

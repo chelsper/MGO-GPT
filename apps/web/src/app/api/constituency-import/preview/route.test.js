@@ -274,7 +274,7 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].status).toBe("Ready");
   });
 
-  it("falls back to an NXT system ID when a numeric lookup-ID column contains that identifier", async () => {
+  it("does not reinterpret a numeric Lookup ID as a system ID", async () => {
     const { POST } = await import("./route.js");
     findBlackbaudConstituentByLookupIdMock.mockResolvedValue(null);
     getBlackbaudConstituentByIdMock.mockResolvedValue({
@@ -307,17 +307,8 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
-      expect.objectContaining({ constituentId: "593441" }),
-    );
-    expect(payload.rows[0]).toMatchObject({
-      matchStatus: "matched",
-      matchMethod: "NXT system ID (from Lookup ID column)",
-      match: {
-        blackbaudConstituentId: "593441",
-        name: "Ikenna Nwagwu",
-      },
-    });
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(payload.rows[0].matchStatus).not.toBe("matched");
   });
 
   it("continues to name and email suggestions when a supplied NXT identifier does not resolve", async () => {
@@ -359,9 +350,7 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
-      expect.objectContaining({ constituentId: "593441" }),
-    );
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
     expect(searchBlackbaudConstituentsMock).toHaveBeenCalledWith(
       expect.objectContaining({ query: "Ikenna Nwagwu" }),
     );
@@ -1398,7 +1387,7 @@ describe("constituency import preview route", () => {
     expect(response.status).toBe(200);
     expect(payload.rows[0].status).toBe("Needs Review");
     expect(payload.rows[0].matchMethod).toBe("name search");
-    expect(payload.rows[0].confidence).toBe(60);
+    expect(payload.rows[0].confidence).toBe(70);
     expect(payload.rows[0].writePlan[0]).toEqual(
       expect.objectContaining({ type: "email_address", address: "autumn.updated@example.com" }),
     );
@@ -1981,8 +1970,9 @@ describe("constituency import preview route", () => {
     expect(payload.warnings.join(" ")).toContain("call-volume quota is temporarily unavailable");
   });
 
-  it("reuses a recent confirmed lookup-ID match for a fast preview", async () => {
+  it("ignores a stale persisted lookup-ID match and uses the live record for fast preview", async () => {
     const { POST } = await import("./route.js");
+    findBlackbaudConstituentByLookupIdMock.mockResolvedValue({ blackbaudConstituentId: "new-student", lookupId: "440085", name: "Current Student" });
     sqlMock.mockResolvedValueOnce([
       {
         match_key: "lookup:440085",
@@ -2011,15 +2001,17 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
+    expect(findBlackbaudConstituentByLookupIdMock).toHaveBeenCalledWith(expect.objectContaining({ lookupId: "440085" }));
+    expect(sqlMock).not.toHaveBeenCalled();
     expect(payload.rows[0]).toMatchObject({
       matchMethod: "NXT lookup ID",
-      match: { blackbaudConstituentId: "440085", lookupId: "440085" },
+      match: { blackbaudConstituentId: "new-student", lookupId: "440085" },
     });
   });
 
   it("defers profile comparisons in a fast preview instead of treating unloaded NXT values as blank", async () => {
     const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({ blackbaudConstituentId: "543503", lookupId: "543503", name: "Victoria E. Richards" });
     sqlMock.mockResolvedValueOnce([
       {
         match_key: "id:543503",
@@ -2136,6 +2128,7 @@ describe("constituency import preview route", () => {
 
   it("defers constituency replacement review in a fast preview instead of treating unloaded codes as missing", async () => {
     const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({ blackbaudConstituentId: "543503", lookupId: "543503", name: "Victoria E. Richards" });
     sqlMock.mockResolvedValueOnce([
       {
         match_key: "id:543503",
@@ -2261,6 +2254,16 @@ describe("constituency import preview route", () => {
     );
   });
 
+  it.each(["200", "100"])("discards prior target-specific selections when live identity changes to %s", async (newId) => {
+    const { mergePriorReviewState } = await import("./route.js");
+    const prior = { matched_blackbaud_constituent_id: "100", matched_lookup_id: "629381",
+      preview: { match: { blackbaudConstituentId: "100", lookupId: "629381" }, currentContacts: { emails: [{ id: "friend-email" }] }, contactsSnapshotLoaded: true },
+      requested_writes: [{ type: "email_address", targetId: "friend-email", action: "update" }] };
+    const next = { input: { lookupId: "629381" }, status: "Ready", match: { blackbaudConstituentId: newId, lookupId: newId === "100" ? "729381" : "629381" },
+      writePlan: [{ type: "email_address", targetId: "friend-email", action: "update" }] };
+    expect(mergePriorReviewState(next, prior)).toMatchObject({ status: "Needs Review", match: null, writePlan: [], currentContacts: { emails: [] }, intentDisposition: { allowApply: false } });
+  });
+
   it("does not reuse an unmarked partial profile snapshot from an older saved review", async () => {
     const { mergePriorReviewState } = await import("./route.js");
     const row = {
@@ -2292,8 +2295,9 @@ describe("constituency import preview route", () => {
     );
   });
 
-  it("reuses a cached lookup alias for a fast preview", async () => {
+  it("ignores a cached lookup alias and checks the supplied system ID live", async () => {
     const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({ blackbaudConstituentId: "123", lookupId: "A123", name: "Jane Dolphin" });
     sqlMock.mockResolvedValueOnce([
       {
         match_key: "lookup:A123",
@@ -2321,16 +2325,17 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(expect.objectContaining({ constituentId: "123" }));
     expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
     expect(payload.rows[0]).toMatchObject({
-      matchMethod: "NXT lookup ID",
+      matchMethod: "NXT system ID",
       match: { blackbaudConstituentId: "123", lookupId: "A123" },
     });
   });
 
-  it("reuses a confirmed system ID when no lookup ID is available", async () => {
+  it("checks a supplied system ID live even when no lookup ID is available", async () => {
     const { POST } = await import("./route.js");
+    getBlackbaudConstituentByIdMock.mockResolvedValue({ blackbaudConstituentId: "123", lookupId: null, name: "Jane Dolphin" });
     sqlMock.mockResolvedValueOnce([
       {
         match_key: "id:123",
@@ -2358,7 +2363,7 @@ describe("constituency import preview route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(expect.objectContaining({ constituentId: "123" }));
     expect(payload.rows[0].match).toEqual(
       expect.objectContaining({ blackbaudConstituentId: "123", lookupId: null }),
     );

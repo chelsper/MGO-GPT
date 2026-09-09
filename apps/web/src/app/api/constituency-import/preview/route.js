@@ -18,6 +18,7 @@ import {
   searchBlackbaudConstituents,
 } from "@/app/api/utils/blackbaud";
 import { addressesEquivalent } from "@/utils/contactMatching";
+import { importMatchEvidence, qualifyImportMatchCandidates } from "@/utils/importMatchEvidence";
 
 export const runtime = "nodejs";
 // The browser persists the import in small batches, so this route should fail
@@ -34,7 +35,6 @@ const PREVIEW_BATCH_SIZE = 4;
 // System and lookup IDs are stable identifiers. Keeping confirmed mappings for longer
 // avoids repeating the same NXT lookup every time an import is reopened or retried.
 // The guarded apply route still validates NXT immediately before a write.
-const IMPORT_MATCH_CACHE_TTL_HOURS = 30 * 24;
 const FAST_PREVIEW_REQUEST_OPTIONS = {
   // Return a safe review queue when NXT is slow instead of holding the browser for minutes.
   timeoutMs: 4000,
@@ -1802,44 +1802,6 @@ export function previewConstituencyChange(input, currentCodes, options = {}) {
   };
 }
 
-function scoreCandidate(candidate, input) {
-  const candidateEmail = normalizeText(candidate?.email);
-  const candidateName = normalizeText(candidate?.name);
-  const inputEmail = normalizeText(input.email);
-  const inputName = normalizeText(input.constituentName);
-  const candidateAddress = normalizeText(candidate?.address);
-  const inputAddress = normalizeText(input.addressLine1);
-
-  let score = 0;
-  const reasons = [];
-
-  if (inputEmail && candidateEmail && inputEmail === candidateEmail) {
-    score += 60;
-    reasons.push("Exact email match");
-  }
-  if (inputName && candidateName && inputName === candidateName) {
-    score += 35;
-    reasons.push("Exact name match");
-  } else if (inputName && candidateName && candidateName.includes(inputName)) {
-    score += 20;
-    reasons.push("Partial name match");
-  }
-  if (
-    inputAddress &&
-    candidateAddress &&
-    (candidateAddress.includes(inputAddress) || inputAddress.includes(candidateAddress))
-  ) {
-    score += 25;
-    reasons.push("Address line 1 match");
-  }
-
-  return { score, reasons };
-}
-
-function isNumericIdentifier(value) {
-  return /^\d+$/.test(cleanText(value));
-}
-
 function isBlackbaudNotFoundError(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   return /(?:404|not found|resource not found)/i.test(message);
@@ -1899,12 +1861,13 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
       requestOptions,
     });
     if (match) {
+      const evidence = importMatchEvidence(input, match);
       return {
-        status: "matched",
+        status: evidence.identityConflict ? "needs_review" : "matched",
         method: "NXT system ID",
         confidence: 100,
         match,
-        notes: [],
+        notes: evidence.identityConflict ? evidence.reasons : [],
       };
     }
     identifierNotes.push(
@@ -1923,40 +1886,18 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
     const hasExactLookupId =
       match && String(match.lookupId || match.blackbaudLookupId || "").trim() === input.lookupId;
     if (hasExactLookupId) {
+      const evidence = importMatchEvidence(input, match);
       return {
-        status: "matched",
+        status: evidence.identityConflict ? "needs_review" : "matched",
         method: "NXT lookup ID",
         confidence: 98,
         match,
-        notes: [],
+        notes: evidence.identityConflict ? evidence.reasons : [],
       };
     }
 
-    // Some extracts label the NXT system record ID as a lookup ID. Match it
-    // directly before treating an existing constituent as a potential new one.
-    if (isNumericIdentifier(input.lookupId)) {
-      const systemIdMatch = await getBlackbaudConstituentBySystemIdOrNull({
-        userId,
-        authUserId,
-        origin,
-        constituentId: input.lookupId,
-        requestOptions,
-      });
-      if (systemIdMatch) {
-        return {
-          status: "matched",
-          method: "NXT system ID (from Lookup ID column)",
-          confidence: 100,
-          match: systemIdMatch,
-          notes: [
-            "The supplied value matched the NXT system record ID rather than the lookup ID.",
-          ],
-        };
-      }
-    }
-
     identifierNotes.push(
-      "No NXT record was found for that lookup ID or system record ID. Continuing with email and name suggestions.",
+      "No NXT record was found for that Lookup ID. System IDs must be mapped to the System ID column. Continuing with email and name suggestions.",
     );
   }
 
@@ -1972,11 +1913,12 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
     const normalizedMatchedEmail = normalizeEmailValue(match?.email);
     if (match && normalizedInputEmail && normalizedInputEmail === normalizedMatchedEmail) {
       return {
-        status: "matched",
+        status: "needs_review",
         method: "NXT email address",
-        confidence: 96,
+        confidence: 85,
         match,
-        notes: identifierNotes,
+        candidates: qualifyImportMatchCandidates(input, [match]),
+        notes: [...identifierNotes, ...importMatchEvidence(input, match).reasons, "Select the correct person explicitly; an email may be shared by a household."],
       };
     }
   }
@@ -2000,14 +1942,13 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
     authUserId,
     origin,
     query,
+    strictSearch: true,
     requestOptions,
   });
-  const scored = candidates
-    .map((candidate) => ({ candidate, ...scoreCandidate(candidate, input) }))
-    .sort((a, b) => b.score - a.score);
+  const scored = qualifyImportMatchCandidates(input, candidates);
   const best = scored[0];
 
-  if (!best || best.score <= 0) {
+  if (!best) {
     return {
       status: "not_matched",
       method: input.constituentName ? "name search" : input.email ? "email search" : "address search",
@@ -2020,12 +1961,12 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
   return {
     status: "needs_review",
     method: input.constituentName ? "name search" : input.email ? "email search" : "address search",
-    confidence: Math.min(best.score, 85),
-    match: best.candidate,
-    candidates: scored.map(({ candidate, reasons }) => normalizeImportMatchCandidate({ ...candidate, reason: reasons.join("; ") })).filter(Boolean),
+    confidence: Math.min(best.matchRank, 85),
+    match: candidates.find((candidate) => String(candidate.blackbaudConstituentId) === best.blackbaudConstituentId),
+    candidates: scored,
     notes: [
       ...identifierNotes,
-      ...best.reasons,
+      best.reason,
       "Name, email, and address matches are previewed for human review before import.",
     ],
   };
@@ -2180,150 +2121,10 @@ async function getOrLoadCached(cacheMap, key, loader) {
 }
 
 function buildMatchCacheKey(input) {
-  if (input.blackbaudConstituentId) return `id:${input.blackbaudConstituentId}`;
-  if (input.lookupId) return `lookup:${input.lookupId}`;
-
-  const fallbackParts = [
-    input.constituentName ? `name:${normalizeText(input.constituentName)}` : "",
-    input.email ? `email:${normalizeEmailValue(input.email)}` : "",
-    input.addressLine1 ? `address:${normalizeText(input.addressLine1)}` : "",
-  ].filter(Boolean);
-  return fallbackParts.length ? fallbackParts.join("|") : "";
-}
-
-function buildPersistentMatchCacheKeys(input) {
-  return Array.from(
-    new Set(
-      [
-        cleanText(input?.blackbaudConstituentId)
-          ? `id:${cleanText(input.blackbaudConstituentId)}`
-          : "",
-        cleanText(input?.lookupId) ? `lookup:${cleanText(input.lookupId)}` : "",
-      ].filter(Boolean),
-    ),
-  );
-}
-
-function getPersistentMatchCacheKeys(input, matchResult) {
-  const match = matchResult?.match;
-  return Array.from(
-    new Set([
-      ...buildPersistentMatchCacheKeys(input),
-      ...buildPersistentMatchCacheKeys({
-        blackbaudConstituentId: match?.blackbaudConstituentId,
-        lookupId: match?.lookupId || match?.blackbaudLookupId,
-      }),
-    ]),
-  );
-}
-
-function deserializePersistedMatch(payload) {
-  const match = payload?.match;
-  const constituentId = cleanText(match?.blackbaudConstituentId);
-  const lookupId = cleanText(match?.lookupId || match?.blackbaudLookupId);
-  if (!constituentId) return null;
-
-  return {
-    status: "matched",
-    method: cleanText(payload?.method) || "Cached NXT identifier",
-    confidence: Math.max(0, Math.min(100, Number(payload?.confidence) || 0)),
-    match: {
-      blackbaudConstituentId: constituentId,
-      lookupId: lookupId || null,
-      name: cleanText(match?.name) || null,
-      email: cleanText(match?.email) || null,
-    },
-    notes: ["Confirmed NXT identifier reused from a recent import review."],
-  };
-}
-
-async function loadPersistedImportMatches({ workspaceUserId, authUserId, inputs }) {
-  const cacheKeys = Array.from(new Set(inputs.flatMap(buildPersistentMatchCacheKeys)));
-  if (!workspaceUserId || !authUserId || !cacheKeys.length) return new Map();
-  const minimumUpdatedAt = new Date(
-    Date.now() - IMPORT_MATCH_CACHE_TTL_HOURS * 60 * 60 * 1000,
-  ).toISOString();
-
-  try {
-    const rows = await sql`
-      SELECT match_key, payload
-      FROM blackbaud_import_match_cache
-      WHERE workspace_user_id = ${workspaceUserId}
-        AND auth_user_id = ${authUserId}
-        AND match_key = ANY(${cacheKeys})
-        AND updated_at >= ${minimumUpdatedAt}::timestamptz
-    `;
-
-    return new Map(
-      (Array.isArray(rows) ? rows : []).flatMap((row) => {
-        const key = cleanText(row?.match_key);
-        const result = deserializePersistedMatch(row?.payload);
-        return key && result ? [[key, result]] : [];
-      }),
-    );
-  } catch (error) {
-    // A cache problem should never block a reviewer from using the live NXT path.
-    console.warn("Could not load import identity cache:", error);
-    return new Map();
-  }
-}
-
-function serializePersistedMatch(matchResult) {
-  const match = matchResult?.match;
-  if (
-    matchResult?.status !== "matched" ||
-    !cleanText(match?.blackbaudConstituentId)
-  ) {
-    return null;
-  }
-
-  return {
-    method: cleanText(matchResult.method),
-    confidence: Math.max(0, Math.min(100, Number(matchResult.confidence) || 0)),
-    match: {
-      blackbaudConstituentId: cleanText(match.blackbaudConstituentId),
-      lookupId: cleanText(match.lookupId || match.blackbaudLookupId) || null,
-      name: cleanText(match.name) || null,
-      email: cleanText(match.email) || null,
-    },
-  };
-}
-
-async function savePersistedImportMatches({ workspaceUserId, authUserId, entries }) {
-  if (!workspaceUserId || !authUserId || !entries.length) return;
-
-  try {
-    await mapWithConcurrency(entries, 4, async ([matchKey, matchResult]) => {
-      const payload = serializePersistedMatch(matchResult);
-      if (!payload) return;
-
-      await sql`
-        INSERT INTO blackbaud_import_match_cache (
-          workspace_user_id,
-          auth_user_id,
-          match_key,
-          payload,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          ${workspaceUserId},
-          ${authUserId},
-          ${matchKey},
-          ${JSON.stringify(payload)}::jsonb,
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (workspace_user_id, auth_user_id, match_key)
-        DO UPDATE SET
-          payload = EXCLUDED.payload,
-          updated_at = NOW()
-      `;
-    });
-  } catch (error) {
-    // The live preview remains valid even if a later cache write cannot finish.
-    console.warn("Could not save import identity cache:", error);
-  }
+  // Cache the interpretation only for the same identity input, not merely the
+  // same ID: a second CSV row can supply conflicting names for that ID.
+  const fields = ["blackbaudConstituentId", "lookupId", "constituentName", "firstName", "lastName", "email", "email2", "addressLine1", "addressLine2", "postalCode", "phone"];
+  return JSON.stringify(fields.map((field) => cleanText(input[field])));
 }
 
 async function mapWithConcurrency(items, limit, iteratee) {
@@ -2652,6 +2453,18 @@ function removeDeferredDetailReasons(reasons) {
 
 export function mergePriorReviewState(row, priorSavedRow) {
   const previous = priorSavedRow?.preview || priorSavedRow;
+  const oldId = cleanText(priorSavedRow?.matched_blackbaud_constituent_id || previous?.match?.blackbaudConstituentId);
+  const newId = cleanText(row.match?.blackbaudConstituentId);
+  const oldLookup = cleanText(priorSavedRow?.matched_lookup_id || previous?.match?.lookupId);
+  if (oldId && (oldId !== newId || (oldLookup && oldLookup !== cleanText(row.match?.lookupId)))) {
+    const message = "The live NXT match changed since the previous review. Select and review the correct record again. Earlier contact selections and staged writes were not transferred.";
+    return {
+      ...rejectedImportMatchPreview({ ...row, rejectedMatches: previous?.rejectedMatches || [], matchCandidates: [...(row.matchCandidates || []), ...(previous?.matchCandidates || [])] }, null),
+      matchMethod: "NXT identity changed",
+      reasons: [message],
+      intentDisposition: { key: "needs_resolution", label: "Live identity review required", allowApply: false, message },
+    };
+  }
   if (previous?.rejectedMatches?.length) {
     row = { ...row, rejectedMatches: previous.rejectedMatches,
       matchCandidates: getImportMatchCandidates({ ...previous, matchCandidates: [...(row.matchCandidates || []), ...(previous.matchCandidates || [])] }, { includeRejected: true }) };
@@ -3379,14 +3192,8 @@ export async function POST(request) {
     const authUserId = user.id;
     const previewCache = createPreviewRequestCache();
     const rowInputs = rowsToPreview.map((row) => getRowInput(row, mappings, defaults));
-    const persistedImportMatches = fastPreview
-      ? await loadPersistedImportMatches({
-          workspaceUserId: user.id,
-          authUserId,
-          inputs: rowInputs,
-        })
-      : new Map();
-    const newlyConfirmedMatches = new Map();
+    // Lookup IDs can be reassigned. Never reuse cross-request identity matches;
+    // only deduplicate identical live lookups within this preview request.
     const rowConcurrency =
       fastPreview ? 2 : rowsToPreview.length >= 50 ? 4 : rowsToPreview.length >= 20 ? 3 : 4;
     const previewMetrics = {
@@ -3417,7 +3224,6 @@ export async function POST(request) {
     const previewRows = await mapWithConcurrency(rowsToPreview, rowConcurrency, async (row, index) => {
       const rowNumber = rowNumberOffset + index + 1;
       const input = rowInputs[index];
-      const persistedMatchCacheKeys = buildPersistentMatchCacheKeys(input);
       let matchResult;
       let currentCodes = [];
       let codeFetchError = "";
@@ -3448,13 +3254,7 @@ export async function POST(request) {
       const rowContactDecisions = contactDecisions[String(rowNumber)] || {};
       const rowFieldDecisions = fieldDecisions[String(rowNumber)] || {};
 
-      const persistedMatch = persistedMatchCacheKeys
-        .map((cacheKey) => persistedImportMatches.get(cacheKey))
-        .find(Boolean);
-      if (persistedMatch) {
-        previewMetrics.persistedMatchCacheHits += 1;
-        matchResult = persistedMatch;
-      } else if (quotaError) {
+      if (quotaError) {
         matchResult = createQuotaPausedMatch(quotaError);
       } else {
         try {
@@ -3472,11 +3272,6 @@ export async function POST(request) {
                 requestOptions: matchRequestOptions,
               }),
           );
-          if (matchResult.status === "matched") {
-            getPersistentMatchCacheKeys(input, matchResult).forEach((cacheKey) => {
-              newlyConfirmedMatches.set(cacheKey, matchResult);
-            });
-          }
           previewMetrics.matchMs += Date.now() - matchStartedAt;
         } catch (error) {
           const failureMessage = error instanceof Error ? error.message : "NXT lookup failed.";
@@ -3894,13 +3689,6 @@ export async function POST(request) {
     if (quotaError) {
       warnings.push(`NXT checks are paused. ${getQuotaPauseNotice(quotaError)}`);
     }
-    if (fastPreview) {
-      await savePersistedImportMatches({
-        workspaceUserId: user.id,
-        authUserId,
-        entries: Array.from(newlyConfirmedMatches.entries()),
-      });
-    }
     const sanitizedWarnings = sanitizeQuotaPauseWarnings(warnings);
 
     const summary = summarize(normalizedPreviewRows, sanitizedWarnings);
@@ -3957,7 +3745,7 @@ export async function POST(request) {
       educationMs: previewMetrics.educationMs,
       matchTimeouts: previewMetrics.matchTimeouts,
       persistedMatchCacheHits: previewMetrics.persistedMatchCacheHits,
-      persistedMatchCacheWrites: newlyConfirmedMatches.size,
+      persistedMatchCacheWrites: 0,
       savedRunId: savedRun?.id || null,
       summary: responseSummary,
     });

@@ -1130,6 +1130,7 @@ export async function searchBlackbaudConstituents({
   authUserId,
   origin,
   query,
+  strictSearch = false,
   requestOptions = {},
 }) {
   const queryParts = String(query || "")
@@ -1243,6 +1244,7 @@ export async function searchBlackbaudConstituents({
         searchParams: {
           search_text: query,
           limit: 10,
+          ...(strictSearch ? { strict_search: true } : {}),
         },
         ...requestOptions,
       });

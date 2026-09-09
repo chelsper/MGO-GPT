@@ -2,38 +2,22 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-import {
-  blackbaudApiFetch,
-  findBlackbaudConstituentByEmail,
-  findBlackbaudConstituentByLookupId,
-  getBlackbaudConstituentById,
-  searchBlackbaudConstituents,
-} from "@/app/api/utils/blackbaud";
+import { blackbaudApiFetch } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import { newRecordContactPayload, ImportReviewRequired } from "@/utils/newConstituentImport";
-import { normalizeImportMatchCandidate, canReviewNewImportRecord, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
+import { canReviewNewImportRecord, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
 import { prepareNewRecordReview, reviewedCreationBlocker, duplicateReviewFailure } from "@/app/api/utils/reviewedConstituentCreate";
 import { buildNewConstituentReviewWrites } from "@/app/api/constituency-import/preview/route";
 import {
   claimConstituentCreateLease, renewConstituentCreateLease, releaseConstituentCreateLease,
   checkClearNonmatch, configuredNameFormatPayload,
   markConstituentCreateStarted,
-  findLocalImportDuplicate,
   recordCreatedConstituent,
   recordRejectedConstituentCreate,
 } from "@/app/api/utils/safeConstituentCreate";
 
 function cleanText(value) {
   return String(value || "").trim();
-}
-
-function normalizeText(value) {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/[’]/g, "'")
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
 }
 
 function parseBirthDate(value) {
@@ -65,120 +49,6 @@ function getPreview(row) {
 
 function canCreateNewRecord(preview) {
   return ["potential_new", "ready_new"].includes(cleanText(preview?.intentDisposition?.key));
-}
-
-function getCandidateId(candidate) {
-  return cleanText(
-    candidate?.blackbaudConstituentId ||
-      candidate?.id ||
-      candidate?.constituent_id ||
-      candidate?.constituentId,
-  );
-}
-
-function getCandidateLookupId(candidate) {
-  return cleanText(candidate?.lookupId || candidate?.blackbaudLookupId || candidate?.lookup_id);
-}
-
-function isLikelyDuplicate(candidate, input) {
-  const inputEmail = normalizeText(input.email);
-  const candidateEmail = normalizeText(candidate?.email || candidate?.raw?.primary_email);
-  if (inputEmail && candidateEmail && inputEmail === candidateEmail) return true;
-
-  const inputName = normalizeText([input.firstName, input.lastName].filter(Boolean).join(" "));
-  const candidateName = normalizeText(candidate?.name || candidate?.raw?.name);
-  if (!inputName || !candidateName) return false;
-
-  const [firstName, ...lastParts] = inputName.split(" ");
-  const lastName = lastParts.join(" ");
-  return candidateName === inputName ||
-    (Boolean(firstName && lastName) && candidateName.startsWith(`${firstName} `) && candidateName.endsWith(lastName));
-}
-
-function isNumericIdentifier(value) {
-  return /^\d+$/.test(cleanText(value));
-}
-
-function isBlackbaudNotFoundError(error) {
-  const status = Number(error?.status || error?.statusCode || error?.response?.status);
-  if (status === 404) return true;
-  return /(?:^|\b)(404|not found)(?:\b|$)/i.test(cleanText(error?.message));
-}
-
-async function getBlackbaudConstituentBySystemIdOrNull({
-  userId,
-  authUserId,
-  origin,
-  constituentId,
-}) {
-  try {
-    return await getBlackbaudConstituentById({
-      userId,
-      authUserId,
-      origin,
-      constituentId,
-    });
-  } catch (error) {
-    if (isBlackbaudNotFoundError(error)) return null;
-    throw error;
-  }
-}
-
-async function findBlackbaudConstituentByLookupIdOrNull({
-  userId,
-  authUserId,
-  origin,
-  lookupId,
-}) {
-  try {
-    return await findBlackbaudConstituentByLookupId({
-      userId,
-      authUserId,
-      origin,
-      lookupId,
-    });
-  } catch (error) {
-    if (isBlackbaudNotFoundError(error)) return null;
-    throw error;
-  }
-}
-
-async function findResolvedNxtIdentifier({ input, userId, authUserId, origin }) {
-  const constituentId = cleanText(input.blackbaudConstituentId);
-  if (constituentId) {
-    const match = await getBlackbaudConstituentBySystemIdOrNull({
-      userId,
-      authUserId,
-      origin,
-      constituentId,
-    });
-    if (match) return { match, method: "NXT system ID" };
-  }
-
-  const lookupId = cleanText(input.lookupId);
-  if (!lookupId) return null;
-
-  const lookupMatch = await findBlackbaudConstituentByLookupIdOrNull({
-    userId,
-    authUserId,
-    origin,
-    lookupId,
-  });
-  if (lookupMatch && getCandidateLookupId(lookupMatch) === lookupId) {
-    return { match: lookupMatch, method: "NXT lookup ID" };
-  }
-
-  // Some imports label the numeric NXT system ID as a lookup ID.
-  if (!isNumericIdentifier(lookupId)) return null;
-  const systemIdMatch = await getBlackbaudConstituentBySystemIdOrNull({
-    userId,
-    authUserId,
-    origin,
-    constituentId: lookupId,
-  });
-  return systemIdMatch
-    ? { match: systemIdMatch, method: "NXT system ID (from Lookup ID column)" }
-    : null;
 }
 
 function summarizeRows(rows) {
@@ -412,33 +282,23 @@ export async function POST(request, { params }) {
     const credentials = { userId: authResult.user.id, authUserId: authResult.user.id, origin };
     let newRecordFields = {};
     try {
-      if (!quick && !reviewed) {
-        const localMatch = await findLocalImportDuplicate({ input, rowId, runId, includePendingUpload: false });
-        if (localMatch) {
-          await returnToReview({ rowId, message: localMatch, preflight: true });
-          await refreshRunSummary(runId);
-          return Response.json({ error: localMatch, held: true }, { status: 409 });
-        }
-      }
       newRecordFields = await configuredNameFormatPayload(input, credentials);
-      if (quick || reviewed) {
-        let matchCandidates = [];
-        const reason = await checkClearNonmatch({ input, rowId, runId, credentials,
-          ...(reviewed ? { reviewedCandidateIds: getReviewedNonmatchIds(row) } : {}),
-          onCandidates: (candidates) => { matchCandidates = candidates; } });
-        if (reason) {
-          await returnToReview({ rowId, message: reason, preflight: true,
-            result: { ...(row.blackbaud_result || {}), type: "import_duplicate_review", matchCandidates, duplicateCheckAt: new Date().toISOString() } });
-          if (reviewed) await sql`UPDATE constituency_import_rows SET preview = jsonb_set(preview, '{newRecordReview}', ${JSON.stringify({ status: "blocked", message: reason, nextAction: reason.startsWith("Another import row") ? "review_batch" : "review_matches" })}::jsonb) WHERE id = ${rowId} AND status = 'Needs Review'`;
-          await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
-          await refreshRunSummary(runId);
-          return Response.json({ error: reason, held: true }, { status: 409 });
-        }
-        if (quick && Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
-          throw new ImportReviewRequired("Saved contact review choices require individual review.");
-        }
-        if (quick) newRecordFields = { ...newRecordFields, ...newRecordContactPayload(input) };
+      let matchCandidates = [];
+      const reason = await checkClearNonmatch({ input, rowId, runId, credentials,
+        ...(reviewed ? { reviewedCandidateIds: getReviewedNonmatchIds(row) } : {}),
+        onCandidates: (candidates) => { matchCandidates = candidates; } });
+      if (reason) {
+        await returnToReview({ rowId, message: reason, preflight: true,
+          result: { ...(row.blackbaud_result || {}), type: "import_duplicate_review", matchCandidates, duplicateCheckAt: new Date().toISOString() } });
+        if (reviewed) await sql`UPDATE constituency_import_rows SET preview = jsonb_set(preview, '{newRecordReview}', ${JSON.stringify({ status: "blocked", message: reason, nextAction: reason.startsWith("Another import row") ? "review_batch" : "review_matches" })}::jsonb) WHERE id = ${rowId} AND status = 'Needs Review'`;
+        await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
+        await refreshRunSummary(runId);
+        return Response.json({ error: reason, held: true }, { status: 409 });
       }
+      if (quick && Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
+        throw new ImportReviewRequired("Saved contact review choices require individual review.");
+      }
+      if (quick) newRecordFields = { ...newRecordFields, ...newRecordContactPayload(input) };
     } catch (error) {
       const status = Number(error.httpStatus || error.status);
       const paused = [401, 403, 429].includes(status) || error.retryAfterMs > 0 || /quota|not connected/i.test(error.message || "");
@@ -456,86 +316,6 @@ export async function POST(request, { params }) {
       await refreshRunSummary(runId);
       return Response.json({ error: message, held: !paused, paused, retryAfterMs: error.retryAfterMs || null }, { status: paused ? 429 : 409 });
     }
-    let duplicate = null;
-    let duplicateCheckMethod = null;
-    try {
-      const identifierMatch = quick || reviewed ? null : await findResolvedNxtIdentifier({
-        input,
-        userId: authResult.user.id,
-        authUserId: authResult.user.id,
-        origin,
-      });
-      if (identifierMatch) {
-        duplicate = identifierMatch.match;
-        duplicateCheckMethod = identifierMatch.method;
-      }
-
-      if (!quick && !reviewed && !duplicate && cleanText(input.email)) {
-        const emailMatch = await findBlackbaudConstituentByEmail({
-          userId: authResult.user.id,
-          authUserId: authResult.user.id,
-          origin,
-          email: cleanText(input.email),
-        });
-        if (emailMatch && isLikelyDuplicate(emailMatch, input)) {
-          duplicate = emailMatch;
-          duplicateCheckMethod = "NXT email address";
-        }
-      }
-
-      if (!quick && !reviewed && !duplicate) {
-        const candidates = await searchBlackbaudConstituents({
-          userId: authResult.user.id,
-          authUserId: authResult.user.id,
-          origin,
-          query: [firstName, lastName].join(" "),
-        });
-        duplicate = candidates.find((candidate) => isLikelyDuplicate(candidate, input));
-        if (duplicate) duplicateCheckMethod = "NXT name search";
-      }
-    } catch (error) {
-      const message = "The final NXT duplicate check failed. No new record was created; try again after the NXT search connection is available.";
-      await returnToReview({
-        rowId,
-        message,
-        preflight: true,
-        result: {
-          ...(row.blackbaud_result || {}),
-          createApprovedByUserId: authResult.user.id,
-          createApprovedByEmail: authResult.user.email,
-          duplicateCheckFailedAt: new Date().toISOString(),
-          suppliedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
-        },
-      });
-      await refreshRunSummary(runId);
-      return Response.json({ error: message }, { status: 502 });
-    }
-
-    if (duplicate) {
-      const message = `A likely NXT duplicate was found during the final check${duplicateCheckMethod ? ` by ${duplicateCheckMethod}` : ""}: ${cleanText(duplicate.name) || "existing constituent"}${getCandidateLookupId(duplicate) ? ` (Lookup ID ${getCandidateLookupId(duplicate)})` : ""}. No new record was created.`;
-      await returnToReview({
-        rowId,
-        message,
-        preflight: true,
-        result: {
-          ...(row.blackbaud_result || {}),
-          type: "import_duplicate_review",
-          matchCandidates: [normalizeImportMatchCandidate(duplicate)].filter(Boolean),
-          createApprovedByUserId: authResult.user.id,
-          createApprovedByEmail: authResult.user.email,
-          duplicateCheckAt: new Date().toISOString(),
-          duplicateCheckMethod,
-          duplicateCandidate: {
-            constituentId: getCandidateId(duplicate),
-            lookupId: getCandidateLookupId(duplicate),
-            name: cleanText(duplicate.name),
-          },
-        },
-      });
-      await refreshRunSummary(runId);
-      return Response.json({ error: message }, { status: 409 });
-    }
-
     const createPayload = {
       type: "Individual",
       first: firstName,

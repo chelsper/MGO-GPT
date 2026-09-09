@@ -71,6 +71,7 @@ function makeRow(overrides = {}) {
       intentDisposition: { key: "potential_new" },
       input: {
         firstName: "Jane",
+        duplicateCheckVersion: 1,
         lastName: "Dolphin",
         preferredName: "Janie",
         title: "Dr.",
@@ -153,12 +154,8 @@ describe("constituency import new-record create route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(searchBlackbaudConstituentsMock).toHaveBeenCalledWith({
-      userId: 7,
-      authUserId: 7,
-      origin: "https://example.com",
-      query: "Jane Dolphin",
-    });
+    expect(checkMock).toHaveBeenCalledWith(expect.objectContaining({ input: row.preview.input, rowId: "9", runId: "42" }));
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
     expect(blackbaudApiFetchMock).toHaveBeenCalledWith("/constituent/v1/constituents", {
       userId: 7,
       authUserId: 7,
@@ -227,12 +224,8 @@ describe("constituency import new-record create route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(findBlackbaudConstituentByLookupIdMock).toHaveBeenCalledWith(
-      expect.objectContaining({ lookupId: "593441", userId: 7, authUserId: 7 }),
-    );
-    expect(getBlackbaudConstituentByIdMock).toHaveBeenCalledWith(
-      expect.objectContaining({ constituentId: "593441", userId: 7, authUserId: 7 }),
-    );
+    expect(checkMock).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ lookupId: "593441" }) }));
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
     expect(payload.unresolvedNxtIdentifier).toEqual({
       blackbaudConstituentId: null,
       lookupId: "593441",
@@ -312,18 +305,18 @@ describe("constituency import new-record create route", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
-    findBlackbaudConstituentByEmailMock.mockResolvedValue({
+    checkMock.mockImplementation(async ({ onCandidates }) => { onCandidates([{
       blackbaudConstituentId: "123",
       lookupId: "DUP-123",
       name: "Different Name",
       email: "jane@example.com",
-    });
+    }]); return "NXT found a possible email match. Held for review."; });
 
     const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
     const payload = await response.json();
 
     expect(response.status).toBe(409);
-    expect(payload.error).toContain("by NXT email address");
+    expect(payload.error).toContain("email match");
     expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
@@ -338,20 +331,20 @@ describe("constituency import new-record create route", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ status: "Needs Review" }])
       .mockResolvedValueOnce([]);
-    searchBlackbaudConstituentsMock.mockResolvedValue([
+    checkMock.mockImplementation(async ({ onCandidates }) => { onCandidates([
       {
         blackbaudConstituentId: "123",
         lookupId: "DUP-123",
         name: "Jane Dolphin",
         email: "jane@example.com",
       },
-    ]);
+    ]); return "NXT found a possible first and last name match. Held for review."; });
 
     const response = await POST(makeRequest(), { params: { id: "42", rowId: "9" } });
     const payload = await response.json();
 
     expect(response.status).toBe(409);
-    expect(payload.error).toContain("likely NXT duplicate");
+    expect(payload.error).toContain("first and last name match");
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 

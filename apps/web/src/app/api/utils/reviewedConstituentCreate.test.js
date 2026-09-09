@@ -36,6 +36,32 @@ describe("checked new-record review", () => {
     await prepare(value);
     expect(savedPreview().newRecordReview.status).toBe("blocked");
   });
+  it("clears old irrelevant suggestions after fresh complete checks, without requiring pointless rejections", async () => {
+    const value = row();
+    value.preview.matchCandidates = [{ blackbaudConstituentId: "55", firstName: "Different", lastName: "Person" }];
+    value.blackbaud_result = { type: "import_duplicate_review", matchCandidates: value.preview.matchCandidates, duplicateCheckAt: "2026-09-08" };
+    await prepare(value);
+    value.preview = savedPreview();
+    expect(value.preview.matchCandidates).toEqual([]);
+    expect(value.preview.matchCriteriaVersion).toBe(2);
+    expect(reviewedCreationBlocker(value, { confirmed: true, reviewToken: value.preview.newRecordReview.token })).toBeNull();
+  });
+  it("retains a genuine saved name match until rejected, even when live search omits it", async () => {
+    const value = row(); value.preview.matchCandidates = [{ blackbaudConstituentId: "55", name: "Jane Dolphin" }];
+    await prepare(value);
+    expect(savedPreview().newRecordReview.status).toBe("blocked");
+  });
+  it("does not resurrect old result candidates after a checked rejection, but blocks newly found matches", async () => {
+    const value = row();
+    value.preview.rejectedMatches = [{ decision: "rejected", constituentId: "55", reviewedByUserId: "7", reviewedAt: "2026-09-08" }];
+    value.blackbaud_result = { type: "import_duplicate_review", matchCandidates: [{ blackbaudConstituentId: "55", name: "Jane Dolphin" }], duplicateCheckAt: "2026-09-08" };
+    await prepare(value);
+    value.preview = savedPreview();
+    const confirm = { confirmed: true, reviewToken: value.preview.newRecordReview.token, reviewNote: "Reviewed and confirmed a separate person." };
+    expect(reviewedCreationBlocker(value, confirm)).toBeNull();
+    value.blackbaud_result = { type: "import_duplicate_review", matchCandidates: [{ blackbaudConstituentId: "99", name: "Jane Dolphin" }], duplicateCheckAt: new Date(Date.now() + 1000).toISOString() };
+    expect(reviewedCreationBlocker(value, confirm)).toContain("suggested matches");
+  });
   it.each([403, 429])("offers retry, never a clear check, for NXT %s", async (httpStatus) => {
     check.mockRejectedValue(Object.assign(new Error("secret provider response"), { httpStatus, retryAfterMs: 5000 }));
     await prepare();
