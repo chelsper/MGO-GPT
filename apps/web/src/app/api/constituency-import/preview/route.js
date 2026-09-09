@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { isImportMatchRejected, rejectedImportMatchPreview } from "@/utils/importMatchReview";
+import { getImportMatchCandidates, isImportMatchRejected, rejectedImportMatchPreview, normalizeImportMatchCandidate } from "@/utils/importMatchReview";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -1482,6 +1482,15 @@ function buildDeferredConstituencyCodeDetailWrite(input) {
   };
 }
 
+export function buildNewConstituentReviewWrites(input, match) {
+  // Rebuild from source, never reuse replacement IDs or decisions from a rejected target.
+  return [
+    buildDeferredProfileDetailWrite(input), buildDeferredContactDetailWrite(input),
+    buildDeferredNameFormatDetailWrite(input), buildDeferredEducationRelationshipWrite(input, match),
+    buildDeferredConstituencyCodeDetailWrite(input), buildOrganizationRelationshipWrite(input, match),
+  ].filter(Boolean);
+}
+
 export function buildConstituencyCodeWrites(input, changePreview) {
   const writes = [];
   const hasReplaceSourceCandidates =
@@ -2013,6 +2022,7 @@ async function resolveMatch({ input, userId, authUserId, origin, requestOptions 
     method: input.constituentName ? "name search" : input.email ? "email search" : "address search",
     confidence: Math.min(best.score, 85),
     match: best.candidate,
+    candidates: scored.map(({ candidate, reasons }) => normalizeImportMatchCandidate({ ...candidate, reason: reasons.join("; ") })).filter(Boolean),
     notes: [
       ...identifierNotes,
       ...best.reasons,
@@ -2641,6 +2651,18 @@ function removeDeferredDetailReasons(reasons) {
 }
 
 export function mergePriorReviewState(row, priorSavedRow) {
+  const previous = priorSavedRow?.preview || priorSavedRow;
+  if (previous?.rejectedMatches?.length) {
+    row = { ...row, rejectedMatches: previous.rejectedMatches,
+      matchCandidates: getImportMatchCandidates({ ...previous, matchCandidates: [...(row.matchCandidates || []), ...(previous.matchCandidates || [])] }, { includeRejected: true }) };
+    const rejectedTarget = previous.rejectedMatches.find((entry) => String(entry.constituentId) === row.match?.blackbaudConstituentId);
+    if (rejectedTarget && !(previous.matchReview?.decision === "selected" && previous.matchReview.constituentId === row.match?.blackbaudConstituentId)) {
+      return rejectedImportMatchPreview(row, rejectedTarget);
+    }
+    if (previous.matchReview?.decision === "selected" && previous.matchReview.constituentId === row.match?.blackbaudConstituentId) {
+      row.matchReview = previous.matchReview;
+    }
+  }
   if (isImportMatchRejected(priorSavedRow)) {
     const prior = priorSavedRow.preview || priorSavedRow;
     return rejectedImportMatchPreview({ ...row, rejectedMatches: prior.rejectedMatches }, prior.matchReview);
@@ -3828,6 +3850,7 @@ export async function POST(request) {
         matchMethod: matchResult.method,
         confidence: matchResult.confidence,
         input,
+        matchCandidates: matchResult.candidates || (matchResult.match ? [normalizeImportMatchCandidate(matchResult.match)].filter(Boolean) : []),
         match: matchResult.match
           ? {
               blackbaudConstituentId: matchResult.match.blackbaudConstituentId || null,

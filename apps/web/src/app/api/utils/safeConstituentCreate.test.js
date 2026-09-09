@@ -18,9 +18,57 @@ describe("live duplicate preflight", () => {
       { search_text: "42 n main st", include_inactive: true, strict_search: false, limit: 500 },
     ]);
   });
+  it("continues every duplicate channel after an explicitly reviewed ID, email, name, or address match", async () => {
+    api.mockImplementation(async (path) => {
+      if (path.endsWith("/8")) return { id: "8" };
+      if (path === "/constituent/v1/constituents/search") return { value: [{ id: "8" }], count: 1 };
+      return { results: [{ record_id: "8" }] };
+    });
+    const onCandidates = vi.fn();
+    expect(await checkClearNonmatch({ input: { ...input, blackbaudConstituentId: "8", lookupId: "8", email2: "second@example.com" }, rowId: "9", runId: "42", reviewedCandidateIds: ["8"], credentials: {}, onCandidates })).toBeNull();
+    expect(api).toHaveBeenCalledTimes(8);
+    expect(onCandidates).not.toHaveBeenCalled();
+  });
+  it("still holds a newly discovered candidate after ignoring a reviewed suggestion", async () => {
+    api.mockResolvedValueOnce({ results: [{ record_id: "8" }] }).mockResolvedValueOnce({ results: [{ record_id: "9" }] });
+    const onCandidates = vi.fn();
+    expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", reviewedCandidateIds: ["8"], credentials: {}, onCandidates })).toContain("first and last name");
+    expect(onCandidates).toHaveBeenCalledWith([expect.objectContaining({ blackbaudConstituentId: "9" })]);
+  });
+  it("does not exempt failed or incomplete searches even when all known matches were rejected", async () => {
+    api.mockResolvedValueOnce({ results: [{ record_id: "8" }] }).mockResolvedValueOnce({ results: [], count: 1 });
+    await expect(checkClearNonmatch({ input, rowId: "9", runId: "42", reviewedCandidateIds: ["8"], credentials: {} })).rejects.toThrow(/incomplete/);
+  });
+  it("excludes only skipped pending rows, retaining started, created, and durable attempts", async () => {
+    await check();
+    const query = sql.mock.calls[0][0].join(" ");
+    expect(query).toContain("AND status <> 'Skipped'");
+    expect(query).toContain("OR create_request_started_at IS NOT NULL");
+    expect(query).toContain("OR created_blackbaud_constituent_id IS NOT NULL");
+    expect(query).toContain("WHERE outcome <> 'rejected'");
+  });
   it("holds a different name/email with similar address and ZIP+4", async () => {
     api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [{ record_id: 8, address_block: "42 N Main St", address_post_code: "32211" }] });
     expect(await check()).toContain("similar address");
+  });
+  it("shows identifiable address candidates even when their address details require manual comparison", async () => {
+    api.mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [] }).mockResolvedValueOnce({ results: [{ record_id: 8, first_name: "Janet", last_name: "Other" }] });
+    const onCandidates = vi.fn();
+    expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", credentials: {}, onCandidates })).toContain("Open the suggested records");
+    expect(onCandidates).toHaveBeenCalledWith([expect.objectContaining({ blackbaudConstituentId: "8", name: "Janet Other" })]);
+  });
+  it("retains all suggested email matches and their comparison fields without weakening the hold", async () => {
+    api.mockResolvedValueOnce({ results: [
+      { record_id: 8, constituent_id: "LOOKUP8", first_name: "Jane", last_name: "Dolphin", primary_email: input.email, address_block: "42 Main St", address_post_code: "32211" },
+      { record_id: 9, first_name: "Janet", last_name: "Dolphin", primary_email: input.email },
+    ] });
+    const onCandidates = vi.fn();
+    expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", credentials: { userId: 7 }, onCandidates })).toContain("possible email match");
+    expect(onCandidates).toHaveBeenCalledWith([
+      expect.objectContaining({ blackbaudConstituentId: "8", lookupId: "LOOKUP8", name: "Jane Dolphin", email: input.email, address: "42 Main St", postalCode: "32211" }),
+      expect.objectContaining({ blackbaudConstituentId: "9", name: "Janet Dolphin" }),
+    ]);
+    expect(api).toHaveBeenCalledOnce();
   });
   it("holds duplicates within the file before making an NXT call", async () => {
     sql.mockResolvedValue([{ id: 10, input: { ...input } }]);

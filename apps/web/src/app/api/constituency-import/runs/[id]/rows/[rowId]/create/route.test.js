@@ -371,6 +371,107 @@ describe("constituency import new-record create route", () => {
   }
   const quickRequest = () => new Request(`${makeRequest().url}?mode=clear_nonmatches`, { method: "POST" });
 
+  async function setupReviewed() {
+    const row = setupQuick();
+    row.preview.intentDisposition = { key: "needs_resolution", allowApply: false };
+    const { newRecordReviewFingerprint } = await import("@/app/api/utils/reviewedConstituentCreate");
+    row.preview.newRecordReview = { status: "clear", token: "token", checkedAt: new Date().toISOString(), fingerprint: newRecordReviewFingerprint(row) };
+    return row;
+  }
+  const reviewedRequest = (body = {}) => new Request(`${makeRequest().url}?mode=reviewed_new`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed: true, reviewToken: "token", ...body }) });
+
+  it("creates a confirmed unmatched row using complete checks and an audit checkpoint", async () => {
+    await setupReviewed();
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(200);
+    expect(checkMock).toHaveBeenCalledWith(expect.objectContaining({ reviewedCandidateIds: [] }));
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+    const claimIndex = sqlMock.mock.calls.findIndex(([query]) => query.join(" ").includes("RETURNING *"));
+    expect(sqlMock.mock.calls[claimIndex][0].join(" ")).toContain("blackbaud_result = CASE WHEN");
+    expect(sqlMock.mock.calls[claimIndex].some((value) => typeof value === "string" && value.includes('"reviewedNewApproval"'))).toBe(true);
+    expect(sqlMock.mock.invocationCallOrder[claimIndex]).toBeLessThan(blackbaudApiFetchMock.mock.invocationCallOrder[0]);
+    expect(checkpointMock.mock.invocationCallOrder[0]).toBeLessThan(blackbaudApiFetchMock.mock.invocationCallOrder[0]);
+  });
+  it("check-only mode requires reviewer access and cannot claim or create anything", async () => {
+    setupQuick();
+    const impl = sqlMock.getMockImplementation();
+    sqlMock.mockImplementation((strings, ...args) => strings.join(" ").includes("RETURNING id") ? Promise.resolve([{ id: "9" }]) : impl(strings, ...args));
+    const request = () => new Request(`${makeRequest().url}?mode=review_new_check`, { method: "POST" });
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValueOnce({ sessionUser: { id: 8, role: "mgo" } });
+    expect((await POST(request(), { params: { id: "42", rowId: "9" } })).status).toBe(403);
+    const response = await POST(request(), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ review: { status: "clear" } });
+    expect(claimMock).not.toHaveBeenCalled();
+    expect(checkpointMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+  it("allows manual review again after a confirmed provider rejection, not an uncertain outcome", async () => {
+    await setupReviewed();
+    blackbaudApiFetchMock.mockRejectedValue(Object.assign(new Error("Bad field"), { httpStatus: 400 }));
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(502);
+    expect(rejectCreateMock).toHaveBeenCalledWith("9");
+    const returned = sqlMock.mock.calls.find(([query]) => query.join(" ").includes("create_approved_at = CASE"));
+    expect(returned[4]).toBe(true);
+    const blocked = sqlMock.mock.calls.find(([query]) => query.join(" ").includes("jsonb_set(preview, '{newRecordReview}'"));
+    expect(JSON.parse(blocked[1])).toMatchObject({ status: "blocked", nextAction: "correct_csv" });
+    expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
+  });
+  it("rebuilds deferred source writes after rejected matches and never reuses their NXT IDs", async () => {
+    const row = await setupReviewed();
+    row.preview.input.lookupId = "55";
+    row.preview.input.emailUpdates = [{ address: "jane@example.com", type: "Email" }];
+    row.preview.input.targetConstituency = "Student";
+    row.preview.input.action = "add";
+    row.preview.matchReview = { decision: "rejected" };
+    row.preview.rejectedMatches = [{ decision: "rejected", constituentId: "55", reviewedAt: "2026-09-09", reviewedByUserId: "7" }];
+    row.preview.matchCandidates = [{ blackbaudConstituentId: "55" }];
+    row.requested_writes = [];
+    const { newRecordReviewFingerprint } = await import("@/app/api/utils/reviewedConstituentCreate");
+    row.preview.newRecordReview.fingerprint = newRecordReviewFingerprint(row);
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest({ reviewNote: "Compared contact details; these are different people.", reviewedCandidateIds: ["evil"] }), { params: { id: "42", rowId: "9" } })).status).toBe(200);
+    expect(checkMock).toHaveBeenCalledWith(expect.objectContaining({ reviewedCandidateIds: ["55"] }));
+    expect(blackbaudApiFetchMock.mock.calls[0][1].body.lookup_id).toBeUndefined();
+    const saved = sqlMock.mock.calls.find(([query]) => query.join(" ").includes("match_method = 'Created NXT record'"));
+    const nextPreview = saved.filter((value) => typeof value === "string" && value.startsWith("{")).map((value) => JSON.parse(value)).find((value) => value.matchStatus === "matched");
+    expect(nextPreview).toMatchObject({ status: "Needs Review", matchReview: { decision: "created" }, match: { blackbaudConstituentId: "456" } });
+    expect(nextPreview.writePlan.map((write) => write.type)).toEqual(expect.arrayContaining(["contact_detail_review", "constituent_code_detail_review"]));
+  });
+  it("requires a current check token and explicit confirmation before any create work", async () => {
+    await setupReviewed();
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest({ confirmed: false }), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect((await POST(reviewedRequest({ reviewToken: "forged" }), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(claimMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+  it("stops and invalidates a checked approval when the final check discovers another person", async () => {
+    await setupReviewed();
+    checkMock.mockImplementation(async ({ onCandidates }) => { onCandidates([{ blackbaudConstituentId: "77" }]); return "New possible name match"; });
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(sqlMock.mock.calls.some(([query]) => query.join(" ").includes("jsonb_set(preview, '{newRecordReview}'"))).toBe(true);
+  });
+  it("does not post when the approval or pre-POST checkpoint cannot be saved", async () => {
+    await setupReviewed();
+    checkpointMock.mockRejectedValue(new Error("DB checkpoint failed"));
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(502);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+  it("does not repeat an uncertain reviewed create", async () => {
+    await setupReviewed();
+    blackbaudApiFetchMock.mockRejectedValue(new Error("Lost response"));
+    const { POST } = await import("./route.js");
+    expect((await POST(reviewedRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(502);
+    expect((await POST(reviewedRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
+  });
+
   it("quick-creates one row with configured formats and selected contacts, after its checkpoint", async () => {
     const row = setupQuick();
     row.preview.input.emailUpdates = [{ address: "jane@example.com", type: "Email" }];
@@ -388,13 +489,20 @@ describe("constituency import new-record create route", () => {
   });
   it("holds a quick match and persists the review checkpoint without any create", async () => {
     setupQuick();
-    checkMock.mockResolvedValue("NXT found a matching address. Held for review.");
+    const candidates = [{ blackbaudConstituentId: "123", name: "Suggested Person", address: "42 Main St" }];
+    checkMock.mockImplementation(async ({ onCandidates }) => {
+      onCandidates(candidates);
+      return "NXT found a matching address. Held for review.";
+    });
     const { POST } = await import("./route.js");
     const response = await POST(quickRequest(), { params: { id: "42", rowId: "9" } });
     expect(await response.json()).toMatchObject({ held: true });
     expect(sqlMock.mock.calls.some(([query]) => query.join(" ").includes("quick_create_status = 'review'"))).toBe(true);
     expect(checkpointMock).not.toHaveBeenCalled();
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    const saved = sqlMock.mock.calls.find(([query]) => query.join(" ").includes("create_approved_at = CASE"));
+    expect(JSON.parse(saved[2])).toMatchObject({ type: "import_duplicate_review", matchCandidates: candidates });
+    expect(saved[4]).toBe(true);
   });
   it.each([403, 429])("pauses instead of treating NXT %s as a nonmatch", async (status) => {
     setupQuick();

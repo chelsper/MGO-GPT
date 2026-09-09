@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { blackbaudApiFetch } from "./blackbaud";
 import { cleanImportText as text, duplicateReason, addressSearchTerms, ImportReviewRequired } from "@/utils/newConstituentImport";
+import { normalizeImportMatchCandidate } from "@/utils/importMatchReview";
 
 const SEARCH = "/nxt-data-integration/v1/re/constituents/customsearch";
 const LIMIT = 1000;
@@ -68,6 +69,7 @@ function candidateInput(candidate) {
   if (!candidate || !text(candidate.record_id)) throw new ImportReviewRequired("NXT returned an incomplete duplicate-search result.");
   return {
     blackbaudConstituentId: text(candidate.record_id), lookupId: candidate.constituent_id,
+    name: [candidate.first_name, candidate.middle_name, candidate.last_name].filter(Boolean).join(" ") || candidate.display_name || candidate.org_name,
     firstName: candidate.first_name, lastName: candidate.last_name,
     email: candidate.primary_email, email2: candidate.matched_email,
     addressLine1: text(candidate.address_block).split(/\r?\n/)[0], postalCode: candidate.address_post_code,
@@ -82,7 +84,16 @@ async function search(credentials, params) {
   return result.results.map(candidateInput);
 }
 
-export async function checkClearNonmatch({ input, rowId, runId, credentials }) {
+export async function checkClearNonmatch({ input, rowId, runId, credentials, onCandidates, reviewedCandidateIds = [] }) {
+  const reviewed = new Set(reviewedCandidateIds.map(String));
+  function hold(message, candidates) {
+    const normalized = candidates.map((candidate) => normalizeImportMatchCandidate({ ...candidate, reason: message }));
+    if (normalized.some((candidate) => !candidate)) throw new ImportReviewRequired("NXT returned a match without a system ID. Retry the duplicate checks; do not create from incomplete results.");
+    const remaining = normalized.filter((candidate) => !reviewed.has(candidate.blackbaudConstituentId));
+    if (!remaining.length) return null;
+    onCandidates?.(remaining);
+    return message;
+  }
   if (input.duplicateCheckVersion !== 1) throw new ImportReviewRequired("Prepare a new preview so all mapped duplicate-check fields are included.");
   if (!text(input.firstName) || !text(input.lastName)) throw new ImportReviewRequired("First and last name are required.");
   if (text(input.addressLine1) && !/^\d{5}(?:-?\d{4})?$/.test(text(input.postalCode))) throw new ImportReviewRequired("Address matching requires a valid US ZIP code; review this address individually.");
@@ -97,17 +108,26 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials }) {
     try {
       const result = await blackbaudApiFetch(`/constituent/v1/constituents/${encodeURIComponent(id)}`, credentials);
       if (!text(result?.id)) throw new ImportReviewRequired("NXT returned an incomplete ID lookup.");
-      return "An NXT system ID already exists. Held for review.";
+      const reason = hold("An NXT system ID already exists. Held for review.", [result]);
+      if (reason) return reason;
     } catch (error) {
       if (Number(error.httpStatus) !== 404) throw error;
     }
   }
-  if (text(input.lookupId) && (await search(credentials, { lookup_id: text(input.lookupId) })).length) return "NXT found a possible lookup ID match. Held for review.";
+  if (text(input.lookupId)) {
+    const candidates = await search(credentials, { lookup_id: text(input.lookupId) });
+    const reason = hold("NXT found a possible lookup ID match. Held for review.", candidates);
+    if (reason) return reason;
+  }
   for (const address of [...new Set([input.email, input.email2].map((value) => text(value).toLowerCase()).filter(Boolean))]) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new ImportReviewRequired("An email address needs review before duplicate checking.");
-    if ((await search(credentials, { email: address })).length) return "NXT found a possible email match. Held for review.";
+    const candidates = await search(credentials, { email: address });
+    const reason = hold("NXT found a possible email match. Held for review.", candidates);
+    if (reason) return reason;
   }
-  if ((await search(credentials, { first_name: text(input.firstName), last_name: text(input.lastName), include_alias: true, include_maiden_name: true })).length) return "NXT found a possible first and last name match. Held for review.";
+  const names = await search(credentials, { first_name: text(input.firstName), last_name: text(input.lastName), include_alias: true, include_maiden_name: true });
+  const nameReason = hold("NXT found a possible first and last name match. Held for review.", names);
+  if (nameReason) return nameReason;
   if (text(input.addressLine1)) {
     // Search on the house number, not the full address or exact ZIP: spelling,
     // street abbreviations and ZIP+4 must not hide a potential match.
@@ -115,12 +135,14 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials }) {
     if (!houseNumber) throw new ImportReviewRequired("This address needs an individual duplicate review.");
     const candidates = await search(credentials, { address_lines: houseNumber });
     for (const candidate of candidates) {
-      if (!text(candidate.addressLine1) || !text(candidate.postalCode)) throw new ImportReviewRequired("NXT did not return enough address information to rule out a duplicate.");
-      if (duplicateReason(input, candidate)) return "NXT found a similar address and matching ZIP first five. Held for review.";
+      if (reviewed.has(candidate.blackbaudConstituentId)) continue;
+      if (!text(candidate.addressLine1) || !text(candidate.postalCode)) return hold("NXT did not return enough address information to rule out a duplicate. Open the suggested records to compare their addresses, then select a match or reject unrelated records.", candidates);
+      if (duplicateReason(input, candidate)) return hold("NXT found a similar address and matching ZIP first five. Held for review.", candidates);
     }
     // Enhanced search may display the preferred address rather than the
     // address that matched. Do not clear a candidate using that display alone.
-    if (candidates.length) return "NXT found possible address matches. Review their ZIP codes and other addresses before creating this record.";
+    const addressReason = hold("NXT found possible address matches. Review their ZIP codes and other addresses before creating this record.", candidates);
+    if (addressReason) return addressReason;
     // NXT's general search requires digits followed by street text to trigger
     // address searching. Cover that path too, including common abbreviations.
     // https://community.blackbaud.com/discussion/50765/constituent-search-not-updating-addresses
@@ -131,7 +153,8 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials }) {
       if (!Array.isArray(result?.value) || !Number.isInteger(result.count) || result.count !== result.value.length || result.value.length >= 500 || result.next_link) {
         throw new ImportReviewRequired("The additional NXT address search was incomplete. This row needs review.");
       }
-      if (result.value.length) return "NXT found a possible mailing-address match. Held for ZIP and duplicate review.";
+      const reason = hold("NXT found a possible mailing-address match. Held for ZIP and duplicate review.", result.value);
+      if (reason) return reason;
     }
   }
   return null;
@@ -140,7 +163,7 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials }) {
 export async function findLocalImportDuplicate({ input, rowId, runId, includePendingUpload = true }) {
   const localRows = await sql`
     SELECT id, preview->'input' AS input, created_blackbaud_constituent_id FROM constituency_import_rows
-    WHERE id <> ${rowId} AND ((run_id = ${runId} AND ${includePendingUpload}) OR create_request_started_at IS NOT NULL
+    WHERE id <> ${rowId} AND ((run_id = ${runId} AND ${includePendingUpload} AND status <> 'Skipped') OR create_request_started_at IS NOT NULL
       OR created_blackbaud_constituent_id IS NOT NULL OR status = 'Creating')
     UNION ALL
     SELECT row_id AS id, input, constituent_id AS created_blackbaud_constituent_id
@@ -149,7 +172,7 @@ export async function findLocalImportDuplicate({ input, rowId, runId, includePen
   for (const row of localRows) {
     const previous = row.input || {};
     const reason = duplicateReason(input, previous) || duplicateReason(input, { ...previous, blackbaudConstituentId: row.created_blackbaud_constituent_id });
-    if (reason) return `Another import row has a ${reason}. Held for review; no NXT record was created.`;
+    if (reason) return `Another import row has a ${reason} (saved row ID ${row.id}). Review the batch and skip the extra unsent row, or select the existing NXT record if already created. No NXT record was created.`;
   }
 
   return null;

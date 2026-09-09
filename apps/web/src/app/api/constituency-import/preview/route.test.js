@@ -331,6 +331,7 @@ describe("constituency import preview route", () => {
         name: "Ikenna Nwagwu",
         email: "ikenna@example.com",
       },
+      { blackbaudConstituentId: "118", name: "Ikenna Nwagwu", email: "other@example.com" },
     ]);
     blackbaudApiFetchMock.mockResolvedValue({ value: [] });
 
@@ -374,6 +375,10 @@ describe("constituency import preview route", () => {
         expect.stringContaining("Continuing with email and name suggestions"),
       ]),
     );
+    expect(payload.rows[0].matchCandidates).toEqual([
+      expect.objectContaining({ blackbaudConstituentId: "117", email: "ikenna@example.com" }),
+      expect.objectContaining({ blackbaudConstituentId: "118", email: "other@example.com" }),
+    ]);
   });
 
   it("stages a preferred-name correction only when name updates are explicitly enabled", async () => {
@@ -2186,6 +2191,19 @@ describe("constituency import preview route", () => {
       input: { firstName: "CSV" }, status: "Ready", match: { blackbaudConstituentId: "123" }, writePlan: [{ type: "email_address", targetId: "old-contact" }],
     }, { preview: { matchReview: decision, rejectedMatches: [decision] } });
     expect(merged).toMatchObject({ status: "Needs Review", match: null, matchReview: decision, rejectedMatches: [decision], writePlan: [], intentDisposition: { allowApply: false } });
+  });
+
+  it("preserves rejected alternatives and cannot automatically reselect one on preview rebuild", async () => {
+    const { mergePriorReviewState } = await import("./route.js");
+    const decision = { decision: "rejected", constituentId: "123" };
+    const selected = { blackbaudConstituentId: "456", name: "Chosen" };
+    const prior = { preview: { match: selected, matchReview: { decision: "selected", constituentId: "456" }, rejectedMatches: [decision], matchCandidates: [{ blackbaudConstituentId: "789", name: "Alternative" }] } };
+    const rebuilt = mergePriorReviewState({ input: {}, status: "Ready", match: { blackbaudConstituentId: "123" }, writePlan: [{ type: "email", targetId: "wrong" }] }, prior);
+    expect(rebuilt).toMatchObject({ match: null, writePlan: [], rejectedMatches: [decision], intentDisposition: { allowApply: false } });
+    expect(rebuilt.matchCandidates).toContainEqual(expect.objectContaining({ blackbaudConstituentId: "789" }));
+    const unchanged = mergePriorReviewState({ input: {}, status: "Ready", match: selected, writePlan: [] }, prior);
+    expect(unchanged.rejectedMatches).toEqual([decision]);
+    expect(unchanged.matchReview).toEqual(prior.preview.matchReview);
   });
 
   it("keeps a hydrated profile snapshot when the saved review is refreshed", async () => {

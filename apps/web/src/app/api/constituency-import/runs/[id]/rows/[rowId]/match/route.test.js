@@ -11,6 +11,7 @@ const searchBlackbaudConstituentsMock = vi.fn();
 const buildOrganizationRelationshipWriteMock = vi.fn();
 const buildProfileDetailWritesMock = vi.fn();
 const hasUsableProfileSnapshotMock = vi.fn();
+const checkClearNonmatchMock = vi.fn();
 
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
@@ -30,6 +31,7 @@ vi.mock("@/app/api/constituency-import/preview/route", () => ({
 vi.mock("@/app/api/constituency-import/quotaPause", () => ({
   getQuotaPauseNotice: vi.fn(() => "NXT calls are temporarily paused."),
 }));
+vi.mock("@/app/api/utils/safeConstituentCreate", () => ({ checkClearNonmatch: checkClearNonmatchMock }));
 
 function makeRequest(body) {
   return new Request(
@@ -81,6 +83,7 @@ describe("manual NXT import match route", () => {
     buildOrganizationRelationshipWriteMock.mockReset();
     buildProfileDetailWritesMock.mockReset();
     hasUsableProfileSnapshotMock.mockReset();
+    checkClearNonmatchMock.mockReset();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -220,7 +223,7 @@ describe("manual NXT import match route", () => {
   ])("protects an already-created or attempted row from rejecting AND selecting: %j", async (overrides) => {
     const { POST } = await import("./route.js");
     sqlMock.mockResolvedValue([{ ...makeRow(), ...overrides }]);
-    for (const action of ["reject", "select"]) {
+    for (const action of ["reject", "select", "suggestions"]) {
       const response = await POST(makeRequest({ action, constituentId: "123" }), { params: { id: "42", rowId: "9" } });
       expect(response.status).toBe(409);
     }
@@ -234,6 +237,88 @@ describe("manual NXT import match route", () => {
     const response = await POST(makeRequest({ action: "reject", constituentId: "123" }), { params: { id: "42", rowId: "9" } });
     expect(response.status).toBe(409);
     expect(sqlMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an unselected duplicate candidate and keeps the remaining suggestions across reload", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.create_approved_at = "2026-09-08";
+    row.blackbaud_result = { type: "import_duplicate_review", matchCandidates: [
+      { blackbaudConstituentId: "123", name: "First Person" }, { blackbaudConstituentId: "456", name: "Second Person" },
+    ] };
+    sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "9" }]).mockResolvedValueOnce([{ status: "Needs Review" }]).mockResolvedValueOnce([]);
+    const response = await POST(makeRequest({ action: "reject", constituentId: "123" }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(200);
+    const saved = JSON.parse(sqlMock.mock.calls[1][1]);
+    expect(saved).toMatchObject({ match: null, writePlan: [], intentDisposition: { allowApply: false }, matchCandidates: [{ blackbaudConstituentId: "123" }, { blackbaudConstituentId: "456" }] });
+    expect(sqlMock.mock.calls[1][0].join(" ")).toContain("create_approved_at = NULL");
+    sqlMock.mockReset().mockResolvedValue([{ ...row, create_approved_at: null, preview: saved }]);
+    const reloaded = await POST(makeRequest({ action: "suggestions" }), { params: { id: "42", rowId: "9" } });
+    expect(await reloaded.json()).toMatchObject({ results: [{ blackbaudConstituentId: "456" }] });
+    expect(sqlMock).toHaveBeenCalledOnce();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+    expect(checkClearNonmatchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an alternative without changing the selected target, status, or staged writes", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.status = "Ready";
+    row.matched_blackbaud_constituent_id = "456";
+    row.preview.match = { blackbaudConstituentId: "456", name: "Selected" };
+    row.preview.matchCandidates = [{ blackbaudConstituentId: "123", name: "Alternative" }];
+    row.preview.writePlan = [{ type: "email", targetId: "existing-contact" }];
+    sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "9" }]);
+    const response = await POST(makeRequest({ action: "reject", constituentId: "123" }), { params: { id: "42", rowId: "9" } });
+    expect(await response.json()).toMatchObject({ status: "Ready", match: { blackbaudConstituentId: "456" } });
+    const saved = JSON.parse(sqlMock.mock.calls[1][1]);
+    expect(saved.match).toEqual(row.preview.match);
+    expect(saved.writePlan).toEqual(row.preview.writePlan);
+    expect(saved.rejectedMatches).toEqual([expect.objectContaining({ constituentId: "123" })]);
+    const statement = sqlMock.mock.calls[1][0].join(" ");
+    expect(statement).not.toContain("requested_writes =");
+    expect(statement).not.toContain("matched_blackbaud_constituent_id =");
+    expect(statement).toContain("preview IS NOT DISTINCT FROM");
+  });
+
+  it("recovers legacy quick-import suggestions automatically using the saved identity checks only", async () => {
+    const { POST } = await import("./route.js");
+    const row = makeRow();
+    row.create_approved_at = "2026-09-08";
+    row.quick_create_status = "review";
+    row.blackbaud_error = "NXT found a possible email match. Held for review.";
+    row.preview.input = { firstName: "Jane", lastName: "Dolphin", email: "jane@example.com", duplicateCheckVersion: 1 };
+    checkClearNonmatchMock.mockImplementation(async ({ onCandidates }) => { onCandidates([{ blackbaudConstituentId: "123", name: "Suggested Person" }]); return row.blackbaud_error; });
+    sqlMock.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "9" }]);
+    const response = await POST(makeRequest({ action: "suggestions", query: "ignore this browser input" }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [{ blackbaudConstituentId: "123" }] });
+    expect(checkClearNonmatchMock).toHaveBeenCalledWith(expect.objectContaining({ input: row.preview.input, credentials: { userId: 7, authUserId: 7, origin: "https://example.com" } }));
+    const saved = JSON.parse(sqlMock.mock.calls[1][1]);
+    expect(saved.matchCandidates).toEqual([{ blackbaudConstituentId: "123", name: "Suggested Person" }]);
+    expect(saved.matchSuggestionsCheckedAt).toBeTruthy();
+    expect(saved.writePlan).toEqual(row.preview.writePlan);
+    expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+    expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+  });
+
+  it("does not save failed/throttled lookups as empty suggestions", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValue([{ ...makeRow(), preview: { input: { duplicateCheckVersion: 1 } } }]);
+    checkClearNonmatchMock.mockRejectedValue(Object.assign(new Error("429 Secret donor response"), { httpStatus: 429 }));
+    const response = await POST(makeRequest({ action: "suggestions" }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(429);
+    expect(await response.text()).not.toContain("Secret donor");
+    expect(sqlMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a stale suggestion checkpoint rather than overwriting new review choices", async () => {
+    const { POST } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([{ ...makeRow(), preview: { input: { constituentName: "Jane Dolphin" } } }]).mockResolvedValueOnce([]);
+    searchBlackbaudConstituentsMock.mockResolvedValue([{ blackbaudConstituentId: "123" }]);
+    const response = await POST(makeRequest({ action: "suggestions" }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(409);
+    expect(sqlMock.mock.calls[1][0].join(" ")).toContain("preview IS NOT DISTINCT FROM");
   });
 
   it("does not overwrite a row that changed while rejection was being saved", async () => {

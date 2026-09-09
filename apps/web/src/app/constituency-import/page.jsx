@@ -12,6 +12,7 @@ import QueueImportLink from "@/components/QueueImportLink";
 import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import ImportMatchReview from "@/components/ImportMatchReview";
+import ImportNewRecordReview from "@/components/ImportNewRecordReview";
 import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected } from "@/utils/importMatchReview";
 
 const IMPORT_FIELDS = [
@@ -4624,7 +4625,8 @@ export default function ConstituencyImportPage() {
     const rowId = String(row?.id || "");
     const constituentId = String(candidate?.blackbaudConstituentId || "").trim();
     if (!runId || !rowId || !constituentId) return;
-    if (action === "reject" && !window.confirm("Mark this NXT record as not a match? This clears the selected target and its review choices, but keeps your CSV values. No NXT record will be changed, deleted, or created.")) return;
+    const rejectingSelection = getSelectedImportMatchId(row) === constituentId;
+    if (action === "reject" && !window.confirm(`Mark this NXT record as not a match? ${rejectingSelection ? "This clears the selected target and its review choices, but keeps your CSV values." : "This rules out this suggestion only; any different selected record is kept."} No NXT record will be changed, deleted, or created.`)) return;
 
     const hydrationKey = `${runId}:${rowId}`;
     manualMatchHydrationSuppressionsRef.current.add(hydrationKey);
@@ -4879,6 +4881,10 @@ export default function ConstituencyImportPage() {
 
   async function openRemainingRequiredReview(row, runIdOverride = null) {
     if (!row?.id) return null;
+    if (!getSelectedImportMatchId(row)) {
+      focusRowReviewTarget(row, "match-review", runIdOverride);
+      return row;
+    }
     const savedPayload = await preloadRequiredReviewChoices(row, runIdOverride);
     const hydratedRow = findSavedRow(savedPayload, row) || row;
     const targetKey = getRowReviewTargetKey(getRowReviewRequirements(hydratedRow));
@@ -5696,58 +5702,35 @@ export default function ConstituencyImportPage() {
     await reconcileRows([row], { singleRecord: true });
   }
 
-  async function createReviewedNxtRecord(row) {
+  async function reviewNewRecord(row, mode, body) {
     const runId = preview?.savedRun?.id;
     if (!runId || !row?.id || creatingRowId) return;
-
-    const displayName = row.input?.constituentName || "this individual";
-    const externalSourceId = String(row.input?.externalConstituentId || "").trim();
-    const suppliedNxtSystemId = String(row.input?.blackbaudConstituentId || "").trim();
-    const suppliedLookupId = String(row.input?.lookupId || "").trim();
-    const targetConstituency = String(row.input?.targetConstituency || "").trim();
-    const externalIdNote = externalSourceId
-      ? ` The external source ID ${externalSourceId} will be retained in this import audit only; it will not be sent to NXT.`
-      : "";
-    const suppliedIdentifierNote = [
-      suppliedNxtSystemId
-        ? ` The supplied NXT system ID ${suppliedNxtSystemId} did not resolve. JUMGOGPT will re-check it, then check exact email and name for an existing NXT constituent. If none is found, the system ID will be retained in the import audit only because NXT assigns new system record IDs.`
-        : "",
-      suppliedLookupId
-        ? ` The supplied NXT lookup ID ${suppliedLookupId} did not resolve. JUMGOGPT will re-check it, then check exact email and name for an existing NXT constituent. If none is found, it will be assigned to the new NXT record.`
-        : "",
-    ].join("");
-    const constituencyNote = targetConstituency
-      ? ` The spreadsheet constituency ${targetConstituency} will remain staged for your normal review and send step after the record is created.`
-      : "";
-    const approved = window.confirm(
-      `Create a new individual NXT record for ${displayName}? This is a one-record action. JUMGOGPT will re-check supplied identifiers, exact email, and name before creating the constituent. Contact, constituency, education, and relationship changes will remain staged until you separately apply them.${externalIdNote}${suppliedIdentifierNote}${constituencyNote}`,
-    );
-    if (!approved) return;
 
     setCreatingRowId(String(row.id));
     setError("");
     setSaveMessage("");
     try {
       const response = await fetch(
-        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/create`,
-        { method: "POST" },
+        `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/create?mode=${mode}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to create the NXT record");
       }
 
-      await loadSavedRun(runId);
+      await loadSavedRun(runId, { focusRowId: row.id, preload: mode === "reviewed_new" });
       setSaveMessage(
         payload?.message ||
-          `Created the NXT record for ${displayName}. Review and apply its staged updates separately.`,
+          (payload?.review?.status === "clear" ? "Duplicate checks completed. Review and confirm before creating a constituent." : "Review saved. Follow the next action shown for this row. No NXT records were changed."),
       );
       fetchSavedRuns();
     } catch (createError) {
-      await loadSavedRun(runId);
+      await loadSavedRun(runId, { focusRowId: row.id, preload: false });
       setError(
         createError instanceof Error ? createError.message : "Failed to create the NXT record",
       );
+      throw createError;
     } finally {
       setCreatingRowId("");
     }
@@ -8431,7 +8414,7 @@ export default function ConstituencyImportPage() {
                 );
                 const needsFreshPreview = Boolean(hasDirtyReviewChoices);
                 const reviewRequirements = getRowReviewRequirements(row);
-                const reviewTargetKey = getRowReviewTargetKey(reviewRequirements);
+                const reviewTargetKey = !getSelectedImportMatchId(row) ? "match-review" : getRowReviewTargetKey(reviewRequirements);
                 const reviewTargetId = `constituency-import-row-${row.id}-${reviewTargetKey}`;
                 const combinedReviewMissingItems = getCombinedRowReviewMissingItems(row);
                 const rowHasCombinedReviewItems =
@@ -8654,13 +8637,27 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
+                    <div id={`constituency-import-row-${row.id}-match-review`} tabIndex={-1}>
                     <ImportMatchReview
                       row={row}
                       saved={Boolean(preview?.savedRun)}
+                      runId={preview?.savedRun?.id}
+                      autoLoad={reviewMode && isFocusedRow}
                       reviewer={isReviewer}
                       busy={matchReviewBusy}
-                      onReject={() => selectImportRowNxtMatch(row, { blackbaudConstituentId: getSelectedImportMatchId(row) }, "reject")}
+                      onReject={(candidate) => selectImportRowNxtMatch(row, candidate, "reject")}
+                      onSelect={(candidate) => selectImportRowNxtMatch(row, candidate)}
                     />
+                    {isReviewer && preview?.savedRun && <ImportNewRecordReview
+                      key={row.id}
+                      row={row}
+                      importIntent={preview.savedRun.defaults?.importIntent || row.importIntent || importIntent}
+                      busy={matchReviewBusy}
+                      onAction={(mode, body) => reviewNewRecord(row, mode, body)}
+                      onCorrectCsv={() => fileInputRef.current?.click()}
+                      onReviewBatch={() => setReviewMode(false)}
+                    />}
+                    </div>
 
                     {canSearchForManualMatch ? (
                       <details open={!getSelectedImportMatchId(row)}>
@@ -9258,7 +9255,7 @@ export default function ConstituencyImportPage() {
                         ) : canCreateReadyNewRow ? (
                           <button
                             type="button"
-                            onClick={() => createReviewedNxtRecord(row)}
+                            onClick={() => focusRowReviewTarget(row, "match-review")}
                             disabled={Boolean(creatingRowId)}
                             style={{
                               border: "1px solid #1D4ED8",
@@ -9275,7 +9272,7 @@ export default function ConstituencyImportPage() {
                           >
                             {creatingRowId === String(row.id)
                               ? "Creating NXT record..."
-                              : "Create new NXT record"}
+                              : "Review and confirm new constituent"}
                           </button>
                         ) : canVerifyRow ? (
                           <button
@@ -9646,11 +9643,11 @@ export default function ConstituencyImportPage() {
                           }}
                         >
                           <span style={{ color: "#1E3A8A", fontWeight: 800, lineHeight: 1.45 }}>
-                            Create only after reviewing this unmatched individual. The final duplicate check re-checks any supplied identifier, exact email, and name. An unresolved NXT Lookup ID is assigned to the new record after those checks clear; an unresolved NXT System ID is retained in the import audit because NXT assigns that system record ID.
+                            Open the new-constituent review above, run complete duplicate checks, then explicitly confirm creation. Original CSV identifiers remain in the audit; NXT assigns fresh identifiers.
                           </span>
                           <button
                             type="button"
-                            onClick={() => createReviewedNxtRecord(row)}
+                            onClick={() => focusRowReviewTarget(row, "match-review")}
                             disabled={Boolean(creatingRowId)}
                             style={{
                               border: "1px solid #1D4ED8",
@@ -9664,7 +9661,7 @@ export default function ConstituencyImportPage() {
                           >
                             {creatingRowId === String(row.id)
                               ? "Creating NXT record..."
-                              : "Create reviewed NXT record"}
+                              : "Review and confirm new constituent"}
                           </button>
                         </div>
                       ) : (

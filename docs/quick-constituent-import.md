@@ -12,11 +12,29 @@ Quick creation includes identity and the selected single email, phone, and addre
 
 ## Comparing Suggested Matches
 
-Each selected match has a CSV/NXT comparison section and an **Open NXT record** link. Manual search results also link directly to their NXT system record, in a separate tab, before a match is selected.
+The review section displays saved **Suggested NXT matches** directly, including names, lookup IDs, available email/address details, and **Open NXT record**, **Use this match**, and **Not a match** controls. A selected record also appears beside the CSV identity. NXT links open the actual system record in a separate tab; no manual lookup is required.
 
-For an unsent saved row, **Not a match** records the review decision, clears the target and target-specific snapshots/write choices, and holds the row for further review. It does not delete an NXT record or authorize creating a new one. Select another verified record or leave the row for review. Rejected records remain in the review history. Save unsaved previews before rejecting a suggestion.
+Quick-import duplicate checks now retain the matching candidates instead of only a warning. Older held rows missing this information load suggestions automatically when opened in focused review, using the saved CSV identity checks. Results are persisted on that row. The all-records view does not start searches across the batch; an individual **Load suggested matches** button is available there. Failed lookups show an error and retry action, not a confirmed nonmatch.
+
+For an unsent saved row, **Not a match** records the decision and removes that suggestion from the active list. Rejecting the selected target also clears its snapshots/write choices and holds the row for further review. Rejecting a different candidate preserves the selected target and its choices. Neither action deletes an NXT record nor authorizes creating a new one, even when every suggestion has been rejected. Select another verified record or use the separate checked creation workflow below. Rejected records remain in the review history across reloads. Save unsaved previews before rejecting a suggestion.
+
+Proven pre-creation duplicate holds can be reviewed even when an older run left a creation-approval flag set. Unknown failure/approval states remain locked. Match saves compare the current row, approval checkpoint, preview, and write audit before committing, so concurrent imports or review changes are not overwritten.
 
 Rows already created by the import, with uncertain creation attempts, or with attempted NXT writes cannot be rejected or retargeted here. Open NXT to verify those records. A row currently sending changes is protected from concurrent match changes; an interrupted send remains blocked rather than automatically replaying a write.
+
+## Resolving Unmatched Rows
+
+For a saved New or Mixed import, an unmatched row now has an **Is this a new constituent?** section. **Open required review** navigates to match resolution rather than an unrelated contact field.
+
+1. Select the correct suggestion, or mark unrelated suggestions **Not a match**. All suggestions must be resolved before new creation can be approved.
+2. Select **Check for duplicates**. This runs the complete ID, both-email, name, address/ZIP, and local-import checks. It creates nothing. Only individually audited rejected NXT IDs are exempted; checking continues through all remaining search channels.
+3. If checks clear, acknowledge that this is a separate person and select **Confirm as new constituent**. After any rejected suggestions, a review note of at least 10 characters is required. The approval, reviewer, and rejected IDs are saved before the NXT POST.
+4. The server rechecks duplicates under the shared creation lease. New candidates, failed/truncated lookups, changed source/review data, and checks older than 30 minutes block creation. Neither a browser-supplied ID exception nor a stale check token can authorize creation.
+5. This manual path lets NXT assign fresh system and lookup IDs; original CSV IDs are audit-only. Identity and configured table-based name formats are created. All remaining source-driven updates are rebuilt for review, without carrying over replacement IDs or approvals from a rejected target.
+
+Blocked checks explain the next action: retry NXT checks, **Choose corrected CSV** and prepare a new preview, review suggested matches, or **Review batch rows**. For duplicate unsent rows in the same upload, skip the extra row and retry the retained row. Skipping does not exempt a created record, started request, or durable prior creation attempt. Update-only imports explain that creation requires a New or Mixed import. Source conflicts must be corrected rather than overridden.
+
+These review fields use existing preview/audit JSON; no additional schema migration is required for the manual resolution workflow. The quick batch path does not inherit reviewer exceptions and continues to hold all possible matches.
 
 ## Duplicate Rules
 

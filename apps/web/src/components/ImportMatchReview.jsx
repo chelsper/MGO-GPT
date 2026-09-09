@@ -1,12 +1,14 @@
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
-import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected } from "@/utils/importMatchReview";
+import { canChangeImportMatch, getImportMatchCandidates, getSelectedImportMatchId, isImportMatchRejected } from "@/utils/importMatchReview";
+import ImportSuggestedMatches from "./ImportSuggestedMatches";
 
-export default function ImportMatchReview({ row, saved, reviewer, busy, onReject }) {
+export default function ImportMatchReview({ row, saved, reviewer, busy, onReject, onSelect, runId, autoLoad }) {
   const id = getSelectedImportMatchId(row);
   const created = Boolean(row.createdBlackbaudConstituentId);
   const rejected = isImportMatchRejected(row);
-  if (!id && !rejected) return null;
-  const name = row.match?.name || "Selected NXT constituent";
+  if (!id && !rejected && !getImportMatchCandidates(row).length && !(reviewer && canChangeImportMatch(row))) return null;
+  const selected = getImportMatchCandidates(row).find((candidate) => candidate.blackbaudConstituentId === id);
+  const name = selected?.name || row.match?.name || "Selected NXT constituent";
 
   return <section aria-label="Compare constituent match" className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
     <div className="grid gap-4 md:grid-cols-2">
@@ -18,16 +20,17 @@ export default function ImportMatchReview({ row, saved, reviewer, busy, onReject
       </div>
       <div className="min-w-0 break-words">
         <h4 className="text-xs font-bold uppercase text-slate-600">{created ? "Created by this import" : "Selected NXT record"}</h4>
-        <p className="font-semibold">{rejected ? "No match selected" : name}</p>
-        {!rejected && <>
+        <p className="font-semibold">{!id ? "No match selected" : name}</p>
+        {id && <>
           <p className="text-sm text-slate-700">{row.match?.lookupId ? `Lookup ID ${row.match.lookupId}` : `System Record ID ${id}`}</p>
           <p className="text-sm text-slate-700">{row.match?.email || "Email not loaded; open NXT to compare"}</p>
+          {selected?.address && <p className="whitespace-pre-line text-sm text-slate-700">{[selected.address, selected.postalCode].filter(Boolean).join(", ")}</p>}
         </>}
       </div>
     </div>
     {id && <div className="flex flex-wrap gap-2">
       <a href={buildBlackbaudConstituentProfileUrl(id)} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-blue-300 bg-white px-4 py-2 font-semibold text-blue-800" aria-label={`Open NXT record for ${name} in a new tab`}>Open NXT record</a>
-      {reviewer && canChangeImportMatch(row) && <button type="button" disabled={!saved || busy} onClick={onReject} className="rounded-lg border border-red-300 bg-white px-4 py-2 font-semibold text-red-800 disabled:opacity-50">Not a match</button>}
+      {reviewer && canChangeImportMatch(row) && <button type="button" disabled={!saved || busy} onClick={() => onReject({ ...row.match, blackbaudConstituentId: id })} className="rounded-lg border border-red-300 bg-white px-4 py-2 font-semibold text-red-800 disabled:opacity-50">Not a match</button>}
     </div>}
     <p role={rejected ? "status" : undefined} className="text-sm text-slate-700">
       {created ? "This record was created in NXT, not suggested as a possible match. Rejecting or recreating it here is blocked; open NXT to verify it."
@@ -35,6 +38,7 @@ export default function ImportMatchReview({ row, saved, reviewer, busy, onReject
           : !saved ? "Save this preview to record a Not a match decision. Opening NXT does not select or change a record."
             : "Open NXT in a new tab to compare full details. Not a match clears this selection only; it does not delete, update, or create an NXT record."}
     </p>
+    {!created && <ImportSuggestedMatches key={`${runId}:${row.id}:${JSON.stringify(row.input)}`} row={row} runId={saved ? runId : null} reviewer={reviewer} busy={busy} autoLoad={autoLoad} onSelect={onSelect} onReject={onReject} />}
     {row.rejectedMatches?.length > 0 && <details className="text-sm">
       <summary className="cursor-pointer font-semibold">Rejected matches ({row.rejectedMatches.length})</summary>
       <ul className="mt-2 space-y-2">{row.rejectedMatches.map((match, index) => <li key={`${match.constituentId}-${index}`}>

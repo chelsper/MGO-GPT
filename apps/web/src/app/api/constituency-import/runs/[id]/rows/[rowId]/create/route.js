@@ -11,6 +11,9 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import { newRecordContactPayload, ImportReviewRequired } from "@/utils/newConstituentImport";
+import { normalizeImportMatchCandidate, canReviewNewImportRecord, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
+import { prepareNewRecordReview, reviewedCreationBlocker, duplicateReviewFailure } from "@/app/api/utils/reviewedConstituentCreate";
+import { buildNewConstituentReviewWrites } from "@/app/api/constituency-import/preview/route";
 import {
   claimConstituentCreateLease, renewConstituentCreateLease, releaseConstituentCreateLease,
   checkClearNonmatch, configuredNameFormatPayload,
@@ -242,13 +245,17 @@ async function refreshRunSummary(runId) {
   `;
 }
 
-async function returnToReview({ rowId, message, result = null }) {
+async function returnToReview({ rowId, message, result = null, preflight = false }) {
   await sql`
     UPDATE constituency_import_rows
     SET
       status = 'Needs Review',
       blackbaud_error = ${message},
-      blackbaud_result = ${result ? JSON.stringify(result) : null}::jsonb,
+      blackbaud_result = CASE WHEN blackbaud_result->'reviewedNewApproval' IS NOT NULL
+        THEN jsonb_build_object('reviewedNewApproval', blackbaud_result->'reviewedNewApproval') || COALESCE(${result ? JSON.stringify(result) : null}::jsonb, '{}'::jsonb)
+        ELSE ${result ? JSON.stringify(result) : null}::jsonb END,
+      create_approved_at = CASE WHEN ${preflight} AND create_request_started_at IS NULL THEN NULL ELSE create_approved_at END,
+      create_approved_by_user_id = CASE WHEN ${preflight} AND create_request_started_at IS NULL THEN NULL ELSE create_approved_by_user_id END,
       updated_at = NOW()
     WHERE id = ${rowId}
   `;
@@ -258,7 +265,10 @@ export async function POST(request, { params }) {
   let lease = null;
   let claimedRowId = null;
   let createAttempted = false;
-  const quick = new URL(request.url).searchParams.get("mode") === "clear_nonmatches";
+  const mode = new URL(request.url).searchParams.get("mode");
+  const quick = mode === "clear_nonmatches";
+  const reviewed = mode === "reviewed_new";
+  const checkOnly = mode === "review_new_check";
   try {
     await ensureAppSchema();
 
@@ -280,7 +290,7 @@ export async function POST(request, { params }) {
     if (!runs[0]) {
       return Response.json({ error: "Import run not found" }, { status: 404 });
     }
-    if (quick && (!["new", "mixed"].includes(runs[0].defaults?.importIntent) || runs[0].status === "preparing")) {
+    if ((quick || reviewed || checkOnly) && (!["new", "mixed"].includes(runs[0].defaults?.importIntent) || runs[0].status === "preparing")) {
       return Response.json({ error: "Finish preparing a New or Mixed import before creating clear nonmatches." }, { status: 409 });
     }
 
@@ -296,6 +306,20 @@ export async function POST(request, { params }) {
     }
 
     const preview = getPreview(row);
+    if (checkOnly) {
+      if (!canReviewNewImportRecord(row)) return Response.json({ error: "This row is matched, skipped, or locked by an NXT operation. Reopen its review; do not create another record." }, { status: 409 });
+      return await prepareNewRecordReview({ row, runId, user: authResult.user, origin: new URL(request.url).origin });
+    }
+    const body = reviewed ? await request.json().catch(() => ({})) : {};
+    if (reviewed) {
+      const blocker = reviewedCreationBlocker(row, body);
+      if (blocker) return Response.json({ error: blocker, held: true }, { status: 409 });
+    }
+    const reviewedNewApproval = reviewed ? {
+      approvedAt: new Date().toISOString(), approvedByUserId: String(authResult.user.id),
+      note: String(body.reviewNote || "").trim(), rejectedConstituentIds: getReviewedNonmatchIds(row),
+      checkToken: preview.newRecordReview.token, checkedAt: preview.newRecordReview.checkedAt,
+    } : null;
     const input = preview.input && typeof preview.input === "object" ? preview.input : {};
     const externalSourceId = cleanText(input.externalConstituentId);
     const targetConstituency = cleanText(input.targetConstituency);
@@ -311,8 +335,8 @@ export async function POST(request, { params }) {
         ? `Lookup ID ${suppliedNxtIdentifier.lookupId}`
         : null,
     ].filter(Boolean).join(" and ");
-    const requestedNxtLookupId = suppliedNxtIdentifier.lookupId || null;
-    if (!canCreateNewRecord(preview)) {
+    const requestedNxtLookupId = reviewed ? null : suppliedNxtIdentifier.lookupId || null;
+    if (!reviewed && !canCreateNewRecord(preview)) {
       return Response.json(
         { error: "Only an unmatched new-record candidate can be created from this endpoint." },
         { status: 409 },
@@ -360,6 +384,7 @@ export async function POST(request, { params }) {
         status = 'Creating',
         create_approved_at = NOW(),
         create_approved_by_user_id = ${authResult.user.id},
+        blackbaud_result = CASE WHEN ${reviewed} THEN COALESCE(blackbaud_result, '{}'::jsonb) || ${JSON.stringify({ reviewedNewApproval })}::jsonb ELSE blackbaud_result END,
         blackbaud_error = NULL,
         updated_at = NOW()
       WHERE
@@ -368,6 +393,10 @@ export async function POST(request, { params }) {
         AND status IN ('Needs Review', 'Ready')
         AND created_blackbaud_constituent_id IS NULL
         AND create_request_started_at IS NULL
+        AND applied_at IS NULL
+        AND matched_blackbaud_constituent_id IS NULL
+        AND blackbaud_result IS NOT DISTINCT FROM ${row.blackbaud_result == null ? null : JSON.stringify(row.blackbaud_result)}::jsonb
+        AND create_approved_at IS NOT DISTINCT FROM ${row.create_approved_at || null}::timestamptz
         AND preview = ${JSON.stringify(preview)}::jsonb
       RETURNING *
     `;
@@ -383,27 +412,32 @@ export async function POST(request, { params }) {
     const credentials = { userId: authResult.user.id, authUserId: authResult.user.id, origin };
     let newRecordFields = {};
     try {
-      if (!quick) {
+      if (!quick && !reviewed) {
         const localMatch = await findLocalImportDuplicate({ input, rowId, runId, includePendingUpload: false });
         if (localMatch) {
-          await returnToReview({ rowId, message: localMatch });
+          await returnToReview({ rowId, message: localMatch, preflight: true });
           await refreshRunSummary(runId);
           return Response.json({ error: localMatch, held: true }, { status: 409 });
         }
       }
       newRecordFields = await configuredNameFormatPayload(input, credentials);
-      if (quick) {
-        const reason = await checkClearNonmatch({ input, rowId, runId, credentials });
+      if (quick || reviewed) {
+        let matchCandidates = [];
+        const reason = await checkClearNonmatch({ input, rowId, runId, credentials,
+          ...(reviewed ? { reviewedCandidateIds: getReviewedNonmatchIds(row) } : {}),
+          onCandidates: (candidates) => { matchCandidates = candidates; } });
         if (reason) {
-          await returnToReview({ rowId, message: reason });
+          await returnToReview({ rowId, message: reason, preflight: true,
+            result: { ...(row.blackbaud_result || {}), type: "import_duplicate_review", matchCandidates, duplicateCheckAt: new Date().toISOString() } });
+          if (reviewed) await sql`UPDATE constituency_import_rows SET preview = jsonb_set(preview, '{newRecordReview}', ${JSON.stringify({ status: "blocked", message: reason, nextAction: reason.startsWith("Another import row") ? "review_batch" : "review_matches" })}::jsonb) WHERE id = ${rowId} AND status = 'Needs Review'`;
           await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
           await refreshRunSummary(runId);
           return Response.json({ error: reason, held: true }, { status: 409 });
         }
-        if (Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
+        if (quick && Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
           throw new ImportReviewRequired("Saved contact review choices require individual review.");
         }
-        newRecordFields = { ...newRecordFields, ...newRecordContactPayload(input) };
+        if (quick) newRecordFields = { ...newRecordFields, ...newRecordContactPayload(input) };
       }
     } catch (error) {
       const status = Number(error.httpStatus || error.status);
@@ -413,7 +447,11 @@ export async function POST(request, { params }) {
         : error instanceof ImportReviewRequired
           ? `${error.message} No NXT record was created.`
           : "This row needs review because its duplicate checks, contact selections, or NXT name format could not be confirmed. No NXT record was created.";
-      await returnToReview({ rowId, message });
+      await returnToReview({ rowId, message, preflight: true });
+      if (reviewed) {
+        const failure = duplicateReviewFailure(error);
+        await sql`UPDATE constituency_import_rows SET preview = jsonb_set(preview, '{newRecordReview}', ${JSON.stringify({ status: "blocked", ...failure })}::jsonb) WHERE id = ${rowId} AND status = 'Needs Review'`;
+      }
       if (quick && !paused) await sql`UPDATE constituency_import_rows SET quick_create_status = 'review' WHERE id = ${rowId}`;
       await refreshRunSummary(runId);
       return Response.json({ error: message, held: !paused, paused, retryAfterMs: error.retryAfterMs || null }, { status: paused ? 429 : 409 });
@@ -421,7 +459,7 @@ export async function POST(request, { params }) {
     let duplicate = null;
     let duplicateCheckMethod = null;
     try {
-      const identifierMatch = quick ? null : await findResolvedNxtIdentifier({
+      const identifierMatch = quick || reviewed ? null : await findResolvedNxtIdentifier({
         input,
         userId: authResult.user.id,
         authUserId: authResult.user.id,
@@ -432,7 +470,7 @@ export async function POST(request, { params }) {
         duplicateCheckMethod = identifierMatch.method;
       }
 
-      if (!quick && !duplicate && cleanText(input.email)) {
+      if (!quick && !reviewed && !duplicate && cleanText(input.email)) {
         const emailMatch = await findBlackbaudConstituentByEmail({
           userId: authResult.user.id,
           authUserId: authResult.user.id,
@@ -445,7 +483,7 @@ export async function POST(request, { params }) {
         }
       }
 
-      if (!quick && !duplicate) {
+      if (!quick && !reviewed && !duplicate) {
         const candidates = await searchBlackbaudConstituents({
           userId: authResult.user.id,
           authUserId: authResult.user.id,
@@ -460,7 +498,9 @@ export async function POST(request, { params }) {
       await returnToReview({
         rowId,
         message,
+        preflight: true,
         result: {
+          ...(row.blackbaud_result || {}),
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           duplicateCheckFailedAt: new Date().toISOString(),
@@ -476,7 +516,11 @@ export async function POST(request, { params }) {
       await returnToReview({
         rowId,
         message,
+        preflight: true,
         result: {
+          ...(row.blackbaud_result || {}),
+          type: "import_duplicate_review",
+          matchCandidates: [normalizeImportMatchCandidate(duplicate)].filter(Boolean),
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           duplicateCheckAt: new Date().toISOString(),
@@ -534,12 +578,16 @@ export async function POST(request, { params }) {
       await returnToReview({
         rowId,
         message,
+        preflight: confirmedRejection || !createAttempted,
         result: {
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           createFailedAt: new Date().toISOString(),
         },
       });
+      if (reviewed && (confirmedRejection || !createAttempted)) {
+        await sql`UPDATE constituency_import_rows SET preview = jsonb_set(preview, '{newRecordReview}', ${JSON.stringify({ status: "blocked", message, nextAction: confirmedRejection && [400, 422].includes(Number(error.httpStatus)) ? "correct_csv" : "retry" })}::jsonb) WHERE id = ${rowId} AND status = 'Needs Review' AND create_request_started_at IS NULL`;
+      }
       if (quick) await sql`UPDATE constituency_import_rows SET quick_create_status = ${createAttempted && !confirmedRejection ? "uncertain" : "review"} WHERE id = ${rowId}`;
       await refreshRunSummary(runId);
       return Response.json({ error: message, held: true, paused: [401, 403, 429].includes(Number(error.httpStatus || error.status)) || error.retryAfterMs > 0 }, { status: 502 });
@@ -569,7 +617,9 @@ export async function POST(request, { params }) {
 
     await recordCreatedConstituent(rowId, createdConstituentId);
 
-    const writePlan = (Array.isArray(row.requested_writes) ? row.requested_writes : []).map((write) => {
+    const createdMatch = { blackbaudConstituentId: createdConstituentId, raw: { id: createdConstituentId, type: "Individual" } };
+    const sourceWrites = reviewed ? buildNewConstituentReviewWrites(input, createdMatch) : (Array.isArray(row.requested_writes) ? row.requested_writes : []);
+    const writePlan = sourceWrites.map((write) => {
       if (!["education_relationship", "organization_relationship"].includes(write?.type)) {
         return write;
       }
@@ -581,9 +631,12 @@ export async function POST(request, { params }) {
         ...(shouldClearMatchRequirement ? {} : { requiresReview, validationMessage }),
       };
     });
+    const nextStatus = reviewed && writePlan.some((write) => write.requiresReview) ? "Needs Review" : "Ready";
     const nextPreview = {
-      ...preview,
-      status: "Ready",
+      ...(reviewed ? rejectedImportMatchPreview(preview, null) : preview),
+      ...(reviewed ? { matchReview: { decision: "created", ...reviewedNewApproval }, newRecordReview: { status: "created" },
+        deferredHydration: { detail: Boolean(input.nameUpdate || input.individualProfileUpdate), contacts: Boolean(input.emailUpdates?.length || input.phoneUpdates?.length || input.addressUpdates?.length), nameFormats: Boolean(input.nameFormatUpdate), educations: Boolean(input.educationRelationship), codes: Boolean(input.sourceConstituency || input.targetConstituency) } } : {}),
+      status: nextStatus,
       matchStatus: "matched",
       matchMethod: "Created NXT record",
       confidence: 100,
@@ -602,7 +655,7 @@ export async function POST(request, { params }) {
       },
       writePlan,
       reasons: [
-        ...(Array.isArray(preview.reasons) ? preview.reasons : []),
+        ...(reviewed ? [] : Array.isArray(preview.reasons) ? preview.reasons : []),
         "A new individual NXT constituent was created after a final duplicate check. Staged updates have not been applied yet.",
         ...(externalSourceId
           ? [`External source ID ${externalSourceId} was retained in this import audit and was not sent to NXT.`]
@@ -610,7 +663,8 @@ export async function POST(request, { params }) {
         ...(requestedNxtLookupId
           ? [`The supplied NXT Lookup ID ${requestedNxtLookupId} did not resolve to an existing constituent and was assigned to the new NXT record after final duplicate checks.`]
           : []),
-        ...(suppliedNxtIdentifier.blackbaudConstituentId
+        ...(reviewed && suppliedNxtIdentifierSummary ? ["Original CSV NXT identifiers were retained only in the audit. NXT assigned fresh identifiers to this separately confirmed person."] : []),
+        ...(!reviewed && suppliedNxtIdentifier.blackbaudConstituentId
           ? [`The supplied NXT System ID ${suppliedNxtIdentifier.blackbaudConstituentId} did not resolve and was retained only in this import audit; NXT assigned the new system record ID.`]
           : []),
       ],
@@ -619,7 +673,7 @@ export async function POST(request, { params }) {
     await sql`
       UPDATE constituency_import_rows
       SET
-        status = 'Ready',
+        status = ${nextStatus},
         match_status = 'matched',
         match_method = 'Created NXT record',
         confidence = 100,
@@ -632,6 +686,7 @@ export async function POST(request, { params }) {
         created_blackbaud_lookup_id = ${resolvedCreatedLookupId || null},
         quick_create_status = ${quick ? "created" : null},
         blackbaud_result = ${JSON.stringify({
+          ...(reviewedNewApproval ? { reviewedNewApproval } : {}),
           createApprovedByUserId: authResult.user.id,
           createApprovedByEmail: authResult.user.email,
           createdAt: new Date().toISOString(),
@@ -651,7 +706,7 @@ export async function POST(request, { params }) {
     await refreshRunSummary(runId);
 
     return Response.json({
-      message: `Created NXT individual record for ${firstName} ${lastName}.${targetConstituency ? ` The spreadsheet constituency ${targetConstituency} remains staged for review and send.` : ""}${requestedNxtLookupId ? ` The new NXT record was assigned Lookup ID ${resolvedCreatedLookupId}.` : ""}${suppliedNxtIdentifier.blackbaudConstituentId ? ` The unresolved NXT System ID ${suppliedNxtIdentifier.blackbaudConstituentId} was retained in the import audit only; NXT assigned the new system record ID.` : ""} Review and apply its staged updates separately.`,
+      message: reviewed ? `Created NXT individual record for ${firstName} ${lastName} with fresh NXT identifiers. Review and apply the remaining staged updates separately.` : `Created NXT individual record for ${firstName} ${lastName}.${targetConstituency ? ` The spreadsheet constituency ${targetConstituency} remains staged for review and send.` : ""}${requestedNxtLookupId ? ` The new NXT record was assigned Lookup ID ${resolvedCreatedLookupId}.` : ""}${suppliedNxtIdentifier.blackbaudConstituentId ? ` The unresolved NXT System ID ${suppliedNxtIdentifier.blackbaudConstituentId} was retained in the import audit only; NXT assigned the new system record ID.` : ""} Review and apply its staged updates separately.`,
       createdConstituentId,
       createdLookupId: resolvedCreatedLookupId || null,
       externalSourceId: externalSourceId || null,
