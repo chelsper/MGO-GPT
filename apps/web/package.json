@@ -38,6 +38,7 @@
 		"color2k": "^2.0.3",
 		"date-fns": "^4.1.0",
 		"downshift": "^9.0.9",
+		"exceljs": "4.4.0",
 		"hono": "^4.9.7",
 		"html-to-image": "^1.11.13",
 		"isbot": "^5.1.27",

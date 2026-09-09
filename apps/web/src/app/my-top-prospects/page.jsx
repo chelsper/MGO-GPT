@@ -1,5 +1,7 @@
 "use client";
 
+import ProspectExportButton from "@/components/ProspectExport";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11024,6 +11026,9 @@ export default function MyTopProspectsPage() {
             >
               Showing {filteredActiveProspects.length} of {activeProspects.length} active prospects
             </div>
+            <ProspectExportButton viewerId={profileStatus?.user?.id} workspaceId={activeWorkspaceUserId}
+              workspaceName={profileStatus?.workspaceUser?.name || "this workspace"}
+              prospectIds={filteredActiveProspects.map((p) => p.id)} />
           </div>
           <div
             style={{

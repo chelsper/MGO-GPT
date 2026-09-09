@@ -76,6 +76,12 @@ const MGO_ACTIONS = [
 
 const REVIEWER_ACTIONS = [
   {
+    title: "Top Prospect Exports",
+    href: "/prospect-exports",
+    description: "Choose MGOs and export a master prospect list with separate opportunity detail.",
+    section: "myWork",
+  },
+  {
     title: "Work Queue",
     href: "/submissions",
     description: "Review data updates, list requests, import batches, and NXT exceptions.",
