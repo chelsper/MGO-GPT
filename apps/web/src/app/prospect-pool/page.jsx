@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import ProspectPoolNxtLink from "@/components/ProspectPoolNxtLink";
 import { ArrowLeft, ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
@@ -303,7 +304,16 @@ function isSolicitorAssignmentSynced(entry) {
   );
 }
 
-function getNxtSyncPresentation(syncState) {
+function getNxtSyncPresentation(syncState, entry) {
+  if (entry && !getEntryBlackbaudConstituentId(entry)) {
+    return {
+      label: "Saved in the app; link an NXT record before syncing MGOGPT",
+      shortLabel: "NXT record not linked",
+      bg: "#FEF3C7",
+      fg: "#92400E",
+      detail: "The pool assignment is saved. Select the correct NXT record, then retry MGOGPT sync. This is not a problem with the assigned MGO's connection.",
+    };
+  }
   const normalized = String(syncState || "manual_required").toLowerCase();
   const map = {
     success: {
@@ -426,6 +436,8 @@ export default function ProspectPoolPage() {
   });
   const [blackbaudMatches, setBlackbaudMatches] = useState([]);
   const [selectedBlackbaudMatch, setSelectedBlackbaudMatch] = useState(null);
+  const [allowUnlinked, setAllowUnlinked] = useState(false);
+  const [matchSearchStatus, setMatchSearchStatus] = useState("");
   const [drafts, setDrafts] = useState({});
   const [blackbaudSummaries, setBlackbaudSummaries] = useState({});
   const blackbaudSummariesRef = useRef({});
@@ -748,36 +760,35 @@ export default function ProspectPoolPage() {
     const query = createForm.prospectName.trim();
     if (!isReviewer || query.length < 2) {
       setBlackbaudMatches([]);
-      setSelectedBlackbaudMatch(null);
+      setMatchSearchStatus("");
       return;
     }
 
     let active = true;
+    setBlackbaudMatches([]);
+    setMatchSearchStatus("Searching NXT...");
     const timeoutId = setTimeout(async () => {
       try {
         const response = await fetch(
           `/api/blackbaud/constituents/search?q=${encodeURIComponent(query)}`,
         );
         if (!response.ok) {
-          if (active) setBlackbaudMatches([]);
+          if (active) setMatchSearchStatus("NXT search could not finish. Try the name or lookup ID again; this does not mean the record is missing.");
           return;
         }
 
         const data = await response.json();
         if (!active) return;
 
-        const results = Array.isArray(data?.results) ? data.results.slice(0, 3) : [];
+        const results = Array.isArray(data?.results) ? data.results.filter((match) => match.blackbaudConstituentId) : [];
         setBlackbaudMatches(results);
-        setSelectedBlackbaudMatch((current) =>
-          results.find(
-            (match) =>
-              match.blackbaudConstituentId === current?.blackbaudConstituentId,
-          ) || null,
-        );
+        // Search results are suggestions, not authority to clear an explicit selection.
+        setMatchSearchStatus(data?.warning || (results.length ? "Select the correct NXT record below." : "No NXT matches returned. Try another name or lookup ID before creating an app-only entry."));
       } catch (searchError) {
         console.error("Blackbaud prospect pool search error:", searchError);
         if (active) {
           setBlackbaudMatches([]);
+          setMatchSearchStatus("NXT search could not finish. Try again; this does not mean the record is missing.");
         }
       }
     }, 180);
@@ -1005,7 +1016,7 @@ export default function ProspectPoolPage() {
         delete next[id];
         return next;
       });
-      const syncPresentation = getNxtSyncPresentation(updated.nxt_status_sync_state);
+      const syncPresentation = getNxtSyncPresentation(updated.nxt_status_sync_state, updated);
       const message = wasReassigned
         ? `Reassigned ${updated.prospect_name}. ${syncPresentation.label}.`
         : `Updated ${updated.prospect_name}.`;
@@ -1061,6 +1072,10 @@ export default function ProspectPoolPage() {
 
   async function createEntry(event) {
     event.preventDefault();
+    if (!selectedBlackbaudMatch?.blackbaudConstituentId && !allowUnlinked) {
+      setError("Select an NXT match, or explicitly choose an app-only entry before assigning this prospect.");
+      return;
+    }
     setCreating(true);
     setError("");
     setActionMessage("");
@@ -1073,6 +1088,7 @@ export default function ProspectPoolPage() {
           ...createForm,
           blackbaudConstituentId:
             selectedBlackbaudMatch?.blackbaudConstituentId || null,
+          allowUnlinked: !selectedBlackbaudMatch && allowUnlinked,
         }),
       });
       if (!response.ok) {
@@ -1101,7 +1117,8 @@ export default function ProspectPoolPage() {
       }));
       setBlackbaudMatches([]);
       setSelectedBlackbaudMatch(null);
-      const syncPresentation = getNxtSyncPresentation(created.nxt_status_sync_state);
+      setAllowUnlinked(false);
+      const syncPresentation = getNxtSyncPresentation(created.nxt_status_sync_state, created);
       const message = `${created.prospect_name} assigned to ${assignedName}. ${syncPresentation.label}.`;
       setActionMessage(message);
       setToast({ tone: "success", message });
@@ -1217,7 +1234,7 @@ export default function ProspectPoolPage() {
       }
 
       const updated = await response.json();
-      const syncPresentation = getNxtSyncPresentation(updated.nxt_status_sync_state);
+      const syncPresentation = getNxtSyncPresentation(updated.nxt_status_sync_state, updated);
       setEntries((current) =>
         current.map((entry) => (entry.id === entryId ? { ...entry, ...updated } : entry)),
       );
@@ -1644,6 +1661,7 @@ export default function ProspectPoolPage() {
                       prospectName: event.target.value,
                     }));
                     setSelectedBlackbaudMatch(null);
+                    setAllowUnlinked(false);
                   }}
                   placeholder="Sam Hill"
                   style={{
@@ -1683,6 +1701,11 @@ export default function ProspectPoolPage() {
                 </select>
               </label>
 
+              {matchSearchStatus && !selectedBlackbaudMatch ? (
+                <p role="status" style={{ gridColumn: "1 / -1", margin: 0, color: "#4B5563" }}>
+                  {matchSearchStatus}
+                </p>
+              ) : null}
               {(blackbaudMatches.length > 0 || selectedBlackbaudMatch) ? (
                 <div
                   style={{
@@ -1787,6 +1810,7 @@ export default function ProspectPoolPage() {
                                 type="button"
                                 onClick={() => {
                                   setSelectedBlackbaudMatch(match);
+                                  setAllowUnlinked(false);
                                   setCreateForm((current) => ({
                                     ...current,
                                     prospectName: match.name || current.prospectName,
@@ -1815,6 +1839,18 @@ export default function ProspectPoolPage() {
                     </div>
                   ) : null}
                 </div>
+              ) : null}
+
+              {!selectedBlackbaudMatch ? (
+                <label style={{ gridColumn: "1 / -1", padding: "12px", borderRadius: "12px", backgroundColor: "#FFFBEB", color: "#92400E", fontSize: "14px" }}>
+                  <input
+                    type="checkbox"
+                    name="allowUnlinked"
+                    checked={allowUnlinked}
+                    onChange={(event) => setAllowUnlinked(event.target.checked)}
+                  />{" "}
+                  Create an app-only pool entry without an NXT link. Contact details and MGOGPT sync will be unavailable until I link the record.
+                </label>
               ) : null}
 
               <div
@@ -1893,12 +1929,12 @@ export default function ProspectPoolPage() {
                     </button>
                     <button
                       type="submit"
-                      disabled={creating}
+                      disabled={creating || (!selectedBlackbaudMatch && !allowUnlinked)}
                       style={{
                         padding: "12px 18px",
                         borderRadius: "12px",
                         border: "none",
-                        backgroundColor: creating ? "#A5B4FC" : "#6A5BFF",
+                        backgroundColor: creating || (!selectedBlackbaudMatch && !allowUnlinked) ? "#A5B4FC" : "#6A5BFF",
                         color: "white",
                         fontSize: "14px",
                         fontWeight: 700,
@@ -2096,7 +2132,7 @@ export default function ProspectPoolPage() {
             }
             const stateLabel = getPoolContactState(entry, blackbaudSummaries[getEntryBlackbaudConstituentId(entry)]);
             const stateColors = getStateColors(stateLabel);
-            const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state);
+            const syncPresentation = getNxtSyncPresentation(entry.nxt_status_sync_state, entry);
             const draft = drafts[entry.id];
             const needsContactInfo = draft?.needsContactInfo ?? false;
             const contactInfoRequestNote = draft?.contactInfoRequestNote ?? "";
@@ -2288,6 +2324,15 @@ export default function ProspectPoolPage() {
                       ) : null}
                     </div>
 
+                    {isReviewer && !blackbaudConstituentId ? (
+                      <ProspectPoolNxtLink
+                        entry={entry}
+                        onLinked={(updated) => {
+                          setEntries((current) => current.map((item) => item.id === entry.id ? { ...item, ...updated } : item));
+                          setActionMessage("NXT record linked. Review the loaded record, then select Retry MGOGPT sync to update the custom field.");
+                        }}
+                      />
+                    ) : null}
                     {blackbaudConstituentId ? (
                       <div
                         style={{

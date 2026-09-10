@@ -367,7 +367,7 @@ export async function POST(request) {
     const note = body?.note?.trim() || null;
     const email = body?.email?.trim().toLowerCase() || null;
     const phone = body?.phone?.trim() || null;
-    const blackbaudConstituentId = body?.blackbaudConstituentId?.trim() || null;
+    const blackbaudConstituentId = String(body?.blackbaudConstituentId || "").trim() || null;
 
     if (!prospectName) {
       return Response.json(
@@ -379,6 +379,16 @@ export async function POST(request) {
     if (!Number.isInteger(assignedUserId) || assignedUserId <= 0) {
       return Response.json(
         { error: "Assigned MGO is required" },
+        { status: 400 },
+      );
+    }
+
+    if (blackbaudConstituentId && !/^[1-9]\d*$/.test(blackbaudConstituentId)) {
+      return Response.json({ error: "Select a valid NXT constituent match." }, { status: 400 });
+    }
+    if (!blackbaudConstituentId && body?.allowUnlinked !== true) {
+      return Response.json(
+        { error: "Select an NXT match, or explicitly choose an app-only entry before assigning this prospect." },
         { status: 400 },
       );
     }
@@ -405,6 +415,8 @@ export async function POST(request) {
       userId: assignedUserId,
       name: prospectName,
       blackbaudConstituentId,
+      // Do not silently link an app-only entry or overwrite another identity by name.
+      createNew: true,
     });
 
     const linkedBlackbaudConstituentId =

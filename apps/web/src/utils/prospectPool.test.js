@@ -75,14 +75,14 @@ describe("prospect pool presentation and action boundaries", () => {
 
   it("does not equate no help requests with available contact details", () => {
     expect(getPoolContactState({ needs_contact_info: false })).toBe(
-      "No email or phone available",
+      "Contact details need an NXT link",
     );
     expect(getPoolContactState({ blackbaud_constituent_id: "55" })).toBe(
       "Contact details not loaded",
     );
     expect(
       getPoolContactState(
-        {},
+        { blackbaud_constituent_id: "55" },
         {
           status: "ready",
           payload: {

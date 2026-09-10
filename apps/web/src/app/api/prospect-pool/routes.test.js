@@ -119,6 +119,39 @@ describe("prospect pool routes", () => {
     });
   });
 
+  it.each([undefined, false, "true"])("requires explicit app-only consent when no NXT match is selected (%s)", async (allowUnlinked) => {
+    const { POST } = await import("./route.js");
+    const response = await POST(new Request("https://example.com/api/prospect-pool", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prospectName: "Pat Prospect", assignedUserId: 44, allowUnlinked }),
+    }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/select an NXT match/i);
+    expect(sqlMockImpl).not.toHaveBeenCalled();
+    expect(resolveConstituentMock).not.toHaveBeenCalled();
+    expect(createBlackbaudConstituentCustomFieldMock).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicitly app-only assignment without silently matching by name or calling NXT", async () => {
+    const { POST } = await import("./route.js");
+    resolveConstituentMock.mockResolvedValue({ id: 88, blackbaud_constituent_id: null });
+    queueSqlResult([{ id: 44, name: "Test MGO" }]);
+    queueSqlResult([]);
+    queueSqlResult([{ id: 901, blackbaud_constituent_id: null, nxt_status_sync_state: "manual_required" }]);
+    queueSqlResult([{ id: 7001 }]);
+    queueSqlResult([{ id: 901, blackbaud_constituent_id: null, nxt_status_sync_state: "manual_required" }]);
+    const response = await POST(new Request("https://example.com/api/prospect-pool", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prospectName: "Pat Prospect", assignedUserId: 44, allowUnlinked: true }),
+    }));
+    expect(response.status).toBe(201);
+    expect(resolveConstituentMock).toHaveBeenCalledWith(expect.objectContaining({ createNew: true, blackbaudConstituentId: null }));
+    expect(listBlackbaudConstituentCustomFieldsMock).not.toHaveBeenCalled();
+    expect(createBlackbaudConstituentCustomFieldMock).not.toHaveBeenCalled();
+  });
+
   it("creates an app assignment and writes the MGOGPT constituent custom field when missing", async () => {
     const { POST } = await import("./route.js");
 

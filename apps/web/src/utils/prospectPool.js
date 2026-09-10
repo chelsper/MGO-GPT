@@ -30,6 +30,9 @@ export function getPoolContactState(entry, summaryState) {
       !["unavailable", "unknown", "n/a"].includes(value.trim().toLowerCase()),
   );
   if (hasContact) return "Contact details available";
+  if (!entry.linked_blackbaud_constituent_id && !entry.blackbaud_constituent_id) {
+    return "Contact details need an NXT link";
+  }
   if (summaryState?.status === "error") return "Contact details unavailable";
   if (
     !constituent &&
