@@ -15,6 +15,7 @@ export const MGO_NAV_ITEMS = [
 export const REVIEWER_NAV_ITEMS = [
   { label: "Prospect Pool", href: "/prospect-pool", section: "My Work" },
   { label: "Top Prospect Exports", href: "/prospect-exports", section: "My Work" },
+  { label: "Pledge Payments", href: "/pledge-payments", section: "My Work" },
   { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
@@ -61,6 +62,7 @@ const ROUTE_LABELS = {
   "/organization-configurations": "Organization Settings",
   "/prospect-pool": "Prospect Pool",
   "/prospect-exports": "Top Prospect Exports",
+  "/pledge-payments": "Pledge Payments",
   "/report-configurations": "Report Access & Configurations",
   "/reports": "My Reports",
   "/request-list": "Request List from DevData",

@@ -282,6 +282,35 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS pledge_payment_jobs (
+        scope_key TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        job JSONB,
+        lease_token TEXT,
+        lease_until TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS pledge_payment_items (
+        scope_key TEXT NOT NULL REFERENCES pledge_payment_jobs(scope_key) ON DELETE CASCADE,
+        pledge_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        stage TEXT NOT NULL DEFAULT 'gift',
+        draft JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload JSONB,
+        error JSONB,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (scope_key, pledge_id)
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_pledge_payment_items_work
+      ON pledge_payment_items (scope_key, run_id, status, pledge_id)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS user_invitations (
         id BIGSERIAL PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,

@@ -76,6 +76,12 @@ const MGO_ACTIONS = [
 
 const REVIEWER_ACTIONS = [
   {
+    title: "Pledge Payments",
+    href: "/pledge-payments",
+    description: "Review past-due and upcoming pledge installments, payments received, and remaining amounts.",
+    section: "myWork",
+  },
+  {
     title: "Top Prospect Exports",
     href: "/prospect-exports",
     description: "Choose MGOs and export a master prospect list with separate opportunity detail.",
