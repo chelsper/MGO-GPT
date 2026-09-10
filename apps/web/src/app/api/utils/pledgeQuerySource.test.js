@@ -50,7 +50,11 @@ describe("query 12033 gift manifest", () => {
     expect(() => parsePledgeQueryManifest({ ...file(""), body: new Uint8Array(PLEDGE_QUERY_MAX_BYTES + 1) }, 0)).toThrow();
     expect(() => parsePledgeQueryManifest({ ...file("", "text/csv; charset=utf-8"), body: new Uint8Array([0xff]) }, 0)).toThrow();
   });
-  it.each(["http://results.blob.core.windows.net/result", "https://other.example/file", "https://user:secret@api.sky.blackbaud.com/file", "https://results.blob.core.windows.net.evil.example/file", undefined])("rejects unsafe result locations", (uri) => {
+  it("accepts the verified Blackbaud signed-file host without changing its signature", () => {
+    const uri = "https://nsa-pusa01.app.blackbaud.net/results.csv?sv=2025&sig=abc%2Bdef%2Fghi%3D";
+    expect(pledgeQueryResultUrl(uri)).toBe(uri);
+  });
+  it.each(["http://results.blob.core.windows.net/result", "https://other.example/file", "https://user:secret@api.sky.blackbaud.com/file", "https://results.blob.core.windows.net.evil.example/file", "https://nsa-pusa01.app.blackbaud.net.evil.example/file", "https://other.app.blackbaud.net/file", "https://nsa-pusa01.app.blackbaud.net:8443/file", "https://nsa-pusa01.app.blackbaud.net/file#fragment", "https://user:secret@nsa-pusa01.app.blackbaud.net/file", "https://nested.account.blob.core.windows.net/file", "https://127.0.0.1/file", undefined])("rejects unsafe result locations", (uri) => {
     expect(() => pledgeQueryResultUrl(uri)).toThrow();
   });
 });
@@ -70,7 +74,7 @@ describe("checkpointed query execution", () => {
       searchParams: { product: "RE", module: "None", include_read_url: "OnceCompleted" },
       body: { id: 12033, ux_mode: "Asynchronous", output_format: "Csv", formatting_mode: "UI", sql_generation_mode: "Query" } });
     expect(Object.keys(options.body)).toHaveLength(5);
-    expect(mocks.download).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ maxBytes: PLEDGE_QUERY_MAX_BYTES }));
+    expect(mocks.download).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ maxBytes: PLEDGE_QUERY_MAX_BYTES, redirect: "error" }));
   });
   it("validates Gift query type before submission without retaining or changing criteria", async () => {
     const query = { metadata: vi.fn(async () => ({ id: 12033, type: "Gift", can_execute: true, filter_fields: ["unchanged private metadata"] })) };

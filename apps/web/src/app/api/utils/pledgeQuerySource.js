@@ -5,6 +5,9 @@ import { OPEN_PLEDGE_QUERY_ID, pledgeDataError } from "@/utils/pledgePayments";
 export const PLEDGE_QUERY_MAX_BYTES = 10 * 1024 * 1024;
 export const isPledgeQueryJob = (job) => job?.source === "saved_query" && job.queryId === OPEN_PLEDGE_QUERY_ID;
 const queryBase = "https://api.sky.blackbaud.com/query";
+// Verified from query 12033's authenticated job response. Do not allow arbitrary
+// blackbaud.net subdomains or forward SKY credentials to the signed-file host.
+const queryResultHosts = new Set(["api.sky.blackbaud.com", "nsa-pusa01.app.blackbaud.net"]);
 
 export function pledgeQueryTransport(context) {
   const options = { userId: context.userId, authUserId: context.authUserId, origin: context.origin, timeoutMs: 12000, maxRetries: 1 };
@@ -18,7 +21,7 @@ export function pledgeQueryTransport(context) {
     poll: (id) => blackbaudApiFetch(`${queryBase}/jobs/${encodeURIComponent(id)}`, { ...options,
       searchParams: { ...params, include_read_url: "OnceCompleted" } }),
     download: (uri) => downloadBlackbaudQueryResultWithMetadata(pledgeQueryResultUrl(uri), {
-      ...options, maxBytes: PLEDGE_QUERY_MAX_BYTES,
+      ...options, maxBytes: PLEDGE_QUERY_MAX_BYTES, redirect: "error",
     }),
   };
 }
@@ -26,8 +29,8 @@ export function pledgeQueryTransport(context) {
 export function pledgeQueryResultUrl(uri) {
   let url;
   try { url = new URL(uri); } catch { throw pledgeDataError("invalid_query_result_url"); }
-  if (url.protocol !== "https:" || url.username || url.password || url.hash ||
-    !(url.hostname === "api.sky.blackbaud.com" || url.hostname.endsWith(".blob.core.windows.net"))) {
+  if (url.protocol !== "https:" || url.port || url.username || url.password || url.hash ||
+    !(queryResultHosts.has(url.hostname) || /^[a-z0-9]{3,24}\.blob\.core\.windows\.net$/.test(url.hostname))) {
     throw pledgeDataError("invalid_query_result_url");
   }
   return url.href;

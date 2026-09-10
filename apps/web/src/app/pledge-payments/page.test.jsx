@@ -76,4 +76,19 @@ describe("pledge payments worklist", () => {
     expect(screen.getByText(/existing amount, date, status, and missed-payment criteria/)).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("identifies a paused query download instead of showing zero discovered pledges or a connection reset instruction", async () => {
+    const data = { ...payload(), records: [], job: { id: "saved-job", status: "paused", discoveryComplete: false,
+      queryStage: "download", total: 0, success: 0, failed: 0,
+      error: { code: "invalid_query_result_url", stage: "query_download", httpStatus: null } } };
+    fetch.mockImplementation(async () => Response.json(data));
+    render(<PledgePaymentsPage />);
+    expect(await screen.findByText("Finding pledges with query 12033: Validating result file")).toBeInTheDocument();
+    expect(screen.getByText(/This is not a Gift API permission error/)).toBeInTheDocument();
+    expect(screen.queryByText("0 / 0 pledges checked")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Check your Blackbaud connection/)).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "resume", jobId: "saved-job" });
+  });
 });

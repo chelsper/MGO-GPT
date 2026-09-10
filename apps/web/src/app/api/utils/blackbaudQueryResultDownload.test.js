@@ -50,6 +50,20 @@ describe("optional bounded metadata downloads", () => {
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined();
   });
 
+  it("downloads from Blackbaud's signed-file host without SKY credentials or redirects", async () => {
+    streamedResponse([bytes("QRECID\n123")]);
+    await downloadBlackbaudQueryResultWithMetadata("https://nsa-pusa01.app.blackbaud.net/result.csv?sig=not-real", { maxBytes: 100, redirect: "error" });
+    const options = fetchMock.mock.calls[0][1];
+    expect(options.redirect).toBe("error");
+    expect(options.headers.Authorization).toBeUndefined();
+    expect(options.headers["Bb-Api-Subscription-Key"]).toBeUndefined();
+  });
+
+  it("rejects unsupported redirect policies before fetching", async () => {
+    await expect(downloadBlackbaudQueryResultWithMetadata(resultUrl, { redirect: "manual" })).rejects.toThrow("redirect policy");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([{}, { "Content-Length": "1" }, { "Content-Length": "invalid" }])
     ("bounds streaming even with missing or misleading Content-Length: %s", async (headers) => {
       const { reader, response } = streamedResponse([bytes("12"), bytes("345"), bytes("unread private bytes")], headers);

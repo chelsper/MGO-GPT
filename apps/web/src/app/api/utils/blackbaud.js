@@ -1043,6 +1043,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     origin,
     timeoutMs = BLACKBAUD_REQUEST_TIMEOUT_MS,
     maxBytes,
+    redirect = "follow",
   } = {},
 ) {
   if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
@@ -1051,6 +1052,9 @@ export async function downloadBlackbaudQueryResultWithMetadata(
   const url = new URL(String(resultUrl || ""));
   if (url.protocol !== "https:") {
     throw new Error("The Blackbaud query result URL must use HTTPS");
+  }
+  if (!["follow", "error"].includes(redirect)) {
+    throw new Error("Unsupported query result redirect policy");
   }
 
   const isBlackbaudApiUrl =
@@ -1086,6 +1090,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
     const response = await fetch(url, {
       headers,
       signal: controller.signal,
+      redirect,
     });
     // Diagnostics retain their original unbounded behavior unless opted in.
     const body = maxBytes === undefined

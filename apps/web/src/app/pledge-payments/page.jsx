@@ -7,6 +7,9 @@ import { formatCalendarDate } from "@/utils/prospectActivity";
 
 const button = "min-h-11 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50";
 const queryErrors = {
+  invalid_query_result_url: "Blackbaud completed the query, but the app could not validate its result-file address. This is not a Gift API permission error. Resume after the result-host support is corrected; the existing query job is retained.",
+  query_invalid_encoding: "The query file's text encoding could not be verified. No partial results were accepted. Resume to retry the download.",
+  query_job_mismatch: "Blackbaud returned a different query job than requested. No result file was accepted. Resume to check the saved job again.",
   query_missing_gift_system_id: "The query must output individual gift records with QRECID. A Total Records count cannot identify pledges. Correct the output, then cancel and refresh.",
   query_submission_uncertain: "Blackbaud may have accepted the query, but its job ID could not be saved. Automatic resubmission was stopped. Cancel this refresh before starting a new one.",
   query_still_running: "Blackbaud is still executing the saved query. Resume checks the same query job; it does not submit a new one.",
@@ -87,7 +90,7 @@ export default function PledgePaymentsPage() {
       {!job && <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-blue-900">No worklist has been loaded yet. Select Load pledge payments to read schedules from your connected NXT account. This does not change NXT records.</div>}
       {job && <section aria-label="Refresh progress" className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div role="status"><p className="font-semibold">{job.status === "discovering" && !legacySource ? `Finding pledges with query ${OPEN_PLEDGE_QUERY_ID}: ${job.queryStage === "download" ? "Validating result file" : job.queryStage === "poll" ? "Waiting for Blackbaud" : "Preparing query"}` : `${job.success + job.failed} / ${job.total} pledges checked`}</p>
+          <div role="status"><p className="font-semibold">{!job.discoveryComplete && ["discovering", "paused"].includes(job.status) && !legacySource ? `Finding pledges with query ${OPEN_PLEDGE_QUERY_ID}: ${job.queryStage === "download" ? "Validating result file" : job.queryStage === "poll" ? "Waiting for Blackbaud" : "Preparing query"}` : `${job.success + job.failed} / ${job.total} pledges checked`}</p>
             <p className="mt-1 text-sm text-gray-600">{job.success} verified (including settled pledges) / {job.failed} need review. {busy ? "Processing a small batch..." : job.status === "completed" ? "Refresh complete." : job.status === "cancelled" ? "Refresh cancelled; saved results retained." : job.status === "paused" ? "Refresh paused." : automatic ? "Continuing..." : "Progress saved."}</p></div>
           <div className="flex flex-wrap gap-2">
             {resumable && !automatic && <button disabled={busy} className={button} onClick={() => execute("resume", true)}>Resume</button>}

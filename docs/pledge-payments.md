@@ -54,8 +54,19 @@ The actual result MIME was `text/csv; charset=windows-1252`.
 CSV downloads are bounded at 10 MB, 50,000 rows, and 64 columns. Bad encoding,
 HTML/JSON/XLSX, missing IDs, ambiguous headers, malformed rows, and count mismatches
 pause discovery without replacing the previous cache. SAS URLs and raw CSV are
-never persisted. Only the existing SKY API host or Azure Blob result host is
-accepted; Blob downloads do not receive the Blackbaud bearer token.
+never persisted. Only the existing SKY API host, single-account Azure Blob
+hosts, and the verified Blackbaud result host `nsa-pusa01.app.blackbaud.net` are
+accepted. The latter was confirmed from the authenticated job response for
+query 12033 on September 10, 2026. Signed-file downloads do not receive the
+Blackbaud bearer token or subscription key. Nonstandard ports, URL credentials,
+fragments, lookalike domains, and redirects are rejected in this workflow.
+
+The initial production job paused at `query_download` with
+`invalid_query_result_url`: the original allowlist omitted Blackbaud's own
+signed-file host, despite successful query execution. This was not a Gift API
+permission failure. After the host correction, **Resume** checks the same saved
+query job, obtains a fresh signed URL, and validates its manifest without
+resubmitting the query. Paused discovery is labeled by stage, not `0 / 0 pledges`.
 
 Query polls are spaced three seconds apart and stop for manual Resume after 30
 pending responses. Resume polls the same query job. Submission has no automatic

@@ -148,6 +148,29 @@ describe("resumable pledge payment pipeline", () => {
     expect(job.error.code).toBe("query_row_count_mismatch");
     expect(store.discover).not.toHaveBeenCalled();
   });
+  it("resumes the reported result-host failure from the same query job and then starts pledge retrieval", async () => {
+    const store = memoryStore();
+    const query = queryFixture(394);
+    query.poll.mockResolvedValue({ id: "existing-query-job", status: "Completed", row_count: 394,
+      sas_uri: "https://nsa-pusa01.app.blackbaud.net/result.csv?sig=private-signature" });
+    query.download.mockResolvedValue({ httpStatus: 200, contentType: "text/csv; charset=windows-1252",
+      body: new TextEncoder().encode(`Installment Number,QRECID\n${Array.from({ length: 394 }, (_, i) => `${i + 1},${i % 69 + 1}`).join("\n")}`) });
+    let job = { ...newPledgeJob(), id: "saved-run", status: "paused", queryStage: "download", queryJobId: "existing-query-job",
+      error: { stage: "query_download", code: "invalid_query_result_url", httpStatus: null } };
+    const reader = vi.fn(read);
+    job = await runPledgeBatch({ job, store, query, read: reader });
+    expect(query.poll).toHaveBeenCalledExactlyOnceWith("existing-query-job");
+    expect(query.create).not.toHaveBeenCalled();
+    expect(query.metadata).not.toHaveBeenCalled();
+    expect(job).toMatchObject({ id: "saved-run", status: "running", queryRowCount: 394, expectedCount: 69, discoveryComplete: true, error: null });
+    expect(store.items.size).toBe(69);
+    expect(JSON.stringify(store.job)).not.toContain("private-signature");
+    expect(reader).not.toHaveBeenCalled();
+    job = await runPledgeBatch({ job, store, query, read: reader });
+    expect(store.items.get("1").status).toBe("success");
+    expect(reader.mock.calls.every(([url]) => !url.includes("?gift_type="))).toBe(true);
+    expect(query.create).not.toHaveBeenCalled();
+  });
   it.each([429, 403])("retains the same query job on throttling (%s) and excludes SAS/raw data from saved diagnostics", async (httpStatus) => {
     const store = memoryStore();
     const query = queryFixture(1);
