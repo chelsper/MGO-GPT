@@ -8,7 +8,10 @@ and app origin; one user's NXT connection is not used to populate another's cach
 
 ## Worklist definitions
 
-- Standard NXT `Pledge` gifts, all years; not recurring gifts or matching pledges.
+- Standard NXT `Pledge` gifts returned by saved Gift query **12033**, "all pledges
+  unpaid"; not recurring gifts or matching pledges. Its existing amount, date,
+  status, and missed-payment criteria are intentional and remain unchanged.
+  This is a query-scoped worklist, not a claim to include every unpaid pledge.
 - One row per pledge, not per donor. Multiple pledges remain separate.
 - Past Due includes outstanding installments with due dates **through today**.
   The overdue count is strictly before today; currently due includes today.
@@ -33,15 +36,33 @@ and app origin; one user's NXT connection is not used to populate another's cach
 
 ## Refresh and safety
 
-GET only reads local cache. Load/Refresh starts a persistent job. One request
-discovers one gift-list page (200); following requests perform at most six
+GET only reads local cache. Load/Refresh starts a persistent job. Discovery uses
+separate checkpointed stages: validate Gift query metadata, submit one asynchronous
+CSV execution, poll that job, then download its `sas_uri` and verify the manifest.
+There is no all-pledges listing or fallback on a query error. Following requests perform at most six
 individual retrieval/normalization steps, sequentially, with a 45-second soft
 budget. Even individual payment-gift reads are checkpointed. The existing central
 SKY transport handles bounded retries and subscription quota cooldowns.
 
-Known zero balances in the gift list skip historical settled-pledge detail reads.
-Missing balances always get a detailed read. List pagination is followed only
-within the filtered SKY Gift endpoint, never to an arbitrary bearer-token URL.
+Only `QRECID` selects gift system IDs. Do not substitute Gift ID (lookup ID),
+Constituent ID, integration IDs, or installment IDs. Query row count must equal
+the parsed CSV row count before deduplicating repeated installment rows by gift.
+The September 10, 2026 diagnostic returned 394 CSV rows and 69 distinct `QRECID`
+values; three sampled IDs were confirmed by Gift Get as positive-balance pledges.
+The actual result MIME was `text/csv; charset=windows-1252`.
+
+CSV downloads are bounded at 10 MB, 50,000 rows, and 64 columns. Bad encoding,
+HTML/JSON/XLSX, missing IDs, ambiguous headers, malformed rows, and count mismatches
+pause discovery without replacing the previous cache. SAS URLs and raw CSV are
+never persisted. Only the existing SKY API host or Azure Blob result host is
+accepted; Blob downloads do not receive the Blackbaud bearer token.
+
+Query polls are spaced three seconds apart and stop for manual Resume after 30
+pending responses. Resume polls the same query job. Submission has no automatic
+POST retries: an uncertain outcome is held for explicit cancel/restart rather
+than quietly executing another job. Throttling preserves stage and Retry-After.
+Each selected gift is still verified as a Pledge; if it was settled after query
+execution its cached row is cleared without fetching the rest of its schedule.
 
 Each pledge retains its last-good normalized snapshot alongside a staging draft.
 Successful pledges publish incrementally. Failed new pledges are excluded and
@@ -56,10 +77,18 @@ items. Retry failed pledges restarts only failed pledges from fresh gift data.
 Cancel preserves cache; a later explicit Refresh creates a new manifest.
 There is **no new scheduled/nightly workload** in this feature.
 
+Existing jobs from the old all-pledges source cannot resume or retry. They display
+an explicit **Use query 12033** action, which starts query discovery under the same
+cache scope. Old values are marked stale and retained until the new manifest is
+verified; they are not presented as a complete query-scoped worklist. New query
+jobs retain normal resume, cancellation, and failed-only retry behavior.
+
 Single-writer database leases and checkpoint conditions prevent concurrent tabs
 from overwriting each other's progress. Interrupted leases expire after three
 minutes. No tokens, bank/payment-method data, raw donor payloads, or raw upstream
-error bodies are persisted in diagnostics. NXT calls are GET-only.
+error bodies are persisted in diagnostics. The only Blackbaud POST executes the
+saved query; all constituent/gift retrievals are GET-only. No NXT definitions or
+donor records are changed.
 
 ## API references and deployment validation
 

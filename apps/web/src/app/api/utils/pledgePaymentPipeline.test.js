@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { advancePledge, newPledgeJob, PLEDGE_LIST_URL, runPledgeBatch, validatePledgePage } from "./pledgePaymentPipeline";
+import { advancePledge, newPledgeJob, runPledgeBatch } from "./pledgePaymentPipeline";
 
 function memoryStore() {
   const items = new Map();
@@ -22,6 +22,12 @@ async function read(url) {
   return giftRead(url.split("/").at(-1));
 }
 const initial = (id = "1") => ({ pledgeId: id, runId: "run", status: "pending", stage: "gift", draft: {}, payload: null });
+const queryFixture = (count = 301) => ({
+  metadata: vi.fn(async () => ({ id: 12033, type: "Gift", can_execute: true })),
+  create: vi.fn(async () => ({ id: "query-job", status: "Running" })),
+  poll: vi.fn(async () => ({ id: "query-job", status: "Completed", row_count: count, sas_uri: "https://results.blob.core.windows.net/result.csv?sig=secret" })),
+  download: vi.fn(async () => ({ httpStatus: 200, contentType: "text/csv; charset=windows-1252", body: new TextEncoder().encode(`QRECID\r\n${Array.from({ length: count }, (_, i) => String(i + 1)).join("\r\n")}`) })),
+});
 
 describe("resumable pledge payment pipeline", () => {
   it("checkpoints a payment-heavy pledge after each API call and persists only normalized fields", async () => {
@@ -33,20 +39,23 @@ describe("resumable pledge payment pipeline", () => {
     expect(JSON.stringify(item)).not.toContain("privateField");
     expect(item.draft).toEqual({});
   });
-  it("uses one paginated discovery page per execution, then resumes a 301-pledge job after failure on 24", async () => {
+  it("checkpoints query discovery separately, then resumes a 301-pledge job after failure on 24", async () => {
     const store = memoryStore();
     let job = newPledgeJob();
-    const next = `${PLEDGE_LIST_URL}&offset=200`;
+    const query = queryFixture();
+    let clock = Date.now();
+    const now = () => clock;
     const reader = vi.fn(async (url) => {
-      if (url === PLEDGE_LIST_URL) return { value: Array.from({ length: 200 }, (_, i) => ({ id: String(i + 1) })), next_link: next };
-      if (url === next) return { value: Array.from({ length: 101 }, (_, i) => ({ id: String(i + 201) })) };
       if (url.endsWith("/24/installments")) throw Object.assign(new Error("donor secrets"), { httpStatus: 500 });
       return read(url);
     });
-    job = await runPledgeBatch({ job, store, read: reader });
-    expect(store.items.size).toBe(200);
-    expect(reader).toHaveBeenCalledTimes(1);
-    job = await runPledgeBatch({ job, store, read: reader });
+    for (let i = 0; i < 4; i++) {
+      job = await runPledgeBatch({ job, store, read: reader, query, now });
+      if (i < 3) expect(store.items.size).toBe(0);
+      clock += 3001;
+    }
+    expect(query.create).toHaveBeenCalledOnce();
+    expect(reader).not.toHaveBeenCalled();
     expect(store.items.size).toBe(301);
     for (let i = 0; i < 22; i++) job = await runPledgeBatch({ job, store, read: reader });
     expect(store.items.get("24").status).toBe("failed");
@@ -101,19 +110,19 @@ describe("resumable pledge payment pipeline", () => {
     expect(reader).toHaveBeenCalledTimes(2);
     expect(store.items.get("1").stage).toBe("payments");
   });
-  it("rejects pagination outside the filtered SKY endpoint or repeated pages", () => {
-    for (const next_link of ["https://evil.example/gift/v1/gifts?gift_type=Pledge", "https://api.sky.blackbaud.com/other?gift_type=Pledge", PLEDGE_LIST_URL, "/gift/v1/gifts?limit=200"]) {
-      expect(() => validatePledgePage({ value: [{ id: "1" }], next_link }, PLEDGE_LIST_URL, [])).toThrow();
-    }
+  it("never resumes the legacy all-pledges scan", async () => {
+    const store = memoryStore();
+    const reader = vi.fn();
+    const job = await runPledgeBatch({ job: { id: "old", status: "discovering", nextUrl: "https://api.sky.blackbaud.com/gift/v1/gifts?gift_type=Pledge" }, store, read: reader });
+    expect(job.error.code).toBe("legacy_source_requires_refresh");
+    expect(reader).not.toHaveBeenCalled();
+    expect(store.discover).not.toHaveBeenCalled();
   });
-  it("only skips explicitly settled pledges; an absent balance is not zero", () => {
-    const page = validatePledgePage({ value: [
-      { id: "1", type: "Pledge", amount: { value: 100 }, balance: { value: 0 } },
-      { id: "2", type: "Pledge", amount: { value: 100 } },
-      { id: "3", type: "Pledge", amount: { value: 100 }, balance: { value: 20 } },
-    ] }, PLEDGE_LIST_URL, []);
-    expect(page.settledIds).toEqual(["1"]);
-    expect(page.ids).toEqual(["1", "2", "3"]);
+  it("still skips pledges settled since query execution but never treats a missing balance as zero", async () => {
+    const settled = await advancePledge(initial(), async () => ({ ...giftRead("1"), balance: { value: 0 } }));
+    expect(settled.status).toBe("success");
+    expect(settled.payload).toBeNull();
+    await expect(advancePledge(initial(), async () => ({ ...giftRead("1"), balance: undefined }))).rejects.toThrow();
   });
   it("resumes a pledge with many payment gifts without re-fetching completed payment details", async () => {
     const applications = Array.from({ length: 30 }, (_, i) => ({ installmentId: "1", giftId: String(i + 100), amountCents: 1 }));
@@ -131,9 +140,77 @@ describe("resumable pledge payment pipeline", () => {
   });
   it("does not declare a truncated manifest complete when the reported count is larger", async () => {
     const store = memoryStore();
-    const job = await runPledgeBatch({ job: newPledgeJob(), store, read: async () => ({ count: 301, value: [{ id: "1" }] }) });
+    const query = queryFixture(1);
+    query.poll.mockResolvedValue({ id: "query-job", status: "Completed", row_count: 301, sas_uri: "https://results.blob.core.windows.net/result.csv" });
+    const job = await runPledgeBatch({ job: { ...newPledgeJob(), queryJobId: "query-job", queryStage: "download" }, store, query });
     expect(job.status).toBe("paused");
     expect(job.discoveryComplete).toBe(false);
-    expect(job.error.code).toBe("incomplete_gift_list");
+    expect(job.error.code).toBe("query_row_count_mismatch");
+    expect(store.discover).not.toHaveBeenCalled();
+  });
+  it.each([429, 403])("retains the same query job on throttling (%s) and excludes SAS/raw data from saved diagnostics", async (httpStatus) => {
+    const store = memoryStore();
+    const query = queryFixture(1);
+    query.download.mockRejectedValueOnce(Object.assign(new Error("donor secret sig=secret"), { httpStatus, retryAfterMs: 5000 }));
+    let clock = Date.now();
+    let job = await runPledgeBatch({ job: { ...newPledgeJob(), queryJobId: "query-job", queryStage: "download" }, store, query, now: () => clock });
+    expect(job.status).toBe("paused");
+    expect(store.discover).not.toHaveBeenCalled();
+    await runPledgeBatch({ job, store, query, now: () => clock });
+    expect(query.download).toHaveBeenCalledOnce();
+    clock += 5001;
+    job = await runPledgeBatch({ job, store, query, now: () => clock });
+    expect(job.discoveryComplete).toBe(true);
+    expect(query.create).not.toHaveBeenCalled();
+    expect(JSON.stringify(store.job)).not.toContain("secret");
+  });
+  it("does not automatically submit another query if submission outcome is uncertain", async () => {
+    const store = memoryStore();
+    const query = queryFixture();
+    query.create.mockRejectedValueOnce(new Error("network timeout"));
+    let job = await runPledgeBatch({ job: { ...newPledgeJob(), queryStage: "create" }, store, query });
+    expect(store.job.queryStage).toBe("creating");
+    job = await runPledgeBatch({ job, store, query });
+    expect(job.error.code).toBe("query_submission_uncertain");
+    expect(query.create).toHaveBeenCalledOnce();
+  });
+  it("waits for the polling deadline without a request or resetting query progress", async () => {
+    const store = memoryStore();
+    const query = queryFixture();
+    const job = { ...newPledgeJob(), queryStage: "poll", queryJobId: "query-job", nextPollAt: new Date(5000).toISOString() };
+    await runPledgeBatch({ job, store, query, now: () => 1000 });
+    expect(query.poll).not.toHaveBeenCalled();
+    expect(store.saveJob).not.toHaveBeenCalled();
+  });
+  it("allows a throttled query submission to retry only after its cooldown", async () => {
+    const store = memoryStore();
+    const query = queryFixture();
+    query.create.mockRejectedValueOnce(Object.assign(new Error("throttled"), { httpStatus: 429, retryAfterMs: 5000 }));
+    let job = await runPledgeBatch({ job: { ...newPledgeJob(), queryStage: "create" }, store, query, now: () => 1000 });
+    expect(job.queryStage).toBe("create");
+    expect(job.status).toBe("paused");
+    await runPledgeBatch({ job, store, query, now: () => 2000 });
+    expect(query.create).toHaveBeenCalledOnce();
+    job = await runPledgeBatch({ job, store, query, now: () => 6001 });
+    expect(job.queryJobId).toBe("query-job");
+    expect(query.create).toHaveBeenCalledTimes(2);
+  });
+  it("keeps an idempotent manifest and cached values when interrupted during its final save", async () => {
+    const store = memoryStore();
+    const query = queryFixture(1);
+    const original = { ...newPledgeJob(), id: "new", queryJobId: "query-job", queryStage: "download" };
+    store.items.set("1", { ...initial(), payload: { name: "Previous cached donor" } });
+    store.saveJob.mockImplementation(async (job) => {
+      if (job.discoveryComplete) throw new Error("database unavailable");
+      store.job = structuredClone(job);
+    });
+    await expect(runPledgeBatch({ job: original, store, query })).rejects.toThrow("database unavailable");
+    expect(store.items.get("1").payload.name).toBe("Previous cached donor");
+    expect(store.job.discoveryComplete).toBe(false);
+    store.saveJob.mockImplementation(async (job) => { store.job = structuredClone(job); });
+    await runPledgeBatch({ job: store.job, store, query });
+    expect(store.job.discoveryComplete).toBe(true);
+    expect(store.items.size).toBe(1);
+    expect(query.create).not.toHaveBeenCalled();
   });
 });

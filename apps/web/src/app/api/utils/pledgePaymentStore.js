@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import sql from "./sql";
+import { isPledgeQueryJob } from "./pledgeQuerySource";
+import { OPEN_PLEDGE_QUERY_ID } from "@/utils/pledgePayments";
 
 export const pledgeScope = (userId, origin) => createHash("sha256").update(`pledges:v1:${userId}:${origin}`).digest("hex");
 function assertSaved(rows) {
@@ -19,10 +21,12 @@ export async function readPledgeCache(scope) {
   const current = items.filter((item) => item.run_id === job?.id);
   const counts = { total: current.length, success: current.filter((i) => i.status === "success").length,
     failed: current.filter((i) => i.status === "failed").length };
-  return { job: job ? { id: job.id, status: job.status, discoveryComplete: job.discoveryComplete,
+  return { source: { queryId: OPEN_PLEDGE_QUERY_ID }, requiresQueryRefresh: Boolean(job && !isPledgeQueryJob(job)),
+    job: job ? { id: job.id, status: job.status, discoveryComplete: job.discoveryComplete,
+    queryStage: job.queryStage, queryRowCount: job.queryRowCount, nextPollAt: job.nextPollAt,
     startedAt: job.startedAt, completedAt: job.completedAt, resumeAfter: job.resumeAfter, error: job.error, ...counts } : null,
     records: items.filter((item) => item.payload).map((item) => ({ ...item.payload,
-      stale: item.run_id !== job.id || item.status !== "success" })),
+      stale: !isPledgeQueryJob(job) || item.run_id !== job.id || item.status !== "success" })),
     issues: current.filter((item) => item.status === "failed").map((item) => ({ pledgeId: item.pledge_id,
       stage: item.stage, ...item.error, hasCachedData: Boolean(item.payload) })) };
 }
@@ -42,7 +46,7 @@ export async function acquirePledgeStore(scope, userId) {
         lease_until = NOW() + INTERVAL '180 seconds'
         WHERE scope_key = ${scope} AND lease_token = ${token} AND lease_until > NOW() RETURNING scope_key`);
     },
-    async discover(runId, ids, settledIds = []) {
+    async discover(runId, ids) {
       if (!ids.length) return;
       const rows = await sql`
         INSERT INTO pledge_payment_items (scope_key, pledge_id, run_id)
@@ -58,14 +62,6 @@ export async function acquirePledgeStore(scope, userId) {
         RETURNING pledge_id
       `;
       assertSaved(rows);
-      // Gift-list balances can eliminate historical settled pledges without
-      // fetching every old schedule. Missing balances never take this shortcut.
-      if (settledIds.length) {
-        await sql`UPDATE pledge_payment_items SET status = 'success', payload = NULL, draft = '{}'::jsonb, error = NULL
-          WHERE scope_key = ${scope} AND run_id = ${runId} AND pledge_id = ANY(${settledIds}::text[]) AND status = 'pending'
-            AND EXISTS (SELECT 1 FROM pledge_payment_jobs WHERE scope_key = ${scope} AND lease_token = ${token} AND lease_until > NOW())
-          RETURNING pledge_id`;
-      }
     },
     async nextItem(runId) {
       const [item] = await sql`SELECT * FROM pledge_payment_items

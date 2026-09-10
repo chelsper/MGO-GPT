@@ -1105,6 +1105,7 @@ export async function downloadBlackbaudQueryResultWithMetadata(
         `Blackbaud query result download failed: ${response.status} ${response.statusText}`,
       );
       error.httpStatus = response.status;
+      error.retryAfterMs = response.headers.get("retry-after") ? parseRetryAfterMs(response, responseText) : 0;
       throw error;
     }
 

@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ auth: vi.fn(), schema: vi.fn(), workspace: vi.
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: mocks.workspace }));
-vi.mock("@/app/api/utils/blackbaud", () => ({ blackbaudApiFetch: mocks.sky }));
+vi.mock("@/app/api/utils/blackbaud", () => ({ blackbaudApiFetch: mocks.sky, downloadBlackbaudQueryResultWithMetadata: vi.fn() }));
 vi.mock("@/app/api/utils/pledgePaymentStore", () => ({ pledgeScope: (userId, origin) => `${userId}:${origin}`, readPledgeCache: mocks.readCache, acquirePledgeStore: mocks.acquire }));
 vi.mock("@/app/api/utils/pledgePaymentPipeline", async (original) => ({ ...await original(), runPledgeBatch: mocks.batch }));
 import { GET, POST } from "./route";
@@ -58,13 +58,13 @@ describe("restricted pledge payment route", () => {
     expect((await POST(post({ action: "delete" }))).status).toBe(400);
     mocks.acquire.mockResolvedValueOnce(null);
     expect((await POST(post())).status).toBe(409);
-    store.job = { id: "current", status: "running" };
+    store.job = { id: "current", status: "running", source: "saved_query", queryId: "12033" };
     expect((await POST(post())).status).toBe(409);
     expect((await POST(post({ action: "resume", jobId: "old" }))).status).toBe(409);
     expect(mocks.batch).not.toHaveBeenCalled();
   });
   it("cancels without SKY calls and retries only failed items without replacing saved results", async () => {
-    store.job = { id: "current", status: "running", discoveryComplete: true };
+    store.job = { id: "current", status: "running", discoveryComplete: true, source: "saved_query", queryId: "12033" };
     expect((await POST(post({ action: "cancel", jobId: "current" }))).status).toBe(200);
     expect(store.saveJob).toHaveBeenCalledWith(expect.objectContaining({ status: "cancelled" }));
     expect(mocks.batch).not.toHaveBeenCalled();
@@ -77,5 +77,15 @@ describe("restricted pledge payment route", () => {
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("private database");
     expect(store.release).toHaveBeenCalledOnce();
+  });
+  it("requires an explicit switch from legacy discovery, retaining cache rather than resuming the broad scan", async () => {
+    store.job = { id: "old", status: "running", discoveryComplete: true };
+    expect((await POST(post({ action: "resume", jobId: "old" }))).status).toBe(409);
+    expect((await POST(post({ action: "retry_failed", jobId: "old" }))).status).toBe(409);
+    expect(mocks.batch).not.toHaveBeenCalled();
+    expect(store.retryFailed).not.toHaveBeenCalled();
+    expect((await POST(post({ action: "start", jobId: "old" }))).status).toBe(200);
+    expect(store.saveJob).toHaveBeenCalledWith(expect.objectContaining({ source: "saved_query", queryId: "12033", discoveryComplete: false }));
+    expect(mocks.sky).not.toHaveBeenCalled();
   });
 });

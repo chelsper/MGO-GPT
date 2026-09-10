@@ -103,6 +103,16 @@ describe("optional bounded metadata downloads", () => {
     await expect(downloadBlackbaudQueryResultWithMetadata(resultUrl)).rejects.toMatchObject({ httpStatus: 404, message: "Blackbaud query result download failed: 404 Not Found" });
   });
 
+  it.each([429, 403])("retains Retry-After on HTTP %s so a resumable download can pause safely", async (status) => {
+    fetchMock.mockResolvedValue(new Response("untrusted throttling body", { status, headers: { "Retry-After": "60" } }));
+    await expect(downloadBlackbaudQueryResultWithMetadata(resultUrl)).rejects.toMatchObject({ httpStatus: status, retryAfterMs: 60000 });
+  });
+
+  it("does not invent a quota cooldown for a forbidden SAS download without Retry-After", async () => {
+    fetchMock.mockResolvedValue(new Response("expired or forbidden", { status: 403 }));
+    await expect(downloadBlackbaudQueryResultWithMetadata(resultUrl)).rejects.toMatchObject({ httpStatus: 403, retryAfterMs: 0 });
+  });
+
   it("cancels and releases the stream after a read failure", async () => {
     const { reader } = streamedResponse([]);
     reader.read.mockRejectedValue(new Error("connection failed"));

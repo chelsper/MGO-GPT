@@ -2,10 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import PledgePaymentList, { pledgeMoney } from "@/components/PledgePaymentList";
-import { pledgeWorklist } from "@/utils/pledgePayments";
+import { OPEN_PLEDGE_QUERY_ID, pledgeWorklist } from "@/utils/pledgePayments";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 
 const button = "min-h-11 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50";
+const queryErrors = {
+  query_missing_gift_system_id: "The query must output individual gift records with QRECID. A Total Records count cannot identify pledges. Correct the output, then cancel and refresh.",
+  query_submission_uncertain: "Blackbaud may have accepted the query, but its job ID could not be saved. Automatic resubmission was stopped. Cancel this refresh before starting a new one.",
+  query_still_running: "Blackbaud is still executing the saved query. Resume checks the same query job; it does not submit a new one.",
+  query_execution_failed: "Blackbaud could not complete this query job. Check query 12033 in NXT, then cancel and refresh.",
+  query_row_count_mismatch: "The downloaded query rows do not match Blackbaud's reported count. No partial manifest was accepted. Resume to retry the result download.",
+  query_not_executable_gift_query: "Query 12033 must be an executable Gift query without prompts. Check the query and your Query API access.",
+  query_not_csv: "The query result was not a valid CSV response. No cached values were replaced. Resume to retry.",
+  query_malformed_csv: "The query CSV is malformed or exceeds the supported row/column limits. No partial manifest was accepted.",
+  query_result_too_large: "The query result exceeds the 10 MB download limit. Reduce unnecessary output columns; no query criteria were changed.",
+};
 export default function PledgePaymentsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -46,42 +57,47 @@ export default function PledgePaymentsPage() {
   }
   useEffect(() => {
     if (!automatic || busy || !["discovering", "running"].includes(data?.job?.status)) return;
-    const timer = setTimeout(() => execute("resume"), 800);
+    const delay = Math.max(800, Math.min(15000, Date.parse(data?.job?.nextPollAt || "") - Date.now() || 0));
+    const timer = setTimeout(() => execute("resume"), delay);
     return () => clearTimeout(timer);
   }, [automatic, busy, data]);
 
   const job = data?.job;
-  const resumable = ["discovering", "running", "paused"].includes(job?.status);
+  const legacySource = data?.requiresQueryRefresh;
+  const resumable = !legacySource && ["discovering", "running", "paused"].includes(job?.status);
   const lists = pledgeWorklist(data?.records || [], data?.today);
   const selected = lists[tab];
   const filtered = selected.filter((row) => `${row.name} ${row.lookupId}`.toLowerCase().includes(search.toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 50) - 1));
   const visible = filtered.slice(currentPage * 50, (currentPage + 1) * 50);
   const changeTab = (value) => { setTab(value); setPage(0); };
-  const incomplete = job && job.status !== "completed";
+  const incomplete = job && (legacySource || job.status !== "completed");
   return <main className="mx-auto w-full max-w-[1800px] space-y-6 px-4 py-6 text-gray-900 sm:px-8">
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div><p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Advancement Services</p>
         <h1 className="mt-2 text-3xl font-bold">Pledge Payments</h1>
-        <p className="mt-2 max-w-3xl text-gray-600">Track unpaid installments across all pledge years. One row per pledge, with the full payment schedule one click away.</p></div>
-      {data && !resumable && <button className={`${button} !bg-indigo-600 !text-white`} disabled={busy} onClick={() => execute("start", true)}>{busy ? "Starting..." : job ? "Refresh from NXT" : "Load pledge payments"}</button>}
+        <p className="mt-2 max-w-3xl text-gray-600">Track unpaid installments for pledges returned by saved NXT query {OPEN_PLEDGE_QUERY_ID}. One row per pledge, with the full payment schedule one click away.</p>
+        <p className="mt-1 max-w-3xl text-sm text-gray-500">The query's existing amount, date, status, and missed-payment criteria determine which pledges are included. Repeated installment rows are counted as one pledge.</p></div>
+      {data && !resumable && <button className={`${button} !bg-indigo-600 !text-white`} disabled={busy} onClick={() => execute("start", true)}>{busy ? "Starting..." : legacySource ? `Use query ${OPEN_PLEDGE_QUERY_ID}` : job ? "Refresh from NXT" : "Load pledge payments"}</button>}
     </header>
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800"><p>{error}</p><button onClick={load} disabled={busy} className="mt-2 underline">Reload saved progress</button></div>}
     {!data && !error && <p role="status">Loading saved worklist...</p>}
     {data && <>
+      {legacySource && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">These cached results came from the previous all-pledges source. Select Use query {OPEN_PLEDGE_QUERY_ID} to replace that scan with your saved query. Previous values remain visible until the query manifest is verified; nothing is changed in NXT.</div>}
       {!job && <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-blue-900">No worklist has been loaded yet. Select Load pledge payments to read schedules from your connected NXT account. This does not change NXT records.</div>}
       {job && <section aria-label="Refresh progress" className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div role="status"><p className="font-semibold">{job.status === "discovering" ? `Finding pledges: ${job.total} found so far` : `${job.success + job.failed} / ${job.total} pledges checked`}</p>
+          <div role="status"><p className="font-semibold">{job.status === "discovering" && !legacySource ? `Finding pledges with query ${OPEN_PLEDGE_QUERY_ID}: ${job.queryStage === "download" ? "Validating result file" : job.queryStage === "poll" ? "Waiting for Blackbaud" : "Preparing query"}` : `${job.success + job.failed} / ${job.total} pledges checked`}</p>
             <p className="mt-1 text-sm text-gray-600">{job.success} verified (including settled pledges) / {job.failed} need review. {busy ? "Processing a small batch..." : job.status === "completed" ? "Refresh complete." : job.status === "cancelled" ? "Refresh cancelled; saved results retained." : job.status === "paused" ? "Refresh paused." : automatic ? "Continuing..." : "Progress saved."}</p></div>
           <div className="flex flex-wrap gap-2">
             {resumable && !automatic && <button disabled={busy} className={button} onClick={() => execute("resume", true)}>Resume</button>}
             {automatic && <button className={button} onClick={() => setAutomatic(false)}>Pause after this batch</button>}
-            {job.failed > 0 && job.discoveryComplete && <button disabled={busy || automatic} className={button} onClick={() => execute("retry_failed", true)}>Retry failed pledges</button>}
+            {!legacySource && job.failed > 0 && job.discoveryComplete && <button disabled={busy || automatic} className={button} onClick={() => execute("retry_failed", true)}>Retry failed pledges</button>}
             {resumable && <button disabled={busy || automatic} className={button} onClick={() => execute("cancel")}>Cancel refresh</button>}
           </div>
         </div>
-        {job.status === "paused" && <p className="mt-3 text-sm text-amber-900">{job.resumeAfter ? `Blackbaud throttling: resume after ${new Date(job.resumeAfter).toLocaleString()}.` : job.error?.code === "incomplete_gift_list" ? "NXT returned fewer pledges than its reported total. Resume to retry the page, or cancel and refresh the list." : "The NXT response could not be verified. Check your Blackbaud connection and Gift API permissions, then resume."} Previously saved values remain available.</p>}
+        {!legacySource && job.queryRowCount != null && <p className="mt-2 text-sm text-gray-600">Query {OPEN_PLEDGE_QUERY_ID}: {job.queryRowCount} output rows / {job.total} unique pledges.</p>}
+        {!legacySource && job.status === "paused" && <p className="mt-3 text-sm text-amber-900">{job.resumeAfter ? `Blackbaud throttling: resume after ${new Date(job.resumeAfter).toLocaleString()}.` : queryErrors[job.error?.code] || "The NXT response could not be verified. Check your Blackbaud connection and Query/Gift API permissions, then resume."} Previously saved values remain available.</p>}
         <p className="mt-3 text-xs text-gray-500">{job.completedAt ? `Finished ${new Date(job.completedAt).toLocaleString()}. ` : ""}Refresh continues in small batches while this page stays open. Leaving pauses the work; Resume does not restart verified pledges. Opening this page or switching tabs does not refresh NXT.</p>
       </section>}
       {incomplete && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">This worklist is incomplete or still refreshing. Totals cover the verified rows shown, with older saved values retained where available. Unverified pledges without saved data are not included.</div>}

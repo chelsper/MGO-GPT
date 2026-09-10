@@ -4,6 +4,7 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { blackbaudApiFetch } from "@/app/api/utils/blackbaud";
 import { acquirePledgeStore, pledgeScope, readPledgeCache } from "@/app/api/utils/pledgePaymentStore";
 import { newPledgeJob, pendingPledgeJob, runPledgeBatch } from "@/app/api/utils/pledgePaymentPipeline";
+import { isPledgeQueryJob, pledgeQueryTransport } from "@/app/api/utils/pledgeQuerySource";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
@@ -41,7 +42,7 @@ export async function POST(request) {
     if (!store) throw fail("Another batch is running. Wait a moment, then resume.", 409);
     let job = store.job;
     if (action === "start") {
-      if (pendingPledgeJob(job)) throw fail("A refresh is already saved. Resume or cancel it first.", 409);
+      if (pendingPledgeJob(job) && isPledgeQueryJob(job)) throw fail("A refresh is already saved. Resume or cancel it first.", 409);
       job = newPledgeJob();
       await store.saveJob(job);
     } else {
@@ -50,13 +51,14 @@ export async function POST(request) {
         await store.saveJob({ ...job, status: "cancelled", resumeAfter: null });
         return await responseFor(context.scope);
       }
+      if (!isPledgeQueryJob(job)) throw fail("This saved refresh used the old all-pledges source. Select Use query 12033 to start the query-scoped worklist. Cached results are preserved.", 409);
       if (action === "retry_failed") {
         if (!job.discoveryComplete) throw fail("Finish finding pledges before retrying failed items.", 409);
         await store.retryFailed(job.id);
         job = { ...job, status: "running", completedAt: null, error: null };
       }
     }
-    await runPledgeBatch({ job, store, read: (url) => blackbaudApiFetch(url, {
+    await runPledgeBatch({ job, store, query: pledgeQueryTransport(context), read: (url) => blackbaudApiFetch(url, {
       userId: context.userId, authUserId: context.authUserId, origin: context.origin,
       timeoutMs: 12000, maxRetries: 1,
     }) });

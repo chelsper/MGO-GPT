@@ -1,32 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { finishPledge, normalizeApplications, normalizeInstallments, normalizePaymentGift, normalizePledge, pledgeDataError, pledgeId } from "@/utils/pledgePayments";
+import { finishPledge, normalizeApplications, normalizeInstallments, normalizePaymentGift, normalizePledge, pledgeDataError, OPEN_PLEDGE_QUERY_ID } from "@/utils/pledgePayments";
+import { advancePledgeDiscovery, isPledgeQueryJob } from "./pledgeQuerySource";
 
-export const PLEDGE_LIST_URL = "https://api.sky.blackbaud.com/gift/v1/gifts?gift_type=Pledge&limit=200";
 export const pendingPledgeJob = (job) => ["discovering", "running", "paused"].includes(job?.status);
 export function newPledgeJob() {
-  return { id: randomUUID(), status: "discovering", discoveryComplete: false, nextUrl: PLEDGE_LIST_URL,
-    seenPages: [], startedAt: new Date().toISOString(), completedAt: null, error: null, resumeAfter: null };
-}
-export function validatePledgePage(response, currentUrl, seenPages) {
-  if (!Array.isArray(response?.value)) throw pledgeDataError();
-  if (response.count != null && (!Number.isSafeInteger(response.count) || response.count < 0)) throw pledgeDataError("invalid_pagination");
-  const ids = response.value.map((gift) => pledgeId(gift?.id));
-  const settledIds = response.value.filter((gift) => gift.type === "Pledge" && gift.balance?.value === 0 &&
-    typeof gift.amount?.value === "number" && Number.isFinite(gift.amount.value) && gift.amount.value >= 0).map((gift) => String(gift.id));
-  let nextUrl = null;
-  if (response.next_link) {
-    const url = new URL(response.next_link, "https://api.sky.blackbaud.com");
-    if (url.origin !== "https://api.sky.blackbaud.com" || url.pathname !== "/gift/v1/gifts" || url.username || url.password || url.hash) throw pledgeDataError("invalid_pagination");
-    if (url.searchParams.get("gift_type") !== "Pledge") throw pledgeDataError("invalid_pagination");
-    nextUrl = url.href;
-    if (nextUrl === currentUrl || seenPages.includes(nextUrl) || ids.length === 0) throw pledgeDataError("repeated_page");
-  }
-  return { ids: [...new Set(ids)], settledIds, nextUrl, expectedCount: response.count ?? 0 };
+  return { id: randomUUID(), status: "discovering", discoveryComplete: false, source: "saved_query",
+    queryId: OPEN_PLEDGE_QUERY_ID, queryStage: "metadata", startedAt: new Date().toISOString(), completedAt: null, error: null, resumeAfter: null };
 }
 
 export function safePledgeFailure(error, stage) {
   const status = Number(error?.httpStatus) || (error?.name === "BlackbaudQuotaExceededError" ? 403 : null);
-  return { stage, httpStatus: status, code: error?.pledgeCode || (status ? "blackbaud_request_failed" : "request_failed"),
+  return { stage, httpStatus: status, code: error?.pledgeCode || (error?.name === "BlackbaudQueryResultTooLargeError" ? "query_result_too_large" : status ? "blackbaud_request_failed" : "request_failed"),
     retryAfterMs: Math.max(0, Number(error?.retryAfterMs) || 0) };
 }
 
@@ -61,25 +45,16 @@ export async function advancePledge(item, read, now = new Date()) {
   return { ...item, stage, draft, error: null };
 }
 
-export async function runPledgeBatch({ job, store, read, maxSteps = 6, now = () => Date.now() }) {
+export async function runPledgeBatch({ job, store, read, query, maxSteps = 6, now = () => Date.now() }) {
   const started = now();
   if (!pendingPledgeJob(job) || (job.resumeAfter && Date.parse(job.resumeAfter) > now())) return job;
+  if (!isPledgeQueryJob(job)) return pauseJob(pledgeDataError("legacy_source_requires_refresh"), "query_source", job, store, now);
+  if (job.nextPollAt && Date.parse(job.nextPollAt) > now()) return job;
   job = { ...job, status: job.discoveryComplete ? "running" : "discovering", error: null, resumeAfter: null };
   await store.saveJob(job);
   if (!job.discoveryComplete) {
-    let page;
-    try { page = validatePledgePage(await read(job.nextUrl), job.nextUrl, job.seenPages); }
-    catch (error) { return pauseJob(error, "gift_list", job, store, now); }
-    // Upserts are idempotent if interrupted between saving a page and its cursor.
-    await store.discover(job.id, page.ids, page.settledIds);
-    job.expectedCount = Math.max(job.expectedCount || 0, page.expectedCount);
-    if (!page.nextUrl && (await store.counts(job.id)).total < job.expectedCount) {
-      return pauseJob(pledgeDataError("incomplete_gift_list"), "gift_list", job, store, now);
-    }
-    job.seenPages.push(job.nextUrl);
-    job.nextUrl = page.nextUrl;
-    job.discoveryComplete = !page.nextUrl;
-    job.status = page.nextUrl ? "discovering" : "running";
+    try { job = await advancePledgeDiscovery(job, store, query, now); }
+    catch (error) { return pauseJob(error, `query_${job.queryStage}`, job, store, now); }
     await store.saveJob(job);
     return job;
   }

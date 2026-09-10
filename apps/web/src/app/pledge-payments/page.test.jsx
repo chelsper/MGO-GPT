@@ -53,4 +53,27 @@ describe("pledge payments worklist", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "resume", jobId: "job" });
   });
+  it("offers an explicit query-source switch for old cached jobs, never a legacy Resume", async () => {
+    const data = { ...payload(), requiresQueryRefresh: true };
+    data.job.status = "running";
+    fetch.mockImplementation(async () => Response.json(data));
+    render(<PledgePaymentsPage />);
+    const button = await screen.findByRole("button", { name: "Use query 12033" });
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.getByText(/previous all-pledges source/)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fetch.mockResolvedValueOnce(Response.json({ ...data, requiresQueryRefresh: false, job: { ...data.job, status: "paused" } }));
+    fireEvent.click(button);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetch.mock.calls[1][1].body).action).toBe("start");
+  });
+  it("explains query boundaries and distinguishes output rows from unique pledges", async () => {
+    const data = payload();
+    data.job = { ...data.job, total: 69, success: 69, queryRowCount: 394 };
+    fetch.mockResolvedValueOnce(Response.json(data));
+    render(<PledgePaymentsPage />);
+    expect(await screen.findByText("Query 12033: 394 output rows / 69 unique pledges.")).toBeInTheDocument();
+    expect(screen.getByText(/existing amount, date, status, and missed-payment criteria/)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });
