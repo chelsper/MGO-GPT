@@ -13,36 +13,38 @@ export const MGO_NAV_ITEMS = [
 ];
 
 export const REVIEWER_NAV_ITEMS = [
-  { label: "Prospect Pool", href: "/prospect-pool", section: "My Work" },
-  { label: "Top Prospect Exports", href: "/prospect-exports", section: "My Work" },
-  { label: "Pledge Payments", href: "/pledge-payments", section: "My Work" },
-  { label: "Team Discussion", href: "/team-discussion", section: "Team & Support" },
-  { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
-  { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Team & Support" },
-  { label: "Find a Constituent", href: "/constituent-lookup", section: "Team & Support" },
-  { label: "Work Queue", href: "/submissions", section: "Requests & Review" },
-  { label: "List Requests", href: "/list-requests", section: "Requests & Review" },
-  { label: "Data Requests", href: "/data-requests", section: "Requests & Review" },
-  { label: "Import Preview", href: "/constituency-import", section: "Requests & Review" },
-  { label: "Family Import", href: "/family-import", section: "Requests & Review" },
+  { label: "Work Queue", href: "/submissions", section: "Daily Work", description: "Start here for requests, import reviews, and NXT exceptions in one queue." },
+  { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work", description: "Assign prospects to MGOs and follow up on contact information requests." },
+  { label: "Team Discussion", href: "/team-discussion", section: "Daily Work", description: "Coordinate talking points, handoffs, and follow-up with the team." },
+  { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
+  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", description: "Choose one or more MGOs and download a master workbook with opportunity details." },
+  { label: "List Request Queue", href: "/list-requests", section: "Requests & Imports", description: "Prioritize list requests and send questions or delivery notes to MGOs." },
+  { label: "Data Request Queue", href: "/data-requests", section: "Requests & Imports", description: "Review contact information and constituent record corrections." },
+  { label: "Constituency Import", href: "/constituency-import", section: "Requests & Imports", description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
+  { label: "Family Import", href: "/family-import", section: "Requests & Imports", description: "Review parents and family relationships before creating or linking NXT records." },
+  { label: "Find a Constituent", href: "/constituent-lookup", section: "Tools & Guidance", description: "Search NXT and open a constituent profile." },
+  { label: "Knowledge Base", href: "/knowledge-base", section: "Tools & Guidance", description: "Find standards, examples, and process guidance." },
+  { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Tools & Guidance", description: "Maintain the team's shared guidance and examples." },
 ];
 
 export const ADMIN_WORKSPACE_ITEMS = [
-  { label: "Field Settings", href: "/blackbaud-mapping", section: "Admin & Workspace" },
-  { label: "Security & Access", href: "/access-management", section: "Admin & Workspace" },
+  { label: "Field Settings", href: "/blackbaud-mapping", section: "Admin & Workspace", description: "Manage field mapping, ownership, and NXT sync behavior." },
+  { label: "Security & Access", href: "/access-management", section: "Admin & Workspace", description: "Manage workspace users, roles, invitations, and access." },
   {
     label: "Organization Settings",
     href: "/organization-configurations",
     section: "Admin & Workspace",
+    description: "Manage organization details, notifications, and giving society definitions.",
   },
   {
     label: "Report Access & Configurations",
     href: "/report-configurations",
-    section: "Admin & Workspace",
+    section: "Reports & Exports",
+    description: "Build report panels, choose data sources, and manage who can view them.",
   },
 ];
 
-const SECTION_ORDER = ["My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
+const SECTION_ORDER = ["Daily Work", "Reports & Exports", "Requests & Imports", "Tools & Guidance", "My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
 
 const ROUTE_LABELS = {
   "/": "Home",

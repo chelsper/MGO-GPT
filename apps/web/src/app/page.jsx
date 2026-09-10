@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
+import AdvancementServicesHome from "@/components/AdvancementServicesHome";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
@@ -74,171 +75,9 @@ const MGO_ACTIONS = [
   },
 ];
 
-const REVIEWER_ACTIONS = [
-  {
-    title: "Pledge Payments",
-    href: "/pledge-payments",
-    description: "Review past-due and upcoming pledge installments, payments received, and remaining amounts.",
-    section: "myWork",
-  },
-  {
-    title: "Top Prospect Exports",
-    href: "/prospect-exports",
-    description: "Choose MGOs and export a master prospect list with separate opportunity detail.",
-    section: "myWork",
-  },
-  {
-    title: "Work Queue",
-    href: "/submissions",
-    description: "Review data updates, list requests, import batches, and NXT exceptions.",
-    section: "requestsReview",
-  },
-  {
-    title: "List Request Queue",
-    href: "/list-requests",
-    description: "Prioritize DevData requests in one shared Advancement Services queue.",
-    section: "requestsReview",
-  },
-  {
-    title: "Data Request Queue",
-    href: "/data-requests",
-    description: "Work contact updates and constituent record corrections from MGOs.",
-    section: "requestsReview",
-  },
-  {
-    title: "Constituency Import Preview",
-    href: "/constituency-import",
-    description: "Preview bulk constituency imports and hierarchy changes before NXT writes.",
-    section: "requestsReview",
-  },
-  {
-    title: "Family Import",
-    href: "/family-import",
-    description: "Create or link parents and family relationships in a separate, staged NXT workflow.",
-    section: "requestsReview",
-  },
-  {
-    title: "Prospect Pool",
-    href: "/prospect-pool",
-    description: "Assign new prospects to MGOs and track contact info requests.",
-    section: "myWork",
-  },
-  {
-    title: "Team Discussion",
-    href: "/team-discussion",
-    description: "Review internal discussion items tied to constituents, teammates, and opportunities.",
-    section: "teamSupport",
-  },
-  {
-    title: "Knowledge Base",
-    href: "/knowledge-base",
-    description: "Review standards, examples, and published guidance.",
-    section: "teamSupport",
-  },
-  {
-    title: "Find a Constituent",
-    href: "/constituent-lookup",
-    description: "Search Raiser's Edge NXT and open a constituent profile when needed.",
-    section: "teamSupport",
-  },
-  {
-    title: "Edit Knowledge Base",
-    href: "/knowledge-base/manage",
-    description: "Update shared standards, examples, and guidance.",
-    section: "teamSupport",
-  },
-];
-
-const ADMIN_ACTIONS = [
-  ...REVIEWER_ACTIONS,
-  {
-    title: "Blackbaud Mapping",
-    href: "/blackbaud-mapping",
-    description: "Define which app fields should map to NXT and which system owns each field.",
-  },
-  {
-    title: "Access Management",
-    href: "/access-management",
-    description: "Invite JU users and manage workspace roles.",
-  },
-  {
-    title: "Organization Settings",
-    href: "/organization-configurations",
-    description: "Configure organization profile, email notifications, and giving societies.",
-  },
-  {
-    title: "Report Access & Configurations",
-    href: "/report-configurations",
-    description: "Manage shared report access, presentation, and supported data settings.",
-  },
-];
-
-const ADMIN_WORKSPACE_ITEMS = [
-  {
-    label: "Field Settings",
-    href: "/blackbaud-mapping",
-    section: "Admin & Workspace",
-    description: "Manage field mapping, ownership, and NXT sync behavior.",
-  },
-  {
-    label: "Security & Access",
-    href: "/access-management",
-    section: "Admin & Workspace",
-    description: "Manage workspace users, roles, invitations, and access.",
-  },
-  {
-    label: "Organization Settings",
-    href: "/organization-configurations",
-    section: "Admin & Workspace",
-    description: "Manage organization profile, email notifications, and giving society definitions.",
-  },
-  {
-    label: "Report Access & Configurations",
-    href: "/report-configurations",
-    section: "Admin & Workspace",
-    description: "Manage shared report access, presentation, and supported data settings.",
-  },
-  {
-    label: "Knowledge Base Admin",
-    href: "/knowledge-base/manage",
-    section: "Admin & Workspace",
-    description: "Edit shared standards, examples, and published guidance.",
-  },
-];
-
-const PRIMARY_ACTION_PATHS = {
-  mgo: ["/my-top-prospects", "/reports", "/team-discussion"],
-  reviewer: ["/prospect-pool", "/team-discussion", "/knowledge-base/manage"],
-  adminReviewer: ["/access-management", "/prospect-pool", "/team-discussion"],
-};
-
-const ROLE_WORKFLOW_STEPS = {
-  mgo: [
-    "Work My Prospects to move the right constituents forward.",
-    "Use Team Discussion for handoffs, talking points, and follow-up with teammates.",
-  ],
-  reviewer: [
-    "Review the pending submission queue first.",
-    "Assign or enrich names in Prospect Pool.",
-    "Clear list requests and knowledge updates next.",
-  ],
-  adminReviewer: [
-    "Handle access or role changes first.",
-    "Work the shared reviewer queues next.",
-    "Use workspace admin tools only when access, mapping, or configuration needs attention.",
-  ],
-};
-
-function getActionGroups({ isAdmin, isReviewer, quickActions }) {
-  const key = isAdmin && isReviewer ? "adminReviewer" : isReviewer ? "reviewer" : "mgo";
-  const primaryPaths = PRIMARY_ACTION_PATHS[key];
-  const primary = quickActions.filter(
-    (action) => action.section === "myWork" && primaryPaths.includes(action.href),
-  );
-  const teamSupport = quickActions.filter((action) => action.section === "teamSupport");
-  const requestsReview = quickActions.filter((action) => action.section === "requestsReview");
-  return { primary, teamSupport, requestsReview, workflow: ROLE_WORKFLOW_STEPS[key] };
-}
+const primaryActions = MGO_ACTIONS.filter((action) => action.section === "myWork");
+const teamSupport = MGO_ACTIONS.filter((action) => action.section === "teamSupport");
+const requestsReview = MGO_ACTIONS.filter((action) => action.section === "requestsReview");
 
 function DiscussionAlertBadge({ count, compact = false }) {
   if (!count) return null;
@@ -408,24 +247,6 @@ export default function Page() {
     ? `Admin · ${isReviewer ? "Advancement Services view" : "MGO view"}`
     : getWorkspaceRoleLabel(profile?.role) || (isReviewer ? "Advancement Services" : "MGO");
 
-  const quickActions = useMemo(
-    () => {
-      if (!isAdmin && !canManageWorkspace) {
-        return isReviewer ? REVIEWER_ACTIONS : MGO_ACTIONS;
-      }
-
-      return isReviewer ? ADMIN_ACTIONS : MGO_ACTIONS;
-    },
-    [canManageWorkspace, isAdmin, isReviewer],
-  );
-  const { primary: primaryActions, teamSupport, requestsReview, workflow } = useMemo(
-    () => getActionGroups({ isAdmin: isAdmin || canManageWorkspace, isReviewer, quickActions }),
-    [canManageWorkspace, isAdmin, isReviewer, quickActions],
-  );
-  const adminWorkspaceItems = useMemo(
-    () => ((isAdmin || canManageWorkspace) && isReviewer ? ADMIN_WORKSPACE_ITEMS : []),
-    [canManageWorkspace, isAdmin, isReviewer],
-  );
   const {
     data: actingWorkspaceStatus,
   } = useQuery({
@@ -911,17 +732,15 @@ export default function Page() {
           </section>
         ) : null}
 
+        {isReviewer ? <AdvancementServicesHome
+          canManageWorkspace={canManageWorkspace}
+          queueCounts={queueCounts}
+          openDiscussionItems={openDiscussionItems}
+          worklistFailed={worklistFailed}
+        /> : <>
         <div style={{ marginBottom: "10px", fontSize: "18px", color: "#111827", fontWeight: 700 }}>
           My Work
         </div>
-
-        {isReviewer ? (
-          <p role={worklistFailed ? "status" : undefined} style={{ color: worklistFailed ? "#92400E" : "#6B7280", fontSize: "13px", margin: "0 0 14px", lineHeight: 1.5 }}>
-            {worklistFailed
-              ? "Queue alerts could not refresh. Any displayed counts are from the last successful check; open a queue to verify its current work."
-              : "Numbered alerts show outstanding work, not unread messages. Import alerts count batches, not rows. Completed work and successful direct-to-NXT updates do not trigger alerts. Counts refresh every minute while this page is open."}
-          </p>
-        ) : null}
 
         <div
           style={{
@@ -1061,44 +880,7 @@ export default function Page() {
           </>
         ) : null}
 
-        {adminWorkspaceItems.length ? (
-          <>
-            <h2 style={{ margin: "0 0 12px", fontSize: "18px", color: "#111827" }}>
-              Admin & Workspace
-            </h2>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "12px",
-                marginBottom: "22px",
-              }}
-            >
-              {adminWorkspaceItems.map((item) => (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    textDecoration: "none",
-                    backgroundColor: "#FBFDFC",
-                    border: "1px solid rgba(0, 122, 94, 0.12)",
-                    borderRadius: "12px",
-                    padding: "16px",
-                    color: "#111827",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
-                    {item.label}
-                  </div>
-                  <div style={{ color: "#6B7280", fontSize: "13px", lineHeight: 1.45 }}>
-                    {item.description}
-                  </div>
-                </a>
-              ))}
-            </div>
-          </>
-        ) : null}
+        </>}
 
         <footer
           style={{

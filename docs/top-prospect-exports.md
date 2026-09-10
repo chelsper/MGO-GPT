@@ -3,7 +3,7 @@
 ## Entry points
 
 - My Prospects > Top Prospects > Export prospects: export the current filtered list, preserving its order, or all active prospects in the current workspace.
-- Advancement Services > Top Prospect Exports (`/prospect-exports`): search and multi-select active MGO users for one master export. Admins have the same access. Select all shown adds search results without dropping previous selections; Clear selection resets all choices.
+- Advancement Services > Reports & Exports > Top Prospect Exports (`/prospect-exports`), on both the home page and persistent menu: search and multi-select active MGO users for one master export. Admins have the same access. Select all shown adds search results without dropping previous selections; Clear selection resets all choices.
 - Closed/archived prospects and closed opportunity detail are explicit opt-ins. Normal exports include active prospects and open opportunities only.
 
 ## Workbook

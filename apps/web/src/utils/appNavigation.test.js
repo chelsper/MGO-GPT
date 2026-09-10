@@ -23,11 +23,30 @@ describe("app navigation", () => {
     );
 
     expect(groups.map((group) => group.section)).toEqual([
-      "My Work",
-      "Team & Support",
-      "Requests & Review",
+      "Daily Work",
+      "Reports & Exports",
+      "Requests & Imports",
+      "Tools & Guidance",
       "Admin & Workspace",
     ]);
+  });
+
+  it.each([false, true])("includes every reviewer destination exactly once, including reporting tools (manage: %s)", (canManageWorkspace) => {
+    const items = getNavigationItems({ isReviewer: true, canManageWorkspace });
+    const groups = groupNavigationItems(items);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(items.length);
+    expect(new Set(items.map((item) => item.href)).size).toBe(items.length);
+    const reports = groups.find((group) => group.section === "Reports & Exports");
+    expect(reports.items.map((item) => item.href)).toEqual([
+      "/pledge-payments", "/prospect-exports", ...(canManageWorkspace ? ["/report-configurations"] : []),
+    ]);
+    expect(items.every((item) => Boolean(item.description))).toBe(true);
+  });
+
+  it("keeps the MGO menu unchanged and does not surface reviewer-only tools there", () => {
+    const items = getNavigationItems({ isReviewer: false, canManageWorkspace: true });
+    expect(groupNavigationItems(items).map((group) => group.section)).toEqual(["My Work", "Team & Support", "Requests & Review"]);
+    expect(items.some((item) => ["/pledge-payments", "/prospect-exports"].includes(item.href))).toBe(false);
   });
 
   it("builds explicit report breadcrumbs and highlights report routes", () => {

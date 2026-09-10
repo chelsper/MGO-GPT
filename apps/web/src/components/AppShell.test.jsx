@@ -96,6 +96,9 @@ describe("AppShell", () => {
       "Report Access & Configurations",
     );
     expect(container.querySelector('a[href="/constituency-import"]')).toHaveTextContent("4");
+    expect(container.querySelector('a[href="/pledge-payments"]')).toHaveTextContent("Pledge Payments");
+    expect(container.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Top Prospect Exports");
+    expect(container.textContent).toContain("Reports & Exports");
   });
 
   it("shows actionable notifications and routes global searches to constituent lookup", async () => {

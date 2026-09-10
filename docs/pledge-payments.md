@@ -1,6 +1,6 @@
 # Advancement Services Pledge Payments
 
-Entry points: Advancement Services home and navigation, `/pledge-payments`.
+Entry points: Advancement Services home and navigation, under **Reports & Exports > Pledge Payments** (`/pledge-payments`). Opening the home page does not fetch pledge data or start a refresh.
 Only active admin and Advancement Services users (including the legacy reviewer
 role) may read or refresh `/api/pledge-payments`. Authorization uses the actual
 session user, not an acting MGO. Cache and refresh leases are scoped to that user
