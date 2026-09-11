@@ -18,6 +18,19 @@ describe("live duplicate preflight", () => {
       { search_text: "42 n main st", include_inactive: true, strict_search: true, limit: 500 },
     ]);
   });
+  it("checks all additional emails once and holds a match not present in the base email columns", async () => {
+    api.mockImplementation(async (path, options) => options.searchParams?.email === "extra@example.com"
+      ? { results: [{ record_id: "55", first_name: "Other", last_name: "Person", primary_email: "extra@example.com" }] }
+      : { results: [] });
+    expect(await check({ emailUpdates: [{ address: input.email }, { address: "extra@example.com" }] })).toContain("possible email match");
+    expect(api.mock.calls.map(([, options]) => options.searchParams?.email)).toEqual([input.email, "extra@example.com"]);
+  });
+  it("checks additional addresses and does not ignore missing ZIP information", async () => {
+    await expect(check({ addressUpdates: [{ addressLine1: "20 Oak Rd", postalCode: "" }] })).rejects.toThrow(/ZIP/);
+    expect(api).not.toHaveBeenCalled();
+    await check({ addressUpdates: [{ addressLine1: "20 Oak Rd", postalCode: "32210" }] });
+    expect(api.mock.calls.some(([, options]) => options.searchParams?.search_text === "20 Oak Rd")).toBe(true);
+  });
   it("continues every duplicate channel after an explicitly reviewed ID, email, name, or address match", async () => {
     api.mockImplementation(async (path) => {
       if (path.endsWith("/8")) return { id: "8" };

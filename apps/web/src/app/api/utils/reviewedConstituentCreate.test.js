@@ -1,3 +1,4 @@
+import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { sql, check } = vi.hoisted(() => ({ sql: vi.fn(), check: vi.fn() }));
 vi.mock("./sql", () => ({ default: sql }));
@@ -43,7 +44,7 @@ describe("checked new-record review", () => {
     await prepare(value);
     value.preview = savedPreview();
     expect(value.preview.matchCandidates).toEqual([]);
-    expect(value.preview.matchCriteriaVersion).toBe(2);
+    expect(value.preview.matchCriteriaVersion).toBe(IMPORT_MATCH_CRITERIA_VERSION);
     expect(reviewedCreationBlocker(value, { confirmed: true, reviewToken: value.preview.newRecordReview.token })).toBeNull();
   });
   it("retains a genuine saved name match until rejected, even when live search omits it", async () => {

@@ -28,8 +28,42 @@ export function quickImportCandidates(rows) {
     ["ready_new", "potential_new"].includes(row.intentDisposition?.key) &&
     ["Ready", "Needs Review"].includes(row.status) &&
     !row.createdBlackbaudConstituentId && !row.createRequestStartedAt &&
-    !row.quickCreateStatus,
+    (!row.quickCreateStatus || isLegacyContactHold(row)),
   );
+}
+
+export function isLegacyContactHold(row) {
+  return (row.quickCreateStatus || row.quick_create_status) === "review" &&
+    /Multiple contacts of one kind need individual review before quick creation\./.test(row.blackbaudError || row.blackbaud_error || "");
+}
+
+// Validate every contact before any NXT lookup. Additional contacts are applied
+// through the checkpointed write pipeline, not silently discarded at creation.
+export function validateNewRecordContacts(input) {
+  for (const [key, label, field] of [["emailUpdates", "email", "address"], ["phoneUpdates", "phone", "number"], ["addressUpdates", "address", "addressLine1"]]) {
+    const values = input[key] || [];
+    if (!Array.isArray(values)) throw new ImportReviewRequired(`Review the ${label} values before continuing.`);
+    if (values.filter((value) => value?.makePrimary === true).length > 1 ||
+      (values.length > 1 && !values.some((value) => value?.makePrimary === true) && values.some((value) => value?.makePrimary == null))) {
+      throw new ImportReviewRequired(`Choose one primary ${label}, or explicitly mark all as non-primary, before continuing.`);
+    }
+    const seen = new Set();
+    for (const value of values) {
+      if (!value || !text(value.type) || !text(value[field])) throw new ImportReviewRequired(`Select an NXT type and value for every ${label}.`);
+      if (value.makePrimary != null && typeof value.makePrimary !== "boolean") throw new ImportReviewRequired(`Review the primary selection for each ${label}.`);
+      if (label === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text(value.address))) throw new ImportReviewRequired("The email address needs review.");
+      const keyValue = label === "phone" ? text(value.number).replace(/\D/g, "") :
+        label === "address" ? [value.addressLine1, value.addressLine2, value.city, value.state, value.postalCode, value.country].map(text).join("|").toLowerCase() : text(value.address).toLowerCase();
+      if (!keyValue || seen.has(keyValue)) throw new ImportReviewRequired(`Repeated or invalid ${label} values need review; no duplicate contact will be added.`);
+      seen.add(keyValue);
+      if (label === "address" && text(value.validFrom)) {
+        const match = text(value.validFrom).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match || new Date(Date.UTC(+match[1], +match[2] - 1, +match[3])).toISOString().slice(0, 10) !== text(value.validFrom)) {
+          throw new ImportReviewRequired("Address Valid From needs a valid YYYY-MM-DD date before automatic completion.");
+        }
+      }
+    }
+  }
 }
 
 // One request creates identity plus the selected single contact of each kind.

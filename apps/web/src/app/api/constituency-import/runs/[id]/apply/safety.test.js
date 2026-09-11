@@ -10,6 +10,7 @@ vi.mock("@/app/api/utils/importRowApplyClaim", () => ({ claimImportRowForApply: 
 vi.mock("@/app/api/utils/importTargetIdentity", () => ({ verifyImportTargetIdentity: mock.identity }));
 import { POST } from "./route";
 import { importWritePlanKey } from "@/utils/importWriteResults";
+import { quickImportInputKey } from "@/utils/quickImportWorkflow";
 
 const add = { type: "address", action: "add", addressLine1: "100 Oak St", city: "Jacksonville", state: "FL", postalCode: "32211", country: "US", addressType: "Home", makePrimary: false };
 const previous = { type: "address", action: "mark_previous", targetId: "old", addressType: "Previous Address", validTo: "2026-09-10", requiresSuccessfulAddressAdd: true };
@@ -46,6 +47,40 @@ beforeEach(() => {
 });
 
 describe("standard import failure recovery", () => {
+  const sendAutomatic = () => POST(new Request("https://example.test/api/constituency-import/runs/42/apply", { method: "POST", body: JSON.stringify({ rowIds: ["9"], quickImport: true }) }), { params: { id: "42" } });
+  function approveAutomatic() {
+    row.created_blackbaud_constituent_id = "123";
+    row.preview.quickImportWorkflow = { phase: "apply", constituentId: "123", inputKey: quickImportInputKey(row.preview.input), approvedByUserId: "7" };
+  }
+  it("automatically checkpoints both emails and preserves the selected primary", async () => {
+    const emails = [];
+    setWrites([
+      { type: "email_address", action: "add", address: "work@example.com", emailType: "Work", makePrimary: true },
+      { type: "email_address", action: "add", address: "home@example.com", emailType: "Home", makePrimary: false },
+    ]);
+    approveAutomatic();
+    mock.nxt.mockImplementation(async (path, options) => {
+      if (options.method === "POST") { const email = { id: String(emails.length + 1), ...options.body }; emails.push(email); return { id: email.id }; }
+      return { value: structuredClone(emails) };
+    });
+    expect(await (await sendAutomatic()).json()).toMatchObject({ applySummary: { applied: 1, failed: 0 } });
+    expect(emails.map(({ address, primary }) => ({ address, primary }))).toEqual([
+      { address: "work@example.com", primary: true }, { address: "home@example.com", primary: false },
+    ]);
+    expect(checkpoints.some((audit) => audit.results.some((result) => result.status === "started"))).toBe(true);
+    expect(row.blackbaud_result.results).toHaveLength(2);
+    expect(mock.nxt.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(2);
+  });
+  it("rejects automatic completion on an existing unapproved record before claiming it", async () => {
+    expect((await sendAutomatic()).status).toBe(409);
+    expect(mock.claim).not.toHaveBeenCalled();
+    expect(mock.nxt).not.toHaveBeenCalled();
+  });
+  it("does not auto-send a plan whose source changed after approval", async () => {
+    approveAutomatic(); row.preview.input.lastName = "Changed";
+    expect((await sendAutomatic()).status).toBe(409);
+    expect(mock.claim).not.toHaveBeenCalled();
+  });
   it.each(["(904) 555-1212", "+1 904-555-1212"])("accepts NXT primary phone formatting: %s", async (number) => {
     setWrites([{ type: "phone", action: "add", number: "904-555-1212", phoneType: "Cell Phone", makePrimary: true }]);
     mock.nxt.mockResolvedValueOnce({ value: [] }).mockResolvedValueOnce({ id: "new" })

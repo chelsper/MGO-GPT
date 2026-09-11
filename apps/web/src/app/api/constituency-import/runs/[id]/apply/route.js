@@ -14,6 +14,7 @@ import {
   sanitizeQuotaPauseWarnings,
 } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { quickImportApplyBlocker } from "@/utils/quickImportWorkflow";
 
 // Import-only policy: a lost response is not permission to replay an NXT write.
 async function blackbaudApiFetch(path, options = {}) {
@@ -2258,7 +2259,7 @@ async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
       )}::jsonb,
       blackbaud_error = ${failureMessage || null},
       applied_at = CASE
-        WHEN ${appliedWrites.length}::INTEGER > 0 THEN COALESCE(applied_at, NOW())
+        WHEN ${appliedWrites.length}::INTEGER > 0 OR ${nextStatus === "Applied"} THEN COALESCE(applied_at, NOW())
         ELSE applied_at
       END,
       updated_at = NOW()
@@ -2347,13 +2348,16 @@ export async function POST(request, { params }) {
     }
 
     let selectedRowIds = null;
+    let quickImport = false;
     if (!retryRowId) {
       const body = await request.json().catch(() => ({}));
+      quickImport = body.quickImport === true;
       const selection = parseSelectedRowIds(body?.rowIds);
       if (selection.error) {
         return Response.json({ error: selection.error }, { status: 400 });
       }
       selectedRowIds = selection.rowIds;
+      if (quickImport && selectedRowIds?.length !== 1) return Response.json({ error: "Automatic completion processes one approved new record at a time." }, { status: 400 });
     }
 
     const runs = await sql`
@@ -2434,6 +2438,10 @@ export async function POST(request, { params }) {
     let failed = 0;
 
     for (const row of candidateRows) {
+      if (quickImport) {
+        const blocker = quickImportApplyBlocker(row);
+        if (blocker) return Response.json({ error: blocker, held: true }, { status: 409 });
+      }
       const result = await applyRowWrites({
         request,
         user: authResult.user,
@@ -2463,7 +2471,7 @@ export async function POST(request, { params }) {
     }
 
     const updatedRows = await sql`
-      SELECT *
+      SELECT status
       FROM constituency_import_rows
       WHERE run_id = ${runId}
     `;
@@ -2492,7 +2500,7 @@ export async function POST(request, { params }) {
       WHERE id = ${runId}
     `;
 
-    const payload = await fetchRunWithRows(runId);
+    const payload = quickImport ? {} : await fetchRunWithRows(runId);
     return Response.json({
       ...payload,
       applySummary: {

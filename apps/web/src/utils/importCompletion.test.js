@@ -28,4 +28,12 @@ describe("verification-only import eligibility", () => {
     expect(isImportVerificationComplete(verified([{ writeIndex: 1, status: "confirmed" }]))).toBe(false);
     expect(isImportVerificationComplete({ ...verified([{ writeIndex: 0, status: "confirmed" }]), writePlan: [...writes, { type: "address" }] })).toBe(false);
   });
+  it("counts an empty plan only after the approved new identity and completion checkpoint are verified", () => {
+    const empty = { status: "Applied", writePlan: [], createdBlackbaudConstituentId: "1",
+      blackbaudResult: { reconciliation: { verifiedAt: "now", results: [] } },
+      quickImportWorkflow: { phase: "complete", identityConfirmedAt: "now" } };
+    expect(isImportVerificationComplete(empty)).toBe(true);
+    expect(isImportVerificationComplete({ ...empty, quickImportWorkflow: { phase: "verify" } })).toBe(false);
+    expect(isImportVerificationComplete({ ...empty, createdBlackbaudConstituentId: null })).toBe(false);
+  });
 });

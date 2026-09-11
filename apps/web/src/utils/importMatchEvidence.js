@@ -1,4 +1,4 @@
-export const IMPORT_MATCH_CRITERIA_VERSION = 2;
+export const IMPORT_MATCH_CRITERIA_VERSION = 3;
 const text = (value) => typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
 export const normalizeMatchName = (value) => text(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const email = (value) => text(value?.address || value).toLowerCase();
@@ -90,11 +90,12 @@ export function importMatchEvidence(input, value) {
   const identifierConflict = Boolean((sameId && text(input.lookupId) && candidate.lookupId && !sameLookup) || (sameLookup && text(input.blackbaudConstituentId) && !sameId));
   if (sameId) reasons.push("Exact NXT system ID");
   if (sameLookup) reasons.push("Exact Lookup ID");
-  const emails = [input.email, input.email2].map(email).filter(Boolean);
-  const sameEmail = [candidate.email, candidate.email2].some((value) => value && emails.includes(email(value)));
+  const emails = [input.email, input.email2, ...(input.emailUpdates || [])].map(email).filter(Boolean);
+  const sameEmail = [candidate.email, candidate.email2, ...(Array.isArray(value.emailUpdates) ? value.emailUpdates : [])].some((value) => value && emails.includes(email(value)));
   if (sameEmail) reasons.push("Exact email address; shared addresses still need identity comparison");
   if (sameName) reasons.push("Exact first and last name (middle names ignored)");
-  const household = matchingHouseholdAddress(input, candidate);
+  const household = [input, ...(input.addressUpdates || [])].some((address) =>
+    [candidate, ...(Array.isArray(value.addressUpdates) ? value.addressUpdates : [])].some((other) => matchingHouseholdAddress(address, other)));
   if (household) reasons.push("Same house number, normalized street, and ZIP first five; possible household, not proof of identity");
   const samePhone = Boolean(phone(input.phone) && phone(input.phone) === phone(candidate.phone));
   const supportedName = last && last === otherLast && similarFirstName(first, otherFirst, candidate.preferredName) && (samePhone || household);

@@ -1,3 +1,4 @@
+import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
 import { fireEvent, render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ImportMatchReview from "./ImportMatchReview";
@@ -55,7 +56,7 @@ describe("import match comparison", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const suggestions = [{ ...row.match, email: "first@example.com", email2: "csv@example.com", address: "42 Main St", postalCode: "32211" }, { blackbaudConstituentId: "456", name: "Second Person", email: "csv@example.com" }];
-    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: suggestions, matchCriteriaVersion: 2, matchSuggestionsCheckedAt: "2026-09-09" }} saved reviewer runId="42" autoLoad onReject={onReject} onSelect={onSelect} />);
+    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: suggestions, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION, matchSuggestionsCheckedAt: "2026-09-09" }} saved reviewer runId="42" autoLoad onReject={onReject} onSelect={onSelect} />);
     expect(screen.getByText("first@example.com / csv@example.com")).toBeInTheDocument();
     expect(screen.getByText("42 Main St, 32211")).toBeInTheDocument();
     expect(screen.getByText("Second Person")).toBeInTheDocument();
@@ -122,7 +123,7 @@ describe("import match comparison", () => {
   it("shows the strongest five first and lets the reviewer inspect every qualifying match", () => {
     const matches = Array.from({ length: 8 }, (_, i) => ({ blackbaudConstituentId: String(i + 1), name: `Person ${i + 1}`, email: row.input.email }));
     const onReject = vi.fn();
-    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: matches, matchCriteriaVersion: 2, matchSuggestionsCheckedAt: "2026-09-09" }} saved reviewer runId="42" onReject={onReject} />);
+    render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: matches, matchCriteriaVersion: IMPORT_MATCH_CRITERIA_VERSION, matchSuggestionsCheckedAt: "2026-09-09" }} saved reviewer runId="42" onReject={onReject} />);
     expect(screen.getAllByRole("button", { name: "Not a match" })).toHaveLength(5);
     fireEvent.click(screen.getByRole("button", { name: "Show all 8 qualifying matches" }));
     expect(screen.getAllByRole("button", { name: "Not a match" })).toHaveLength(8);
@@ -130,7 +131,7 @@ describe("import match comparison", () => {
     expect(onReject).toHaveBeenCalledWith(expect.objectContaining({ blackbaudConstituentId: "8" }));
   });
   it("refreshes old broad suggestions once when the row is opened", async () => {
-    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [], criteriaVersion: 2 }) });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [], criteriaVersion: IMPORT_MATCH_CRITERIA_VERSION }) });
     vi.stubGlobal("fetch", fetch);
     render(<ImportMatchReview row={{ ...row, match: null, matchCandidates: [{ blackbaudConstituentId: "555", name: "Unrelated Person" }], matchSuggestionsCheckedAt: "2026-09-08" }} saved reviewer runId="42" autoLoad />);
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());

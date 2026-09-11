@@ -15,7 +15,10 @@ export function canFinishImportWithoutSending(row) {
 export function isImportVerificationComplete(row) {
   const verification = (row?.blackbaud_result || row?.blackbaudResult)?.reconciliation;
   const writes = row?.requested_writes?.length ? row.requested_writes : row?.writePlan || row?.preview?.writePlan;
-  return Boolean(verification?.verifiedAt && Array.isArray(writes) && writes.length &&
+  const workflow = row?.quickImportWorkflow || row?.preview?.quickImportWorkflow;
+  const verifiedEmptyPlan = workflow?.phase === "complete" && workflow.identityConfirmedAt &&
+    (row?.createdBlackbaudConstituentId || row?.created_blackbaud_constituent_id);
+  return Boolean(verification?.verifiedAt && Array.isArray(writes) && (writes.length || verifiedEmptyPlan) &&
     Array.isArray(verification.results) && verification.results.length === writes.length &&
     writes.every((_, index) => verification.results.some((result) => result.writeIndex === index && result.status === "confirmed")));
 }

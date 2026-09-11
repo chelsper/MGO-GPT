@@ -1,3 +1,4 @@
+import { IMPORT_MATCH_CRITERIA_VERSION } from "@/utils/importMatchEvidence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.fn();
@@ -249,7 +250,7 @@ describe("manual NXT import match route", () => {
   it("rejects an unselected duplicate candidate and keeps the remaining suggestions across reload", async () => {
     const { POST } = await import("./route.js");
     const row = makeRow();
-    row.preview.matchCriteriaVersion = 2;
+    row.preview.matchCriteriaVersion = IMPORT_MATCH_CRITERIA_VERSION;
     row.preview.matchSuggestionsCheckedAt = "2026-09-09";
     row.preview.matchCandidates = [{ blackbaudConstituentId: "123", name: "First Person" }, { blackbaudConstituentId: "456", name: "Second Person" }];
     row.create_approved_at = "2026-09-08";
@@ -369,7 +370,7 @@ describe("manual NXT import match route", () => {
     const { POST } = await import("./route.js");
     const row = makeRow();
     row.preview.input.duplicateCheckVersion = 1;
-    row.preview.matchCriteriaVersion = 2;
+    row.preview.matchCriteriaVersion = IMPORT_MATCH_CRITERIA_VERSION;
     row.preview.matchSuggestionsCheckedAt = "2026-09-09";
     row.blackbaud_error = "Another import row has a matching NXT ID (saved row ID 2712).";
     const localDuplicate = { rowId: "2712", runId: "42", rowNumber: 4, kind: "pending_row" };

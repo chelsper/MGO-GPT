@@ -363,6 +363,48 @@ describe("constituency import new-record create route", () => {
     return row;
   }
   const quickRequest = () => new Request(`${makeRequest().url}?mode=clear_nonmatches`, { method: "POST" });
+  const completeRequest = () => new Request(`${makeRequest().url}?mode=clear_nonmatches&complete=1`, { method: "POST" });
+
+  it("accepts multiple contacts without dropping them and saves the approval for automatic completion", async () => {
+    const row = setupQuick();
+    row.preview.input.emailUpdates = [
+      { address: "jane@example.com", type: "Work", makePrimary: true },
+      { address: "jane2@example.com", type: "Home", makePrimary: false },
+    ];
+    row.preview.reasons = ["No likely NXT match was found; this import does not create records."];
+    row.quick_create_status = "review";
+    row.blackbaud_error = "Multiple contacts of one kind need individual review before quick creation. No NXT record was created.";
+    const { POST } = await import("./route.js");
+    expect(await (await POST(completeRequest(), { params: { id: "42", rowId: "9" } })).json()).toMatchObject({ next: "details", createdConstituentId: "456" });
+    expect(checkMock).toHaveBeenCalledOnce();
+    expect(blackbaudApiFetchMock.mock.calls[0][1].body).not.toHaveProperty("email");
+    const save = sqlMock.mock.calls.find(([query]) => query.join(" ").includes("match_method = 'Created NXT record'"));
+    const preview = save.map((value) => { try { return JSON.parse(value); } catch { return null; } }).find((value) => value?.quickImportWorkflow);
+    expect(preview.input.emailUpdates).toHaveLength(2);
+    expect(preview.quickImportWorkflow).toMatchObject({ phase: "details", approvedByUserId: "7", constituentId: "456", scopes: ["contacts"] });
+    expect(preview.writePlan.some((write) => write.type === "contact_detail_review")).toBe(true);
+    expect(preview.reasons.join(" ")).not.toContain("does not create records");
+  });
+
+  it("holds conflicting primary selections before any NXT reads or create lock", async () => {
+    const row = setupQuick();
+    row.preview.input.emailUpdates = [
+      { address: "jane@example.com", type: "Work", makePrimary: true },
+      { address: "jane2@example.com", type: "Home", makePrimary: true },
+    ];
+    const { POST } = await import("./route.js");
+    expect(await (await POST(completeRequest(), { params: { id: "42", rowId: "9" } })).json()).toMatchObject({ held: true, error: expect.stringContaining("one primary email") });
+    expect(checkMock).not.toHaveBeenCalled();
+    expect(claimMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not turn an existing duplicate hold into automatic approval", async () => {
+    const row = setupQuick(); row.quick_create_status = "review"; row.blackbaud_error = "Possible email match";
+    const { POST } = await import("./route.js");
+    expect((await POST(completeRequest(), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
 
   async function setupReviewed() {
     const row = setupQuick();

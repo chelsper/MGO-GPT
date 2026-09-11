@@ -4,7 +4,8 @@ import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { blackbaudApiFetch } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
-import { newRecordContactPayload, ImportReviewRequired } from "@/utils/newConstituentImport";
+import { newRecordContactPayload, validateNewRecordContacts, isLegacyContactHold, ImportReviewRequired } from "@/utils/newConstituentImport";
+import { quickImportInputKey, quickImportScopes } from "@/utils/quickImportWorkflow";
 import { canReviewNewImportRecord, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
 import { prepareNewRecordReview, reviewedCreationBlocker, duplicateReviewFailure, reviewLocalImportDuplicate } from "@/app/api/utils/reviewedConstituentCreate";
 import { buildNewConstituentReviewWrites } from "@/app/api/constituency-import/preview/route";
@@ -137,6 +138,7 @@ export async function POST(request, { params }) {
   let createAttempted = false;
   const mode = new URL(request.url).searchParams.get("mode");
   const quick = mode === "clear_nonmatches";
+  const autoComplete = quick && new URL(request.url).searchParams.get("complete") === "1";
   const reviewed = mode === "reviewed_new";
   const checkOnly = mode === "review_new_check";
   const localReview = ["review_local_check", "review_local_reject"].includes(mode);
@@ -225,7 +227,7 @@ export async function POST(request, { params }) {
     if (row.create_request_started_at) {
       return Response.json({ error: "An earlier create request has an uncertain outcome. Reconcile this row with NXT; creating it again is blocked.", held: true }, { status: 409 });
     }
-    if (quick && row.quick_create_status) {
+    if (quick && row.quick_create_status && !(autoComplete && isLegacyContactHold(row))) {
       return Response.json({ error: "This row was already checked. It remains saved for individual review.", held: true }, { status: 409 });
     }
     if (!["Needs Review", "Ready"].includes(row.status) || row.matched_blackbaud_constituent_id) {
@@ -247,6 +249,20 @@ export async function POST(request, { params }) {
     const birthdate = parseBirthDate(input.birthDate);
     if (cleanText(input.birthDate) && !birthdate) {
       return invalidInput("Birth Date must use a valid MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD value before a new NXT record can be created.");
+    }
+
+    let contactPayload = {};
+    if (quick) {
+      try {
+        if (Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
+          throw new ImportReviewRequired("Saved contact review choices require individual review.");
+        }
+        if (autoComplete) validateNewRecordContacts(input);
+        else contactPayload = newRecordContactPayload(input);
+      } catch (error) {
+        if (error instanceof ImportReviewRequired) return invalidInput(`${error.message} No NXT record was created.`);
+        throw error;
+      }
     }
 
     lease = await claimConstituentCreateLease();
@@ -301,10 +317,7 @@ export async function POST(request, { params }) {
         await refreshRunSummary(runId);
         return Response.json({ error: reason, held: true }, { status: 409 });
       }
-      if (quick && Object.values(preview.contactReviewDecisions || {}).some((kind) => Object.keys(kind || {}).length > 0)) {
-        throw new ImportReviewRequired("Saved contact review choices require individual review.");
-      }
-      if (quick) newRecordFields = { ...newRecordFields, ...newRecordContactPayload(input) };
+      if (quick) newRecordFields = { ...newRecordFields, ...contactPayload };
     } catch (error) {
       const status = Number(error.httpStatus || error.status);
       const paused = [401, 403, 429].includes(status) || error.retryAfterMs > 0 || /quota|not connected/i.test(error.message || "");
@@ -404,7 +417,7 @@ export async function POST(request, { params }) {
     await recordCreatedConstituent(rowId, createdConstituentId);
 
     const createdMatch = { blackbaudConstituentId: createdConstituentId, raw: { id: createdConstituentId, type: "Individual" } };
-    const sourceWrites = reviewed ? buildNewConstituentReviewWrites(input, createdMatch) : (Array.isArray(row.requested_writes) ? row.requested_writes : []);
+    const sourceWrites = reviewed || autoComplete ? buildNewConstituentReviewWrites(input, createdMatch) : (Array.isArray(row.requested_writes) ? row.requested_writes : []);
     const writePlan = sourceWrites.map((write) => {
       if (!["education_relationship", "organization_relationship"].includes(write?.type)) {
         return write;
@@ -417,11 +430,16 @@ export async function POST(request, { params }) {
         ...(shouldClearMatchRequirement ? {} : { requiresReview, validationMessage }),
       };
     });
-    const nextStatus = reviewed && writePlan.some((write) => write.requiresReview) ? "Needs Review" : "Ready";
+    const nextStatus = (reviewed || autoComplete) && writePlan.some((write) => write.requiresReview) ? "Needs Review" : "Ready";
     const nextPreview = {
       ...(reviewed ? rejectedImportMatchPreview(preview, null) : preview),
       ...(reviewed ? { matchReview: { decision: "created", ...reviewedNewApproval }, newRecordReview: { status: "created" },
         deferredHydration: { detail: Boolean(input.nameUpdate || input.individualProfileUpdate), contacts: Boolean(input.emailUpdates?.length || input.phoneUpdates?.length || input.addressUpdates?.length), nameFormats: Boolean(input.nameFormatUpdate), educations: Boolean(input.educationRelationship), codes: Boolean(input.sourceConstituency || input.targetConstituency) } } : {}),
+      ...(autoComplete ? { quickImportWorkflow: {
+        phase: "details", scopes: quickImportScopes(input), inputKey: quickImportInputKey(input),
+        constituentId: createdConstituentId, approvedByUserId: String(authResult.user.id),
+        approvedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      } } : {}),
       status: nextStatus,
       matchStatus: "matched",
       matchMethod: "Created NXT record",
@@ -441,7 +459,6 @@ export async function POST(request, { params }) {
       },
       writePlan,
       reasons: [
-        ...(reviewed ? [] : Array.isArray(preview.reasons) ? preview.reasons : []),
         "A new individual NXT constituent was created after a final duplicate check. Staged updates have not been applied yet.",
         ...(externalSourceId
           ? [`External source ID ${externalSourceId} was retained in this import audit and was not sent to NXT.`]
@@ -494,12 +511,20 @@ export async function POST(request, { params }) {
     return Response.json({
       message: reviewed ? `Created NXT individual record for ${firstName} ${lastName} with fresh NXT identifiers. Review and apply the remaining staged updates separately.` : `Created NXT individual record for ${firstName} ${lastName}.${targetConstituency ? ` The spreadsheet constituency ${targetConstituency} remains staged for review and send.` : ""}${requestedNxtLookupId ? ` The new NXT record was assigned Lookup ID ${resolvedCreatedLookupId}.` : ""}${suppliedNxtIdentifier.blackbaudConstituentId ? ` The unresolved NXT System ID ${suppliedNxtIdentifier.blackbaudConstituentId} was retained in the import audit only; NXT assigned the new system record ID.` : ""} Review and apply its staged updates separately.`,
       createdConstituentId,
+      ...(autoComplete ? { next: "details" } : {}),
       createdLookupId: resolvedCreatedLookupId || null,
       externalSourceId: externalSourceId || null,
       unresolvedNxtIdentifier: suppliedNxtIdentifierSummary ? suppliedNxtIdentifier : null,
     });
   } catch (error) {
     console.error("Import constituent creation failed", { stage: createAttempted ? "create_or_checkpoint" : "preflight", rowId: claimedRowId, errorClass: error?.name });
+    if (claimedRowId && !createAttempted) {
+      // Only release a preflight hold with no durable create-attempt marker.
+      // Never unlock an operation whose POST might have reached NXT.
+      await sql`UPDATE constituency_import_rows SET status = 'Needs Review', create_approved_at = NULL,
+        quick_create_status = NULL, blackbaud_error = 'NXT checks did not finish. Resume the saved run; no create request was sent.', updated_at = NOW()
+        WHERE id = ${claimedRowId} AND status = 'Creating' AND create_request_started_at IS NULL AND created_blackbaud_constituent_id IS NULL`.catch(() => {});
+    }
     return Response.json(
       { error: createAttempted ? "Creation may have reached NXT, but its checkpoint could not be confirmed. Reconcile this row; do not create it again." : "The import could not complete this row. Reopen the saved run to check its status.", paused: true },
       { status: 500 },

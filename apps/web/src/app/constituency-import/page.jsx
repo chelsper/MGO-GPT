@@ -12,6 +12,7 @@ import { isReviewerRole } from "@/utils/workspaceRoles";
 import QueueImportLink from "@/components/QueueImportLink";
 import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
+import { importRecoveryState } from "@/utils/quickImportWorkflow";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
 import ImportCompletionNotice from "@/components/ImportCompletionNotice";
@@ -1058,6 +1059,7 @@ function formatBirthDateForDisplay(value) {
 
 function formatWritePlanItem(write) {
   if (!write || typeof write !== "object") return "";
+  if (write.type === "contact_detail_review") return "Load current NXT contacts before adding or updating contact details";
 
   if (write.type === "constituent_code") {
     const action = write.action === "replace" ? "Replace" : "Add";
@@ -8062,7 +8064,7 @@ export default function ConstituencyImportPage() {
               key={preview.savedRun.id}
               runId={preview.savedRun.id}
               rows={preview.rows}
-              disabled={Boolean(applyingRun || creatingRowId || previewing || savingRun || loadingRunId || preview.savedRun.status === "preparing")}
+              disabled={Boolean(applyingRun || creatingRowId || previewing || savingRun || loadingRunId || hasDirtyReviewChoices || editingSavedRowId || editingPreviewRowNumber || savingCombinedReviewRowId || savingSavedRowCorrectionId || preview.savedRun.status === "preparing")}
               onReload={loadSavedRun}
               onBusyChange={setQuickCreating}
             />
@@ -8498,10 +8500,12 @@ export default function ConstituencyImportPage() {
                     canChangeImportMatch(row),
                 );
                 const manualMatchRowId = String(row.id || "");
+                const recovery = importRecoveryState(row);
                 const matchReviewBusy = Boolean(selectingManualMatchRowId || quickCreating || applyingRun || creatingRowId || hasDirtyReviewChoices || editingSavedRowId || savingCombinedReviewRowId || savingSavedRowCorrectionId);
                 return (
                   <article
                     key={row.rowNumber}
+                    inert={quickCreating ? "" : undefined}
                     id={isFocusedRow ? "constituency-import-current-row" : undefined}
                     style={{
                       border: `${isFocusedRow ? "2px" : "1px"} solid ${isFocusedRow ? "#818CF8" : colors.border}`,
@@ -9206,7 +9210,9 @@ export default function ConstituencyImportPage() {
                           }}
                         >
                           <strong>
-                            {isNxtChecksPaused
+                            {recovery && !needsFreshPreview && !isSkippedRow
+                              ? recovery.title
+                              : isNxtChecksPaused
                               ? "NXT checks paused by Blackbaud"
                               : rowReadyToSend
                               ? "Review complete: ready to send"
@@ -9223,7 +9229,9 @@ export default function ConstituencyImportPage() {
                                     : "Action required before this record can be sent"}
                           </strong>
                           <span style={{ fontSize: "14px", lineHeight: 1.4 }}>
-                            {isNxtChecksPaused
+                            {recovery && !needsFreshPreview && !isSkippedRow
+                              ? recovery.message
+                              : isNxtChecksPaused
                               ? "The row is saved, but NXT could not be queried. No record or field was evaluated, and nothing can be sent to NXT until Blackbaud restores the quota."
                               : rowReadyToSend
                               ? preview?.savedRun
@@ -9245,7 +9253,8 @@ export default function ConstituencyImportPage() {
                                       : "Refresh the review plan after changing a contact or profile decision, then confirm the refreshed row."
                                     : "Resolve the required review below before sending this record to NXT."}
                           </span>
-                          {rowNeedsReviewAction &&
+                          {recovery?.resume && <a href="#quick-constituent-import" style={{ fontWeight: 800, color: "#047857" }}>Go to Resume safe import</a>}
+                          {!recovery && rowNeedsReviewAction &&
                           !isNxtChecksPaused &&
                           row.status !== "Failed" &&
                           reviewRequirements.length ? (
@@ -9378,7 +9387,7 @@ export default function ConstituencyImportPage() {
                             {savingRun
                               ? "Saving review..."
                               : preview?.savedRun
-                                ? "Open required review"
+                                ? recovery?.action || "Open required review"
                               : "Save review and choose NXT records"}
                           </button>
                         ) : null}
@@ -9471,7 +9480,7 @@ export default function ConstituencyImportPage() {
                       </section>
                     ) : null}
 
-                    {row.blackbaudError ? (
+                    {row.blackbaudError && !recovery ? (
                       <div
                         style={{
                           border: "1px solid #FECACA",
@@ -9616,7 +9625,7 @@ export default function ConstituencyImportPage() {
                     ) : null}
 
                     {!hasAttemptedWrites && row.reasons?.length ? (
-                      <div
+                      <details
                         style={{
                           border: "1px solid #E5E7EB",
                           borderRadius: "12px",
@@ -9625,12 +9634,13 @@ export default function ConstituencyImportPage() {
                           backgroundColor: "#F9FAFB",
                         }}
                       >
+                        <summary style={{ cursor: "pointer", fontWeight: 700 }}>Earlier checks and import notes</summary>
                         {isNxtChecksPaused
                           ? getNxtChecksPausedNotice(row.reasons.join(" "))
                           : row.reasons.join(" ")}
-                      </div>
+                      </details>
                     ) : null}
-                    {!hasAttemptedWrites && !isNxtChecksPaused && row.intentDisposition?.message ? (
+                    {!recovery && !hasAttemptedWrites && !isNxtChecksPaused && row.intentDisposition?.message ? (
                       <div
                         style={{
                           border: "1px solid #BFDBFE",
@@ -9660,7 +9670,11 @@ export default function ConstituencyImportPage() {
                         {row.createdBlackbaudLookupId
                           ? ` · Lookup ID ${row.createdBlackbaudLookupId}`
                           : ""}
-                        . Review the staged writes, then use “Apply this record to NXT” above to add them.
+                        {row.quickImportWorkflow?.phase === "complete"
+                          ? ". Verified and complete. No further approval or resend is needed."
+                          : row.quickImportWorkflow && row.quickImportWorkflow.phase !== "review"
+                            ? ". Use Resume safe import above to continue from the saved step without recreating this record."
+                            : ". Review the staged writes, then use Apply this record to NXT above to add them."}
                       </div>
                     ) : null}
                     {row.intentDisposition?.key === "potential_new" ? (

@@ -152,7 +152,8 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
   }
   if (input.duplicateCheckVersion !== 1) throw new ImportReviewRequired("Prepare a new preview so all mapped duplicate-check fields are included.");
   if (!text(input.firstName) || !text(input.lastName)) throw new ImportReviewRequired("First and last name are required.");
-  if (text(input.addressLine1) && !/^\d{5}(?:-?\d{4})?$/.test(text(input.postalCode))) throw new ImportReviewRequired("Address matching requires a valid US ZIP code; review this address individually.");
+  const addresses = [input, ...(input.addressUpdates || [])].filter((value) => text(value.addressLine1));
+  if (addresses.some((value) => !/^\d{5}(?:-?\d{4})?$/.test(text(value.postalCode)))) throw new ImportReviewRequired("Address matching requires a valid US ZIP code; review this address individually.");
   if (text(input.postalCode) && !text(input.addressLine1)) throw new ImportReviewRequired("An address line is required to check this ZIP code.");
 
   // Include other uploaded rows and prior attempts, even before NXT search indexes
@@ -175,7 +176,7 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
     const reason = hold("NXT found a possible lookup ID match. Held for review.", await compare(candidates, "lookup"));
     if (reason) return reason;
   }
-  for (const address of [...new Set([input.email, input.email2].map((value) => text(value).toLowerCase()).filter(Boolean))]) {
+  for (const address of [...new Set([input.email, input.email2, ...(input.emailUpdates || []).map((value) => value.address)].map((value) => text(value).toLowerCase()).filter(Boolean))]) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new ImportReviewRequired("An email address needs review before duplicate checking.");
     const candidates = await search(credentials, { email: address });
     const reason = hold("NXT found a possible email match. Held for review.", await compare(candidates, "email"));
@@ -184,12 +185,15 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
   const names = await search(credentials, { first_name: text(input.firstName), last_name: text(input.lastName), include_alias: true, include_maiden_name: true });
   const nameReason = hold("NXT found a possible first and last name match. Held for review.", await compare(names, "name"));
   if (nameReason) return nameReason;
-  if (text(input.addressLine1)) {
-    const houseNumber = text(input.addressLine1).match(/^\d+[a-z]?\b/i)?.[0];
+  const searchedStreets = new Set();
+  for (const address of addresses) {
+    const houseNumber = text(address.addressLine1).match(/^\d+[a-z]?\b/i)?.[0];
     if (!houseNumber) throw new ImportReviewRequired("This address needs an individual duplicate review.");
     // Full street searches replace the house-number-only query. Strict search
     // removes phonetic expansion; returned fields still require comparison.
-    for (const searchText of addressSearchTerms(input.addressLine1)) {
+    for (const searchText of addressSearchTerms(address.addressLine1)) {
+      if (searchedStreets.has(searchText)) continue;
+      searchedStreets.add(searchText);
       const result = await blackbaudApiFetch("/constituent/v1/constituents/search", {
         ...credentials, searchParams: { search_text: searchText, include_inactive: true, strict_search: true, limit: 500 },
       });

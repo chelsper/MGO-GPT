@@ -221,7 +221,9 @@ function getNextStatus(row, writePlan, hasDeferredHydration = false) {
   if (hasDeferredHydration || writePlan.some((write) => write?.requiresReview)) {
     return "Needs Review";
   }
-  return writePlan.length ? "Ready" : "Skipped";
+  // An approved new record still needs its verification step when all details
+  // already match. Do not strand it as a skipped record.
+  return writePlan.length || (row.created_blackbaud_constituent_id && row.preview?.quickImportWorkflow?.approvedByUserId && row.status !== "Skipped") ? "Ready" : "Skipped";
 }
 
 function getDeferredHydration(preview) {

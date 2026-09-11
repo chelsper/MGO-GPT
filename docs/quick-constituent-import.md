@@ -4,11 +4,18 @@
 
 1. Choose a New or Mixed import and map identity, matching fields, and any contacts to import. The existing 100-row file limit is unchanged.
 2. Load NXT table formats and optionally select a default addressee and salutation for new records. Selections are saved with the preview. Do not also enable custom text for the same format.
-3. Prepare and save the import, then approve **Create clear nonmatches**. Merely uploading or previewing does not write to NXT.
-4. Keep the page open. Each request checks and creates at most one constituent. Pause after the current row, or reopen the saved run to resume unchecked rows.
-5. Work held matches and incomplete checks through individual review. Review and send additional staged constituency, relationship, and other updates separately.
+3. Prepare and save the import, then select **Check and import new records**. The confirmation describes the approved scope. Merely uploading, previewing, or opening the page does not write to NXT.
+4. **Complete safe additions and verify automatically** is enabled by default. It creates only clear new records, loads current NXT details, adds eligible contacts/constituencies/education, and verifies the results in separate saved steps. It does not auto-update existing matched constituents. Uncheck it to retain the older identity-and-single-contact creation flow with separate review/send.
+5. Keep the page open. The current row, step, and elapsed seconds remain visible. **Pause after this step** stops before the next step. **Resume safe import** continues approved created rows without creating them again. Duplicate holds stay behind while other clear rows continue; unavailable NXT reads pause the batch.
+6. Completed and verified records need no further approval or resend. Replacements, custom name-format changes, ambiguous contact selections, and unsupported changes remain for individual review. Family Import remains deferred and unchanged.
 
-Quick creation includes identity and the selected single email, phone, and address with their selected NXT types. Multiple contacts of one kind, address valid-from dates, and saved contact-review choices remain for individual review. This deliberately does not silently discard fields or override review decisions.
+Automatic completion validates every contact before any NXT call. Multiple emails, phones, and addresses are retained. NXT types and values must be present; multiple primary flags or unspecified primary choices among several contacts require correction. One explicit primary, or explicit non-primary choices for all contacts, is accepted. Repeated contact values are held rather than silently discarded. Address Valid From values in this path require valid YYYY-MM-DD dates. Identity and table-based formats are created first; all contacts are left to the existing checkpointed addition pipeline, so each outcome is auditable.
+
+Old rows held solely by the former "Multiple contacts of one kind" restriction are eligible for a fresh safe check. No other prior duplicate/uncertain hold is automatically cleared. Edited source values, changed target IDs, saved field/contact decisions, and in-flight rows block automatic continuation. Unsaved row edits disable batch start; row controls are unavailable while a batch is running.
+
+The workflow stores its approval, exact source-input fingerprint, created system ID, remaining read scopes, and phase in the saved preview. Every addition still uses the existing compare-and-set row claim, fresh NXT identity check, and durable write checkpoints. A prior write attempt takes precedence over a stale phase: resume verifies, never blindly resends. Verification also reads the saved identity, including when no further writes were necessary. Failed or incomplete verification stays in review. No additional database migration is required.
+
+The client reloads the full run after every five processed records and at pause/completion, rather than after every row. Server checkpoints are still saved after every step and write. Malformed responses and lost connections pause with recovery guidance, not raw JSON errors. Earlier preview notes are collapsed; the current blocker distinguishes duplicate evidence, contact choices, and NXT check failures.
 
 ## Comparing Suggested Matches
 
@@ -50,7 +57,7 @@ These review fields use existing preview/audit JSON; no additional schema migrat
 ## Duplicate Rules
 
 - System IDs match only system IDs; Lookup IDs match only Lookup IDs. Numeric Lookup IDs are no longer retried as system IDs. Conflicting supplied identifiers or names require comparison rather than automatic matching. External source IDs remain audit-only.
-- Exact full email is strong evidence but does not automatically select an update target: family members may share it. Email punctuation is preserved. Both mapped email fields are checked before creation.
+- Exact full email is strong evidence but does not automatically select an update target: family members may share it. Email punctuation is preserved. Both mapped email fields and all additional staged email values are checked before creation. Additional staged addresses participate in the same full-street/ZIP checks; duplicate search terms are only read once within a check.
 - Exact normalized first AND last name qualifies for comparison, ignoring middle names in display names. A nickname or one-character first-name variation requires the same last name plus an exact phone or matching full address/ZIP. Initials and weak partial-name hits do not qualify on their own.
 - Household evidence requires the same house number, normalized street, and ZIP first five. Conflicting apartment/unit numbers rule out address-only evidence. A missing unit does not prove two people are the same; even a matching household always requires review.
 - Full-street general searches use `strict_search: true`, replacing house-number-only queries. Candidates are validated against returned fields, not provider search rank. When email or address search returns only a nonmatching preferred contact, complete per-constituent contact lists are checked before dismissing the result. Detail reads are serial, reused within the check, and bounded at 20; missing, malformed, truncated, or over-budget comparisons block creation rather than being treated as nonmatches.
