@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import sql from "@/app/api/utils/sql";
 import { syncPendingActionDiscussion } from "@/app/api/utils/pendingActions";
 import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
@@ -14,7 +15,10 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user, sessionUser } = context;
     const body = await request.json();
     const pendingActionId = params.id;
 

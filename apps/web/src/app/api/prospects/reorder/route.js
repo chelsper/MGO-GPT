@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 
 async function normalizeActiveProspectOrder(userId) {
@@ -38,7 +39,10 @@ export async function POST(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user } = context;
     if (!user)
       return Response.json({ error: "User not found" }, { status: 404 });
 

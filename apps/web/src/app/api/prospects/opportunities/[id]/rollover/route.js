@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import sql from "@/app/api/utils/sql";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { buildBlackbaudOpportunityPayload, getBlackbaudOpportunity, updateBlackbaudOpportunity } from "@/app/api/utils/blackbaud";
 import { calendarDate, canRollOpportunityForward } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
@@ -14,8 +15,10 @@ export async function POST(request, { params }) {
   try {
     const session = await auth();
     if (!session?.user?.email) return Response.json({ error: "Unauthorized" }, { status: 401 });
-    const { workspaceUser: user, isActing } = await getWorkspaceUser(session, request);
-    if (!user || isActing) return Response.json({ error: "Switch to your own workspace to update an opportunity." }, { status: 403 });
+    const workspace = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(workspace);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user, sessionUser } = workspace;
     const body = await request.json().catch(() => null);
     const { fiscalYear } = getStandingsPeriods();
     const originalDate = calendarDate(body?.expectedDate);
@@ -41,7 +44,7 @@ export async function POST(request, { params }) {
       return conflict("This opportunity has changed or is no longer eligible. Reload it before continuing.");
     }
     const context = {
-      userId: user.id, authUserId: user.id, origin: new URL(request.url).origin,
+      userId: user.id, authUserId: sessionUser.id, origin: new URL(request.url).origin,
       opportunityId: existing.blackbaud_opportunity_id,
     };
     stage = "nxt_read";

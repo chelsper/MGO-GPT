@@ -30,6 +30,16 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("confirmed opportunity fiscal-year rollover", () => {
+  it("lets an Admin roll forward the selected MGO's opportunity with the Admin connection", async () => {
+    mocks.workspace.mockResolvedValue({
+      sessionUser: { id: 2, role: "admin" },
+      workspaceUser: { id: 7, role: "mgo" },
+      isActing: true,
+    });
+    expect((await request()).status).toBe(200);
+    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ userId: 7, authUserId: 2 }));
+    expect(mocks.sql.mock.calls[0].at(-1)).toBe(7);
+  });
   it("patches only expected_date, verifies NXT, then saves locally with a checkpoint", async () => {
     const response = await request();
     expect(response.status).toBe(200);

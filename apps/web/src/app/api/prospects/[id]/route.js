@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities";
 import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { getPendingActionsForProspect, syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 import { withProspectDisplayData } from "@/utils/prospectDisplay";
@@ -303,7 +304,10 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user } = context;
     if (!user)
       return Response.json({ error: "User not found" }, { status: 404 });
 
@@ -433,7 +437,10 @@ export async function DELETE(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user } = context;
     if (!user)
       return Response.json({ error: "User not found" }, { status: 404 });
 

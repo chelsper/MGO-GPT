@@ -13,6 +13,7 @@ import {
   createBlackbaudOpportunity,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
@@ -26,7 +27,10 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { sessionUser, workspaceUser: user } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { sessionUser, workspaceUser: user } = context;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }

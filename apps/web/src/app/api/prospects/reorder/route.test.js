@@ -42,6 +42,7 @@ describe("prospect reorder route", () => {
     authMock.mockResolvedValue({ user: { email: "mgo@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
     getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 44, role: "mgo" },
       workspaceUser: {
         id: 44,
         name: "Leslie M. Redd",

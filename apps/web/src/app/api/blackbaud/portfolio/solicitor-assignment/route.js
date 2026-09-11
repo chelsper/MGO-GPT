@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import {
   clearUserPortfolioCache,
   clearUserProspectsSummaryCache,
@@ -229,14 +230,10 @@ export async function PATCH(request) {
   }
 
   try {
-    const { sessionUser, workspaceUser, isActing } = await getWorkspaceUser(session, request);
-
-    if (isActing || Number(sessionUser?.id) !== Number(workspaceUser?.id)) {
-      return Response.json(
-        { error: "You can only remove your own solicitor assignment." },
-        { status: 403 },
-      );
-    }
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { sessionUser, workspaceUser } = context;
 
     const body = await request.json().catch(() => ({}));
     const constituentId = String(

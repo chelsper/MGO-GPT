@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  canEditWorkspace,
+  canEditWorkspaceAsRole,
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
   canUseMgoWorkspaceRole,
@@ -12,6 +14,35 @@ import {
 } from "./workspaceRoles";
 
 describe("workspace roles", () => {
+  it.each([
+    ["admin", "mgo", true],
+    ["mgo,admin", "executive,mgo", true],
+    ["executive", "mgo", false],
+    ["executive,mgo", "mgo", false],
+    ["advancement_services", "mgo", false],
+    ["mgo", "mgo", false],
+    ["admin", "executive", false],
+    [null, "mgo", false],
+    ["admin", null, false],
+  ])("delegated editing: %s -> %s is %s", (viewer, target, allowed) => {
+    expect(canEditWorkspaceAsRole(viewer, target)).toBe(allowed);
+    expect(canEditWorkspace({
+      sessionUser: { id: 1, role: viewer },
+      workspaceUser: { id: 2, role: target },
+      isActing: true,
+    })).toBe(allowed);
+  });
+
+  it("permits own-workspace editing but fails closed for missing, inactive or invalid workspaces", () => {
+    const self = { sessionUser: { id: 1, role: "mgo" }, workspaceUser: { id: 1, role: "mgo" } };
+    expect(canEditWorkspace(self)).toBe(true);
+    expect(canEditWorkspace()).toBe(false);
+    expect(canEditWorkspace({ workspaceUser: self.workspaceUser })).toBe(false);
+    expect(canEditWorkspace({ ...self, invalidActingUserId: 20 })).toBe(false);
+    expect(canEditWorkspace({ ...self, sessionUser: { ...self.sessionUser, active: false } })).toBe(false);
+    expect(canEditWorkspace({ ...self, workspaceUser: { ...self.workspaceUser, active: false } })).toBe(false);
+  });
+
   it("normalizes legacy workspace roles to the supported role set", () => {
     expect(normalizeWorkspaceRole("reviewer")).toBe("advancement_services");
     expect(normalizeWorkspaceRole("advancement_admin")).toBe("advancement_services");

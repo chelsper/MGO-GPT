@@ -84,6 +84,7 @@ describe("donor update route", () => {
         name: "Leslie M. Redd",
         email: "lredd@example.com",
         role: "mgo",
+        blackbaud_constituent_id: "234684",
       },
       sessionUser: {
         id: 2,
@@ -92,6 +93,7 @@ describe("donor update route", () => {
         role: "admin",
         blackbaud_constituent_id: "800",
       },
+      isActing: true,
     });
     resolveConstituentMock.mockResolvedValue({
       id: 88,
@@ -126,7 +128,7 @@ describe("donor update route", () => {
     vi.useRealTimers();
   });
 
-  it("assigns the logged-in app user as the NXT action fundraiser", async () => {
+  it("credits the selected MGO while recording and authenticating the Admin author", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([
@@ -159,7 +161,7 @@ describe("donor update route", () => {
       expect.objectContaining({
         authorName: "Chelsea Santoro",
         completedDate: "2026-07-22",
-        fundraiserIds: ["800"],
+        fundraiserIds: ["234684"],
         summary: "Discovery visit with Pat",
       }),
     );
@@ -167,7 +169,7 @@ describe("donor update route", () => {
       expect.objectContaining({
         completedDate: "2026-07-22",
         interactionType: "Cultivation",
-        fundraiserIds: ["800"],
+        fundraiserIds: ["234684"],
       }),
     );
     expect(updateBlackbaudActionMock).toHaveBeenCalledWith(
@@ -176,5 +178,28 @@ describe("donor update route", () => {
         actionId: "bb-action-1",
       }),
     );
+    expect(createBlackbaudActionMock).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 44, authUserId: 2,
+    }));
+    const insert = sqlMockImpl.mock.calls.find(([strings]) => strings.join("").includes("INSERT INTO submissions"));
+    expect(insert[0].join("")).toContain("entered_by_user_id");
+    expect(insert[1]).toBe(44);
+    expect(insert.at(-1)).toBe(2);
+  });
+
+  it("blocks an Executive before resolving or changing a constituent", async () => {
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 2, role: "executive" },
+      workspaceUser: { id: 44, role: "mgo" },
+      isActing: true,
+    });
+    const response = await POST(new Request("https://example.com/api/submissions/donor-update", {
+      method: "POST", body: JSON.stringify({ donorName: "Pat Prospect" }),
+    }));
+    expect(response.status).toBe(403);
+    expect(resolveConstituentMock).not.toHaveBeenCalled();
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl).not.toHaveBeenCalled();
   });
 });

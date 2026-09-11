@@ -156,9 +156,9 @@ describe("portfolio solicitor assignment route", () => {
     getWorkspaceUserMock.mockResolvedValue({
       sessionUser: {
         id: 7,
-        name: "Executive Admin",
-        email: "admin@example.com",
-        role: "admin",
+        name: "Executive Viewer",
+        email: "executive@example.com",
+        role: "executive",
       },
       workspaceUser: {
         id: 44,

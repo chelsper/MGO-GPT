@@ -13,6 +13,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 
 function formatActionUpdateNotes({
@@ -276,11 +277,14 @@ export async function POST(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { sessionUser, workspaceUser: user } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { sessionUser, workspaceUser: user } = context;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
-    const actionSolicitorUser = sessionUser || user;
+    const actionAuthor = sessionUser;
     const authUserId = sessionUser?.id || user.id;
 
     const prospectId = params.id;
@@ -347,8 +351,9 @@ export async function POST(request, { params }) {
       const attemptedCreateVariants = [];
       let createPreflightContext = null;
       const fundraiserIds = await resolveActionFundraiserIds({
-        currentUser: actionSolicitorUser,
-        primaryFundraiserUser: actionSolicitorUser,
+        currentUser: actionAuthor,
+        primaryFundraiserUser: user,
+        requirePrimaryFundraiser: context.isActing,
         additionalFundraiserUserId,
         origin,
         apiUserId: user.id,
@@ -361,7 +366,7 @@ export async function POST(request, { params }) {
         summary,
         actionNotes: notes,
         nextStep,
-        authorName: actionSolicitorUser.name,
+        authorName: actionAuthor.name,
         opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
         fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
       });
@@ -414,7 +419,7 @@ export async function POST(request, { params }) {
             summary,
             actionNotes: notes,
             nextStep,
-            authorName: actionSolicitorUser.name,
+            authorName: actionAuthor.name,
             opportunityId: linkedOpportunity?.blackbaud_opportunity_id || undefined,
             fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
           });
@@ -590,7 +595,8 @@ export async function POST(request, { params }) {
         action_type,
         blackbaud_action_id,
         blackbaud_sync_variant,
-        blackbaud_sync_warning
+        blackbaud_sync_warning,
+        entered_by_user_id
       )
       VALUES (
         ${prospectId},
@@ -601,7 +607,8 @@ export async function POST(request, { params }) {
         ${normalizeActionLabel(interactionType)},
         ${getBlackbaudActionId(blackbaudAction) ? String(getBlackbaudActionId(blackbaudAction)) : null},
         ${blackbaudAction?.syncVariant || null},
-        ${blackbaudAction?.syncWarning || null}
+        ${blackbaudAction?.syncWarning || null},
+        ${actionAuthor.id}
       )
       RETURNING *
     `;

@@ -91,6 +91,7 @@ async function resolveActionFundraiserId({
   fundraiserUser,
   origin,
   apiUserId,
+  requireVerified = false,
 }) {
   const authUserId = currentUser?.id || apiUserId || fundraiserUser?.id;
   const userId = apiUserId || currentUser?.id || fundraiserUser?.id;
@@ -132,12 +133,13 @@ async function resolveActionFundraiserId({
     }
   }
 
-  return candidates[0] || null;
+  return requireVerified ? null : candidates[0] || null;
 }
 
 export async function resolveActionFundraiserIds({
   currentUser,
   primaryFundraiserUser,
+  requirePrimaryFundraiser = false,
   additionalFundraiserUserId,
   origin,
   apiUserId,
@@ -150,9 +152,13 @@ export async function resolveActionFundraiserIds({
     fundraiserUser: primaryUser,
     origin,
     apiUserId,
+    requireVerified: requirePrimaryFundraiser,
   });
   if (primaryFundraiserId) {
     addFundraiserCandidate(fundraiserIds, primaryFundraiserId);
+  } else if (requirePrimaryFundraiser) {
+    // Delegated actions must not silently omit the selected MGO's credit.
+    throw new Error("The selected MGO could not be linked to an NXT fundraiser. Check their Blackbaud mapping before logging an action on their behalf.");
   }
 
   const normalizedAdditionalUserId = String(additionalFundraiserUserId || "").trim();

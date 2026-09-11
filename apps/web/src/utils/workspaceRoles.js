@@ -125,6 +125,19 @@ export function canViewWorkspaceAsRole(viewerRole, targetRole) {
   return isAdminRole(viewerRole) && isExecutiveRole(targetRole);
 }
 
+// Delegated editing is narrower than viewing: only Admins may edit an MGO workspace.
+export function canEditWorkspaceAsRole(viewerRole, targetRole) {
+  return isAdminRole(viewerRole) && isMgoRole(targetRole);
+}
+
+export function canEditWorkspace({ sessionUser, workspaceUser, isActing = false, invalidActingUserId } = {}) {
+  if (!sessionUser?.id || !workspaceUser?.id || sessionUser.active === false ||
+      workspaceUser.active === false || invalidActingUserId) return false;
+  if (!isActing && String(sessionUser.id) === String(workspaceUser.id)) return true;
+  return String(sessionUser.id) !== String(workspaceUser.id) &&
+    canEditWorkspaceAsRole(sessionUser.role, workspaceUser.role);
+}
+
 export function isReviewerRole(role) {
   return isAdminRole(role) || isAdvancementServicesRole(role);
 }

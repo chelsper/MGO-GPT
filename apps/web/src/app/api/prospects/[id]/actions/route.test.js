@@ -122,6 +122,70 @@ describe("prospect action route", () => {
     vi.useRealTimers();
   });
 
+  it("logs for an MGO with Admin authorship and the Admin's NXT connection", async () => {
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 2, name: "Admin Author", role: "admin", blackbaud_constituent_id: "800" },
+      workspaceUser: { id: 44, name: "Selected MGO", role: "mgo", blackbaud_constituent_id: "234684" },
+      isActing: true,
+    });
+    queueSqlResult([{ id: 7, constituent_id: 88, linked_blackbaud_constituent_id: "227949" }]);
+    queueSqlResult([{ id: 901, entered_by_user_id: 2 }]);
+    queueSqlResult([]);
+    createBlackbaudActionMock.mockResolvedValue({ id: "action-1" });
+    getBlackbaudActionMock.mockResolvedValue({ id: "action-1", constituent_id: "227949" });
+    const response = await POST(new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST", body: JSON.stringify({
+        actionDate: "2026-09-11", actionCategory: "Meeting", interactionType: "Stewardship",
+        summary: "Thank-you visit", nextStep: "Send recap", userId: 999,
+      }),
+    }), { params: { id: "7" } });
+    expect(response.status).toBe(201);
+    expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(expect.objectContaining({
+      authorName: "Admin Author", fundraiserIds: ["234684"], blackbaudConstituentId: "227949",
+    }));
+    expect(createBlackbaudActionMock).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 44, authUserId: 2,
+    }));
+    expect(sqlMockImpl.mock.calls[0].slice(1)).toEqual(["7", 44]);
+    const insert = sqlMockImpl.mock.calls.find(([strings]) => strings.join("").includes("INSERT INTO prospect_updates"));
+    expect(insert[0].join("")).toContain("entered_by_user_id");
+    expect(insert.at(-1)).toBe(2);
+    expect(syncPrimaryPendingActionMock).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: 44 }));
+  });
+
+  it("does not write or fall back to Admin credit when the selected MGO mapping cannot be verified", async () => {
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 2, role: "admin", blackbaud_constituent_id: "800" },
+      workspaceUser: { id: 44, name: "Selected MGO", role: "mgo", blackbaud_constituent_id: "234684" },
+      isActing: true,
+    });
+    queueSqlResult([{ id: 7, linked_blackbaud_constituent_id: "227949" }]);
+    getBlackbaudFundraiserByIdMock.mockRejectedValue(new Error("Fundraiser not found"));
+    const response = await POST(new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST", body: JSON.stringify({ actionDate: "2026-09-11", summary: "Visit" }),
+    }), { params: { id: "7" } });
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).toContain("selected MGO");
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+    expect(syncPrimaryPendingActionMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an Admin write to a prospect outside the selected MGO workspace", async () => {
+    const { POST } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 2, role: "admin" }, workspaceUser: { id: 44, role: "mgo" }, isActing: true,
+    });
+    queueSqlResult([]);
+    const response = await POST(new Request("https://example.com/api/prospects/7/actions", {
+      method: "POST", body: JSON.stringify({ actionDate: "2026-09-11", summary: "Visit" }),
+    }), { params: { id: "7" } });
+    expect(response.status).toBe(404);
+    expect(createBlackbaudActionMock).not.toHaveBeenCalled();
+  });
+
   it("logs a local action and syncs the primary next step", async () => {
     const { POST } = await import("./route.js");
 

@@ -1317,6 +1317,10 @@ export default async function ensureAppSchema() {
       ALTER TABLE submissions
       ADD COLUMN IF NOT EXISTS prospect_opportunity_id BIGINT REFERENCES prospect_opportunities(id) ON DELETE SET NULL
     `;
+    await sql`
+      ALTER TABLE submissions
+      ADD COLUMN IF NOT EXISTS entered_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_updates (
@@ -1357,6 +1361,10 @@ export default async function ensureAppSchema() {
     await sql`
       ALTER TABLE prospect_updates
       ADD COLUMN IF NOT EXISTS blackbaud_sync_warning TEXT
+    `;
+    await sql`
+      ALTER TABLE prospect_updates
+      ADD COLUMN IF NOT EXISTS entered_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
     `;
 
     await sql`

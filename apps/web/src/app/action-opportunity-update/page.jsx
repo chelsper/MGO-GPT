@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, MessageSquare, Mic, Trophy } from "lucide-react";
 import useUser from "@/utils/useUser";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
-import { canUseMgoWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
+import { canEditWorkspace, canUseMgoWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 
 const UPDATE_MODES = [
   {
@@ -374,6 +374,23 @@ function DictationButton({
 
 export default function ActionOpportunityUpdatePage() {
   const { data: user, loading } = useUser();
+  const { data: workspaceProfile, isPending: workspaceLoading, isError: workspaceError } = useQuery({
+    queryKey: ["action-entry-workspace", user?.id],
+    queryFn: async () => {
+      const response = await fetch("/api/users/profile");
+      if (!response.ok) throw new Error("Could not verify the selected workspace.");
+      return response.json();
+    },
+    enabled: Boolean(user),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const workspaceEditable = !workspaceError && canEditWorkspace({
+    sessionUser: workspaceProfile?.user,
+    workspaceUser: workspaceProfile?.workspaceUser,
+    isActing: Boolean(workspaceProfile?.actingAsUser),
+  });
+  const workspaceUserId = workspaceProfile?.workspaceUser?.id;
   const [returnPath, setReturnPath] = useState("/");
   const [updateMode, setUpdateMode] = useState("action");
   const [donorName, setDonorName] = useState("");
@@ -622,7 +639,7 @@ export default function ActionOpportunityUpdatePage() {
       return;
     }
     const shouldLoadTeammates = includeAction || isJointSolicitation || createDiscussionItem;
-    if (!shouldLoadTeammates || jointMgoLoaded) {
+    if (!workspaceEditable || !workspaceUserId || !shouldLoadTeammates || jointMgoLoaded) {
       return;
     }
 
@@ -650,7 +667,7 @@ export default function ActionOpportunityUpdatePage() {
           if (response.ok) {
             const options = Array.isArray(payload) ? payload : [];
             mgoOptions = options.filter(
-              (option) => Number(option.id) !== Number(user?.id || 0),
+              (option) => Number(option.id) !== Number(workspaceUserId || 0),
             );
           } else {
             primaryError = payload?.error || "Teammate options are unavailable right now.";
@@ -683,7 +700,7 @@ export default function ActionOpportunityUpdatePage() {
                 (option) =>
                   option.active !== false &&
                   TEAMMATE_ROLES.has(option.role) &&
-                  Number(option.id) !== Number(user?.id || 0),
+                  Number(option.id) !== Number(workspaceUserId || 0),
               );
             }
           } catch (_fallbackError) {
@@ -720,7 +737,8 @@ export default function ActionOpportunityUpdatePage() {
     includeOpportunity,
     isJointSolicitation,
     jointMgoLoaded,
-    user?.id,
+    workspaceUserId,
+    workspaceEditable,
   ]);
 
   useEffect(() => {
@@ -1669,6 +1687,7 @@ export default function ActionOpportunityUpdatePage() {
 
   const submitMutation = useMutation({
     mutationFn: async (payload) => {
+      if (!workspaceEditable) throw new Error("This workspace is read-only.");
       const results = {};
       let resolvedLinkedProspectId =
         payload.actionBody?.linkedProspectId ||
@@ -2331,7 +2350,7 @@ export default function ActionOpportunityUpdatePage() {
         }
       : null;
 
-  if (loading) {
+  if (loading || (user && workspaceLoading)) {
     return (
       <div
         style={{
@@ -2344,6 +2363,20 @@ export default function ActionOpportunityUpdatePage() {
       >
         <p style={{ color: "#6B7280" }}>Loading...</p>
       </div>
+    );
+  }
+
+  if (!workspaceEditable) {
+    return (
+      <main className="mx-auto max-w-3xl p-6">
+        <h1 className="text-xl font-bold">Action &amp; Opportunity Update</h1>
+        <p role="status" className="my-4">
+          {workspaceError
+            ? "Could not verify workspace permissions. Reload this page before entering an update."
+            : "This workspace is read-only. Only Admins can enter updates on behalf of another MGO."}
+        </p>
+        <a href={returnPath}>Return to workspace</a>
+      </main>
     );
   }
 
@@ -2556,6 +2589,12 @@ export default function ActionOpportunityUpdatePage() {
           </div>
         ) : null}
 
+        {workspaceProfile?.actingAsUser && (
+          <div role="status" className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-900">
+            Entering updates for <strong>{workspaceProfile.workspaceUser.name}</strong> as Admin.
+            Actions credit this MGO. Entered by: <strong>{workspaceProfile.user.name}</strong>.
+          </div>
+        )}
         <form onSubmit={handleSubmit}>
           <div
             style={{

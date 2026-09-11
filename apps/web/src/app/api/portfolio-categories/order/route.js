@@ -2,10 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-
-function canEditWorkspace({ sessionUser, workspaceUser, isActing }) {
-  return !isActing && Number(sessionUser?.id) === Number(workspaceUser?.id);
-}
+import { canEditWorkspace } from "@/utils/workspaceRoles";
 
 function sameParent(left, right) {
   return String(left || "") === String(right || "");
@@ -26,7 +23,7 @@ export async function PUT(request) {
     }
     if (!canEditWorkspace(context)) {
       return Response.json(
-        { error: "Return to your own MGO workspace to organize your portfolio." },
+        { error: "This workspace is read-only. Only Admins can organize another MGO's portfolio." },
         { status: 403 },
       );
     }

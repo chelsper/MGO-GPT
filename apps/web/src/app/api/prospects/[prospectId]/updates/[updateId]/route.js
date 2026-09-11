@@ -7,6 +7,7 @@ import {
   updateBlackbaudAction,
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 
 function isBlackbaudNotFoundError(message) {
   const text = String(message || "");
@@ -90,10 +91,10 @@ export async function PUT(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(
-      session,
-      request,
-    );
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user, sessionUser, isActing } = context;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -214,7 +215,10 @@ export async function DELETE(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user, sessionUser } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const permissionError = workspaceWritePermissionError(context);
+    if (permissionError) return permissionError;
+    const { workspaceUser: user, sessionUser } = context;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }

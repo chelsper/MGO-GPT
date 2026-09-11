@@ -20,9 +20,11 @@ import {
 } from "lucide-react";
 import { getSyncBadge } from "@/app/api/utils/nxtTerminologyMap";
 import {
+  canEditWorkspaceAsRole,
   canUseExecutiveViewRole,
   canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
+  isAdminRole,
 } from "@/utils/workspaceRoles";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
@@ -8559,7 +8561,7 @@ export default function MyTopProspectsPage() {
     refetchOnWindowFocus: false,
   });
   const currentRole = profileStatus?.user?.role || null;
-  const isAdmin = currentRole === "admin";
+  const isAdmin = isAdminRole(currentRole);
   const canUseExecutiveView = canUseExecutiveViewRole(currentRole);
   const { data: actingWorkspaceStatus } = useQuery({
     queryKey: ["acting-workspace-status", profileStatus?.user?.id || null],
@@ -8586,7 +8588,12 @@ export default function MyTopProspectsPage() {
     enabled: Boolean(canUseExecutiveView),
   });
   const actingWorkspaceUser = actingWorkspaceStatus?.actingUser || null;
-  const isExecutiveReadOnly = Boolean(canUseExecutiveView && profileStatus?.actingAsUser);
+  const isExecutiveReadOnly = !profileStatus || Boolean(
+    profileStatus.actingAsUser && !canEditWorkspaceAsRole(
+      currentRole,
+      profileStatus.workspaceUser?.role,
+    ),
+  );
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
   const portfolioCategoryQueryKey = [
@@ -9990,7 +9997,7 @@ export default function MyTopProspectsPage() {
                 </h1>
                 {profileStatus?.actingAsUser ? (
                   <div style={{ fontSize: "13px", color: "#0F766E", marginTop: "3px", fontWeight: 700 }}>
-                    Viewing as {profileStatus.actingAsUser.name}
+                    {isExecutiveReadOnly ? "Viewing" : "Editing"} {profileStatus.actingAsUser.name}'s workspace
                   </div>
                 ) : null}
                 {canUseExecutiveView ? (
@@ -10005,7 +10012,7 @@ export default function MyTopProspectsPage() {
                         fontWeight: 700,
                       }}
                     >
-                      Executive view
+                      Workspace
                       <select
                         value={actingWorkspaceUser?.id || profileStatus?.user?.id || ""}
                         onChange={(event) => handleActingWorkspaceChange(event.target.value)}
@@ -10103,7 +10110,11 @@ export default function MyTopProspectsPage() {
               }}
             >
               <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
-                You are viewing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace and portfolio in read-only mode.
+                {isExecutiveReadOnly ? (
+                  <>You are viewing <strong>{profileStatus.actingAsUser.name}'s</strong> workspace in read-only mode.</>
+                ) : (
+                  <>Editing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace as Admin. Actions credit this MGO and record you as the person who entered them.</>
+                )}
               </div>
               <button
                 type="button"
