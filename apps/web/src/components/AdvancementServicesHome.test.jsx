@@ -28,7 +28,9 @@ describe("Advancement Services workspace shortcuts", () => {
   it("uses numbered discussion alerts and explains overlapping queue totals without adding them", () => {
     render(<AdvancementServicesHome queueCounts={{ workQueue: 10, constituencyImports: 8, dataRequests: 2 }} openDiscussionItems={3} />);
     expect(screen.getByLabelText("3 open team discussion items")).toHaveTextContent("3");
-    expect(screen.getByLabelText("8 unfinished constituency import batches")).toBeInTheDocument();
+    expect(screen.queryByLabelText("8 unfinished constituency import batches")).not.toBeInTheDocument();
+    const imports = screen.getByRole("region", { name: "Imports" });
+    expect(within(imports).getByRole("link", { name: /Import History/ })).toHaveAttribute("href", "/import-history");
     fireEvent.click(screen.getByText("About queue counts"));
     expect(screen.getByText(/do not add the badges together/)).toBeVisible();
   });

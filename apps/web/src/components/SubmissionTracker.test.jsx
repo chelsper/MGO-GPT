@@ -23,6 +23,8 @@ describe("detailed activity tracker", () => {
     render(<SubmissionTracker detailedReview />);
     await screen.findByText("Historical Activity");
     expect(screen.getByText("Saved in app")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Imports/ })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => url.includes("import"))).toBe(false);
     expect(screen.getByText(/NXT sync is not confirmed/)).toBeInTheDocument();
     expect(screen.queryByText("Review status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save review", hidden: true })).not.toBeInTheDocument();

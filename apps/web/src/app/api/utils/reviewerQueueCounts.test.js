@@ -16,12 +16,13 @@ describe("reviewer queue counts", () => {
   it("returns full database totals rather than the six-item preview lengths", async () => {
     sql.mockResolvedValue([{ ...zeroCounts, submissions: "2", data_requests: "24", list_requests: "3", constituency_imports: "14", family_imports: "2", prospect_pool: "31", discussions: "20" }]);
     expect(await getReviewerQueueCounts()).toEqual({
-      submissions: 2, dataRequests: 24, listRequests: 3, constituencyImports: 14,
-      familyImports: 2, prospectPool: 31, discussions: 20, workQueue: 43,
+      submissions: 2, dataRequests: 24, listRequests: 3,
+      prospectPool: 31, discussions: 20, workQueue: 29,
     });
     const query = sql.mock.calls[0][0];
     expect(query).toContain(`${submissionQueueGroupSql()} = 'active'`);
     expect(query).not.toMatch(/\bLIMIT\b/i);
+    expect(query).not.toContain("import_runs");
     expect(query.replace(/'[^']*'/g, "")).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/i);
   });
 

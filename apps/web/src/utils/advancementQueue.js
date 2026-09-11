@@ -3,7 +3,7 @@ import { canReviewSubmission, getSubmissionDisplayStatus, getSubmissionQueueGrou
 export const QUEUE_CATEGORIES = [
   ["all", "All requests"], ["data", "Data updates"], ["research", "Research"],
   ["lists", "List requests"], ["reviews", "Submission reviews"],
-  ["imports", "Imports"], ["exceptions", "NXT exceptions"],
+  ["exceptions", "NXT exceptions"],
 ];
 export const QUEUE_VIEWS = [["active", "Open work"], ["waiting", "Waiting on requester"], ["history", "History"]];
 
@@ -13,7 +13,6 @@ export const hasQueueSyncFailure = hasSubmissionSyncFailure;
 export const isDirectNxtSuccess = isSubmissionSynced;
 
 export function getQueueGroup(source, row) {
-  if (source === "imports") return [row.readyCount, row.needsReviewCount, row.conflictCount, row.failedCount].some((count) => Number(count) > 0) ? "active" : "history";
   if (source === "submissions") return getSubmissionQueueGroup(row);
   if (clean(row.status) === "Needs Clarification") return "waiting";
   return closed.includes(clean(row.status)) ? "history" : "active";
@@ -40,17 +39,15 @@ export function formatQueueDate(value) {
 }
 
 export function buildQueueItems(sources) {
-  return Object.entries(sources).flatMap(([source, rows]) => rows.map((record) => {
+  return Object.entries(sources).filter(([source]) => ["data", "lists", "submissions"].includes(source)).flatMap(([source, rows]) => rows.map((record) => {
     const category = source === "data" ? (/research/i.test(record.request_type || "") ? "research" : "data")
       : source === "submissions" ? (getSubmissionDisplayStatus(record) === "NXT follow-up required" ? "exceptions" : "reviews") : source;
     const constituent = clean(record.constituent_name || record.donor_name);
-    const type = source === "lists" ? "List request" : source === "imports" ? "Import batch"
+    const type = source === "lists" ? "List request"
       : formatQueueValue(record.request_type || record.submission_type || "Submission");
     const title = source === "lists" ? formatQueueValue(record.purpose_other || record.purpose || "List request")
-      : source === "imports" ? record.sourceFilename || "Untitled import" : constituent || type;
+      : constituent || type;
     const status = source === "submissions" ? getSubmissionDisplayStatus(record)
-      : source === "imports" ? Number(record.failedCount) + Number(record.conflictCount) > 0 ? "Needs attention"
-        : Number(record.needsReviewCount) > 0 ? "Needs review" : Number(record.readyCount) > 0 ? "Ready to import" : "No pending work"
       : record.status || (source === "data" ? "Open" : "Pending");
     return {
       key: `${source}-${record.id}`, source, record, category, type, title, constituent, status,
@@ -94,7 +91,7 @@ export function getQueueActions(item) {
 }
 
 export function buildQueueMutation(item, { status, reviewerNotes, queuePriority } = {}) {
-  if (item.source === "imports") throw new Error("Open the import workspace to review this batch.");
+  if (item.source === "imports") throw new Error("Imports are not part of the work queue.");
   if (item.source === "submissions" && isSubmissionHistoryOnly(item.record)) throw new Error("This activity is in History and does not require review.");
   if (status && !getQueueActions(item).some(([value]) => value === status)) throw new Error("This action is not available for this request.");
   const notes = clean(reviewerNotes ?? item.record.reviewer_notes);

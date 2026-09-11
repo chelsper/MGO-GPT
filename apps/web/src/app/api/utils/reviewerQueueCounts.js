@@ -13,12 +13,6 @@ export default async function getReviewerQueueCounts() {
        WHERE status IN ('Open', 'In Progress')) AS data_requests,
       (SELECT COUNT(*) FROM list_requests
        WHERE COALESCE(TRIM(status), '') NOT IN ('Needs Clarification', 'Complete', 'Completed', 'Approved')) AS list_requests,
-      (SELECT COUNT(*) FROM constituency_import_runs
-       WHERE ready_count > 0 OR needs_review_count > 0 OR conflict_count > 0 OR failed_count > 0
-      ) AS constituency_imports,
-      (SELECT COUNT(*) FROM family_import_runs
-       WHERE ready_count > 0 OR needs_review_count > 0 OR failed_count > 0
-      ) AS family_imports,
       (SELECT COUNT(*) FROM prospect_pool
        WHERE needs_contact_info = TRUE
           OR (assigned_user_id IS NULL AND COALESCE(solicitor_assignment_sync_state, '') <> 'success')
@@ -41,15 +35,12 @@ export default async function getReviewerQueueCounts() {
     submissions: count("submissions"),
     dataRequests: count("data_requests"),
     listRequests: count("list_requests"),
-    constituencyImports: count("constituency_imports"),
-    familyImports: count("family_imports"),
     prospectPool: count("prospect_pool"),
     discussions: count("discussions"),
   };
-  // The submissions screen includes these four queues. Pool and family import
-  // work have their own destinations; do not add them to this overview badge.
+  // Import outcomes are read-only history, not outstanding queue work.
   return {
     ...counts,
-    workQueue: counts.submissions + counts.dataRequests + counts.listRequests + counts.constituencyImports,
+    workQueue: counts.submissions + counts.dataRequests + counts.listRequests,
   };
 }

@@ -25,7 +25,8 @@ describe("app navigation", () => {
     expect(groups.map((group) => group.section)).toEqual([
       "Daily Work",
       "Reports & Exports",
-      "Requests & Imports",
+      "Requests",
+      "Imports",
       "Tools & Guidance",
       "Admin & Workspace",
     ]);
@@ -46,7 +47,7 @@ describe("app navigation", () => {
   it("keeps the MGO menu unchanged and does not surface reviewer-only tools there", () => {
     const items = getNavigationItems({ isReviewer: false, canManageWorkspace: true });
     expect(groupNavigationItems(items).map((group) => group.section)).toEqual(["My Work", "Team & Support", "Requests & Review"]);
-    expect(items.some((item) => ["/pledge-payments", "/prospect-exports"].includes(item.href))).toBe(false);
+    expect(items.some((item) => ["/pledge-payments", "/prospect-exports", "/import-history"].includes(item.href))).toBe(false);
   });
 
   it("builds explicit report breadcrumbs and highlights report routes", () => {

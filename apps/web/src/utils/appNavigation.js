@@ -13,15 +13,16 @@ export const MGO_NAV_ITEMS = [
 ];
 
 export const REVIEWER_NAV_ITEMS = [
-  { label: "Work Queue", href: "/submissions", section: "Daily Work", description: "Start here for requests, import reviews, and NXT exceptions in one queue." },
+  { label: "Work Queue", href: "/submissions", section: "Daily Work", description: "Start here for requests and NXT exceptions in one queue." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work", description: "Assign prospects to MGOs and follow up on contact information requests." },
   { label: "Team Discussion", href: "/team-discussion", section: "Daily Work", description: "Coordinate talking points, handoffs, and follow-up with the team." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
   { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", description: "Choose one or more MGOs and download a master workbook with opportunity details." },
-  { label: "List Request Queue", href: "/list-requests", section: "Requests & Imports", description: "Prioritize list requests and send questions or delivery notes to MGOs." },
-  { label: "Data Request Queue", href: "/data-requests", section: "Requests & Imports", description: "Review contact information and constituent record corrections." },
-  { label: "Constituency Import", href: "/constituency-import", section: "Requests & Imports", description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
-  { label: "Family Import", href: "/family-import", section: "Requests & Imports", description: "Review parents and family relationships before creating or linking NXT records." },
+  { label: "List Request Queue", href: "/list-requests", section: "Requests", description: "Prioritize list requests and send questions or delivery notes to MGOs." },
+  { label: "Data Request Queue", href: "/data-requests", section: "Requests", description: "Review contact information and constituent record corrections." },
+  { label: "Constituency Import", href: "/constituency-import", section: "Imports", description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
+  { label: "Family Import", href: "/family-import", section: "Imports", description: "Review parents and family relationships before creating or linking NXT records." },
+  { label: "Import History", href: "/import-history", section: "Imports", description: "View successfully imported records and failed imports. Read-only results; nothing to approve." },
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Tools & Guidance", description: "Search NXT and open a constituent profile." },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Tools & Guidance", description: "Find standards, examples, and process guidance." },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Tools & Guidance", description: "Maintain the team's shared guidance and examples." },
@@ -44,7 +45,7 @@ export const ADMIN_WORKSPACE_ITEMS = [
   },
 ];
 
-const SECTION_ORDER = ["Daily Work", "Reports & Exports", "Requests & Imports", "Tools & Guidance", "My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
+const SECTION_ORDER = ["Daily Work", "Reports & Exports", "Requests", "Imports", "Tools & Guidance", "My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
 
 const ROUTE_LABELS = {
   "/": "Home",
@@ -55,6 +56,7 @@ const ROUTE_LABELS = {
   "/constituent-lookup": "Find a Constituent",
   "/data-requests": "Data Requests",
   "/family-import": "Family Import",
+  "/import-history": "Import History",
   "/knowledge-base": "Knowledge Base",
   "/knowledge-base/manage": "Edit Knowledge Base",
   "/list-requests": "List Request Queue",

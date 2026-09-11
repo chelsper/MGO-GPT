@@ -38,8 +38,6 @@ const REVIEWER_NOTIFICATIONS = [
   { key: "submissions", label: "Submissions need review", href: "/submissions" },
   { key: "dataRequests", label: "Data requests are open", href: "/data-requests" },
   { key: "listRequests", label: "List requests are open", href: "/list-requests" },
-  { key: "constituencyImports", label: "Constituency imports need attention", href: "/constituency-import" },
-  { key: "familyImports", label: "Family imports need attention", href: "/family-import" },
   { key: "prospectPool", label: "Prospect pool records need follow-up", href: "/prospect-pool" },
   { key: "discussions", label: "Team discussions are open", href: "/team-discussion" },
 ];

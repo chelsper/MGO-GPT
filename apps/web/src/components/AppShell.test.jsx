@@ -95,7 +95,8 @@ describe("AppShell", () => {
     expect(container.querySelector('a[href="/report-configurations"]')).toHaveTextContent(
       "Report Access & Configurations",
     );
-    expect(container.querySelector('a[href="/constituency-import"]')).toHaveTextContent("4");
+    expect(container.querySelector('a[href="/constituency-import"] span[aria-label]')).toBeNull();
+    expect(container.querySelector('a[href="/import-history"]')).toHaveTextContent("Import History");
     expect(container.querySelector('a[href="/pledge-payments"]')).toHaveTextContent("Pledge Payments");
     expect(container.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Top Prospect Exports");
     expect(container.textContent).toContain("Reports & Exports");
@@ -105,7 +106,7 @@ describe("AppShell", () => {
     await renderShell();
 
     await act(async () => {
-      fireEvent.click(container.querySelector('button[aria-label="12 items need attention"]'));
+      fireEvent.click(container.querySelector('button[aria-label="8 items need attention"]'));
     });
     expect(container.querySelector('[aria-label="Notifications"]')).toHaveTextContent(
       "Submissions need review",

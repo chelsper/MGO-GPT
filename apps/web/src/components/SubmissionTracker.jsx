@@ -16,7 +16,6 @@ const REVIEW_STATUSES = [
 const DATA_UPDATES_TAB = "dataUpdates";
 const RESEARCH_TAB = "research";
 const LIST_REQUESTS_TAB = "listRequests";
-const IMPORTS_TAB = "imports";
 const NXT_EXCEPTIONS_TAB = "nxtExceptions";
 const ACTIVITY_LOG_TAB = "activityLog";
 const TRIAGE_TAB = "triage";
@@ -246,51 +245,6 @@ function countRequestsByStatus(requests) {
   }, {});
 }
 
-function getImportRunState(run) {
-  if (Number(run?.failedCount || 0) > 0 || Number(run?.conflictCount || 0) > 0) {
-    return "Needs attention";
-  }
-  if (Number(run?.needsReviewCount || 0) > 0) return "Needs review";
-  if (Number(run?.readyCount || 0) > 0) return "Ready to import";
-  if (
-    Number(run?.rowCount || 0) > 0 &&
-    Number(run?.appliedCount || 0) >= Number(run?.rowCount || 0)
-  ) {
-    return "Complete";
-  }
-  return "In progress";
-}
-
-function getImportRunStateColors(state) {
-  const map = {
-    "Needs attention": { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA" },
-    "Needs review": { bg: "#FEF3C7", fg: "#92400E", border: "#FDE68A" },
-    "Ready to import": { bg: "#DBEAFE", fg: "#1D4ED8", border: "#BFDBFE" },
-    Complete: { bg: "#DCFCE7", fg: "#166534", border: "#BBF7D0" },
-    "In progress": { bg: "#F3F4F6", fg: "#374151", border: "#E5E7EB" },
-  };
-  return map[state] || map["In progress"];
-}
-
-function formatImportRunSummary(summary) {
-  if (!summary) return "";
-  if (typeof summary === "string") return summary.trim();
-  if (typeof summary !== "object") return "";
-
-  const details = [
-    ["Ready", summary.ready],
-    ["Needs review", summary.needsReview],
-    ["Conflicts", summary.conflict],
-    ["Applied", summary.applied],
-    ["Failed", summary.failed],
-    ["Skipped", summary.skipped],
-  ]
-    .filter(([, count]) => Number(count || 0) > 0)
-    .map(([label, count]) => `${label}: ${Number(count)}`);
-
-  return details.join(" · ");
-}
-
 export default function SubmissionTracker({ detailedReview = false }) {
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -302,8 +256,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
   const [dataRequestsLoading, setDataRequestsLoading] = useState(true);
   const [listRequests, setListRequests] = useState([]);
   const [listRequestsLoading, setListRequestsLoading] = useState(true);
-  const [importRuns, setImportRuns] = useState([]);
-  const [importRunsLoading, setImportRunsLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
@@ -464,7 +416,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
         TRIAGE_TAB,
         DATA_UPDATES_TAB,
         RESEARCH_TAB,
-        IMPORTS_TAB,
         NXT_EXCEPTIONS_TAB,
       ].includes(activeTab)
     ) {
@@ -542,46 +493,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
     }
 
     loadListRequests();
-    return () => {
-      active = false;
-    };
-  }, [isReviewer, profile]);
-
-  useEffect(() => {
-    if (!profile) return;
-
-    if (!isReviewer) {
-      setImportRuns([]);
-      setImportRunsLoading(false);
-      return;
-    }
-
-    let active = true;
-
-    async function loadImportRuns() {
-      setImportRunsLoading(true);
-      try {
-        const response = await fetch("/api/constituency-import/runs?limit=12");
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(payload?.error || "Failed to load import runs");
-        }
-        if (active) {
-          setImportRuns(Array.isArray(payload?.runs) ? payload.runs : []);
-        }
-      } catch (loadError) {
-        if (active) {
-          console.error("Could not load import runs:", loadError);
-          setError(loadError.message || "Could not load import runs.");
-        }
-      } finally {
-        if (active) {
-          setImportRunsLoading(false);
-        }
-      }
-    }
-
-    loadImportRuns();
     return () => {
       active = false;
     };
@@ -684,25 +595,15 @@ export default function SubmissionTracker({ detailedReview = false }) {
     [listRequests],
   );
 
-  const attentionImportRuns = useMemo(
-    () =>
-      importRuns.filter((run) =>
-        ["Needs attention", "Needs review"].includes(getImportRunState(run)),
-      ),
-    [importRuns],
-  );
-
   const triageItemCount = useMemo(
     () =>
       agingDataUpdateRequests.length +
       agingResearchRequests.length +
       attentionListRequests.length +
-      attentionImportRuns.length +
       nxtExceptionSubmissions.length,
     [
       agingDataUpdateRequests.length,
       agingResearchRequests.length,
-      attentionImportRuns.length,
       attentionListRequests.length,
       nxtExceptionSubmissions.length,
     ],
@@ -753,18 +654,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
         })),
       },
       {
-        id: "imports",
-        title: "Import review",
-        description: "Saved import runs with unresolved review, conflict, or failure work.",
-        actionLabel: "Open imports",
-        tab: IMPORTS_TAB,
-        items: attentionImportRuns.map((run) => ({
-          id: `import:${run.id}`,
-          title: run.sourceFilename || `Import run #${run.id}`,
-          detail: `${getImportRunState(run)}${formatImportRunSummary(run.summary) ? ` · ${formatImportRunSummary(run.summary)}` : ""}`,
-        })),
-      },
-      {
         id: "nxt-exceptions",
         title: "NXT exceptions",
         description: "Automated NXT activity that failed and needs follow-up.",
@@ -780,7 +669,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
     [
       agingDataUpdateRequests,
       agingResearchRequests,
-      attentionImportRuns,
       attentionListRequests,
       nxtExceptionSubmissions,
     ],
@@ -802,26 +690,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
       return bDate - aDate;
     });
   }, [activeDataRequests, dataRequestFilter, isReviewer]);
-
-  const importQueueCounts = useMemo(() => {
-    if (!isReviewer) return {};
-
-    return importRuns.reduce(
-      (counts, run) => {
-        const state = getImportRunState(run);
-        counts[state] = (counts[state] || 0) + 1;
-        counts.readyRows = (counts.readyRows || 0) + Number(run.readyCount || 0);
-        counts.reviewRows =
-          (counts.reviewRows || 0) +
-          Number(run.needsReviewCount || 0) +
-          Number(run.conflictCount || 0) +
-          Number(run.failedCount || 0);
-        counts.All = (counts.All || 0) + 1;
-        return counts;
-      },
-      {},
-    );
-  }, [importRuns, isReviewer]);
 
   const visibleSubmissionGroups = useMemo(() => {
     let next =
@@ -1001,26 +869,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
       ];
     }
 
-    if (activeTab === IMPORTS_TAB && isReviewer) {
-      return [
-        {
-          label: "Ready to import",
-          value: importQueueCounts.readyRows || 0,
-          detail: "Reviewed rows ready for controlled NXT writes",
-        },
-        {
-          label: "Need review",
-          value: importQueueCounts.reviewRows || 0,
-          detail: "Rows with unresolved review, conflict, or failure work",
-        },
-        {
-          label: "Recent runs",
-          value: importQueueCounts.All || 0,
-          detail: "Saved import runs available in this workspace",
-        },
-      ];
-    }
-
     if (activeTab === LIST_REQUESTS_TAB) {
       if (isReviewer) {
         return [
@@ -1134,7 +982,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
     agingResearchRequests.length,
     attentionListRequests.length,
     isReviewer,
-    importQueueCounts,
     nxtExceptionSubmissions.length,
     reviewerCounts,
     reviewerExceptionCounts,
@@ -1692,11 +1539,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
                       id: LIST_REQUESTS_TAB,
                       label: "List Requests",
                       count: listRequests.filter((request) => !isListRequestComplete(request)).length,
-                    },
-                    {
-                      id: IMPORTS_TAB,
-                      label: "Imports",
-                      count: importQueueCounts.All || 0,
                     },
                     {
                       id: NXT_EXCEPTIONS_TAB,
@@ -2434,186 +2276,6 @@ export default function SubmissionTracker({ detailedReview = false }) {
                           </button>
                         ) : null}
                       </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )
-          ) : activeTab === IMPORTS_TAB ? (
-            importRunsLoading ? (
-              <div style={{ padding: "18px 8px", color: "#6B7280", fontSize: "14px" }}>
-                Loading import runs...
-              </div>
-            ) : importRuns.length === 0 ? (
-              <div
-                style={{
-                  padding: "20px",
-                  borderRadius: "14px",
-                  border: "1px solid #E5E7EB",
-                  backgroundColor: "#F9FAFB",
-                  color: "#4B5563",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                No saved import runs yet. Start a controlled import in the import workspace to
-                create a reviewable NXT work item.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: "12px" }}>
-                <div
-                  style={{
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #DBEAFE",
-                    backgroundColor: "#EFF6FF",
-                    color: "#1E3A8A",
-                    fontSize: "14px",
-                    lineHeight: 1.6,
-                  }}
-                >
-                  Import runs are controlled NXT work. Open the import workspace to review a run,
-                  send an individual record, or apply a selected batch. This queue does not change
-                  any import behavior.
-                </div>
-                {importRuns.map((run) => {
-                  const state = getImportRunState(run);
-                  const stateColors = getImportRunStateColors(state);
-                  const summary = formatImportRunSummary(run.summary);
-                  const reviewRows =
-                    Number(run.needsReviewCount || 0) +
-                    Number(run.conflictCount || 0) +
-                    Number(run.failedCount || 0);
-
-                  return (
-                    <article
-                      key={run.id}
-                      style={{
-                        border: "1px solid #E5E7EB",
-                        borderRadius: "16px",
-                        padding: "16px",
-                        backgroundColor: "#FFFFFF",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              color: "#6B7280",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.04em",
-                            }}
-                          >
-                            Import run #{run.id}
-                          </div>
-                          <h2 style={{ margin: "6px 0 0", fontSize: "19px", color: "#111827" }}>
-                            {run.sourceFilename || "Untitled CSV"}
-                          </h2>
-                          <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
-                            Last updated {formatDate(run.updatedAt || run.createdAt)}
-                            {run.createdByName || run.createdByEmail
-                              ? ` · Created by ${run.createdByName || run.createdByEmail}`
-                              : ""}
-                          </div>
-                        </div>
-                        <span
-                          style={{
-                            backgroundColor: stateColors.bg,
-                            color: stateColors.fg,
-                            border: `1px solid ${stateColors.border}`,
-                            borderRadius: "999px",
-                            padding: "5px 10px",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {state}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                          gap: "10px",
-                          marginTop: "16px",
-                        }}
-                      >
-                        {[
-                          ["Rows", Number(run.rowCount || 0)],
-                          ["Ready", Number(run.readyCount || 0)],
-                          ["Needs review", reviewRows],
-                          ["Applied", Number(run.appliedCount || 0)],
-                        ].map(([label, value]) => (
-                          <div
-                            key={label}
-                            style={{
-                              padding: "10px 12px",
-                              border: "1px solid #E5E7EB",
-                              borderRadius: "12px",
-                              backgroundColor: "#F9FAFB",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: "11px",
-                                fontWeight: 700,
-                                color: "#6B7280",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                              }}
-                            >
-                              {label}
-                            </div>
-                            <div style={{ marginTop: "4px", fontSize: "20px", fontWeight: 800, color: "#111827" }}>
-                              {value}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {summary ? (
-                        <div
-                          style={{
-                            marginTop: "14px",
-                            color: "#4B5563",
-                            fontSize: "14px",
-                            lineHeight: 1.6,
-                            whiteSpace: "pre-wrap",
-                          }}
-                        >
-                          {summary}
-                        </div>
-                      ) : null}
-
-                      <a
-                        href="/constituency-import"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          marginTop: "16px",
-                          padding: "9px 12px",
-                          borderRadius: "10px",
-                          border: "1px solid #C7D2FE",
-                          backgroundColor: "#EEF2FF",
-                          color: "#4338CA",
-                          fontSize: "14px",
-                          fontWeight: 700,
-                          textDecoration: "none",
-                        }}
-                      >
-                        Open import workspace
-                      </a>
                     </article>
                   );
                 })}

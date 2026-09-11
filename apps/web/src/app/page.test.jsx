@@ -58,12 +58,13 @@ describe("Advancement Services home alerts", () => {
   it("shows outstanding counts on relevant cards but no alert for empty queues", async () => {
     await render();
     expect(badge("/submissions")).toHaveAttribute("aria-label", "12 items in the work queue");
-    expect(badge("/constituency-import")).toHaveTextContent("12");
-    expect(badge("/family-import")).toHaveTextContent("2");
+    expect(badge("/constituency-import")).toBeNull();
+    expect(container.querySelector('a[href="/import-history"]')).toHaveTextContent("Import History");
+    expect(badge("/family-import")).toBeNull();
     expect(badge("/prospect-pool")).toHaveTextContent("31");
     expect(badge("/list-requests")).toBeNull();
     expect(badge("/data-requests")).toBeNull();
-    expect(container.textContent).toContain("Import alerts count batches, not rows");
+    expect(container.textContent).toContain("Imports do not trigger queue alerts");
     expect(state.options).toMatchObject({ refetchInterval: 60000, refetchIntervalInBackground: false, refetchOnWindowFocus: "always" });
   });
 

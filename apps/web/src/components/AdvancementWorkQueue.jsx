@@ -13,7 +13,6 @@ const SOURCES = [
   ["data", "Data updates and research", "/api/data-requests?view=reviewer"],
   ["lists", "List requests", "/api/list-requests/all"],
   ["submissions", "Submission reviews", "/api/submissions/all"],
-  ["imports", "Import batches", "/api/constituency-import/runs?queue=all&limit=50"],
 ];
 
 async function readJson(url, signal) {
@@ -23,27 +22,10 @@ async function readJson(url, signal) {
   return payload;
 }
 
-export async function loadQueueSource(source, url, signal, onProgress = () => {}) {
-  if (source !== "imports") {
-    const rows = await readJson(url, signal);
-    if (!Array.isArray(rows)) throw new Error("The queue returned an unexpected response. Please refresh.");
-    return rows;
-  }
-  const rows = new Map();
-  let cursor = null;
-  const seen = new Set();
-  do {
-    const payload = await readJson(`${url}${cursor ? `&beforeId=${encodeURIComponent(cursor)}` : ""}`, signal);
-    if (!Array.isArray(payload?.runs) || !(payload.nextCursor === null || /^[1-9]\d*$/.test(payload.nextCursor))) {
-      throw new Error("Import batch listing is incomplete. Please refresh.");
-    }
-    payload.runs.forEach((row) => rows.set(String(row.id), row));
-    onProgress(rows.size);
-    cursor = payload.nextCursor;
-    if (cursor && seen.has(cursor)) throw new Error("Import pagination did not advance. Please refresh.");
-    seen.add(cursor);
-  } while (cursor);
-  return [...rows.values()];
+export async function loadQueueSource(source, url, signal) {
+  const rows = await readJson(url, signal);
+  if (!Array.isArray(rows)) throw new Error("The queue returned an unexpected response. Please refresh.");
+  return rows;
 }
 
 function Detail({ label, value }) {
@@ -53,15 +35,6 @@ function Detail({ label, value }) {
 
 function RequestDetails({ item }) {
   const r = item.record;
-  if (item.source === "imports") return <>
-    <dl className={styles.details}>
-      <Detail label="Records in batch" value={r.rowCount} /><Detail label="Ready" value={r.readyCount} />
-      <Detail label="Needs review" value={r.needsReviewCount} /><Detail label="Conflicts" value={r.conflictCount} />
-      <Detail label="Failed" value={r.failedCount} /><Detail label="Applied" value={r.appliedCount} />
-    </dl>
-    <p>Continue with batch #{r.id} in the import workspace. No import changes are made from this queue.</p>
-    <a className={styles.primary} href={`/constituency-import?queueRun=${encodeURIComponent(r.id)}`}>Open import workspace</a>
-  </>;
   if (item.source === "lists") return <dl className={styles.details}>
     <Detail label="Purpose" value={r.purpose_other || r.purpose} />
     <Detail label="Delivery" value={r.output_type} />
@@ -95,11 +68,10 @@ function RequestDetails({ item }) {
 }
 
 export default function AdvancementWorkQueue({ initialCategory = "all" }) {
-  const [sources, setSources] = useState({ data: [], lists: [], submissions: [], imports: [] });
+  const [sources, setSources] = useState({ data: [], lists: [], submissions: [] });
   const [loads, setLoads] = useState({});
   const [sourceErrors, setSourceErrors] = useState({});
   const [refreshKey, setRefreshKey] = useState(0);
-  const [importProgress, setImportProgress] = useState(0);
   const [category, setCategory] = useState(initialCategory);
   const [view, setView] = useState("active");
   const [search, setSearch] = useState("");
@@ -122,9 +94,8 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
   useEffect(() => {
     const controller = new AbortController();
     setLoads(Object.fromEntries(SOURCES.map(([key]) => [key, true])));
-    setImportProgress(0);
     for (const [key, , url] of SOURCES) {
-      loadQueueSource(key, url, controller.signal, setImportProgress)
+      loadQueueSource(key, url, controller.signal)
         .then((rows) => {
           if (controller.signal.aborted) return;
           setSources((current) => ({ ...current, [key]: rows }));
@@ -197,7 +168,7 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
         <small>{key === "active" ? "New requests, in progress, and exceptions" : key === "waiting" ? "Clarification requested; waiting for a reply" : "Routine activity and completed requests"}</small>
       </button>)}
     </nav>
-    {busy && <p role="status" className={styles.notice}>Loading saved queue records{loads.imports && importProgress > 0 ? ` (${importProgress} import batches checked)` : ""}. Counts are provisional until all queues finish loading.</p>}
+    {busy && <p role="status" className={styles.notice}>Loading saved queue records. Counts are provisional until all queues finish loading.</p>}
     {SOURCES.filter(([key]) => sourceErrors[key]).map(([key, label]) => <p key={key} role="alert" className={styles.warning}>
       <strong>{label} could not refresh.</strong> {sourceErrors[key]} Last loaded records are retained; counts may be incomplete. Use Refresh queues to retry.
     </p>)}
@@ -213,7 +184,7 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
           {label} <span>{items.filter((item) => item.group === view && (key === "all" || item.category === key)).length}{incomplete ? "+" : ""}</span>
         </button>)}
       </nav>
-      <div className={styles.resultHeading}><h2>{QUEUE_CATEGORIES.find(([key]) => key === category)?.[1] || "Requests"}</h2><span>{visible.length} shown{incomplete ? " so far" : ""} · Imports count batches, not people</span></div>
+      <div className={styles.resultHeading}><h2>{QUEUE_CATEGORIES.find(([key]) => key === category)?.[1] || "Requests"}</h2><span>{visible.length} shown{incomplete ? " so far" : ""}</span></div>
       {!visible.length && <div className={styles.empty}>
         <h3>{busy ? "Loading this view..." : incomplete ? "This view may be incomplete" : view === "active" ? "No open work in this view" : "No requests in this view"}</h3>
         <p>{view === "active" && viewCounts.history > 0 ? "Completed requests are in History, not mixed in with today's work." : "Try another request type or clear your search."}</p>
@@ -232,7 +203,7 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
             </button>
             {open && <div className={styles.expanded} id={`details-${item.key}`}>
               <RequestDetails item={item} />
-              {item.source !== "imports" && !(item.source === "submissions" && isSubmissionHistoryOnly(item.record)) && <div className={styles.review}>
+              {!(item.source === "submissions" && isSubmissionHistoryOnly(item.record)) && <div className={styles.review}>
                 <div className={styles.reviewHeader}><h3>Review this request</h3><span>These controls update the app queue, not NXT.</span></div>
                 {item.source === "lists" && <label>Priority<select aria-label={`Priority for ${item.title}`} disabled={disabled} value={draft.queuePriority ?? item.priority} onChange={(event) => updateDraft(item, { queuePriority: Number(event.target.value) })}><option value={1}>Urgent</option><option value={2}>Normal</option><option value={3}>Backlog</option></select></label>}
                 <label>Reviewer notes<textarea rows={3} aria-label={`Reviewer notes for ${item.title}`} disabled={disabled} value={draft.reviewerNotes ?? item.record.reviewer_notes ?? ""} onChange={(event) => updateDraft(item, { reviewerNotes: event.target.value })} placeholder="Add the next step, completion details, or a clarification question." /></label>
@@ -249,6 +220,6 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
         })}
       </div>
     </section>
-    <footer className={styles.footer}>Portfolio assignments and family imports keep their dedicated workspaces. <a href="/prospect-pool">Prospect Pool</a><a href="/family-import">Family Import</a><a href="/submissions?view=activity">Detailed submission review</a></footer>
+    <footer className={styles.footer}>Portfolio assignments and import results have their own pages. <a href="/prospect-pool">Prospect Pool</a><a href="/import-history">Import History</a><a href="/submissions?view=activity">Detailed submission review</a></footer>
   </main>;
 }

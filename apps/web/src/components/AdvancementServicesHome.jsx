@@ -13,6 +13,7 @@ const icons = {
   "/data-requests": ClipboardList,
   "/constituency-import": Upload,
   "/family-import": Users,
+  "/import-history": FileText,
   "/constituent-lookup": Search,
   "/knowledge-base": BookOpen,
   "/knowledge-base/manage": BookOpen,
@@ -24,7 +25,8 @@ const icons = {
 const sectionDescriptions = {
   "Daily Work": "Review outstanding work, assign prospects, and coordinate with the team.",
   "Reports & Exports": "Open the saved pledge worklist, export top prospects, or configure reports.",
-  "Requests & Imports": "Go directly to a specific queue or start an import. These reviews also appear in Work Queue.",
+  "Requests": "Go directly to a specific request queue. These requests also appear in Work Queue.",
+  "Imports": "Start an import or browse saved results in Import History. Nothing to approve in the history page.",
   "Tools & Guidance": "Look up a record or find the guidance you need.",
 };
 
@@ -61,7 +63,7 @@ export default function AdvancementServicesHome({ canManageWorkspace, queueCount
       {worklistFailed && <p role="status" className="mb-2 font-medium text-amber-800">Queue alerts could not refresh. Any displayed counts are from the last successful check; open a queue to verify its current work.</p>}
       <details>
         <summary className="min-h-11 cursor-pointer content-center font-medium text-gray-700 focus-visible:outline-2 focus-visible:outline-emerald-700">About queue counts</summary>
-        <p className="mt-2 max-w-4xl leading-relaxed">Badges show outstanding work, not unread messages. Import alerts count batches, not rows. Work Queue includes the requests and imports below; do not add the badges together. Completed work and successful direct-to-NXT updates do not trigger alerts. Counts refresh every minute while this page is open.</p>
+        <p className="mt-2 max-w-4xl leading-relaxed">Badges show outstanding work, not unread messages. Work Queue includes the request queues below; do not add the badges together. Imports do not trigger queue alerts; their results are in Import History. Completed work and successful direct-to-NXT updates do not trigger alerts. Counts refresh every minute while this page is open.</p>
       </details>
     </div>
     {groups.map(({ section, items }) => {

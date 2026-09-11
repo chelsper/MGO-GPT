@@ -2,8 +2,6 @@ const QUEUE_BADGES = {
   "/submissions": ["workQueue", "items in the work queue"],
   "/list-requests": ["listRequests", "list requests to work"],
   "/data-requests": ["dataRequests", "open or in-progress data requests"],
-  "/constituency-import": ["constituencyImports", "unfinished constituency import batches"],
-  "/family-import": ["familyImports", "unfinished family import batches"],
   "/prospect-pool": ["prospectPool", "pool entries needing follow-up"],
 };
 

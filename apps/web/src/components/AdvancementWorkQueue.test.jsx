@@ -34,7 +34,7 @@ describe("compact reviewer queue", () => {
     submissions.push({ id: 78, donor_name: "Historical Activity", submission_type: "donor_update", interaction_type: "Cultivation", status: "Pending", blackbaud_sync_status: "not_requested", reviewer_notes: "Preserved note" });
     render(<AdvancementWorkQueue />);
     await ready();
-    expect(rowButton("^Open work")).toHaveTextContent("2");
+    expect(rowButton("^Open work")).toHaveTextContent("1");
     expect(screen.queryByText("Historical Activity")).not.toBeInTheDocument();
     fireEvent.click(rowButton("^History"));
     fireEvent.click(rowButton("Historical Activity"));
@@ -45,7 +45,7 @@ describe("compact reviewer queue", () => {
     expect(screen.queryByRole("button", { name: "Approve review" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ready for CRM" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save notes" })).not.toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it("keeps genuine requests and NXT failures actionable without approving failures", async () => {
@@ -68,14 +68,16 @@ describe("compact reviewer queue", () => {
     render(<AdvancementWorkQueue />);
     await ready();
     expect(screen.getByText("Example Donor")).toBeInTheDocument();
-    expect(screen.getByText("Example import.csv")).toBeInTheDocument();
+    expect(screen.queryByText("Example import.csv")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => url.includes("import"))).toBe(false);
+    expect(screen.queryByRole("button", { name: /^Imports/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Event invitations")).not.toBeInTheDocument();
     expect(screen.queryByText("Visit preparation")).not.toBeInTheDocument();
     expect(screen.queryByText("Synced Example")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Reviewer notes/ })).not.toBeInTheDocument();
     fireEvent.click(rowButton("Example Donor"));
     expect(screen.getByText("Please check contact details.")).toBeInTheDocument();
-    expect(fetch.mock.calls).toHaveLength(4);
+    expect(fetch.mock.calls).toHaveLength(3);
     expect(fetch.mock.calls.every(([url]) => !url.includes("blackbaud"))).toBe(true);
   });
 
@@ -145,7 +147,9 @@ describe("compact reviewer queue", () => {
     await screen.findByRole("alert");
     await ready();
     expect(screen.getByText("Example Donor")).toBeInTheDocument();
-    expect(screen.getByText("Example import.csv")).toBeInTheDocument();
+    expect(screen.queryByText("Example import.csv")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => url.includes("import"))).toBe(false);
+    expect(screen.queryByRole("button", { name: /^Imports/ })).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("counts may be incomplete");
   });
 
@@ -162,28 +166,9 @@ describe("compact reviewer queue", () => {
   });
 });
 
-describe("import queue pagination", () => {
-  it("loads beyond the old 12-batch cap, including the oldest unfinished batch", async () => {
-    fetch.mockReset();
-    const batches = Array.from({ length: 123 }, (_, index) => ({ id: String(123 - index), readyCount: index === 122 ? 1 : 0 }));
-    fetch.mockImplementation(async (url) => {
-      const before = new URL(url, "https://example.com").searchParams.get("beforeId");
-      const remaining = batches.filter((row) => !before || Number(row.id) < Number(before));
-      const page = remaining.slice(0, 50);
-      return json({ runs: page, nextCursor: remaining.length > 50 ? page.at(-1).id : null });
-    });
-    const rows = await loadQueueSource("imports", "/api/constituency-import/runs?queue=all&limit=50");
-    expect(rows).toHaveLength(123);
-    expect(rows.at(-1)).toMatchObject({ id: "1", readyCount: 1 });
-    expect(fetch).toHaveBeenCalledTimes(3);
-  });
-
-  it("does not silently accept a partial batch list or loop on a repeated cursor", async () => {
-    fetch.mockReset();
-    fetch.mockResolvedValue(json({ runs: [{ id: "10" }], nextCursor: "10" }));
-    await expect(loadQueueSource("imports", "/api/constituency-import/runs?queue=all")).rejects.toThrow("did not advance");
-    expect(fetch).toHaveBeenCalledTimes(2);
+describe("queue source validation", () => {
+  it("rejects non-array responses rather than showing an empty queue", async () => {
     fetch.mockResolvedValue(json({ runs: [] }));
-    await expect(loadQueueSource("imports", "/api/constituency-import/runs?queue=all")).rejects.toThrow("incomplete");
+    await expect(loadQueueSource("data", "/api/data-requests")).rejects.toThrow("unexpected response");
   });
 });

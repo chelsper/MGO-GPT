@@ -19,9 +19,11 @@ describe("shared Advancement Services queue", () => {
     expect(getQueueActions(item("submissions", { blackbaud_sync_status: "failed" }))).toEqual([]);
   });
 
-  it("counts import batches with ready, review, conflict, or failed rows as open", () => {
-    for (const key of ["readyCount", "needsReviewCount", "conflictCount", "failedCount"]) expect(getQueueGroup("imports", { [key]: 1 })).toBe("active");
-    expect(getQueueGroup("imports", { appliedCount: 301 })).toBe("history");
+  it("excludes all import batches, regardless of status or outstanding row counts", () => {
+    expect(buildQueueItems({ imports: [
+      { id: 1, readyCount: 10 }, { id: 2, needsReviewCount: 20 },
+      { id: 3, failedCount: 2 }, { id: 4, appliedCount: 30 },
+    ] })).toEqual([]);
   });
 
   it("filters by category and searches across constituent, requester, and ID", () => {
@@ -63,7 +65,7 @@ describe("shared Advancement Services queue", () => {
 
   it("supports reopening and keeps import and NXT writes outside generic review controls", () => {
     expect(buildQueueMutation(item("data", { status: "Completed" }), { status: "Open" }).body.status).toBe("Open");
-    expect(() => buildQueueMutation(item("imports", {}), {})).toThrow("import workspace");
+    expect(() => buildQueueMutation({ source: "imports", record: {} }, {})).toThrow("not part of the work queue");
     expect(() => buildQueueMutation(item("submissions", { blackbaud_sync_status: "synced" }), { status: "Pending" })).toThrow("does not require review");
     expect(buildQueueMutation(item("submissions", { blackbaud_sync_status: "failed" }), { reviewerNotes: "Investigating" }).body).toEqual({ id: 1, reviewerNotes: "Investigating" });
   });
