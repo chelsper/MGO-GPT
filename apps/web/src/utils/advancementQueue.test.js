@@ -64,7 +64,7 @@ describe("shared Advancement Services queue", () => {
   it("supports reopening and keeps import and NXT writes outside generic review controls", () => {
     expect(buildQueueMutation(item("data", { status: "Completed" }), { status: "Open" }).body.status).toBe("Open");
     expect(() => buildQueueMutation(item("imports", {}), {})).toThrow("import workspace");
-    expect(() => buildQueueMutation(item("submissions", { blackbaud_sync_status: "synced" }), { status: "Pending" })).toThrow("not available");
+    expect(() => buildQueueMutation(item("submissions", { blackbaud_sync_status: "synced" }), { status: "Pending" })).toThrow("does not require review");
     expect(buildQueueMutation(item("submissions", { blackbaud_sync_status: "failed" }), { reviewerNotes: "Investigating" }).body).toEqual({ id: 1, reviewerNotes: "Investigating" });
   });
 });

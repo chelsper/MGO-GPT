@@ -4,6 +4,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { isAdminRole, isReviewerRole } from "@/utils/workspaceRoles";
 import getReviewerQueueCounts from "@/app/api/utils/reviewerQueueCounts";
+import { submissionQueueGroupSql } from "@/app/api/utils/submissionReviewSql";
 
 export async function GET(request) {
   try {
@@ -33,14 +34,14 @@ export async function GET(request) {
     if (isReviewer) {
       const [submissionCounts, clarificationThreads, poolItems, discussionItems, dataRequests, queueCounts] =
         await Promise.all([
-          sql`
+          sql(`
             SELECT
-              COUNT(*) FILTER (WHERE status = 'Pending') AS pending_count,
-              COUNT(*) FILTER (WHERE status = 'Needs Clarification') AS clarification_count,
+              COUNT(*) FILTER (WHERE status = 'Pending' AND queue_group = 'active') AS pending_count,
+              COUNT(*) FILTER (WHERE queue_group = 'waiting') AS clarification_count,
               COUNT(*) FILTER (WHERE status = 'Approved') AS approved_count
-            FROM submissions
-          `,
-          sql`
+            FROM (SELECT s.*, ${submissionQueueGroupSql()} AS queue_group FROM submissions s) classified
+          `),
+          sql(`
             SELECT
               s.id,
               s.donor_name,
@@ -49,10 +50,10 @@ export async function GET(request) {
               s.date_submitted,
               s.reviewer_notes
             FROM submissions s
-            WHERE s.status = 'Needs Clarification'
+            WHERE ${submissionQueueGroupSql()} = 'waiting'
             ORDER BY COALESCE(s.reviewer_notes_updated_at, s.updated_at, s.date_submitted) DESC
             LIMIT 6
-          `,
+          `),
           sql`
             SELECT
               pp.id,
@@ -227,7 +228,7 @@ export async function GET(request) {
             di.updated_at DESC
           LIMIT 8
         `,
-        sql`
+        sql(`
           SELECT
             s.id,
             s.donor_name,
@@ -236,11 +237,11 @@ export async function GET(request) {
             s.reviewer_notes,
             COALESCE(s.reviewer_notes_updated_at, s.updated_at, s.date_submitted) AS activity_at
           FROM submissions s
-          WHERE s.user_id = ${user.id}
-            AND s.status = 'Needs Clarification'
+          WHERE s.user_id = $1
+            AND ${submissionQueueGroupSql()} = 'waiting'
           ORDER BY COALESCE(s.reviewer_notes_updated_at, s.updated_at, s.date_submitted) DESC
           LIMIT 6
-        `,
+        `, [user.id]),
         sql`
           SELECT COALESCE(SUM(COALESCE(p.ask_amount, 0)), 0) AS total_ask_amount
           FROM prospects p

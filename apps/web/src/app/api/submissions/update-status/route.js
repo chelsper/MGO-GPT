@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { canReviewSubmission, isSubmissionHistoryOnly } from "@/utils/submissionReview";
 
 export async function POST(request) {
   try {
@@ -49,6 +50,19 @@ export async function POST(request) {
       );
     }
 
+    const existing = await sql`
+      SELECT id, status, submission_type, interaction_type, blackbaud_sync_status, blackbaud_sync_error
+      FROM submissions WHERE id = ${id} LIMIT 1
+    `;
+    const current = existing[0];
+    if (!current) return Response.json({ error: "Submission not found" }, { status: 404 });
+    if (isSubmissionHistoryOnly(current)) {
+      return Response.json({ error: "This activity is in History and does not require approval. Refresh the queue to see its current status." }, { status: 409 });
+    }
+    if (status && !canReviewSubmission(current)) {
+      return Response.json({ error: "This activity needs NXT sync follow-up, not approval. You can save notes without changing its status." }, { status: 409 });
+    }
+
     const result = await sql`
       UPDATE submissions
       SET
@@ -65,11 +79,16 @@ export async function POST(request) {
         reviewed_at = NOW(),
         updated_at = NOW()
       WHERE id = ${id}
+        AND status IS NOT DISTINCT FROM ${current.status}
+        AND submission_type IS NOT DISTINCT FROM ${current.submission_type}
+        AND interaction_type IS NOT DISTINCT FROM ${current.interaction_type}
+        AND blackbaud_sync_status IS NOT DISTINCT FROM ${current.blackbaud_sync_status}
+        AND blackbaud_sync_error IS NOT DISTINCT FROM ${current.blackbaud_sync_error}
       RETURNING *
     `;
 
     if (result.length === 0) {
-      return Response.json({ error: "Submission not found" }, { status: 404 });
+      return Response.json({ error: "This activity changed while you were reviewing it. Refresh the queue before trying again." }, { status: 409 });
     }
 
     return Response.json(result[0]);

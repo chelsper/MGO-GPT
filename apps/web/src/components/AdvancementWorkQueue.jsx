@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp, RefreshCw, Search } from "lucide-react";
 import {
   QUEUE_CATEGORIES, QUEUE_VIEWS, buildQueueItems, buildQueueMutation, filterQueueItems,
-  formatQueueDate, formatQueueValue, getQueueActions, hasQueueSyncFailure, isQueueOverdue,
+  formatQueueDate, formatQueueValue, getQueueActions, isQueueOverdue,
 } from "@/utils/advancementQueue";
 import styles from "./AdvancementWorkQueue.module.css";
+import { getSubmissionActivityNotice, isSubmissionHistoryOnly } from "@/utils/submissionReview";
 
 const SOURCES = [
   ["data", "Data updates and research", "/api/data-requests?view=reviewer"],
@@ -85,10 +86,11 @@ function RequestDetails({ item }) {
       <Detail label="Interaction" value={r.interaction_type} />
       <Detail label="Next step" value={r.next_step} />
     </dl>
-    {item.source === "submissions" && <p><a href="/submissions?view=activity">Open detailed submission review and team follow-up</a></p>}
-    {item.source === "submissions" && hasQueueSyncFailure(r) && <p className={styles.warning}>
-      This NXT write needs follow-up. Reviewer notes do not repair or retry the NXT write; it stays in Open work until the sync issue is resolved.
-    </p>}
+    {item.source === "submissions" && <>
+      {getSubmissionActivityNotice(r) && <p className={item.category === "exceptions" ? styles.warning : styles.notice}>{getSubmissionActivityNotice(r)}</p>}
+      {isSubmissionHistoryOnly(r) && r.reviewer_notes && <dl className={styles.details}><Detail label="Previous reviewer notes" value={r.reviewer_notes} /></dl>}
+      <p><a href="/submissions?view=activity">Open activity history and team follow-up</a></p>
+    </>}
   </>;
 }
 
@@ -185,14 +187,14 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
     <a className={styles.back} href="/"><ArrowLeft size={16} />Back to dashboard</a>
     <header className={styles.header}>
       <div><p className={styles.eyebrow}>Advancement Services</p><h1>Work Queue</h1>
-        <p>Requests that need a person, all in one place. Successful direct-to-NXT activity stays in History.</p></div>
+        <p>Requests that need a person, all in one place. Routine activity stays in History without an approval step. NXT sync issues stay in Open work.</p></div>
       <button className={styles.secondary} disabled={busy || Boolean(saving)} onClick={() => setRefreshKey((n) => n + 1)}><RefreshCw size={16} />{busy ? "Refreshing..." : "Refresh queues"}</button>
     </header>
 
     <nav className={styles.views} aria-label="Work queue views">
       {QUEUE_VIEWS.map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => changeView(key)}>
         <span>{label}</span><strong>{viewCounts[key]}{incomplete ? "+" : ""}</strong>
-        <small>{key === "active" ? "New requests, in progress, and exceptions" : key === "waiting" ? "Clarification requested; waiting for a reply" : "Completed, declined, and successful NXT activity"}</small>
+        <small>{key === "active" ? "New requests, in progress, and exceptions" : key === "waiting" ? "Clarification requested; waiting for a reply" : "Routine activity and completed requests"}</small>
       </button>)}
     </nav>
     {busy && <p role="status" className={styles.notice}>Loading saved queue records{loads.imports && importProgress > 0 ? ` (${importProgress} import batches checked)` : ""}. Counts are provisional until all queues finish loading.</p>}
@@ -230,7 +232,7 @@ export default function AdvancementWorkQueue({ initialCategory = "all" }) {
             </button>
             {open && <div className={styles.expanded} id={`details-${item.key}`}>
               <RequestDetails item={item} />
-              {item.source !== "imports" && <div className={styles.review}>
+              {item.source !== "imports" && !(item.source === "submissions" && isSubmissionHistoryOnly(item.record)) && <div className={styles.review}>
                 <div className={styles.reviewHeader}><h3>Review this request</h3><span>These controls update the app queue, not NXT.</span></div>
                 {item.source === "lists" && <label>Priority<select aria-label={`Priority for ${item.title}`} disabled={disabled} value={draft.queuePriority ?? item.priority} onChange={(event) => updateDraft(item, { queuePriority: Number(event.target.value) })}><option value={1}>Urgent</option><option value={2}>Normal</option><option value={3}>Backlog</option></select></label>}
                 <label>Reviewer notes<textarea rows={3} aria-label={`Reviewer notes for ${item.title}`} disabled={disabled} value={draft.reviewerNotes ?? item.record.reviewer_notes ?? ""} onChange={(event) => updateDraft(item, { reviewerNotes: event.target.value })} placeholder="Add the next step, completion details, or a clarification question." /></label>

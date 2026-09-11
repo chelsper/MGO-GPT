@@ -1,15 +1,13 @@
 import sql from "@/app/api/utils/sql";
+import { submissionQueueGroupSql } from "./submissionReviewSql";
 
 // Counts are independent of the limited previews in /api/worklist. This is a
 // database-only read: opening the dashboard must not call NXT or run imports.
 export default async function getReviewerQueueCounts() {
-  const rows = await sql`
+  const rows = await sql(`
     SELECT
-      (SELECT COUNT(*) FROM submissions
-       WHERE LOWER(TRIM(COALESCE(blackbaud_sync_status, ''))) = 'failed'
-          OR NULLIF(TRIM(blackbaud_sync_error), '') IS NOT NULL
-          OR (status IN ('Pending', 'Ready for CRM')
-              AND LOWER(TRIM(COALESCE(blackbaud_sync_status, ''))) NOT IN ('synced', 'success'))
+      (SELECT COUNT(*) FROM submissions s
+       WHERE ${submissionQueueGroupSql()} = 'active'
       ) AS submissions,
       (SELECT COUNT(*) FROM data_change_requests
        WHERE status IN ('Open', 'In Progress')) AS data_requests,
@@ -28,7 +26,7 @@ export default async function getReviewerQueueCounts() {
           OR mgogpt_disposition_sync_state = 'failed'
       ) AS prospect_pool,
       (SELECT COUNT(*) FROM discussion_items WHERE status = 'Open') AS discussions
-  `;
+  `);
   const row = rows[0];
   if (!row) throw new Error("Queue counts were not returned");
   const count = (key) => {

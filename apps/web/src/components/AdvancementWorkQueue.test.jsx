@@ -30,6 +30,40 @@ const ready = async () => waitFor(() => expect(screen.getByRole("button", { name
 const rowButton = (name) => screen.getByRole("button", { name: new RegExp(name) });
 
 describe("compact reviewer queue", () => {
+  it("places routine Pending logs in History with no approval controls or NXT calls", async () => {
+    submissions.push({ id: 78, donor_name: "Historical Activity", submission_type: "donor_update", interaction_type: "Cultivation", status: "Pending", blackbaud_sync_status: "not_requested", reviewer_notes: "Preserved note" });
+    render(<AdvancementWorkQueue />);
+    await ready();
+    expect(rowButton("^Open work")).toHaveTextContent("2");
+    expect(screen.queryByText("Historical Activity")).not.toBeInTheDocument();
+    fireEvent.click(rowButton("^History"));
+    fireEvent.click(rowButton("Historical Activity"));
+    expect(screen.getByText("Saved in app")).toBeInTheDocument();
+    expect(screen.getByText(/NXT sync is not confirmed/)).toBeInTheDocument();
+    expect(screen.getByText("Preserved note")).toBeInTheDocument();
+    fireEvent.click(rowButton("Synced Example"));
+    expect(screen.queryByRole("button", { name: "Approve review" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ready for CRM" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save notes" })).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps genuine requests and NXT failures actionable without approving failures", async () => {
+    submissions = [
+      { id: 78, donor_name: "Contact Request", submission_type: "donor_update", interaction_type: "Data update", status: "Pending", blackbaud_sync_status: "not_requested" },
+      { id: 79, donor_name: "Failed Activity", submission_type: "opportunity_update", status: "Approved", blackbaud_sync_status: "failed" },
+    ];
+    render(<AdvancementWorkQueue />);
+    await ready();
+    fireEvent.click(rowButton("Contact Request"));
+    expect(screen.getByRole("button", { name: "Approve review" })).toBeInTheDocument();
+    fireEvent.click(rowButton("Contact Request"));
+    fireEvent.click(rowButton("Failed Activity"));
+    expect(screen.getByText("NXT follow-up required")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save notes" })).toBeInTheDocument();
+  });
+
   it("opens on active work and does not load NXT while browsing", async () => {
     render(<AdvancementWorkQueue />);
     await ready();

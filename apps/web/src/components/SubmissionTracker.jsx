@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import useUser from "@/utils/useUser";
 import { ArrowLeft, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import { canReviewSubmission, getSubmissionActivityNotice, getSubmissionDisplayStatus, getSubmissionReviewFilter, isSubmissionHistoryOnly } from "@/utils/submissionReview";
 
 const REVIEW_STATUSES = [
   "Pending",
@@ -168,9 +169,7 @@ function getDiscussionDefaultSubject(submission) {
 }
 
 function isNxtExceptionSubmission(submission) {
-  const syncStatus = String(submission?.blackbaud_sync_status || "").trim().toLowerCase();
-  const syncError = String(submission?.blackbaud_sync_error || "").trim();
-  return syncStatus === "failed" || Boolean(syncError);
+  return getSubmissionDisplayStatus(submission) === "NXT follow-up required";
 }
 
 function formatDataRequestSource(source) {
@@ -310,7 +309,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
   const [updatingId, setUpdatingId] = useState(null);
   const [updatingDataRequestId, setUpdatingDataRequestId] = useState(null);
   const [updatingListRequestId, setUpdatingListRequestId] = useState(null);
-  const [reviewFilter, setReviewFilter] = useState("Pending");
+  const [reviewFilter, setReviewFilter] = useState("All");
   const [dataRequestFilter, setDataRequestFilter] = useState("Open");
   const [listRequestFilter, setListRequestFilter] = useState("Pending");
   const [reviewDrafts, setReviewDrafts] = useState({});
@@ -636,7 +635,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
     if (!isReviewer) return {};
 
     return submissions.reduce((counts, submission) => {
-      const key = submission.status || "Pending";
+      const key = getSubmissionReviewFilter(submission);
       counts[key] = (counts[key] || 0) + 1;
       counts.All = (counts.All || 0) + 1;
       return counts;
@@ -663,7 +662,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
     if (!isReviewer) return {};
 
     return nxtExceptionSubmissions.reduce((counts, submission) => {
-      const key = submission.status || "Pending";
+      const key = getSubmissionReviewFilter(submission);
       counts[key] = (counts[key] || 0) + 1;
       counts.All = (counts.All || 0) + 1;
       return counts;
@@ -831,7 +830,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
         : [...submissions];
 
     if (isReviewer && reviewFilter !== "All") {
-      next = next.filter((submission) => (submission.status || "Pending") === reviewFilter);
+      next = next.filter((submission) => getSubmissionReviewFilter(submission) === reviewFilter);
     }
 
     const grouped = new Map();
@@ -1076,8 +1075,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
         {
           label: "Needs review",
           value:
-            (reviewerExceptionCounts.Pending || 0) +
-            (reviewerExceptionCounts["Needs Clarification"] || 0),
+            reviewerExceptionCounts["NXT follow-up required"] || 0,
           detail: "Exceptions not yet cleared",
         },
         {
@@ -1112,7 +1110,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
       {
         label: "Need your follow-up",
         value: visibleSubmissionGroups.filter((group) =>
-          group.submissions.some((submission) => submission.status === "Needs Clarification"),
+          group.submissions.some((submission) => getSubmissionReviewFilter(submission) === "Needs Clarification"),
         ).length,
         detail: "Threads waiting on your reply",
       },
@@ -1258,13 +1256,14 @@ export default function SubmissionTracker({ detailedReview = false }) {
 
     try {
       const currentSubmission = submissions.find((item) => item.id === id);
+      if (!currentSubmission || isSubmissionHistoryOnly(currentSubmission)) throw new Error("This activity is in History and does not require review.");
       const draft = reviewDrafts[id] || {};
       const response = await fetch("/api/submissions/update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
-          status: draft.status || currentSubmission?.status || "Pending",
+          status: canReviewSubmission(currentSubmission) ? draft.status || currentSubmission.status || "Pending" : undefined,
           reviewerNotes:
             draft.reviewerNotes ?? currentSubmission?.reviewer_notes ?? "",
         }),
@@ -1860,7 +1859,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                   Filter queue
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {["Pending", "Needs Clarification", "Ready for CRM", "Approved", "All"].map(
+                  {["All", "Pending", "Needs Clarification", "Ready for CRM", "NXT follow-up required", "History"].map(
                     (status) => {
                       const selected = reviewFilter === status;
                       const counts =
@@ -1930,6 +1929,9 @@ export default function SubmissionTracker({ detailedReview = false }) {
                     {(activeTab === NXT_EXCEPTIONS_TAB
                       ? reviewerExceptionCounts["Ready for CRM"]
                       : reviewerCounts["Ready for CRM"]) || 0}
+                  </div>
+                  <div>
+                    History: {(activeTab === NXT_EXCEPTIONS_TAB ? reviewerExceptionCounts.History : reviewerCounts.History) || 0}
                   </div>
                   <div>
                     Total:{" "}
@@ -2860,7 +2862,8 @@ export default function SubmissionTracker({ detailedReview = false }) {
                       }}
                     >
                       {group.submissions.map((submission) => {
-                        const colors = getStatusColors(submission.status);
+                        const displayStatus = getSubmissionDisplayStatus(submission);
+                        const colors = getStatusColors(displayStatus);
                         const emailMeta = getEmailStatusMeta(submission.notification_email_status);
                         const draft = reviewDrafts[submission.id];
                         const selectedStatus = draft?.status || submission.status || "Pending";
@@ -2918,7 +2921,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                                       fontWeight: 700,
                                     }}
                                   >
-                                    {submission.status}
+                                    {displayStatus}
                                   </span>
                                 </div>
                                 <div style={{ marginTop: "6px", fontSize: "13px", color: "#6B7280" }}>
@@ -2926,8 +2929,10 @@ export default function SubmissionTracker({ detailedReview = false }) {
                                 </div>
                               </div>
 
-                              {isReviewer ? (
+                              {getSubmissionActivityNotice(submission) && <p style={{ color: "#475569", maxWidth: "520px", lineHeight: 1.5 }}>{getSubmissionActivityNotice(submission)}</p>}
+                              {isReviewer && !isSubmissionHistoryOnly(submission) ? (
                                 <div style={{ minWidth: "220px" }}>
+                                  {canReviewSubmission(submission) && <>
                                   <label
                                     style={{
                                       display: "block",
@@ -2962,6 +2967,7 @@ export default function SubmissionTracker({ detailedReview = false }) {
                                       </option>
                                     ))}
                                   </select>
+                                  </>}
                                   <label
                                     style={{
                                       display: "block",
@@ -3014,10 +3020,10 @@ export default function SubmissionTracker({ detailedReview = false }) {
                                       opacity: updatingId === submission.id ? 0.7 : 1,
                                     }}
                                   >
-                                    {updatingId === submission.id ? "Saving..." : "Save review"}
+                                    {updatingId === submission.id ? "Saving..." : canReviewSubmission(submission) ? "Save review" : "Save notes"}
                                   </button>
                                 </div>
-                              ) : submission.status === "Needs Clarification" ? (
+                              ) : !isReviewer && getSubmissionReviewFilter(submission) === "Needs Clarification" ? (
                                 <div style={{ minWidth: "260px" }}>
                                   <label
                                     style={{

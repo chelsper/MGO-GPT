@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import getReviewerQueueCounts from "./reviewerQueueCounts";
+import { submissionQueueGroupSql } from "./submissionReviewSql";
 
 const { sql } = vi.hoisted(() => ({ sql: vi.fn() }));
 vi.mock("@/app/api/utils/sql", () => ({ default: sql }));
@@ -18,9 +19,10 @@ describe("reviewer queue counts", () => {
       submissions: 2, dataRequests: 24, listRequests: 3, constituencyImports: 14,
       familyImports: 2, prospectPool: 31, discussions: 20, workQueue: 43,
     });
-    const query = sql.mock.calls[0][0].join(" ");
+    const query = sql.mock.calls[0][0];
+    expect(query).toContain(`${submissionQueueGroupSql()} = 'active'`);
     expect(query).not.toMatch(/\bLIMIT\b/i);
-    expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/i);
+    expect(query.replace(/'[^']*'/g, "")).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/i);
   });
 
   it("returns zero for genuinely empty queues", async () => {

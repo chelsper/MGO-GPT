@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
+import { submissionQueueGroupSql } from "@/app/api/utils/submissionReviewSql";
 
 const { auth, sql, getWorkspaceUser, queueCounts } = vi.hoisted(() => ({
   auth: vi.fn(), sql: vi.fn(), getWorkspaceUser: vi.fn(), queueCounts: vi.fn(),
@@ -30,6 +31,9 @@ describe("worklist queue alerts", () => {
     expect(payload.queueCounts.workQueue).toBe(43);
     expect(payload.summary).toMatchObject({ openDataRequests: 24, poolNeedsAttention: 31, openDiscussionItems: 20 });
     expect(payload.dataRequests).toHaveLength(0);
+    expect(sql.mock.calls[0][0]).toContain(`${submissionQueueGroupSql()} AS queue_group`);
+    expect(sql.mock.calls[0][0]).toContain("status = 'Pending' AND queue_group = 'active'");
+    expect(sql.mock.calls[1][0]).toContain(`${submissionQueueGroupSql()} = 'waiting'`);
   });
 
   it("does not let an MGO request shared reviewer counts with a query parameter", async () => {
@@ -38,6 +42,10 @@ describe("worklist queue alerts", () => {
     expect(payload.role).toBe("mgo");
     expect(payload).not.toHaveProperty("queueCounts");
     expect(queueCounts).not.toHaveBeenCalled();
+    const clarificationQuery = sql.mock.calls.find(([query]) => typeof query === "string" && query.includes("FROM submissions s"));
+    expect(clarificationQuery[0]).toContain("s.user_id = $1");
+    expect(clarificationQuery[0]).toContain(`${submissionQueueGroupSql()} = 'waiting'`);
+    expect(clarificationQuery[1]).toEqual([7]);
   });
 
   it("restores shared counts when an admin returns from viewing an MGO", async () => {

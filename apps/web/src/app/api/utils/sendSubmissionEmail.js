@@ -5,6 +5,7 @@
 import sql from "@/app/api/utils/sql";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getOrganizationSettings } from "@/app/api/utils/organizationSettings";
+import { isSubmissionHistoryOnly } from "@/utils/submissionReview";
 
 const DEFAULT_RECIPIENT_EMAIL = "devdata@ju.edu";
 const DEFAULT_SENDER_NAME = "JUMGOGPT";
@@ -250,6 +251,7 @@ function getEmailBody(submission, submissionType, applicationName) {
 }
 
 export async function sendSubmissionEmail(submission, submissionType) {
+  if (isSubmissionHistoryOnly({ ...submission, submission_type: submissionType })) return;
   await ensureAppSchema();
   const routing = await getNotificationRouting();
   const apiKey = process.env.RESEND_API_KEY;

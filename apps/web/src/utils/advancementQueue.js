@@ -1,3 +1,5 @@
+import { canReviewSubmission, getSubmissionDisplayStatus, getSubmissionQueueGroup, hasSubmissionSyncFailure, isSubmissionHistoryOnly, isSubmissionSynced } from "./submissionReview";
+
 export const QUEUE_CATEGORIES = [
   ["all", "All requests"], ["data", "Data updates"], ["research", "Research"],
   ["lists", "List requests"], ["reviews", "Submission reviews"],
@@ -7,14 +9,12 @@ export const QUEUE_VIEWS = [["active", "Open work"], ["waiting", "Waiting on req
 
 const clean = (value) => String(value ?? "").trim();
 const closed = ["Complete", "Completed", "Approved", "Declined"];
-export const hasQueueSyncFailure = (row) => clean(row.blackbaud_sync_status).toLowerCase() === "failed" || Boolean(clean(row.blackbaud_sync_error));
-export const isDirectNxtSuccess = (row) => !hasQueueSyncFailure(row) && ["synced", "success"].includes(clean(row.blackbaud_sync_status).toLowerCase());
+export const hasQueueSyncFailure = hasSubmissionSyncFailure;
+export const isDirectNxtSuccess = isSubmissionSynced;
 
 export function getQueueGroup(source, row) {
   if (source === "imports") return [row.readyCount, row.needsReviewCount, row.conflictCount, row.failedCount].some((count) => Number(count) > 0) ? "active" : "history";
-  // Direct NXT writes can retain a Pending review status. They are not manual work.
-  if (source === "submissions" && hasQueueSyncFailure(row)) return "active";
-  if (source === "submissions" && isDirectNxtSuccess(row)) return "history";
+  if (source === "submissions") return getSubmissionQueueGroup(row);
   if (clean(row.status) === "Needs Clarification") return "waiting";
   return closed.includes(clean(row.status)) ? "history" : "active";
 }
@@ -42,14 +42,13 @@ export function formatQueueDate(value) {
 export function buildQueueItems(sources) {
   return Object.entries(sources).flatMap(([source, rows]) => rows.map((record) => {
     const category = source === "data" ? (/research/i.test(record.request_type || "") ? "research" : "data")
-      : source === "submissions" ? (hasQueueSyncFailure(record) ? "exceptions" : "reviews") : source;
+      : source === "submissions" ? (getSubmissionDisplayStatus(record) === "NXT follow-up required" ? "exceptions" : "reviews") : source;
     const constituent = clean(record.constituent_name || record.donor_name);
     const type = source === "lists" ? "List request" : source === "imports" ? "Import batch"
       : formatQueueValue(record.request_type || record.submission_type || "Submission");
     const title = source === "lists" ? formatQueueValue(record.purpose_other || record.purpose || "List request")
       : source === "imports" ? record.sourceFilename || "Untitled import" : constituent || type;
-    const status = source === "submissions" && hasQueueSyncFailure(record) ? "NXT follow-up required"
-      : source === "submissions" && isDirectNxtSuccess(record) ? "Synced to NXT"
+    const status = source === "submissions" ? getSubmissionDisplayStatus(record)
       : source === "imports" ? Number(record.failedCount) + Number(record.conflictCount) > 0 ? "Needs attention"
         : Number(record.needsReviewCount) > 0 ? "Needs review" : Number(record.readyCount) > 0 ? "Ready to import" : "No pending work"
       : record.status || (source === "data" ? "Open" : "Pending");
@@ -89,14 +88,14 @@ export function getQueueActions(item) {
     : [...(item.status !== "In Progress" ? [["In Progress", "Start work"]] : []), ["Completed", "Complete request"], ["Declined", "Decline request"]];
   if (item.source === "lists") return item.group === "history" ? [["Pending", "Reopen request"]]
     : [...(item.group === "waiting" ? [["Pending", "Return to open work"]] : [["Needs Clarification", "Request clarification"]]), ["Complete", "Complete request"]];
-  if (isDirectNxtSuccess(item.record)) return [];
-  if (hasQueueSyncFailure(item.record)) return [];
+  if (!canReviewSubmission(item.record)) return [];
   return item.group === "history" ? [["Pending", "Reopen review"]]
     : [...(item.group === "waiting" ? [["Pending", "Return to open work"]] : [["Needs Clarification", "Request clarification"]]), ["Approved", "Approve review"], ["Ready for CRM", "Ready for CRM"]];
 }
 
 export function buildQueueMutation(item, { status, reviewerNotes, queuePriority } = {}) {
   if (item.source === "imports") throw new Error("Open the import workspace to review this batch.");
+  if (item.source === "submissions" && isSubmissionHistoryOnly(item.record)) throw new Error("This activity is in History and does not require review.");
   if (status && !getQueueActions(item).some(([value]) => value === status)) throw new Error("This action is not available for this request.");
   const notes = clean(reviewerNotes ?? item.record.reviewer_notes);
   if (status === "Needs Clarification" && !notes) throw new Error("Write your clarification question in Reviewer notes first.");

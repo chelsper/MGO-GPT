@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import { sendAdvancementServicesNotification } from "@/app/api/utils/sendSubmissionEmail";
+import { getSubmissionQueueGroup } from "@/utils/submissionReview";
 
 export async function POST(request) {
   try {
@@ -30,7 +31,7 @@ export async function POST(request) {
     }
 
     const existing = await sql`
-      SELECT id, notes
+      SELECT id, notes, status, submission_type, interaction_type, blackbaud_sync_status, blackbaud_sync_error
       FROM submissions
       WHERE id = ${id} AND user_id = ${user.id}
       LIMIT 1
@@ -38,6 +39,9 @@ export async function POST(request) {
 
     if (existing.length === 0) {
       return Response.json({ error: "Submission not found" }, { status: 404 });
+    }
+    if (getSubmissionQueueGroup(existing[0]) !== "waiting") {
+      return Response.json({ error: "This activity is not awaiting clarification. Refresh the tracker to see its current status." }, { status: 409 });
     }
 
     const currentNotes = String(existing[0].notes || "").trim();
@@ -53,10 +57,14 @@ export async function POST(request) {
         status = 'Pending',
         updated_at = NOW()
       WHERE id = ${id} AND user_id = ${user.id}
+        AND status = 'Needs Clarification'
+        AND blackbaud_sync_status IS NOT DISTINCT FROM ${existing[0].blackbaud_sync_status}
+        AND blackbaud_sync_error IS NOT DISTINCT FROM ${existing[0].blackbaud_sync_error}
       RETURNING *
     `;
 
     const submission = result[0];
+    if (!submission) return Response.json({ error: "This activity changed. Refresh the tracker before trying again." }, { status: 409 });
     await sendAdvancementServicesNotification({
       title: "Submission clarification answered",
       text: [
