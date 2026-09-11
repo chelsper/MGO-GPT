@@ -330,6 +330,7 @@ export async function POST(request, { params }) {
         notice = await checkClearNonmatch({ input, rowId: routeParams.rowId, runId: routeParams.runId,
           credentials: { userId: authResult.user.id, authUserId: authResult.user.id, origin },
           reviewedCandidateIds: getReviewedNonmatchIds(row),
+          reviewedLocalDuplicates: preview.reviewedLocalDuplicates || [],
           onCandidates: (matches) => { candidates = [...candidates, ...matches]; },
           onLocalDuplicate: (found) => { localDuplicate = found; } }) || "";
       } else {

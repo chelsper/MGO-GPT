@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
+import { getImportWriteResults, hasImportRetryHold, importWriteCanRetry } from "@/utils/importWriteResults";
 import { ArrowLeft, Check, Copy, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
@@ -1210,6 +1211,9 @@ function formatApplyResultItem(result) {
   }
   if (result.status === "manual_required") {
     return `Manual review: ${result.message || "This staged write is not automated yet."}`;
+  }
+  if (["unconfirmed", "started", "blocked"].includes(result.status)) {
+    return result.message || "This change is not confirmed. Compare NXT before continuing.";
   }
   if (result.status === "failed") {
     return `NXT write failed: ${result.message || "No error detail was returned."}`;
@@ -5721,9 +5725,18 @@ export default function ConstituencyImportPage() {
         `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/create?mode=${mode}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       );
-      const payload = await response.json().catch(() => null);
+      let payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to create the NXT record");
+      }
+
+      if (mode === "review_local_reject") {
+        const checks = await fetch(
+          `/api/constituency-import/runs/${encodeURIComponent(runId)}/rows/${encodeURIComponent(row.id)}/create?mode=review_new_check`,
+          { method: "POST" },
+        );
+        payload = await checks.json().catch(() => null);
+        if (!checks.ok) throw new Error(payload?.error || "Review decision saved, but duplicate checks could not finish. Retry checks before creating.");
       }
 
       await loadSavedRun(runId, { focusRowId: row.id, preload: mode === "reviewed_new" });
@@ -5747,14 +5760,10 @@ export default function ConstituencyImportPage() {
     const runId = preview?.savedRun?.id;
     if (!runId || !row?.id || retryingRowId) return;
 
-    const failedWrites = Array.isArray(row.blackbaudResult?.results)
-      ? row.blackbaudResult.results.filter(
-          (result) => result?.status === "failed" && Number.isInteger(result?.writeIndex),
-        )
-      : [];
-    if (!failedWrites.length) {
+    const failedWrites = getImportWriteResults(row.blackbaudResult).filter(importWriteCanRetry);
+    if (!failedWrites.length || hasImportRetryHold(row.blackbaudResult)) {
       setError(
-        "This failed row does not have a write-level retry record. Refresh the source row and compare it with NXT before applying it again.",
+        "This row cannot be safely retried. Compare the saved outcomes with NXT, then prepare a separate import for any remaining changes. Earlier history will be preserved.",
       );
       return;
     }
@@ -8371,12 +8380,7 @@ export default function ConstituencyImportPage() {
                 const loadingProfileDetails = isHydratingRowScope(row, "profile");
                 const loadingNameFormatDetails = isHydratingRowScope(row, "nameFormats");
                 const loadingConstituencyDetails = isHydratingRowScope(row, "codes");
-                const failedWriteResults = Array.isArray(row.blackbaudResult?.results)
-                  ? row.blackbaudResult.results.filter(
-                      (result) =>
-                        result?.status === "failed" && Number.isInteger(result?.writeIndex),
-                    )
-                  : [];
+                const failedWriteResults = hasImportRetryHold(row.blackbaudResult) ? [] : getImportWriteResults(row.blackbaudResult).filter(importWriteCanRetry);
                 const hasUnselectedConstituencyReplacement = (row.writePlan || []).some(
                   (write) =>
                     write?.type === "constituent_code" &&
@@ -9561,7 +9565,7 @@ export default function ConstituencyImportPage() {
                         <span style={{ color: "#9A3412", fontWeight: 800, lineHeight: 1.45 }}>
                           {failedWriteResults.length
                             ? `${failedWriteResults.length} staged NXT write${failedWriteResults.length === 1 ? "" : "s"} failed. Successful writes will not be repeated.`
-                            : "This failed before JUMGOGPT could safely identify a single write to retry. Refresh this row before trying again."}
+                            : "Automatic retry is unavailable. Compare the saved outcomes with NXT, then prepare a separate import for any remaining changes. Earlier history will be preserved."}
                         </span>
                         {failedWriteResults.length ? (
                           <button

@@ -412,6 +412,29 @@ describe("constituency import new-record create route", () => {
     expect(JSON.parse(blocked[1])).toMatchObject({ status: "blocked", nextAction: "correct_csv" });
     expect(blackbaudApiFetchMock).toHaveBeenCalledOnce();
   });
+  it.each(["review_local_check", "review_local_reject"])("protects %s with reviewer access and never falls through to creation", async (mode) => {
+    setupQuick();
+    const { POST } = await import("./route.js");
+    const request = () => new Request(`${makeRequest().url}?mode=${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    getWorkspaceUserMock.mockResolvedValueOnce({ sessionUser: { id: 8, role: "mgo" } });
+    expect((await POST(request(), { params: { id: "42", rowId: "9" } })).status).toBe(403);
+    expect((await POST(request(), { params: { id: "42", rowId: "9" } })).status).toBe(409);
+    expect(claimMock).not.toHaveBeenCalled();
+    expect(checkpointMock).not.toHaveBeenCalled();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+  it("uses only server-saved local decisions in the final leased check and stores them in the approval audit", async () => {
+    const row = await setupReviewed();
+    row.preview.reviewedLocalDuplicates = [{ fingerprint: "saved", note: "Different person verified." }];
+    const { newRecordReviewFingerprint } = await import("@/app/api/utils/reviewedConstituentCreate");
+    row.preview.newRecordReview.fingerprint = newRecordReviewFingerprint(row);
+    const { POST } = await import("./route.js");
+    const response = await POST(reviewedRequest({ reviewNote: "Verified separate people and all holds.", reviewedLocalDuplicates: [{ fingerprint: "forged" }] }), { params: { id: "42", rowId: "9" } });
+    expect(response.status).toBe(200);
+    expect(checkMock).toHaveBeenCalledWith(expect.objectContaining({ reviewedLocalDuplicates: row.preview.reviewedLocalDuplicates }));
+    const claim = sqlMock.mock.calls.find(([query]) => query.join(" ").includes("blackbaud_result = CASE WHEN"));
+    expect(claim.some((value) => typeof value === "string" && value.includes('"localDuplicateDecisions":[{"fingerprint":"saved"'))).toBe(true);
+  });
   it("rebuilds deferred source writes after rejected matches and never reuses their NXT IDs", async () => {
     const row = await setupReviewed();
     row.preview.input.lookupId = "55";

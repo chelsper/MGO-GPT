@@ -3,6 +3,7 @@ const { api, sql } = vi.hoisted(() => ({ api: vi.fn(), sql: vi.fn() }));
 vi.mock("./blackbaud", () => ({ blackbaudApiFetch: api }));
 vi.mock("./sql", () => ({ default: sql }));
 import { checkClearNonmatch, configuredNameFormatPayload, markConstituentCreateStarted, claimConstituentCreateLease, renewConstituentCreateLease, releaseConstituentCreateLease } from "./safeConstituentCreate";
+import { localDuplicateFingerprint } from "./importLocalDuplicateEvidence";
 const input = { firstName: "Jane", lastName: "Dolphin", email: "jane@example.com", addressLine1: "42 North Main Street", postalCode: "32211-1234", duplicateCheckVersion: 1 };
 const check = (overrides = {}) => checkClearNonmatch({ input: { ...input, ...overrides }, rowId: "9", runId: "42", credentials: { userId: 7 } });
 
@@ -170,5 +171,29 @@ describe("live duplicate preflight", () => {
     expect(await claimConstituentCreateLease()).toBeTruthy();
     await releaseConstituentCreateLease("owned");
     expect(sql.mock.calls.at(-1)[0].join(" ")).toContain("AND token =");
+  });
+
+  it("advances through every reviewed local hold and still runs every NXT duplicate channel", async () => {
+    const pending = [21, 22].map((id) => ({ id, run_id: 42, status: "Ready", input: { ...input } }));
+    sql.mockResolvedValue(pending);
+    const decisions = pending.map((row) => ({ decision: "different_person", fingerprint: localDuplicateFingerprint(input, row, "pending_row"),
+      reviewedByUserId: "7", reviewedAt: "2026-09-09", note: "Verified a separate person sharing contact information." }));
+    const onLocalDuplicate = vi.fn();
+    const options = { input, rowId: "9", runId: "42", credentials: {}, onLocalDuplicate };
+    expect(await checkClearNonmatch({ ...options, reviewedLocalDuplicates: decisions.slice(0, 1) })).toContain("Another import row");
+    expect(onLocalDuplicate).toHaveBeenLastCalledWith(expect.objectContaining({ rowId: "22" }));
+    expect(await checkClearNonmatch({ ...options, reviewedLocalDuplicates: decisions })).toBeNull();
+    expect(api).toHaveBeenCalledTimes(4);
+    // A new blocker is never covered by reviewing earlier rows.
+    sql.mockResolvedValue([...pending, { id: 23, input }]);
+    expect(await checkClearNonmatch({ ...options, reviewedLocalDuplicates: decisions })).toContain("Another import row");
+    expect(onLocalDuplicate).toHaveBeenLastCalledWith(expect.objectContaining({ rowId: "23" }));
+  });
+  it("invalidates a pending-row decision when that row starts creation", async () => {
+    const pending = { id: 21, input };
+    const decisions = [{ decision: "different_person", fingerprint: localDuplicateFingerprint(input, pending, "pending_row"), reviewedByUserId: "7", reviewedAt: "2026-09-09", note: "Compared; these are different people." }];
+    sql.mockResolvedValue([{ ...pending, create_request_started_at: "2026-09-09" }]);
+    expect(await checkClearNonmatch({ input, rowId: "9", runId: "42", credentials: {}, reviewedLocalDuplicates: decisions })).toContain("may have been sent");
+    expect(api).not.toHaveBeenCalled();
   });
 });

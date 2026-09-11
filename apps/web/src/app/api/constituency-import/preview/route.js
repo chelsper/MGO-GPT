@@ -19,6 +19,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { addressesEquivalent } from "@/utils/contactMatching";
 import { importMatchEvidence, qualifyImportMatchCandidates } from "@/utils/importMatchEvidence";
+import { hasImportWriteHistory } from "@/utils/importWriteResults";
 
 export const runtime = "nodejs";
 // The browser persists the import in small batches, so this route should fail
@@ -2453,6 +2454,9 @@ function removeDeferredDetailReasons(reasons) {
 
 export function mergePriorReviewState(row, priorSavedRow) {
   const previous = priorSavedRow?.preview || priorSavedRow;
+  // Preserve the audit, not its approval token. Changed source evidence will
+  // invalidate these decisions when the complete duplicate checks run again.
+  if (previous?.reviewedLocalDuplicates?.length) row = { ...row, reviewedLocalDuplicates: previous.reviewedLocalDuplicates };
   const oldId = cleanText(priorSavedRow?.matched_blackbaud_constituent_id || previous?.match?.blackbaudConstituentId);
   const newId = cleanText(row.match?.blackbaudConstituentId);
   const oldLookup = cleanText(priorSavedRow?.matched_lookup_id || previous?.match?.lookupId);
@@ -2723,70 +2727,13 @@ async function savePreviewRun({
   const normalizedExistingRunId = cleanText(existingRunId);
   const cleanSourceFilename = cleanText(sourceFilename).slice(0, 255) || null;
   let run = null;
-  let priorRowsByNumber = new Map();
 
   if (normalizedExistingRunId) {
-    const existingRuns = await sql`
-      SELECT *
-      FROM constituency_import_runs
-      WHERE id = ${normalizedExistingRunId}
-      LIMIT 1
-    `;
-    run = existingRuns[0] || null;
-    if (!run) {
-      throw new Error("The saved import run could not be found.");
-    }
-    if (String(run.workspace_user_id || "") !== String(workspaceUser.id)) {
-      throw new Error("You can only update your own saved import run.");
-    }
-
-    const priorRows = await sql`
-      SELECT *
-      FROM constituency_import_rows
-      WHERE run_id = ${normalizedExistingRunId}
-      ORDER BY row_number ASC
-    `;
-    priorRowsByNumber = new Map(priorRows.map((row) => [String(row.row_number), row]));
-
-    if (priorRows.some((row) => row.create_approved_at || row.create_request_started_at || row.created_blackbaud_constituent_id || row.quick_create_status)) {
-      throw new Error("This run has saved new-record checks or creation attempts. Continue its individual review instead of replacing its preview.");
-    }
-
-    await sql`
-      DELETE FROM constituency_import_rows
-      WHERE run_id = ${normalizedExistingRunId}
-        AND create_approved_at IS NULL AND create_request_started_at IS NULL
-        AND created_blackbaud_constituent_id IS NULL AND quick_create_status IS NULL
-    `;
-
-    const mergedPreviewRows = previewRows.map((row) =>
-      mergePriorReviewState(row, priorRowsByNumber.get(String(row.rowNumber))),
-    );
-    previewRows = mergedPreviewRows;
-    summary = summarize(previewRows, warnings);
-
-    const updatedRuns = await sql`
-      UPDATE constituency_import_runs
-      SET
-        status = 'previewed',
-        source_filename = ${cleanSourceFilename},
-        mappings = ${JSON.stringify(mappings)}::jsonb,
-        defaults = ${JSON.stringify(defaults)}::jsonb,
-        warnings = ${JSON.stringify(warnings)}::jsonb,
-        summary = ${JSON.stringify(summary)}::jsonb,
-        row_count = ${Number(summary.total || previewRows.length || 0)},
-        ready_count = ${Number(summary.ready || 0)},
-        needs_review_count = ${Number(summary.needsReview || 0)},
-        conflict_count = ${Number(summary.conflict || 0)},
-        skipped_count = ${Number(summary.skipped || 0)},
-        applied_count = 0,
-        failed_count = 0,
-        applied_at = NULL,
-        updated_at = NOW()
-      WHERE id = ${normalizedExistingRunId}
-      RETURNING *
-    `;
-    run = updatedRuns[0];
+    return savePreviewBatch({
+      sessionUser, workspaceUser, sourceFilename, mappings, defaults, warnings,
+      previewRows, rawRows, existingRunId, totalRowCount: previewRows.length,
+      finalizeRun: true,
+    });
   } else {
     const createdRows = await sql`
       INSERT INTO constituency_import_runs (
@@ -2986,14 +2933,18 @@ async function savePreviewBatch({
     SELECT *
     FROM constituency_import_rows
     WHERE run_id = ${run.id}
-      AND row_number >= ${normalizedOffset + 1}
-      AND row_number <= ${normalizedOffset + previewRows.length}
   `;
   const priorRowsByNumber = new Map(priorRows.map((row) => [String(row.row_number), row]));
   const persistedRowIds = new Map();
 
   if (priorRows.some((row) => row.create_approved_at || row.create_request_started_at || row.created_blackbaud_constituent_id || row.quick_create_status)) {
     throw new Error("This run has saved new-record checks or creation attempts. Continue its individual review instead of replacing its preview.");
+  }
+  if (priorRows.some(hasImportWriteHistory)) {
+    throw new Error("This run has saved NXT write attempts or imported records. Continue its saved review or retry; start a new import for different source data. Its history was not replaced.");
+  }
+  if (priorRows.length > normalizedTotal || priorRows.some((row) => Number(row.row_number) > normalizedTotal)) {
+    throw new Error("Start a new import when removing source rows. The saved run and its records were left intact.");
   }
 
   for (const sourcePreviewRow of previewRows) {
@@ -3068,11 +3019,18 @@ async function savePreviewBatch({
         AND constituency_import_rows.create_request_started_at IS NULL
         AND constituency_import_rows.created_blackbaud_constituent_id IS NULL
         AND constituency_import_rows.quick_create_status IS NULL
+        AND constituency_import_rows.status NOT IN ('Applying', 'Applied', 'Failed', 'Creating')
+        AND constituency_import_rows.applied_at IS NULL
+        AND COALESCE(constituency_import_rows.blackbaud_result->'results', '[]'::jsonb) = '[]'::jsonb
+        AND COALESCE(constituency_import_rows.blackbaud_result->'attempts', '[]'::jsonb) = '[]'::jsonb
+        AND constituency_import_rows.preview IS NOT DISTINCT FROM ${priorRowsByNumber.get(String(row.rowNumber))?.preview == null ? null : JSON.stringify(priorRowsByNumber.get(String(row.rowNumber)).preview)}::jsonb
       RETURNING id, row_number
     `;
     const persistedRow = insertedRows?.[0];
     if (persistedRow?.id != null) {
       persistedRowIds.set(String(row.rowNumber), String(persistedRow.id));
+    } else {
+      throw new Error("An import row changed or began sending while the preview was prepared. Reload the saved run; no existing write history was replaced.");
     }
   }
 

@@ -8,6 +8,8 @@ const blackbaudApiFetchMock = vi.fn();
 const getBlackbaudQuotaStatusMock = vi.fn();
 const claimImportRowForApplyMock = vi.fn();
 const verifyImportTargetIdentityMock = vi.fn();
+const checkpointMock = vi.fn();
+vi.mock("@/app/api/utils/importWriteCheckpoint", () => ({ persistImportWriteCheckpoint: checkpointMock }));
 vi.mock("@/app/api/utils/importTargetIdentity", () => ({ verifyImportTargetIdentity: verifyImportTargetIdentityMock }));
 vi.mock("@/app/api/utils/importRowApplyClaim", () => ({ claimImportRowForApply: claimImportRowForApplyMock }));
 
@@ -81,6 +83,7 @@ describe("constituency import run apply route", () => {
     getBlackbaudQuotaStatusMock.mockReset();
     claimImportRowForApplyMock.mockReset().mockResolvedValue(true);
     verifyImportTargetIdentityMock.mockReset().mockResolvedValue({ ok: true });
+    checkpointMock.mockReset().mockResolvedValue();
 
     authMock.mockResolvedValue({ user: { email: "reviewer@example.com" } });
     ensureAppSchemaMock.mockResolvedValue();
@@ -212,6 +215,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: {
         constituent_id: "123",
         description: "Alumni - Graduate Degree",
@@ -230,7 +234,7 @@ describe("constituency import run apply route", () => {
     const { verifyImportTargetIdentity } = await vi.importActual("@/app/api/utils/importTargetIdentity");
     verifyImportTargetIdentityMock.mockImplementation(verifyImportTargetIdentity);
     const write = { type: "constituent_code", action: "add", targetConstituency: "Student" };
-    const priorAudit = { results: [{ status: "failed", writeIndex: 0, type: "constituent_code" }], attempts: [{ results: [{ status: "failed", writeIndex: 0 }] }] };
+    const priorAudit = { results: [{ status: "failed", writeIndex: 0, type: "constituent_code", retrySafe: true }], attempts: [{ results: [{ status: "failed", writeIndex: 0 }] }] };
     const row = {
       id: "9", run_id: "42", row_number: 1, status: retry ? "Failed" : "Ready",
       matched_blackbaud_constituent_id: "100", matched_lookup_id: "629381", requested_writes: [write],
@@ -302,6 +306,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: { preferred_name: "Chels" },
       },
     );
@@ -351,6 +356,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: {
           title: "Dr.",
           gender: "Female",
@@ -403,6 +409,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: {
           custom_format: true,
           formatted_name: "Dr. Jane Dolphin",
@@ -446,7 +453,8 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([{ ...row, status: "Applied", applied_at: "2026-08-07T12:00:00Z" }]);
     blackbaudApiFetchMock
       .mockResolvedValueOnce({ value: [{ id: "old-email", address: "prior@example.com" }] })
-      .mockResolvedValueOnce({ id: "new-email" });
+      .mockResolvedValueOnce({ id: "new-email" })
+      .mockResolvedValueOnce({ value: [{ id: "new-email", address: "chelsea.updated@example.com", primary: true }] });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
@@ -466,6 +474,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: {
         constituent_id: "123",
         address: "chelsea.updated@example.com",
@@ -523,6 +532,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: { address: "chelsea.new@example.com" },
       },
     );
@@ -569,6 +579,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: {
         constituent_id: "123",
         number: "904-555-0199",
@@ -637,6 +648,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: {
           address_lines: "2800 University Blvd N",
           city: "Jacksonville",
@@ -724,32 +736,38 @@ describe("constituency import run apply route", () => {
           { id: "email-preferred-2", address: "new-primary@example.com", primary: false },
         ],
       })
-      .mockResolvedValueOnce({ id: "email-preferred-1" })
-      .mockResolvedValueOnce({ id: "email-preferred-2" });
+      .mockResolvedValueOnce({ id: "email-preferred-2" })
+      .mockResolvedValueOnce({ value: [
+        { id: "email-preferred-1", address: "current@example.com", primary: false },
+        { id: "email-preferred-2", address: "new-primary@example.com", primary: true },
+      ] })
+      .mockResolvedValueOnce({ id: "email-preferred-1" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
-      2,
+      4,
       "/constituent/v1/emailaddresses/email-preferred-1",
       {
         userId: 7,
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: { primary: false, type: "Preferred Email 1" },
       },
     );
     expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
-      3,
+      2,
       "/constituent/v1/emailaddresses/email-preferred-2",
       {
         userId: 7,
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: { primary: true },
       },
     );
@@ -790,25 +808,31 @@ describe("constituency import run apply route", () => {
           { id: "phone-mobile", number: "904-555-0199", primary: false },
         ],
       })
-      .mockResolvedValueOnce({ id: "phone-home" })
-      .mockResolvedValueOnce({ id: "phone-mobile" });
+      .mockResolvedValueOnce({ id: "phone-mobile" })
+      .mockResolvedValueOnce({ value: [
+        { id: "phone-home", number: "904-555-0100", primary: true },
+        { id: "phone-mobile", number: "904-555-0199", primary: true },
+      ] })
+      .mockResolvedValueOnce({ id: "phone-home" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(2, "/constituent/v1/phones/phone-home", {
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(4, "/constituent/v1/phones/phone-home", {
       userId: 7,
       authUserId: 7,
       origin: "https://example.com",
       method: "PATCH",
+      maxRetries: 0,
       body: { primary: false },
     });
-    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(3, "/constituent/v1/phones/phone-mobile", {
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(2, "/constituent/v1/phones/phone-mobile", {
       userId: 7,
       authUserId: 7,
       origin: "https://example.com",
       method: "PATCH",
+      maxRetries: 0,
       body: { primary: true },
     });
     expect(payload.applySummary.applied).toBe(1);
@@ -862,6 +886,7 @@ describe("constituency import run apply route", () => {
         value: [{ id: "address-old", address_lines: ["10 Elm St."], primary: true, type: "Home" }],
       })
       .mockResolvedValueOnce({ id: "address-new" })
+      .mockResolvedValueOnce({ value: [{ id: "address-new", address_lines: ["2800 University Blvd N"], city: "Jacksonville", state: "FL", postal_code: "32211", country: "United States", primary: true }] })
       .mockResolvedValueOnce({
         value: [{ id: "address-old", address_lines: ["10 Elm St."], primary: false, type: "Home" }],
       })
@@ -876,6 +901,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: {
         constituent_id: "123",
         address_lines: "2800 University Blvd N",
@@ -887,11 +913,12 @@ describe("constituency import run apply route", () => {
         primary: true,
       },
     });
-    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(4, "/constituent/v1/addresses/address-old", {
+    expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(5, "/constituent/v1/addresses/address-old", {
       userId: 7,
       authUserId: 7,
       origin: "https://example.com",
       method: "PATCH",
+      maxRetries: 0,
       body: { type: "Previous Address", valid_to: "2026-08-08" },
     });
     expect(payload.applySummary.applied).toBe(1);
@@ -925,7 +952,7 @@ describe("constituency import run apply route", () => {
           type: "address",
           action: "add",
           writeIndex: 0,
-          message: "NXT rejected the new address",
+          message: "Blackbaud 400: NXT rejected the new address",
         },
         {
           status: "manual_required",
@@ -1010,7 +1037,7 @@ describe("constituency import run apply route", () => {
       .mockResolvedValueOnce([{ ...row, status: "Failed", blackbaud_error: "Blackbaud 400 Bad Request" }]);
     blackbaudApiFetchMock
       .mockResolvedValueOnce({ value: [] })
-      .mockRejectedValueOnce(new Error("Blackbaud 400 Bad Request"));
+      .mockRejectedValueOnce(Object.assign(new Error("Blackbaud 400 Bad Request"), { httpStatus: 400 }));
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
     const payload = await response.json();
@@ -1105,6 +1132,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "DELETE",
+        maxRetries: 0,
       },
     );
     expect(blackbaudApiFetchMock).toHaveBeenNthCalledWith(
@@ -1115,6 +1143,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "POST",
+        maxRetries: 0,
         body: {
           constituent_id: "123",
           description: "Alumni - Bachelor's Degree",
@@ -1194,6 +1223,7 @@ describe("constituency import run apply route", () => {
       "/constituent/v1/constituentcodes",
       expect.objectContaining({
         method: "POST",
+        maxRetries: 0,
         body: { constituent_id: "123", description: "Alumni - Bachelor's Degree" },
       }),
     );
@@ -1339,7 +1369,7 @@ describe("constituency import run apply route", () => {
         ],
       })
       .mockResolvedValueOnce({})
-      .mockRejectedValueOnce(new Error("NXT rejected Alumni"))
+      .mockRejectedValueOnce(Object.assign(new Error("NXT rejected Alumni"), { httpStatus: 400 }))
       .mockResolvedValueOnce({ id: "restored-student-code" });
 
     const response = await POST(makeRequest(), { params: { id: "42" } });
@@ -1352,6 +1382,7 @@ describe("constituency import run apply route", () => {
       "/constituent/v1/constituentcodes",
       expect.objectContaining({
         method: "POST",
+        maxRetries: 0,
         body: {
           constituent_id: "123",
           description: "Student",
@@ -1432,6 +1463,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: {
         constituent_id: "123",
         school: "Jacksonville University",
@@ -1578,6 +1610,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: {
         constituent_id: "123",
         relation_id: "456",
@@ -1695,6 +1728,7 @@ describe("constituency import run apply route", () => {
       authUserId: 7,
       origin: "https://example.com",
       method: "POST",
+      maxRetries: 0,
       body: { constituent_id: "123", relation_id: "456" },
     });
     expect(payload.applySummary.applied).toBe(1);
@@ -1810,6 +1844,7 @@ describe("constituency import run apply route", () => {
       "/constituent/v1/educations/education-1",
       expect.objectContaining({
         method: "PATCH",
+        maxRetries: 0,
         body: { degree: "Bachelor of Science" },
       }),
     );
@@ -1886,6 +1921,7 @@ describe("constituency import run apply route", () => {
       "/constituent/v1/educations/education-1",
       expect.objectContaining({
         method: "PATCH",
+        maxRetries: 0,
         body: { status: "Graduated" },
       }),
     );
@@ -2069,8 +2105,10 @@ describe("constituency import run apply route", () => {
 
     expect(response.status).toBe(200);
     expect(blackbaudApiFetchMock).toHaveBeenCalledTimes(2);
-    expect(payload.applySummary.applied).toBe(1);
-    expect(payload.applySummary.failed).toBe(1);
+    expect(payload.applySummary.applied).toBe(0);
+    expect(payload.applySummary.manualRequired).toBe(1);
+    expect(payload.applySummary.failed).toBe(0);
+    expect(getSavedApplyAudit().results.map((result) => result.status)).toEqual(["applied", "unconfirmed"]);
     expect(payload.rows[0].blackbaudResult.results).toEqual(savedResult.results);
   });
 
@@ -2169,6 +2207,7 @@ describe("constituency import run apply route", () => {
         authUserId: 7,
         origin: "https://example.com",
         method: "PATCH",
+        maxRetries: 0,
         body: { title: "Dr." },
       },
     );

@@ -6,10 +6,15 @@ export const constituencyOutcomeSql = `CASE
   WHEN r.status = 'Applied' THEN 'imported'
   WHEN r.status IN ('Applying', 'Creating') THEN NULL
   WHEN r.quick_create_status = 'uncertain' THEN 'unconfirmed'
+  WHEN EXISTS (
+    SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.blackbaud_result->'results') = 'array'
+      THEN r.blackbaud_result->'results' ELSE '[]'::jsonb END) result
+    WHERE result->>'status' IN ('unconfirmed', 'started')
+  ) THEN 'unconfirmed'
   WHEN r.status = 'Failed' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.blackbaud_result->'results') = 'array'
       THEN r.blackbaud_result->'results' ELSE '[]'::jsonb END) result
-    WHERE result->>'status' IN ('failed', 'manual_required')
+    WHERE result->>'status' IN ('failed', 'manual_required', 'blocked')
   ) THEN CASE WHEN NULLIF(r.created_blackbaud_constituent_id, '') IS NOT NULL OR r.applied_at IS NOT NULL
     THEN 'partial' ELSE 'failed' END
   WHEN NULLIF(r.created_blackbaud_constituent_id, '') IS NOT NULL THEN 'created'
@@ -32,7 +37,7 @@ export const IMPORT_RESULT_COPY = {
   created: { label: 'Record created', note: 'The new NXT record was created. Any additional staged changes are not included in this result.' },
   partial: { label: 'Partially imported', note: 'Some changes were saved in NXT, but the import did not fully complete.' },
   failed: { label: 'Import failed', note: 'The saved import attempt did not complete successfully.' },
-  unconfirmed: { label: 'Not confirmed', note: 'NXT did not confirm the create result. A record may have been created; this is not a confirmed success.' },
+  unconfirmed: { label: 'Not confirmed', note: 'NXT did not confirm a write result. A record or change may already be saved; do not repeat an unconfirmed write.' },
 };
 
 export function parseImportHistoryFilters(url) {

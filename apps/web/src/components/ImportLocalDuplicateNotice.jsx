@@ -12,7 +12,7 @@ export default function ImportLocalDuplicateNotice({ duplicate }) {
     <p>Reason: {duplicate.reason}. {duplicate.lookupId ? `CSV Lookup ID: ${duplicate.lookupId}. ` : ""}{duplicate.systemId ? `CSV system ID: ${duplicate.systemId}.` : ""}</p>
     <p>This check uses saved import information, not a newly confirmed NXT search match.</p>
     <p>{pending
-      ? "Compare both CSV rows. For the same person, keep one and skip the extra unsent row, then retry duplicate checks on the retained row. For different people, correct the conflicting CSV values."
+      ? "Compare both CSV rows. For the same person, keep one and skip the extra unsent row, then retry duplicate checks on the retained row. For different people, use Review this hold below to record your comparison."
       : created
         ? "Open the NXT record and compare it with this CSV row. Search indexing can lag after creation. Do not create a second record or select this one without comparing its current identity."
         : "A create request may already have reached NXT. Verify the earlier attempt before retrying. Skipping its row does not make another creation safe."}</p>

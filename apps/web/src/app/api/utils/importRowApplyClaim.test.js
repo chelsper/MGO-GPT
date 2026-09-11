@@ -12,7 +12,9 @@ describe("import row apply claim", () => {
     expect(strings.join(" ")).toContain("status = 'Applying'");
     expect(strings.join(" ")).toContain("preview IS NOT DISTINCT FROM");
     expect(strings.join(" ")).toContain("matched_blackbaud_constituent_id IS NOT DISTINCT FROM");
-    expect(args).toEqual([9, 42, "Ready", "{}", "[]", "123"]);
+    expect(strings.join(" ")).toContain("blackbaud_result IS NOT DISTINCT FROM");
+    expect(strings.join(" ")).toContain("applied_at IS NOT DISTINCT FROM");
+    expect(args).toEqual([9, 42, "Ready", "{}", "[]", "123", null, null]);
   });
   it("does not send a stale or concurrently claimed row", async () => {
     sqlMock.mockResolvedValue([]);

@@ -29,7 +29,9 @@ describe('read-only import history', () => {
   });
   it('does not claim partial or unconfirmed imports succeeded', () => {
     expect(IMPORT_RESULT_COPY.partial.note).toContain('did not fully complete');
-    expect(IMPORT_RESULT_COPY.unconfirmed.note).toContain('may have been created');
+    expect(IMPORT_RESULT_COPY.unconfirmed.note).toContain('may already be saved');
+    expect(importHistoryQuery).toContain("IN ('unconfirmed', 'started')");
+    expect(importHistoryQuery).toContain("'manual_required', 'blocked'");
   });
   it.each([{}, { successful: null, failed: 0, records: [] }, { successful: '', failed: 0, records: [] }, { successful: 'invalid', failed: 0, records: [] }, { successful: 0, failed: -1, records: [] }])('rejects malformed database results instead of showing zero', (result) => {
     expect(() => serializeImportHistory(result, { outcome: 'successful', page: 1 })).toThrow();

@@ -45,6 +45,30 @@ describe("constituency import reconciliation route", () => {
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ city: "Tampa" }, 0], [{ postal_code: "33602" }, 0], [{ address_lines: ["100 Oak St", "Apt 3"] }, 0],
+    [{ city: "" }, 0], [{ country: "Canada" }, 0], [{}, 1],
+  ])("verifies the whole saved address rather than just line 1: %j", async (change, confirmed) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "address", action: "replace", targetId: "address-1", addressLine1: "100 Oak Street", addressLine2: "Apt 2", city: "Jacksonville", state: "FL", postalCode: "32211", country: "US" };
+    const row = { id: "9", run_id: "42", status: "Applied", applied_at: "2026-09-10", matched_blackbaud_constituent_id: "123", requested_writes: [write],
+      blackbaud_result: { attempts: [{ results: [{ writeIndex: 0, status: "applied" }] }], results: [] } };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({ value: [{ id: "address-1", address_lines: ["100 Oak St", "Apt 2"], city: "Jacksonville", state: "FL", postal_code: "32211", country: "United States", ...change }] });
+    const response = await POST(makeRequest({ rowIds: ["9"] }), { params: { id: "42" } });
+    expect((await response.json()).reconciliationSummary).toMatchObject({ confirmed, needsReview: 1 - confirmed });
+    expect(blackbaudApiFetchMock.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
+
+  it.each(["2026-09-10", "2026-09-09"])("verifies the selected previous-address ID and end date: %s", async (date) => {
+    const { POST } = await import("./route.js");
+    const write = { type: "address", action: "mark_previous", targetId: "old", validTo: "2026-09-10" };
+    sqlMock.mockResolvedValueOnce([{ id: "42" }]).mockResolvedValueOnce([{ id: "9", run_id: "42", status: "Applied", applied_at: "2026-09-10", matched_blackbaud_constituent_id: "123", requested_writes: [write], blackbaud_result: { results: [{ status: "applied", writeIndex: 0 }] } }]).mockResolvedValueOnce([]);
+    blackbaudApiFetchMock.mockResolvedValueOnce({ value: [{ id: "old", type: "Previous Address", valid_to: date }] });
+    const response = await POST(makeRequest({ rowIds: ["9"] }), { params: { id: "42" } });
+    expect((await response.json()).reconciliationSummary.confirmed).toBe(date === write.validTo ? 1 : 0);
+  });
+
   it("confirms an applied email address by re-reading the current NXT record", async () => {
     const { POST } = await import("./route.js");
     const write = {

@@ -4,12 +4,30 @@ import { verifyImportTargetIdentity } from "@/app/api/utils/importTargetIdentity
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
-import { blackbaudApiFetch, getBlackbaudQuotaStatus } from "@/app/api/utils/blackbaud";
+import { blackbaudApiFetch as nxtFetch, getBlackbaudQuotaStatus } from "@/app/api/utils/blackbaud";
+import { persistImportWriteCheckpoint } from "@/app/api/utils/importWriteCheckpoint";
+import { getImportWriteResults, hasImportRetryHold, importWriteCanRetry, importWritePlanKey } from "@/utils/importWriteResults";
+import { importAddressMatches } from "@/utils/importAddressVerification";
 import {
   normalizeQuotaPausedImportRow,
   sanitizeQuotaPauseWarnings,
 } from "@/app/api/constituency-import/quotaPause";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+
+// Import-only policy: a lost response is not permission to replay an NXT write.
+async function blackbaudApiFetch(path, options = {}) {
+  const writing = options.method && options.method !== "GET";
+  try {
+    return await nxtFetch(path, writing ? { ...options, maxRetries: 0 } : options);
+  } catch (error) {
+    if (writing && error && typeof error === "object") {
+      const rejected = [400, 401, 403, 404, 409, 422, 429].includes(Number(error.httpStatus || error.status));
+      error.importWriteUnconfirmed = !rejected;
+      error.retrySafe = rejected;
+    }
+    throw error;
+  }
+}
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -1219,6 +1237,7 @@ async function fetchEmailAddresses({ request, user, constituentId }) {
 }
 
 async function fetchContactValues({ request, user, constituentId, kind }) {
+  if (kind === "email") return fetchEmailAddresses({ request, user, constituentId });
   const path =
     kind === "phone"
       ? `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/phones`
@@ -1251,24 +1270,44 @@ function manualContactResult(type, action, message) {
   return { status: "manual_required", type, action, message };
 }
 
-async function demoteExistingPrimary({ request, user, kind, contacts, write }) {
-  if (!write?.demoteExistingPrimary) return null;
-  const primary = contacts.find((contact) => isPrimaryContact(contact));
-  const primaryId = getContactId(primary, kind);
-  if (!primary || !primaryId) return null;
-  if (cleanText(write.existingPrimaryId) && primaryId !== cleanText(write.existingPrimaryId)) {
-    return { stale: true };
+async function protectedPrimaryChange({ request, user, row, write, kind, contacts, commit, matches }) {
+  const wantsPrimary = parseBoolean(write.makePrimary) || write.action === "set_primary";
+  const prior = contacts.find(isPrimaryContact);
+  const priorId = cleanText(write.existingPrimaryId) || getContactId(prior, kind);
+  if (wantsPrimary && prior && write.existingPrimaryId &&
+      getContactId(prior, kind) !== cleanText(write.existingPrimaryId) && !matches(prior)) {
+    return { review: manualContactResult(kind === "email" ? "email_address" : kind, write.action || "add",
+      "The NXT primary contact changed after review. Compare NXT before continuing; no contact was changed.") };
   }
-  const type = cleanText(write.demotedPrimaryType);
-  const endpoint =
-    kind === "email"
-      ? `/constituent/v1/emailaddresses/${encodeURIComponent(primaryId)}`
-      : kind === "phone"
-        ? `/constituent/v1/phones/${encodeURIComponent(primaryId)}`
-        : `/constituent/v1/addresses/${encodeURIComponent(primaryId)}`;
-  const payload = { primary: false };
-  if (type) payload.type = type;
-  return updateExistingContact({ request, user, path: endpoint, payload });
+  const result = await commit();
+  if (!wantsPrimary) return { result };
+  // Never remove the only known primary before its replacement is confirmed.
+  let current;
+  try {
+    current = await fetchContactValues({ request, user, constituentId: getMatchedConstituentId(row), kind });
+  } catch {
+    return { review: { ...manualContactResult(kind === "email" ? "email_address" : kind, write.action || "add",
+      "The contact was saved, but its primary designation could not be verified. Compare NXT; the previous contact was not explicitly demoted."), partialApplied: true } };
+  }
+  const replacement = current.find((contact) => matches(contact) && isPrimaryContact(contact));
+  if (!replacement) {
+    return { review: { ...manualContactResult(kind === "email" ? "email_address" : kind, write.action || "add",
+      "The contact was saved, but NXT has not confirmed it as primary. The previous contact was not explicitly demoted. Compare NXT before continuing."), partialApplied: true } };
+  }
+  const previous = current.find((contact) => getContactId(contact, kind) === priorId);
+  if (write.demoteExistingPrimary && previous && getContactId(replacement, kind) !== priorId) {
+    const type = cleanText(write.demotedPrimaryType);
+    if (isPrimaryContact(previous) || (type && cleanText(previous.type) !== type)) {
+      try {
+        await updateExistingContact({ request, user, path: getContactEndpoint(kind, priorId),
+          payload: { primary: false, ...(type ? { type } : {}) } });
+      } catch (error) {
+        error.partialApplied = true;
+        throw error;
+      }
+    }
+  }
+  return { result };
 }
 
 function getContactEndpoint(kind, id) {
@@ -1287,7 +1326,7 @@ function getContactLabel(contact, kind) {
 async function applyExistingContactPrimary({ request, user, row, write, kind }) {
   const constituentId = getMatchedConstituentId(row);
   const targetId = cleanText(write?.targetId);
-  const type = kind === "email" ? "email_address" : "phone";
+  const type = kind === "email" ? "email_address" : kind;
   if (!constituentId || !targetId) {
     return manualContactResult(type, "set_primary", "A matched NXT constituent and selected current contact are required.");
   }
@@ -1295,7 +1334,7 @@ async function applyExistingContactPrimary({ request, user, row, write, kind }) 
   const contacts =
     kind === "email"
       ? await fetchEmailAddresses({ request, user, constituentId })
-      : await fetchContactValues({ request, user, constituentId, kind: "phone" });
+      : await fetchContactValues({ request, user, constituentId, kind });
   const target = contacts.find((contact) => getContactId(contact, kind) === targetId);
   if (!target) {
     return manualContactResult(
@@ -1304,34 +1343,20 @@ async function applyExistingContactPrimary({ request, user, row, write, kind }) 
       `The selected current NXT ${kind} is no longer available. Refresh the preview before applying.`,
     );
   }
-  if (isPrimaryContact(target)) {
-    return {
-      status: "applied",
-      type,
-      action: "set_primary",
-      message: `${getContactLabel(target, kind)} is already the primary ${kind === "email" ? "email address" : "phone number"}.`,
-    };
-  }
-
-  const demotion = await demoteExistingPrimary({ request, user, kind, contacts, write });
-  if (demotion?.stale) {
-    return manualContactResult(
-      type,
-      "set_primary",
-      `The NXT primary ${kind} changed after preview. Refresh the preview before applying.`,
-    );
-  }
-  const result = await updateExistingContact({
-    request,
-    user,
-    path: getContactEndpoint(kind, targetId),
-    payload: { primary: true },
+  const change = await protectedPrimaryChange({
+    request, user, row, write, kind, contacts,
+    matches: (contact) => getContactId(contact, kind) === targetId,
+    commit: () => isPrimaryContact(target) ? Promise.resolve(null) : updateExistingContact({
+      request, user, path: getContactEndpoint(kind, targetId), payload: { primary: true },
+    }),
   });
+  if (change.review) return change.review;
+  const result = change.result;
   return {
     status: "applied",
     type,
     action: "set_primary",
-    message: `${getContactLabel(target, kind)} is now the primary ${kind === "email" ? "email address" : "phone number"}.`,
+    message: `${getContactLabel(target, kind)} is now the primary ${kind === "email" ? "email address" : kind === "phone" ? "phone number" : "address"}.`,
     blackbaudResult: result || null,
   };
 }
@@ -1407,7 +1432,7 @@ async function applyEmailAddressUpdate({ request, user, row, write }) {
 
   if (existing) {
     const existingId = cleanText(existing?.id || existing?.email_address_id);
-    if (makePrimary && existingId && !isPrimaryEmail(existing)) {
+    if (makePrimary && existingId) {
       return applyExistingContactPrimary({
         request,
         user,
@@ -1430,22 +1455,10 @@ async function applyEmailAddressUpdate({ request, user, row, write }) {
     };
   }
 
-  const demotion = await demoteExistingPrimary({
-    request,
-    user,
-    kind: "email",
-    contacts: emails,
-    write,
-  });
-  if (demotion?.stale) {
-    return manualContactResult(
-      "email_address",
-      "add",
-      "The NXT primary email changed after preview. Refresh the preview before applying.",
-    );
-  }
-
-  const result = await blackbaudApiFetch("/constituent/v1/emailaddresses", {
+  const change = await protectedPrimaryChange({
+    request, user, row, write, kind: "email", contacts: emails,
+    matches: (contact) => normalizeEmail(getEmailAddress(contact)) === normalizeEmail(address),
+    commit: () => blackbaudApiFetch("/constituent/v1/emailaddresses", {
     userId: user.id,
     authUserId: user.id,
     origin: new URL(request.url).origin,
@@ -1456,7 +1469,10 @@ async function applyEmailAddressUpdate({ request, user, row, write }) {
       type: emailType,
       primary: makePrimary,
     },
+    }),
   });
+  if (change.review) return change.review;
+  const result = change.result;
 
   return {
     status: "applied",
@@ -1533,7 +1549,7 @@ async function applyPhoneUpdate({ request, user, row, write }) {
   const existing = phones.find((phone) => getPhoneNumber(phone) === number);
   if (existing) {
     const existingId = getContactId(existing, "phone");
-    if (parseBoolean(write?.makePrimary) && existingId && !isPrimaryContact(existing)) {
+    if (parseBoolean(write?.makePrimary) && existingId) {
       return applyExistingContactPrimary({
         request,
         user,
@@ -1549,11 +1565,10 @@ async function applyPhoneUpdate({ request, user, row, write }) {
     }
     return { status: "applied", type: "phone", action: "skip_existing", message: `${number} is already present in NXT; no duplicate phone was added.` };
   }
-  const demotion = await demoteExistingPrimary({ request, user, kind: "phone", contacts: phones, write });
-  if (demotion?.stale) {
-    return manualContactResult("phone", action, "The NXT primary phone changed after preview. Refresh the preview before applying.");
-  }
-  const result = await blackbaudApiFetch("/constituent/v1/phones", {
+  const change = await protectedPrimaryChange({
+    request, user, row, write, kind: "phone", contacts: phones,
+    matches: (contact) => getPhoneNumber(contact) === number,
+    commit: () => blackbaudApiFetch("/constituent/v1/phones", {
     userId: user.id,
     authUserId: user.id,
     origin: new URL(request.url).origin,
@@ -1564,7 +1579,10 @@ async function applyPhoneUpdate({ request, user, row, write }) {
       type: phoneType,
       primary: parseBoolean(write?.makePrimary),
     },
+    }),
   });
+  if (change.review) return change.review;
+  const result = change.result;
   return {
     status: "applied",
     type: "phone",
@@ -1600,7 +1618,7 @@ async function applyAddressUpdate({ request, user, row, write }) {
     const duplicate = addresses.find(
       (address) =>
         getContactId(address, "address") !== targetId &&
-        cleanText(getAddressLines(address)[0]).toLowerCase() === addressLine1.toLowerCase(),
+        importAddressMatches(address, write),
     );
     if (duplicate) {
       return manualContactResult("address", action, `${addressLine1} already exists as a different NXT address.`);
@@ -1626,27 +1644,33 @@ async function applyAddressUpdate({ request, user, row, write }) {
       blackbaudResult: result || null,
     };
   }
-  const isDuplicate = addresses.some(
-    (address) => cleanText(getAddressLines(address)[0]).toLowerCase() === addressLine1.toLowerCase(),
+  const existing = addresses.find(
+    (address) => importAddressMatches(address, write),
   );
-  if (isDuplicate) {
+  if (existing) {
+    if (parseBoolean(write.makePrimary) && getContactId(existing, "address")) {
+      return applyExistingContactPrimary({ request, user, row, kind: "address",
+        write: { ...write, action: "set_primary", targetId: getContactId(existing, "address") } });
+    }
     return { status: "applied", type: "address", action: "skip_existing", message: `${addressLine1} is already present in NXT; no duplicate address was added.` };
-  }
-  const demotion = await demoteExistingPrimary({ request, user, kind: "address", contacts: addresses, write });
-  if (demotion?.stale) {
-    return manualContactResult("address", action, "The NXT primary address changed after preview. Refresh the preview before applying.");
   }
   const endpoint = "/constituent/v1/addresses";
   const payload = getAddressPayload(write, constituentId);
   let result;
   try {
-    result = await blackbaudApiFetch(endpoint, {
+    const change = await protectedPrimaryChange({
+      request, user, row, write, kind: "address", contacts: addresses,
+      matches: (contact) => importAddressMatches(contact, write),
+      commit: () => blackbaudApiFetch(endpoint, {
       userId: user.id,
       authUserId: user.id,
       origin: new URL(request.url).origin,
       method: "POST",
       body: payload,
+      }),
     });
+    if (change.review) return change.review;
+    result = change.result;
   } catch (error) {
     throw attachWriteDiagnostic(error, { endpoint, payload });
   }
@@ -1910,8 +1934,11 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
       write: { ...write, startDate, endDate },
     });
   } catch (error) {
+    error.partialApplied = true;
+    error.retrySafe = false;
+    if (error.importWriteUnconfirmed) throw error;
     // Restore the removed row if the target cannot be created. If restoration also fails,
-    // surface both outcomes so Advancement Services can resolve the record safely.
+    // hold for comparison. A restored row has a new ID, so the old plan cannot be retried.
     try {
       await createConstituentCode({
         request,
@@ -1925,13 +1952,16 @@ async function applyConstituentCodeReplace({ request, user, row, write }) {
         },
       });
     } catch (restoreError) {
-      throw new Error(
+      const combinedError = new Error(
         `NXT removed the selected ${sourceConstituency} code but could not create ${targetConstituency} or restore ${sourceConstituency}. Original error: ${error instanceof Error ? error.message : "Unknown error"}. Restore error: ${restoreError instanceof Error ? restoreError.message : "Unknown error"}.`,
       );
+      combinedError.partialApplied = true;
+      combinedError.retrySafe = false;
+      combinedError.importWriteUnconfirmed = Boolean(restoreError?.importWriteUnconfirmed);
+      throw combinedError;
     }
-    throw new Error(
-      `NXT could not create ${targetConstituency}; the selected ${sourceConstituency} code was restored with its original dates. ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    error.message = `NXT could not create ${targetConstituency}; the selected ${sourceConstituency} code was restored with its original dates. Compare NXT and select the restored row in a separate import before trying again. ${error.message || ""}`;
+    throw error;
   }
 
   return {
@@ -2043,18 +2073,18 @@ async function applyWrite({ request, user, row, write }) {
 function getWriteItems(row, retryFailedOnly = false) {
   const writePlan = getWritePlan(row);
   const items = writePlan.map((write, writeIndex) => ({ write, writeIndex }));
-  if (!retryFailedOnly) return items;
-
-  const priorResults = Array.isArray(row?.blackbaud_result?.results)
-    ? row.blackbaud_result.results
-    : [];
+  const priorResults = getImportWriteResults(row?.blackbaud_result);
+  if (!retryFailedOnly) return items.filter(({ writeIndex }) => !priorResults.some((result) => result.writeIndex === writeIndex && result.status === "applied"));
   const failedIndexes = new Set(
     priorResults
-      .filter((result) => result?.status === "failed" && Number.isInteger(result?.writeIndex))
+      .filter(importWriteCanRetry)
       .map((result) => result.writeIndex),
   );
 
-  return items.filter((item) => failedIndexes.has(item.writeIndex));
+  return items.filter(({ write, writeIndex }) => failedIndexes.has(writeIndex) || (
+    write.requiresSuccessfulAddressAdd && priorResults.some((result) => result.writeIndex === writeIndex &&
+      ["manual_required", "blocked"].includes(result.status))
+  ));
 }
 
 function getPriorAttempts(row) {
@@ -2074,27 +2104,35 @@ function getPriorAttempts(row) {
   ];
 }
 
-function buildApplyAudit({ row, user, results, retryFailedOnly }) {
+function buildApplyAudit({ row, user, results, retryFailedOnly, attemptResults = results }) {
   const priorResult =
     row?.blackbaud_result && typeof row.blackbaud_result === "object"
       ? row.blackbaud_result
       : {};
-  const { results: _priorResults, attempts: _priorAttempts, ...priorAudit } = priorResult;
+  const { results: _priorResults, attempts: _priorAttempts, reconciliation: priorVerification, ...priorAudit } = priorResult;
   const attemptedAt = new Date().toISOString();
   const attempt = {
     attemptedAt,
     appliedByUserId: user.id,
     appliedByEmail: user.email,
     retryFailedOnly,
-    results,
+    results: attemptResults,
   };
 
   return {
     ...priorAudit,
+    ...(priorVerification ? { reconciliation: {
+      verifiedAt: null,
+      results: [],
+      confirmedCount: 0,
+      needsReviewCount: 0,
+      attempts: Array.isArray(priorVerification.attempts) ? priorVerification.attempts : [priorVerification],
+    } } : {}),
     appliedByUserId: user.id,
     appliedByEmail: user.email,
     appliedAt: attemptedAt,
     retryFailedOnly,
+    writePlanKey: importWritePlanKey(getWritePlan(row)),
     results,
     attempts: [...getPriorAttempts(row), attempt],
   };
@@ -2102,11 +2140,15 @@ function buildApplyAudit({ row, user, results, retryFailedOnly }) {
 
 function createFailedWriteResult(write, writeIndex, error) {
   return {
-    status: "failed",
+    status: error?.importWriteUnconfirmed ? "unconfirmed" : "failed",
     type: write?.type || "unknown",
     action: write?.action || "apply",
     writeIndex,
-    message: error instanceof Error ? error.message : "NXT rejected this staged write.",
+    message: error?.importWriteUnconfirmed
+      ? "NXT did not confirm this write. It may already be saved. Compare the record in NXT before continuing; this change will not be sent again automatically."
+      : error instanceof Error ? error.message : "NXT rejected this staged write.",
+    retrySafe: error?.retrySafe !== false && !error?.importWriteUnconfirmed,
+    ...(error?.partialApplied ? { partialApplied: true } : {}),
     diagnostic:
       error && typeof error === "object" && error.diagnostic && typeof error.diagnostic === "object"
         ? error.diagnostic
@@ -2115,12 +2157,19 @@ function createFailedWriteResult(write, writeIndex, error) {
 }
 
 async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
+  const priorResults = getImportWriteResults(row.blackbaud_result);
+  if (row.blackbaud_result?.writePlanKey && row.blackbaud_result.writePlanKey !== importWritePlanKey(getWritePlan(row))) {
+    return { retryUnavailable: true, message: "The staged changes differ from the saved write attempt. Compare NXT and prepare a separate import for remaining changes; earlier writes will not be replayed." };
+  }
+  if (hasImportRetryHold(row.blackbaud_result)) {
+    return { retryUnavailable: true, message: "An earlier NXT write cannot be safely replayed. Compare the saved results with NXT before continuing. Automatic retry is blocked to prevent duplicates or reuse of an outdated write plan." };
+  }
   const writeItems = getWriteItems(row, retryFailedOnly);
   if (retryFailedOnly && writeItems.length === 0) {
     return {
       retryUnavailable: true,
       message:
-        "This failure does not include a write-level retry record. Re-preview the source row and review NXT before applying it again.",
+        "This failure does not include a safely retryable write. Compare its saved history with NXT and prepare a separate import for any remaining changes.",
     };
   }
 
@@ -2148,47 +2197,63 @@ async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
     return { applied: false, manualRequired: true, failed: false, results: [] };
   }
 
-  const results = [];
+  const resultsByIndex = new Map(priorResults.map((result) => [result.writeIndex, result]));
+  const attemptResults = [];
+  const snapshot = () => [...resultsByIndex.values()].sort((a, b) => a.writeIndex - b.writeIndex);
+  const checkpoint = async () => persistImportWriteCheckpoint(row,
+    buildApplyAudit({ row, user, results: snapshot(), retryFailedOnly, attemptResults: [...attemptResults] }));
   for (const { write, writeIndex } of writeItems) {
     if (
       write?.requiresSuccessfulAddressAdd &&
-      !results.some(
-        (result) => result.type === "address" && result.action === "add" && result.status === "applied",
+      !snapshot().some(
+        (result) => result.writeIndex < writeIndex && result.type === "address" &&
+          ["add", "skip_existing", "set_primary"].includes(result.action) && result.status === "applied",
       )
     ) {
-      results.push({
-        status: "manual_required",
+      const blocked = {
+        status: "blocked",
         type: "address",
         action: "mark_previous",
         writeIndex,
         message: "The new address was not added, so the selected prior address was left unchanged.",
-      });
+      };
+      resultsByIndex.set(writeIndex, blocked);
+      attemptResults.push(blocked);
+      await checkpoint();
       continue;
     }
+    resultsByIndex.set(writeIndex, { status: "started", type: write.type, action: write.action, writeIndex,
+      message: "Write started; compare NXT if this request does not finish. Do not replay an unconfirmed write." });
+    await checkpoint();
+    let result;
     try {
-      const result = await applyWrite({ request, user, row, write });
-      results.push({ ...result, writeIndex });
+      result = { ...(await applyWrite({ request, user, row, write })), writeIndex };
     } catch (error) {
-      results.push(createFailedWriteResult(write, writeIndex, error));
+      result = createFailedWriteResult(write, writeIndex, error);
     }
+    resultsByIndex.set(writeIndex, result);
+    attemptResults.push(result);
+    await checkpoint();
+    if (result.status === "unconfirmed") break;
   }
 
-  const appliedWrites = results.filter((result) => result.status === "applied");
-  const manualWrites = results.filter((result) => result.status === "manual_required");
+  const results = snapshot();
+  const appliedWrites = results.filter((result) => result.status === "applied" || result.partialApplied);
+  const manualWrites = results.filter((result) => ["manual_required", "blocked", "started", "unconfirmed"].includes(result.status));
   const failedWrites = results.filter((result) => result.status === "failed");
   const nextStatus = failedWrites.length
     ? "Failed"
-    : manualWrites.length
+    : manualWrites.length || !getWritePlan(row).every((_, index) => resultsByIndex.get(index)?.status === "applied")
       ? "Needs Review"
       : "Applied";
-  const failureMessage = failedWrites.map((result) => result.message).filter(Boolean).join(" ");
+  const failureMessage = [...failedWrites, ...manualWrites].map((result) => result.message).filter(Boolean).join(" ");
 
   await sql`
     UPDATE constituency_import_rows
     SET
       status = ${nextStatus},
       blackbaud_result = ${JSON.stringify(
-        buildApplyAudit({ row, user, results, retryFailedOnly }),
+        buildApplyAudit({ row, user, results, retryFailedOnly, attemptResults }),
       )}::jsonb,
       blackbaud_error = ${failureMessage || null},
       applied_at = CASE
@@ -2200,8 +2265,8 @@ async function applyRowWrites({ request, user, row, retryFailedOnly = false }) {
   `;
 
   return {
-    applied: appliedWrites.length > 0,
-    manualRequired: manualWrites.length > 0,
+    applied: nextStatus === "Applied",
+    manualRequired: nextStatus === "Needs Review",
     failed: failedWrites.length > 0,
     results,
   };

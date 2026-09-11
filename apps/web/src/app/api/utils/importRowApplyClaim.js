@@ -11,6 +11,8 @@ export async function claimImportRowForApply(row) {
       AND preview IS NOT DISTINCT FROM ${row.preview == null ? null : JSON.stringify(row.preview)}::jsonb
       AND requested_writes IS NOT DISTINCT FROM ${row.requested_writes == null ? null : JSON.stringify(row.requested_writes)}::jsonb
       AND matched_blackbaud_constituent_id IS NOT DISTINCT FROM ${row.matched_blackbaud_constituent_id ?? null}
+      AND blackbaud_result IS NOT DISTINCT FROM ${row.blackbaud_result == null ? null : JSON.stringify(row.blackbaud_result)}::jsonb
+      AND applied_at IS NOT DISTINCT FROM ${row.applied_at ?? null}::timestamptz
       AND preview->'matchReview'->>'decision' IS DISTINCT FROM 'rejected'
     RETURNING id
   `;

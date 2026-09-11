@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { canChangeImportMatch, canReviewNewImportRecord, getReviewedNonmatchIds, getSelectedImportMatchId, getImportLocalDuplicate } from "@/utils/importMatchReview";
+import ImportLocalDuplicateDecision from "./ImportLocalDuplicateDecision";
 
 export default function ImportNewRecordReview({ row, importIntent, busy, onAction, onCorrectCsv, onReviewBatch }) {
   const [note, setNote] = useState("");
@@ -17,7 +18,7 @@ export default function ImportNewRecordReview({ row, importIntent, busy, onActio
     return null;
   }
   const review = row.newRecordReview;
-  const hasRejected = getReviewedNonmatchIds(row).length > 0;
+  const hasRejected = getReviewedNonmatchIds(row).length > 0 || row.reviewedLocalDuplicates?.length > 0;
   const clear = review?.status === "clear" && Date.now() - Date.parse(review.checkedAt) <= 30 * 60 * 1000;
   const allowedIntent = ["new", "mixed"].includes(importIntent);
   const disabled = busy || Boolean(working);
@@ -44,6 +45,11 @@ export default function ImportNewRecordReview({ row, importIntent, busy, onActio
     </> : <>
       {review?.message && <p role="status" className="mt-3 text-sm font-bold text-slate-800">{review.message}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}
+      <ImportLocalDuplicateDecision key={`${getImportLocalDuplicate(row)?.fingerprint || ""}:${row.localDuplicateReview?.token || ""}`} row={row} busy={disabled} onAction={onAction} />
+      {row.reviewedLocalDuplicates?.length > 0 && <details className="mt-3 text-sm">
+        <summary className="cursor-pointer font-bold">Import-history holds reviewed ({row.reviewedLocalDuplicates.length})</summary>
+        <ul className="mt-2 space-y-2">{row.reviewedLocalDuplicates.map((entry, index) => <li key={`${entry.fingerprint}-${index}`}>{entry.name || `Saved row ${entry.rowId}`}: different person. {entry.note}</li>)}</ul>
+      </details>}
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={button} disabled={disabled} onClick={() => run("review_new_check")}>{working === "review_new_check" ? "Checking NXT duplicates..." : review ? "Retry duplicate checks" : "Check for duplicates"}</button>
         {(review?.nextAction === "correct_csv" || error) && <button type="button" className={button} disabled={disabled} onClick={onCorrectCsv}>Choose corrected CSV</button>}
@@ -51,7 +57,7 @@ export default function ImportNewRecordReview({ row, importIntent, busy, onActio
       </div>
       {clear && <div className="mt-4 space-y-3 border-t border-blue-200 pt-4">
         <p className="text-sm text-slate-700">Create one individual with fresh NXT identifiers and the saved table-based name formats. Original CSV IDs remain in the audit only. Contacts, constituencies, education, and relationships remain staged for separate review.</p>
-        {hasRejected && <label className="block text-sm font-bold">Why are the rejected matches different people?
+        {hasRejected && <label className="block text-sm font-bold">Why are the rejected matches and holds different people?
           <textarea className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-3 font-normal" value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="Explain what you compared (at least 10 characters)." />
         </label>}
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I reviewed the matches and confirm this is a new, separate constituent.</label>

@@ -6,7 +6,7 @@ import { blackbaudApiFetch } from "@/app/api/utils/blackbaud";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import { newRecordContactPayload, ImportReviewRequired } from "@/utils/newConstituentImport";
 import { canReviewNewImportRecord, getReviewedNonmatchIds, rejectedImportMatchPreview } from "@/utils/importMatchReview";
-import { prepareNewRecordReview, reviewedCreationBlocker, duplicateReviewFailure } from "@/app/api/utils/reviewedConstituentCreate";
+import { prepareNewRecordReview, reviewedCreationBlocker, duplicateReviewFailure, reviewLocalImportDuplicate } from "@/app/api/utils/reviewedConstituentCreate";
 import { buildNewConstituentReviewWrites } from "@/app/api/constituency-import/preview/route";
 import {
   claimConstituentCreateLease, renewConstituentCreateLease, releaseConstituentCreateLease,
@@ -139,6 +139,7 @@ export async function POST(request, { params }) {
   const quick = mode === "clear_nonmatches";
   const reviewed = mode === "reviewed_new";
   const checkOnly = mode === "review_new_check";
+  const localReview = ["review_local_check", "review_local_reject"].includes(mode);
   try {
     await ensureAppSchema();
 
@@ -160,7 +161,7 @@ export async function POST(request, { params }) {
     if (!runs[0]) {
       return Response.json({ error: "Import run not found" }, { status: 404 });
     }
-    if ((quick || reviewed || checkOnly) && (!["new", "mixed"].includes(runs[0].defaults?.importIntent) || runs[0].status === "preparing")) {
+    if ((quick || reviewed || checkOnly || localReview) && (!["new", "mixed"].includes(runs[0].defaults?.importIntent) || runs[0].status === "preparing")) {
       return Response.json({ error: "Finish preparing a New or Mixed import before creating clear nonmatches." }, { status: 409 });
     }
 
@@ -176,6 +177,8 @@ export async function POST(request, { params }) {
     }
 
     const preview = getPreview(row);
+    if (localReview) return await reviewLocalImportDuplicate({ row, runId, user: authResult.user,
+      origin: new URL(request.url).origin, body: await request.json().catch(() => ({})), reject: mode === "review_local_reject" });
     if (checkOnly) {
       if (!canReviewNewImportRecord(row)) return Response.json({ error: "This row is matched, skipped, or locked by an NXT operation. Reopen its review; do not create another record." }, { status: 409 });
       return await prepareNewRecordReview({ row, runId, user: authResult.user, origin: new URL(request.url).origin });
@@ -188,6 +191,7 @@ export async function POST(request, { params }) {
     const reviewedNewApproval = reviewed ? {
       approvedAt: new Date().toISOString(), approvedByUserId: String(authResult.user.id),
       note: String(body.reviewNote || "").trim(), rejectedConstituentIds: getReviewedNonmatchIds(row),
+      localDuplicateDecisions: preview.reviewedLocalDuplicates || [],
       checkToken: preview.newRecordReview.token, checkedAt: preview.newRecordReview.checkedAt,
     } : null;
     const input = preview.input && typeof preview.input === "object" ? preview.input : {};
@@ -286,7 +290,7 @@ export async function POST(request, { params }) {
       let matchCandidates = [];
       let localDuplicate = null;
       const reason = await checkClearNonmatch({ input, rowId, runId, credentials,
-        ...(reviewed ? { reviewedCandidateIds: getReviewedNonmatchIds(row) } : {}),
+        ...(reviewed ? { reviewedCandidateIds: getReviewedNonmatchIds(row), reviewedLocalDuplicates: preview.reviewedLocalDuplicates || [] } : {}),
         onCandidates: (candidates) => { matchCandidates = candidates; },
         onLocalDuplicate: (found) => { localDuplicate = found; } });
       if (reason) {

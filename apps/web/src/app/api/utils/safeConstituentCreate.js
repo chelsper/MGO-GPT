@@ -4,6 +4,7 @@ import { blackbaudApiFetch } from "./blackbaud";
 import { cleanImportText as text, duplicateReason, addressSearchTerms, ImportReviewRequired } from "@/utils/newConstituentImport";
 import { normalizeImportMatchCandidate } from "@/utils/importMatchReview";
 import { importMatchEvidence, qualifyImportMatchCandidates } from "@/utils/importMatchEvidence";
+import { localDuplicateFingerprint, isReviewedLocalDuplicate } from "./importLocalDuplicateEvidence";
 
 const SEARCH = "/nxt-data-integration/v1/re/constituents/customsearch";
 const LIMIT = 1000;
@@ -86,7 +87,7 @@ async function search(credentials, params) {
   return result.results.map(candidateInput);
 }
 
-export async function checkClearNonmatch({ input, rowId, runId, credentials, onCandidates, onLocalDuplicate, reviewedCandidateIds = [] }) {
+export async function checkClearNonmatch({ input, rowId, runId, credentials, onCandidates, onLocalDuplicate, reviewedCandidateIds = [], reviewedLocalDuplicates = [] }) {
   const reviewed = new Set(reviewedCandidateIds.map(String));
   function hold(message, candidates) {
     const normalized = candidates.map((candidate) => normalizeImportMatchCandidate({ ...candidate, reason: message }));
@@ -156,7 +157,7 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
 
   // Include other uploaded rows and prior attempts, even before NXT search indexes
   // a new record. Never automatically repeat an uncertain create operation.
-  const localMatch = await findLocalImportDuplicate({ input, rowId, runId, onLocalDuplicate });
+  const localMatch = await findLocalImportDuplicate({ input, rowId, runId, onLocalDuplicate, reviewedLocalDuplicates, credentials });
   if (localMatch) return localMatch;
 
   for (const id of [text(input.blackbaudConstituentId)].filter(Boolean)) {
@@ -202,7 +203,7 @@ export async function checkClearNonmatch({ input, rowId, runId, credentials, onC
   return null;
 }
 
-export async function findLocalImportDuplicate({ input, rowId, runId, includePendingUpload = true, onLocalDuplicate }) {
+export async function findLocalImportDuplicate({ input, rowId, runId, includePendingUpload = true, onLocalDuplicate, reviewedLocalDuplicates = [], credentials }) {
   const localRows = await sql`
     SELECT id, run_id, row_number, status, create_request_started_at,
       preview->'input' AS input, created_blackbaud_constituent_id,
@@ -217,7 +218,9 @@ export async function findLocalImportDuplicate({ input, rowId, runId, includePen
     FROM constituency_import_create_attempts attempt
     LEFT JOIN constituency_import_rows saved ON saved.id = attempt.row_id
     WHERE outcome <> 'rejected'
+    ORDER BY id, source
   `;
+  const checked = new Set();
   for (const row of localRows) {
     const previous = row.input || {};
     const reason = duplicateReason(input, previous) || duplicateReason(input, { ...previous, blackbaudConstituentId: row.created_blackbaud_constituent_id });
@@ -232,13 +235,19 @@ export async function findLocalImportDuplicate({ input, rowId, runId, includePen
         createdConstituentId: createdId || null,
         kind: createdId ? "created" : started ? "unconfirmed_creation" : "pending_row",
         sameRun: text(row.run_id) === text(runId), reason,
+        email: [previous.email, previous.email2].map(text).filter(Boolean).join(" / "),
+        address: [previous.addressLine1, previous.postalCode].map(text).filter(Boolean).join(", "),
       };
+      duplicate.fingerprint = localDuplicateFingerprint(input, row, duplicate.kind);
+      if (checked.has(duplicate.fingerprint)) continue;
+      checked.add(duplicate.fingerprint);
+      if (await isReviewedLocalDuplicate(duplicate, reviewedLocalDuplicates, credentials)) continue;
       onLocalDuplicate?.(duplicate);
       const location = duplicate.runId ? `import #${duplicate.runId}, ${duplicate.rowNumber ? `CSV row ${duplicate.rowNumber}` : `saved row ${duplicate.rowId}`}` : `creation history, saved row ${duplicate.rowId}`;
       const nextStep = duplicate.kind === "pending_row"
-        ? "Compare the two CSV rows. If they are the same person, keep one and skip the extra unsent row. If they are different people, correct the conflicting source values."
+        ? "Compare the two CSV rows. If they are the same person, keep one and skip the extra unsent row. For different people, select Review this hold and record your comparison."
         : duplicate.kind === "created"
-          ? "An earlier import created a record. Open that NXT record and the earlier import to compare before proceeding."
+          ? "An earlier import created a record. Open that NXT record and select Review this hold to compare its current identity before proceeding."
           : "An earlier creation may have been sent. Verify its outcome in NXT before any retry; do not skip it to bypass this safeguard.";
       return `Another import row has a ${reason} (${location}). ${nextStep} No new NXT record was created by this attempt.`;
     }

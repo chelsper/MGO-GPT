@@ -61,4 +61,13 @@ describe("resolve unmatched constituent", () => {
     expect(screen.getByRole("button", { name: "Choose corrected CSV" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm as new constituent" })).not.toBeInTheDocument();
   });
+  it("shows confirmation and the review audit after all saved-history holds are cleared", () => {
+    render(<ImportNewRecordReview row={{ ...clear, reviewedLocalDuplicates: [{ fingerprint: "one", name: "Other Person", note: "Different person; details compared." }], localDuplicate: null }} importIntent="new" onAction={vi.fn()} />);
+    expect(screen.getByText("Import-history holds reviewed (1)")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "Confirm as new constituent" });
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "All holds reviewed and identity verified as new." } });
+    expect(confirm).toBeEnabled();
+  });
 });

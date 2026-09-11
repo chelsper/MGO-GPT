@@ -125,4 +125,16 @@ describe("checked new-record review", () => {
     const a = row(); const b = row(); b.preview.input = { lastName: "Dolphin", firstName: "Jane", duplicateCheckVersion: 1 };
     expect(newRecordReviewFingerprint(a)).toBe(newRecordReviewFingerprint(b));
   });
+  it("passes saved local decisions to complete checks and invalidates approval when they change", async () => {
+    const value = row();
+    value.preview.reviewedLocalDuplicates = [{ fingerprint: "saved", note: "Different person verified." }];
+    await prepare(value);
+    expect(check.mock.calls[0][0].reviewedLocalDuplicates).toEqual(value.preview.reviewedLocalDuplicates);
+    value.preview = savedPreview();
+    const confirm = { confirmed: true, reviewToken: value.preview.newRecordReview.token };
+    expect(reviewedCreationBlocker(value, confirm)).toContain("review note");
+    expect(reviewedCreationBlocker(value, { ...confirm, reviewNote: "All held records compared; different people." })).toBeNull();
+    value.preview.reviewedLocalDuplicates.push({ fingerprint: "another" });
+    expect(reviewedCreationBlocker(value, confirm)).toContain("fresh duplicate checks");
+  });
 });

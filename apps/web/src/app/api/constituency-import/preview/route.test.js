@@ -2186,6 +2186,16 @@ describe("constituency import preview route", () => {
     expect(merged).toMatchObject({ status: "Needs Review", match: null, matchReview: decision, rejectedMatches: [decision], writePlan: [], intentDisposition: { allowApply: false } });
   });
 
+  it("preserves import-history decision audits on rebuild without reusing creation approval", async () => {
+    const { mergePriorReviewState } = await import("./route.js");
+    const decision = { decision: "different_person", fingerprint: "saved", note: "Verified different people." };
+    const merged = mergePriorReviewState({ input: { firstName: "CSV" }, status: "Needs Review", match: null, writePlan: [] },
+      { preview: { reviewedLocalDuplicates: [decision], newRecordReview: { status: "clear", token: "old" }, localDuplicateReview: { token: "old-comparison" } } });
+    expect(merged.reviewedLocalDuplicates).toEqual([decision]);
+    expect(merged.newRecordReview?.token).toBeUndefined();
+    expect(merged.localDuplicateReview?.token).toBeUndefined();
+  });
+
   it("preserves rejected alternatives and cannot automatically reselect one on preview rebuild", async () => {
     const { mergePriorReviewState } = await import("./route.js");
     const decision = { decision: "rejected", constituentId: "123" };
@@ -2513,6 +2523,81 @@ describe("constituency import preview route", () => {
     expect(payload.rows[0].input).toMatchObject({ duplicateCheckVersion: 1, email2: "second@example.com", addressLine1: "42 Main St", postalCode: "32211-1234", newRecordNameFormats: { addressee: "5", salutation: "6" } });
     expect(payload.rows[0].input).not.toHaveProperty("nameFormatUpdate");
     expect(payload.rows[0].input).not.toHaveProperty("addressUpdates");
+  });
+
+  it.each([false, true])("keeps the saved row ID when re-preparing untouched rows (batch: %s)", async (appendRun) => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    sqlMock.mockImplementation(async (strings) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM constituency_import_runs") || query.includes("UPDATE constituency_import_runs")) return [{ id: 42, workspace_user_id: 7 }];
+      if (query.includes("FROM constituency_import_rows")) return [{ id: 9, row_number: 1, status: "Needs Review", preview: {} }];
+      if (query.includes("INSERT INTO constituency_import_rows")) return [{ id: 9, row_number: 1 }];
+      throw new Error("Unexpected preview query");
+    });
+    const response = await POST(makeRequest({ rows: [{ first: "Avery", last: "Newcomer" }],
+      mappings: { firstName: "first", lastName: "last" }, defaults: { importIntent: "mixed" },
+      saveRun: true, existingRunId: "42", appendRun }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.rows[0]).toMatchObject({ id: "9", runId: "42" });
+    expect(sqlMock.mock.calls.some(([parts]) => parts.join(" ").includes("DELETE FROM"))).toBe(false);
+    expect(sqlMock.mock.calls.some(([parts]) => parts.join(" ").includes("ON CONFLICT"))).toBe(true);
+  });
+
+  it("does not retain an out-of-range row from an earlier partial preview", async () => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    sqlMock.mockImplementation(async (strings) => strings.join(" ").includes("FROM constituency_import_runs")
+      ? [{ id: 42, workspace_user_id: 7 }]
+      : [{ id: 9, row_number: 3, status: "Needs Review", preview: {} }]);
+    const response = await POST(makeRequest({ rows: [{ first: "Avery", last: "Newcomer" }],
+      mappings: { firstName: "first", lastName: "last" }, defaults: { importIntent: "mixed" },
+      saveRun: true, existingRunId: "42" }));
+    expect(response.ok).toBe(false);
+    expect((await response.json()).error).toContain("removing source rows");
+    expect(sqlMock.mock.calls.some(([parts]) => /DELETE|INSERT|UPDATE/.test(parts.join(" ")))).toBe(false);
+  });
+
+  it.each([false, true].flatMap((batch) => ["Applied", "Applying", "Failed", "Needs Review"].map((status) => [batch, status])))("preserves standard write history when re-preparing (batch: %s, status: %s)", async (appendRun, status) => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    sqlMock.mockImplementation(async (strings) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM constituency_import_runs")) return [{ id: 42, workspace_user_id: 7 }];
+      if (query.includes("FROM constituency_import_rows")) return [{ id: 9, row_number: 1, status,
+        blackbaud_result: { results: [{ status: "applied", writeIndex: 0 }] } }];
+      throw new Error("Unexpected write during protected preview");
+    });
+    const response = await POST(makeRequest({ rows: [{ first: "Avery", last: "Newcomer" }],
+      mappings: { firstName: "first", lastName: "last" }, defaults: { importIntent: "mixed" },
+      saveRun: true, existingRunId: "42", appendRun }));
+    expect(response.ok).toBe(false);
+    expect((await response.json()).error).toContain("history was not replaced");
+    expect(sqlMock.mock.calls.some(([query]) => /DELETE|INSERT|UPDATE/.test(query.join(" ")))).toBe(false);
+  });
+
+  it.each([false, true])("rejects a preview overwrite that loses the row CAS (batch: %s)", async (appendRun) => {
+    const { POST } = await import("./route.js");
+    searchBlackbaudConstituentsMock.mockResolvedValue([]);
+    sqlMock.mockImplementation(async (strings) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM constituency_import_runs")) return [{ id: 42, workspace_user_id: 7 }];
+      if (query.includes("FROM constituency_import_rows")) return [{ id: 9, row_number: 1, status: "Ready", preview: {} }];
+      if (query.includes("INSERT INTO constituency_import_rows")) return [];
+      throw new Error("Unexpected summary write after losing CAS");
+    });
+    const response = await POST(makeRequest({ rows: [{ first: "Avery", last: "Newcomer" }],
+      mappings: { firstName: "first", lastName: "last" }, defaults: { importIntent: "mixed" },
+      saveRun: true, existingRunId: "42", appendRun }));
+    expect(response.ok).toBe(false);
+    expect((await response.json()).error).toContain("began sending");
+    const query = sqlMock.mock.calls.find(([parts]) => parts.join(" ").includes("ON CONFLICT"))[0].join(" ");
+    expect(query).toContain("status NOT IN ('Applying', 'Applied', 'Failed', 'Creating')");
+    expect(query).toContain("applied_at IS NULL");
+    expect(query).toContain("preview IS NOT DISTINCT FROM");
+    expect(query).toContain("blackbaud_result->'results'");
+    expect(sqlMock.mock.calls.some(([parts]) => parts.join(" ").includes("DELETE FROM"))).toBe(false);
   });
 
   it.each([false, true])("does not replace saved creation checkpoints when re-preparing a run (batch: %s)", async (appendRun) => {

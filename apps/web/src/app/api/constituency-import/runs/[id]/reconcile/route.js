@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { getImportWriteResults } from "@/utils/importWriteResults";
+import { importAddressMatches } from "@/utils/importAddressVerification";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -57,7 +59,7 @@ function getWritePlan(row) {
 }
 
 function getAppliedResult(row, writeIndex) {
-  const results = Array.isArray(row.blackbaud_result?.results) ? row.blackbaud_result.results : [];
+  const results = getImportWriteResults(row.blackbaud_result);
   return results.find((result) => result?.writeIndex === writeIndex) || null;
 }
 
@@ -344,9 +346,11 @@ async function reconcileWrite({ write, applyResult, reader }) {
 
   if (write.type === "email_address") {
     const address = cleanText(write.address).toLowerCase();
-    const email = (await reader.emails()).find((value) => getEmailAddress(value).toLowerCase() === address);
+    const email = (await reader.emails()).find((value) => write.action === "set_primary"
+      ? getContactId(value, "email") === cleanText(write.targetId)
+      : getEmailAddress(value).toLowerCase() === address);
     if (!email) return needsReview(write, "The imported email address was not found on the current NXT record.");
-    if (parseBoolean(write.makePrimary) && !isPrimaryContact(email)) {
+    if ((parseBoolean(write.makePrimary) || write.action === "set_primary") && !isPrimaryContact(email)) {
       return needsReview(write, "The imported email address exists in NXT but is not marked primary.");
     }
     return confirmed(write, "The imported email address is present in NXT.");
@@ -354,19 +358,27 @@ async function reconcileWrite({ write, applyResult, reader }) {
 
   if (write.type === "phone") {
     const number = cleanText(write.number);
-    const phone = (await reader.phones()).find((value) => getPhoneNumber(value) === number);
+    const phone = (await reader.phones()).find((value) => write.action === "set_primary"
+      ? getContactId(value, "phone") === cleanText(write.targetId) : getPhoneNumber(value) === number);
     if (!phone) return needsReview(write, "The imported phone number was not found on the current NXT record.");
-    if (parseBoolean(write.makePrimary) && !isPrimaryContact(phone)) {
+    if ((parseBoolean(write.makePrimary) || write.action === "set_primary") && !isPrimaryContact(phone)) {
       return needsReview(write, "The imported phone number exists in NXT but is not marked primary.");
     }
     return confirmed(write, "The imported phone number is present in NXT.");
   }
 
   if (write.type === "address") {
-    const line1 = normalizeText(write.addressLine1);
-    const address = (await reader.addresses()).find(
-      (value) => normalizeText(getAddressLines(value)[0]) === line1,
-    );
+    const addresses = await reader.addresses();
+    if (write.action === "mark_previous") {
+      const previous = addresses.find((value) => getContactId(value, "address") === cleanText(write.targetId));
+      return previous && normalizeText(previous.type) === "previous address" &&
+        comparableDate(previous.valid_to || previous.validTo) === comparableDate(write.validTo)
+        ? confirmed(write, "The selected NXT address has the requested Previous Address type and end date.")
+        : needsReview(write, "The selected NXT address does not match the requested previous-address change.");
+    }
+    const address = addresses.find((value) =>
+      (!cleanText(write.targetId) || getContactId(value, "address") === cleanText(write.targetId)) &&
+      importAddressMatches(value, write));
     if (!address) return needsReview(write, "The imported address was not found on the current NXT record.");
     if (parseBoolean(write.makePrimary) && !isPrimaryContact(address)) {
       return needsReview(write, "The imported address exists in NXT but is not marked primary.");
