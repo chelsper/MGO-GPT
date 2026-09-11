@@ -14,6 +14,8 @@ import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import ImportMatchReview from "@/components/ImportMatchReview";
 import ImportNewRecordReview from "@/components/ImportNewRecordReview";
+import ImportCompletionNotice from "@/components/ImportCompletionNotice";
+import { isImportVerificationComplete } from "@/utils/importCompletion";
 import { canChangeImportMatch, getSelectedImportMatchId, isImportMatchRejected, sameReviewedImportTarget, importErrorLabel, withFocusedImportRow } from "@/utils/importMatchReview";
 import { importMatchEvidence } from "@/utils/importMatchEvidence";
 
@@ -3736,7 +3738,7 @@ export default function ConstituencyImportPage() {
       ? preview.rows.filter((row) => row.status === "Applied" && row.appliedAt)
       : [];
   const unverifiedReconciliationRows = appliedReconciliationRows.filter(
-    (row) => !row.blackbaudResult?.reconciliation?.verifiedAt,
+    (row) => !isImportVerificationComplete(row),
   );
   const potentialNewRows =
     preview?.savedRun && Array.isArray(preview?.rows)
@@ -3775,7 +3777,7 @@ export default function ConstituencyImportPage() {
     (row) => row.status !== "Ready",
   ).length;
   const verifiedReconciliationRows = appliedReconciliationRows.filter(
-    (row) => row.blackbaudResult?.reconciliation?.verifiedAt,
+    isImportVerificationComplete,
   );
   const focusedReviewRow =
     reviewNavigationRows.find((row) => String(row.id) === String(focusedRowId)) ||
@@ -4824,7 +4826,8 @@ export default function ConstituencyImportPage() {
   function preloadFocusedImportRow(row, runIdOverride = null) {
     // A manually skipped row only needs its preserved audit state to be
     // restored. Avoid spending an NXT detail call until it is active again.
-    if (isManuallySkippedImportRow(row)) return;
+    if (isManuallySkippedImportRow(row) || row?.appliedAt ||
+        ["Applying", "Applied"].includes(row?.status) || getImportWriteResults(row?.blackbaudResult).length) return;
     const runId = runIdOverride || preview?.savedRun?.id;
     if (!runId || !row?.id) return;
     const requestKey = `${runId}:${row.id}`;
@@ -5641,12 +5644,14 @@ export default function ConstituencyImportPage() {
     }));
   }
 
-  async function reconcileRows(rowsToVerify, { singleRecord = false } = {}) {
+  async function reconcileRows(rowsToVerify, { singleRecord = false, completeIfMatches = false } = {}) {
     const runId = preview?.savedRun?.id;
     if (!runId || reconcilingRun || !rowsToVerify.length) return;
 
     const shouldVerify = window.confirm(
-      singleRecord
+      completeIfMatches
+        ? `Check ${getImportRowLabel(rowsToVerify[0])} in NXT and finish this import row only if all requested details match? No changes will be sent to NXT.`
+        : singleRecord
         ? `Verify ${getImportRowLabel(rowsToVerify[0])} against current Raiser's Edge NXT data? This only reads NXT and records the result in import run #${runId}; it will not make any NXT changes.`
         : `Verify ${rowsToVerify.length} imported row${rowsToVerify.length === 1 ? "" : "s"} against current Raiser's Edge NXT data? This only reads NXT and records a JUMGOGPT verification audit; it will not write or change any constituent record.`,
     );
@@ -5659,11 +5664,22 @@ export default function ConstituencyImportPage() {
       const response = await fetch(`/api/constituency-import/runs/${encodeURIComponent(runId)}/reconcile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowIds: rowsToVerify.map((row) => String(row.id)) }),
+        body: JSON.stringify({ rowIds: rowsToVerify.map((row) => String(row.id)), completeIfMatches }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to verify the import run in NXT");
+      }
+
+      if (completeIfMatches) {
+        const finished = payload?.rows?.some((row) => row.completed);
+        await loadSavedRun(runId, {
+          focusRowId: finished ? "" : rowsToVerify[0].id,
+          message: payload?.reconciliationSummary?.message,
+          preload: false,
+        });
+        fetchSavedRuns();
+        return;
       }
 
       const reconciliations = new Map(
@@ -5689,9 +5705,7 @@ export default function ConstituencyImportPage() {
           : current,
       );
       setSaveMessage(
-        singleRecord
-          ? `${getImportRowLabel(rowsToVerify[0])} was checked against current NXT data. The verification audit remains in import run #${runId}.`
-          : payload?.reconciliationSummary?.message || "NXT verification completed.",
+        payload?.reconciliationSummary?.message || "NXT verification completed.",
       );
     } catch (reconciliationError) {
       setError(
@@ -5709,7 +5723,7 @@ export default function ConstituencyImportPage() {
   }
 
   async function reconcileSingleRow(row) {
-    if (!row?.appliedAt || row?.blackbaudResult?.reconciliation?.verifiedAt) return;
+    if (!row?.appliedAt) return;
     await reconcileRows([row], { singleRecord: true });
   }
 
@@ -8388,12 +8402,15 @@ export default function ConstituencyImportPage() {
                     !write?.sourceCodeId,
                 );
                 const hasDirtyReviewChoices = contactDecisionsDirty || fieldDecisionsDirty;
+                const hasAttemptedWrites = Boolean(row.appliedAt ||
+                  ["Applying", "Applied"].includes(row.status) || getImportWriteResults(row.blackbaudResult).length);
                 const isEditingSavedRow =
                   Boolean(preview?.savedRun) && editingSavedRowId === String(row.id);
                 const canCorrectSavedRow = Boolean(
                   preview?.savedRun &&
                     isReviewer &&
                     hasStagedRowCorrectionFields(row) &&
+                    !hasAttemptedWrites &&
                     !row.appliedAt &&
                     !["Applied", "Failed", "Skipped"].includes(row.status),
                 );
@@ -8444,7 +8461,7 @@ export default function ConstituencyImportPage() {
                   preview?.savedRun &&
                     row.status === "Applied" &&
                     row.appliedAt &&
-                    !row.blackbaudResult?.reconciliation?.verifiedAt,
+                    !isImportVerificationComplete(row),
                 );
                 const isSkippedRow = row.status === "Skipped";
                 const isManuallySkipped = Boolean(
@@ -8455,6 +8472,7 @@ export default function ConstituencyImportPage() {
                   skippingRowId === String(row.id || row.rowNumber);
                 const rowReadyToSend = canApplyRow || canDirectSendPreviewRow;
                 const rowNeedsReviewAction =
+                  !hasAttemptedWrites &&
                   !isNxtChecksPaused &&
                   !rowReadyToSend &&
                   !canCreateReadyNewRow &&
@@ -8648,6 +8666,13 @@ export default function ConstituencyImportPage() {
                       </div>
                     </div>
 
+                    {hasAttemptedWrites && preview?.savedRun ? (
+                      <ImportCompletionNotice row={row} reviewer={isReviewer}
+                        busy={Boolean(reconcilingRun || applyingRun || retryingRowId || creatingRowId)}
+                        onVerify={() => reconcileRows([row], { singleRecord: true, completeIfMatches: row.status !== "Applied" })}
+                      />
+                    ) : null}
+
                     <div id={`constituency-import-row-${row.id}-match-review`} tabIndex={-1}>
                     <ImportMatchReview
                       row={row}
@@ -8716,7 +8741,7 @@ export default function ConstituencyImportPage() {
                       />
                     ) : null}
 
-                    <div
+                    {!hasAttemptedWrites ? <div
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -8794,9 +8819,9 @@ export default function ConstituencyImportPage() {
                           {renderList(row.proposedCodes)}
                         </div>
                       </div>
-                    </div>
+                    </div> : null}
 
-                    {profileReviewPending || nameWrites.length || profileWrites.length || nameFormatWrites.length ? (
+                    {!hasAttemptedWrites && (profileReviewPending || nameWrites.length || profileWrites.length || nameFormatWrites.length) ? (
                       <section
                         id={`constituency-import-row-${row.id}-profile-review`}
                         style={{
@@ -8979,7 +9004,7 @@ export default function ConstituencyImportPage() {
                       </section>
                     ) : null}
 
-                    {!isNxtChecksPaused ? (
+                    {!hasAttemptedWrites && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-contact-review`}>
                         <ContactReviewPanel
                           row={row}
@@ -8994,7 +9019,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {preview?.savedRun && !isNxtChecksPaused ? (
+                    {!hasAttemptedWrites && preview?.savedRun && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-education-class-year`}>
                         <EducationClassYearReviewPanel
                           row={row}
@@ -9008,7 +9033,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {preview?.savedRun && !isNxtChecksPaused ? (
+                    {!hasAttemptedWrites && preview?.savedRun && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-education-target`}>
                         <EducationTargetReviewPanel
                           row={row}
@@ -9024,7 +9049,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {preview?.savedRun && !isNxtChecksPaused ? (
+                    {!hasAttemptedWrites && preview?.savedRun && !isNxtChecksPaused ? (
                       <div id={`constituency-import-row-${row.id}-constituency-target`}>
                         <ConstituencyReplaceReviewPanel
                           row={row}
@@ -9040,7 +9065,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {preview?.savedRun && rowHasCombinedReviewItems ? (
+                    {!hasAttemptedWrites && preview?.savedRun && rowHasCombinedReviewItems ? (
                       <section
                         style={{
                           border: "1px solid #FCD34D",
@@ -9112,7 +9137,7 @@ export default function ConstituencyImportPage() {
                             letterSpacing: "0.05em",
                           }}
                         >
-                          Staged writes
+                          {hasAttemptedWrites ? "Original import plan (history)" : "Staged writes"}
                         </div>
                         <div style={{ display: "grid", gap: "6px" }}>
                           {row.writePlan.map((write, writeIndex) => (
@@ -9127,7 +9152,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {!isEditingThisRow && !isEditingSavedRow ? (
+                    {!hasAttemptedWrites && !isEditingThisRow && !isEditingSavedRow ? (
                       <section
                         style={{
                           border: `1px solid ${
@@ -9482,7 +9507,7 @@ export default function ConstituencyImportPage() {
                             letterSpacing: "0.05em",
                           }}
                         >
-                          Apply result
+                          {hasAttemptedWrites ? "Original send results (history)" : "Apply result"}
                         </div>
                         {row.blackbaudResult.results.map((result, resultIndex) => (
                           <div
@@ -9590,7 +9615,7 @@ export default function ConstituencyImportPage() {
                       </div>
                     ) : null}
 
-                    {row.reasons?.length ? (
+                    {!hasAttemptedWrites && row.reasons?.length ? (
                       <div
                         style={{
                           border: "1px solid #E5E7EB",
@@ -9605,7 +9630,7 @@ export default function ConstituencyImportPage() {
                           : row.reasons.join(" ")}
                       </div>
                     ) : null}
-                    {!isNxtChecksPaused && row.intentDisposition?.message ? (
+                    {!hasAttemptedWrites && !isNxtChecksPaused && row.intentDisposition?.message ? (
                       <div
                         style={{
                           border: "1px solid #BFDBFE",
@@ -9619,7 +9644,7 @@ export default function ConstituencyImportPage() {
                         {row.intentDisposition.message}
                       </div>
                     ) : null}
-                    {row.createdBlackbaudConstituentId ? (
+                    {!hasAttemptedWrites && row.createdBlackbaudConstituentId ? (
                       <div
                         style={{
                           border: "1px solid #86EFAC",

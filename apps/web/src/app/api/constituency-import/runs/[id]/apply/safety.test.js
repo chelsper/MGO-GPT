@@ -46,6 +46,22 @@ beforeEach(() => {
 });
 
 describe("standard import failure recovery", () => {
+  it.each(["(904) 555-1212", "+1 904-555-1212"])("accepts NXT primary phone formatting: %s", async (number) => {
+    setWrites([{ type: "phone", action: "add", number: "904-555-1212", phoneType: "Cell Phone", makePrimary: true }]);
+    mock.nxt.mockResolvedValueOnce({ value: [] }).mockResolvedValueOnce({ id: "new" })
+      .mockResolvedValueOnce({ value: [{ id: "new", number, primary: true }] });
+    await send();
+    expect(row.status).toBe("Applied");
+    expect(mock.nxt.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
+  });
+  it("does not duplicate an existing reformatted primary phone", async () => {
+    setWrites([{ type: "phone", action: "add", number: "904-555-1212", phoneType: "Cell Phone", makePrimary: true }]);
+    mock.nxt.mockResolvedValue({ value: [{ id: "existing", number: "(904) 555-1212", primary: true }] });
+    await send();
+    expect(row.status).toBe("Applied");
+    expect(row.blackbaud_result.results[0].action).toBe("set_primary");
+    expect(mock.nxt.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+  });
   it("checkpoints before writing and stops if the checkpoint cannot be saved", async () => {
     failCheckpoint = true;
     expect((await send()).status).toBe(500);

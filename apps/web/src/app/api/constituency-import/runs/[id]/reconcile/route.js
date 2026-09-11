@@ -1,6 +1,10 @@
 import { auth } from "@/auth";
 import { getImportWriteResults } from "@/utils/importWriteResults";
 import { importAddressMatches } from "@/utils/importAddressVerification";
+import { importPhonesMatch } from "@/utils/importPhoneMatching";
+import { canFinishImportWithoutSending } from "@/utils/importCompletion";
+import { verifyImportTargetIdentity } from "@/app/api/utils/importTargetIdentity";
+import { saveImportVerification, refreshVerifiedImportSummary } from "@/app/api/utils/saveImportVerification";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
@@ -39,7 +43,12 @@ function parseRowIds(value) {
 }
 
 function getCollection(payload) {
-  return Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : [];
+  const values = Array.isArray(payload?.value) ? payload.value : Array.isArray(payload) ? payload : null;
+  if (!values || payload?.next_link || payload?.next || payload?.links?.next ||
+      (payload?.count != null && (!Number.isFinite(Number(payload.count)) || Number(payload.count) > values.length))) {
+    throw new Error("NXT returned an incomplete list. Verification cannot confirm this change; no NXT data was changed.");
+  }
+  return values;
 }
 
 function getMatchedConstituentId(row) {
@@ -107,7 +116,9 @@ function getConstituencyLabel(value) {
 
 function mapConstituencyCode(value) {
   return {
+    id: cleanText(value?.id),
     label: getConstituencyLabel(value),
+    startDate: value?.date_from || value?.start_date || value?.start || "",
     endDate: value?.date_to || value?.end_date || value?.end || "",
   };
 }
@@ -214,6 +225,8 @@ function comparableDate(value) {
     const month = value.m || value.month;
     const day = value.d || value.day;
     if (year && month && day) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (year && month) return `${year}-${String(month).padStart(2, "0")}`;
+    if (year) return String(year);
   }
   const text = cleanText(value);
   const iso = text.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -288,8 +301,29 @@ function createSnapshotReader({ request, user, constituentId }) {
   };
 }
 
-async function reconcileWrite({ write, applyResult, reader }) {
-  if (applyResult?.status !== "applied") {
+function contactMismatch({ write, applyResult, contacts, contact, kind }) {
+  if (write.action === "set_primary" || parseBoolean(write.makePrimary)) {
+    if (!isPrimaryContact(contact)) return "The saved contact is not marked primary in NXT.";
+    if (contacts.some((other) => getContactId(other, kind) !== getContactId(contact, kind) && isPrimaryContact(other))) {
+      return "NXT still lists another primary contact of this kind. Compare the primary settings before finishing.";
+    }
+    if (parseBoolean(write.demoteExistingPrimary) && cleanText(write.existingPrimaryId) && cleanText(write.existingPrimaryId) !== getContactId(contact, kind)) {
+      const prior = contacts.find((other) => getContactId(other, kind) === cleanText(write.existingPrimaryId));
+      if (!prior || (cleanText(write.demotedPrimaryType) && normalizeText(prior.type) !== normalizeText(write.demotedPrimaryType))) {
+        return "The previous primary contact does not match the requested retained contact/type.";
+      }
+    }
+  }
+  const type = kind === "email" ? write.emailType : kind === "phone" ? write.phoneType : write.addressType;
+  if (!["replace", "set_primary"].includes(write.action) && !["skip_existing", "set_primary"].includes(applyResult?.action) &&
+      cleanText(type) && normalizeText(contact.type) !== normalizeText(type)) {
+    return "The contact exists, but its NXT type does not match the requested type.";
+  }
+  return "";
+}
+
+async function reconcileWrite({ write, applyResult, reader, verifyExisting = false }) {
+  if (!verifyExisting && applyResult?.status !== "applied") {
     return needsReview(write, "No completed NXT write is available to verify for this staged change.");
   }
 
@@ -306,6 +340,7 @@ async function reconcileWrite({ write, applyResult, reader }) {
       "preferred name": constituent?.preferred_name || constituent?.preferredName,
     };
     const mismatches = expected.filter(([label, value]) => normalizeText(actual[label]) !== normalizeText(value));
+    if (!expected.length) return needsReview(write, "No name fields were supplied to verify.");
     return mismatches.length
       ? needsReview(write, `NXT currently differs for ${mismatches.map(([label]) => label).join(", ")}.`)
       : confirmed(write, "NXT name fields match the applied import values.");
@@ -325,6 +360,7 @@ async function reconcileWrite({ write, applyResult, reader }) {
         ? comparableDate(actual) !== comparableDate(value)
         : normalizeText(actual) !== normalizeText(value),
     );
+    if (!expected.length) return needsReview(write, "No profile fields were supplied to verify.");
     return mismatches.length
       ? needsReview(write, `NXT currently differs for ${mismatches.map(([label]) => label).join(", ")}.`)
       : confirmed(write, "NXT profile fields match the applied import values.");
@@ -339,6 +375,9 @@ async function reconcileWrite({ write, applyResult, reader }) {
       ? summary?.primary_salutation || summary?.primarySalutation
       : summary?.primary_addressee || summary?.primaryAddressee;
     const actual = cleanText(current?.formatted_name || current?.formattedName || current?.name);
+    if (verifyExisting && (cleanText(current?.id) !== targetId || current?.custom_format !== true)) {
+      return needsReview(write, "The primary name-format record or custom-text setting does not match the requested change.");
+    }
     return normalizeText(actual) === normalizeText(value)
       ? confirmed(write, `NXT primary ${write.kind || "name format"} matches the import value.`)
       : needsReview(write, `NXT primary ${write.kind || "name format"} does not yet match the import value.`);
@@ -346,10 +385,15 @@ async function reconcileWrite({ write, applyResult, reader }) {
 
   if (write.type === "email_address") {
     const address = cleanText(write.address).toLowerCase();
-    const email = (await reader.emails()).find((value) => write.action === "set_primary"
+    const contacts = await reader.emails();
+    const matches = contacts.filter((value) => write.action === "set_primary"
       ? getContactId(value, "email") === cleanText(write.targetId)
-      : getEmailAddress(value).toLowerCase() === address);
+      : Boolean(address) && (!write.targetId || getContactId(value, "email") === cleanText(write.targetId)) && getEmailAddress(value).toLowerCase() === address);
+    if (verifyExisting && matches.length !== 1) return needsReview(write, "The requested email must match exactly one current NXT email record.");
+    const email = matches[0];
     if (!email) return needsReview(write, "The imported email address was not found on the current NXT record.");
+    const mismatch = verifyExisting && contactMismatch({ write, applyResult, contacts, contact: email, kind: "email" });
+    if (mismatch) return needsReview(write, mismatch);
     if ((parseBoolean(write.makePrimary) || write.action === "set_primary") && !isPrimaryContact(email)) {
       return needsReview(write, "The imported email address exists in NXT but is not marked primary.");
     }
@@ -358,9 +402,15 @@ async function reconcileWrite({ write, applyResult, reader }) {
 
   if (write.type === "phone") {
     const number = cleanText(write.number);
-    const phone = (await reader.phones()).find((value) => write.action === "set_primary"
-      ? getContactId(value, "phone") === cleanText(write.targetId) : getPhoneNumber(value) === number);
+    const contacts = await reader.phones();
+    const matches = contacts.filter((value) => write.action === "set_primary"
+      ? getContactId(value, "phone") === cleanText(write.targetId)
+      : (!write.targetId || getContactId(value, "phone") === cleanText(write.targetId)) && importPhonesMatch(getPhoneNumber(value), number));
+    if (verifyExisting && matches.length !== 1) return needsReview(write, "The requested phone must match exactly one current NXT phone record.");
+    const phone = matches[0];
     if (!phone) return needsReview(write, "The imported phone number was not found on the current NXT record.");
+    const mismatch = verifyExisting && contactMismatch({ write, applyResult, contacts, contact: phone, kind: "phone" });
+    if (mismatch) return needsReview(write, mismatch);
     if ((parseBoolean(write.makePrimary) || write.action === "set_primary") && !isPrimaryContact(phone)) {
       return needsReview(write, "The imported phone number exists in NXT but is not marked primary.");
     }
@@ -376,10 +426,14 @@ async function reconcileWrite({ write, applyResult, reader }) {
         ? confirmed(write, "The selected NXT address has the requested Previous Address type and end date.")
         : needsReview(write, "The selected NXT address does not match the requested previous-address change.");
     }
-    const address = addresses.find((value) =>
+    const matches = addresses.filter((value) =>
       (!cleanText(write.targetId) || getContactId(value, "address") === cleanText(write.targetId)) &&
       importAddressMatches(value, write));
+    if (verifyExisting && matches.length !== 1) return needsReview(write, "The requested address must match exactly one complete current NXT address record.");
+    const address = matches[0];
     if (!address) return needsReview(write, "The imported address was not found on the current NXT record.");
+    const mismatch = verifyExisting && contactMismatch({ write, applyResult, contacts: addresses, contact: address, kind: "address" });
+    if (mismatch) return needsReview(write, mismatch);
     if (parseBoolean(write.makePrimary) && !isPrimaryContact(address)) {
       return needsReview(write, "The imported address exists in NXT but is not marked primary.");
     }
@@ -394,35 +448,41 @@ async function reconcileWrite({ write, applyResult, reader }) {
 
   if (write.type === "constituent_code") {
     const codes = await reader.codes();
-    const findCode = (label) => codes.find((code) => normalizeText(code.label) === normalizeText(label));
+    const findCode = (label) => {
+      const matches = codes.filter((code) => normalizeText(code.label) === normalizeText(label));
+      return verifyExisting && matches.length !== 1 ? null : matches[0];
+    };
     if (write.action === "end-date") {
       const source = findCode(write.sourceConstituency);
-      return source && comparableDate(source.endDate) === comparableDate(write.endDate)
+      return source && (!write.sourceCodeId || source.id === cleanText(write.sourceCodeId)) && comparableDate(source.endDate) === comparableDate(write.endDate)
         ? confirmed(write, `${write.sourceConstituency} has the requested NXT end date.`)
         : needsReview(write, `${write.sourceConstituency} does not show the requested NXT end date.`);
     }
     if (write.action === "replace") {
-      const source = findCode(write.sourceConstituency);
+      const source = codes.find((code) => normalizeText(code.label) === normalizeText(write.sourceConstituency));
       const target = findCode(write.targetConstituency);
       const requestedStartDate = cleanText(write.startDate);
       const startDateMatches =
         !requestedStartDate || comparableDate(target?.startDate) === comparableDate(requestedStartDate);
-      return target && !source && !cleanText(target.endDate) && startDateMatches
-        ? confirmed(write, "NXT reflects the in-place constituent-code replacement.")
+      return target && !source && comparableDate(target.endDate) === comparableDate(write.endDate) && startDateMatches
+        ? confirmed(write, "NXT reflects the requested constituent-code replacement.")
         : needsReview(write, "NXT does not yet reflect the requested constituent-code replacement.");
     }
     const target = findCode(write.targetConstituency);
-    return target && !cleanText(target.endDate)
-      ? confirmed(write, `${write.targetConstituency} is active on the NXT record.`)
-      : needsReview(write, `${write.targetConstituency} was not found as an active NXT constituent code.`);
+    const datesMatch = target && (!cleanText(write.startDate) || comparableDate(target.startDate) === comparableDate(write.startDate)) &&
+      (cleanText(write.endDate) ? comparableDate(target.endDate) === comparableDate(write.endDate) :
+        !cleanText(target.endDate) || comparableDate(target.endDate) >= new Date().toISOString().slice(0, 10));
+    return target && datesMatch
+      ? confirmed(write, `${write.targetConstituency} is present with the requested NXT dates.`)
+      : needsReview(write, `${write.targetConstituency} or its requested dates could not be confirmed in NXT.`);
   }
 
   if (write.type === "education_relationship") {
     const educations = await reader.educations();
     const targetEducationId = cleanText(write?.targetEducationId);
-    const match = targetEducationId
-      ? educations.find((education) => getEducationId(education) === targetEducationId)
-      : educations.find((education) => educationMatchesWrite(write, education));
+    const matches = educations.filter((education) => (!targetEducationId || getEducationId(education) === targetEducationId) && educationMatchesWrite(write, education));
+    if (verifyExisting && matches.length !== 1) return needsReview(write, "The requested education must match exactly one current NXT education record.");
+    const match = matches[0];
     if (!match) {
       return needsReview(write, "The imported education relationship was not found on the current NXT record.");
     }
@@ -436,6 +496,7 @@ async function reconcileWrite({ write, applyResult, reader }) {
   }
 
   if (write.type === "organization_relationship") {
+    if (verifyExisting) return needsReview(write, "Organization relationship completion needs a separate record comparison; this row was not automatically closed.");
     const organizationName = normalizeText(write.name);
     const match = (await reader.relationships()).find(
       (relationship) => normalizeText(getRelationshipName(relationship)) === organizationName,
@@ -448,17 +509,23 @@ async function reconcileWrite({ write, applyResult, reader }) {
   return needsReview(write, "This import write type does not have an automated NXT verification yet.");
 }
 
-async function reconcileRow({ request, user, row }) {
+async function reconcileRow({ request, user, row, verifyExisting = false }) {
   const constituentId = getMatchedConstituentId(row);
   const writes = getWritePlan(row);
   if (!constituentId) {
     return writes.map((write) => needsReview(write, "The matched NXT constituent ID is missing from this import row."));
   }
+  if (verifyExisting) {
+    const identity = await verifyImportTargetIdentity({ request, user, row });
+    if (!identity.ok) return writes.map((write, writeIndex) => ({
+      ...needsReview(write, "The saved NXT identity could not be verified. The review stays open; no NXT data was changed."), writeIndex,
+    }));
+  }
   const reader = createSnapshotReader({ request, user, constituentId });
   const results = [];
   for (const [writeIndex, write] of writes.entries()) {
     try {
-      results.push({ ...(await reconcileWrite({ write, applyResult: getAppliedResult(row, writeIndex), reader })), writeIndex });
+      results.push({ ...(await reconcileWrite({ write, applyResult: getAppliedResult(row, writeIndex), reader, verifyExisting })), writeIndex });
     } catch (error) {
       results.push({
         ...needsReview(write, error instanceof Error ? error.message : "NXT could not be read for verification."),
@@ -506,6 +573,10 @@ export async function POST(request, { params }) {
     const body = await request.json().catch(() => ({}));
     const selection = parseRowIds(body?.rowIds);
     if (selection.error) return Response.json({ error: selection.error }, { status: 400 });
+    const completeIfMatches = body.completeIfMatches === true;
+    if (completeIfMatches && selection.rowIds.length !== 1) {
+      return Response.json({ error: "Verify and finish one saved record at a time." }, { status: 400 });
+    }
 
     const runs = await sql`
       SELECT id FROM constituency_import_runs WHERE id = ${runId} LIMIT 1
@@ -517,8 +588,8 @@ export async function POST(request, { params }) {
       FROM constituency_import_rows
       WHERE run_id = ${runId}
         AND id = ANY(${selection.rowIds})
-        AND status = 'Applied'
-        AND applied_at IS NOT NULL
+        AND ((status = 'Applied' AND applied_at IS NOT NULL)
+          OR (${completeIfMatches} AND status IN ('Needs Review', 'Failed')))
       ORDER BY row_number ASC
     `;
     if (rows.length !== selection.rowIds.length) {
@@ -527,21 +598,32 @@ export async function POST(request, { params }) {
         { status: 409 },
       );
     }
+    if (completeIfMatches && rows.some((row) => !canFinishImportWithoutSending(row))) {
+      return Response.json({ error: "This row is not eligible for verification-only completion. Its saved target, write history, or plan changed. No NXT changes were sent." }, { status: 409 });
+    }
 
     const reconciledRows = [];
     for (const row of rows) {
-      const results = await reconcileRow({ request, user: authResult.user, row });
+      const results = await reconcileRow({ request, user: authResult.user, row,
+        verifyExisting: completeIfMatches || row.blackbaud_result?.completion?.method === "verified_existing_nxt" });
       const audit = buildReconciliationAudit({ row, user: authResult.user, results });
-      await sql`
-        UPDATE constituency_import_rows
-        SET blackbaud_result = ${JSON.stringify(audit)}::jsonb, updated_at = NOW()
-        WHERE id = ${row.id}
-      `;
+      const completed = completeIfMatches && results.length === getWritePlan(row).length &&
+        results.length > 0 && results.every((result) => result.status === "confirmed");
+      if (completed) audit.completion = {
+        method: "verified_existing_nxt", completedAt: audit.reconciliation.verifiedAt,
+        completedByUserId: authResult.user.id, completedByEmail: authResult.user.email,
+        previousStatus: row.status, previousError: row.blackbaud_error || null,
+        nxtWritesSent: 0,
+      };
+      const saved = await saveImportVerification({ row, audit, complete: completed });
       reconciledRows.push({
         id: String(row.id),
+        completed,
+        status: saved.status,
         reconciliation: audit.reconciliation,
       });
     }
+    if (completeIfMatches) await refreshVerifiedImportSummary(runId);
 
     const confirmed = reconciledRows.reduce(
       (count, row) => count + Number(row.reconciliation.confirmedCount || 0),
@@ -554,16 +636,21 @@ export async function POST(request, { params }) {
     return Response.json({
       rows: reconciledRows,
       reconciliationSummary: {
+        completedRows: reconciledRows.filter((row) => row.completed).length,
         verifiedRows: reconciledRows.length,
         confirmed,
         needsReview,
-        message: `Verified ${reconciledRows.length} applied row${reconciledRows.length === 1 ? "" : "s"} against current NXT data: ${confirmed} confirmed; ${needsReview} need review.`,
+        message: completeIfMatches
+          ? reconciledRows.every((row) => row.completed)
+            ? "Verified in NXT and marked complete. No changes were sent to NXT. You can continue to the next record."
+            : `This record stays in review: ${needsReview} change${needsReview === 1 ? "" : "s"} could not be confirmed. No changes were sent to NXT. See the verification results below.`
+          : `Verified ${reconciledRows.length} applied row${reconciledRows.length === 1 ? "" : "s"} against current NXT data: ${confirmed} confirmed; ${needsReview} need review.`,
       },
     });
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Failed to verify the import run in NXT" },
-      { status: 500 },
+      { status: error?.status === 409 ? 409 : 500 },
     );
   }
 }

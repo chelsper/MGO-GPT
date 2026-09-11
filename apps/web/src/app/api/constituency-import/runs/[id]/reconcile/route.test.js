@@ -6,6 +6,11 @@ const getWorkspaceUserMock = vi.fn();
 const sqlMock = vi.fn();
 const blackbaudApiFetchMock = vi.fn();
 
+vi.mock("@/app/api/utils/saveImportVerification", () => ({
+  saveImportVerification: async ({ row }) => ({ id: row.id, status: row.status }),
+  refreshVerifiedImportSummary: vi.fn(),
+}));
+
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: ensureAppSchemaMock }));
 vi.mock("@/app/api/utils/getWorkspaceUser", () => ({ default: getWorkspaceUserMock }));

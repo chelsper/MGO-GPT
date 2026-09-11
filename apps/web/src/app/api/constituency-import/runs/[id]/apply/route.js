@@ -8,6 +8,7 @@ import { blackbaudApiFetch as nxtFetch, getBlackbaudQuotaStatus } from "@/app/ap
 import { persistImportWriteCheckpoint } from "@/app/api/utils/importWriteCheckpoint";
 import { getImportWriteResults, hasImportRetryHold, importWriteCanRetry, importWritePlanKey } from "@/utils/importWriteResults";
 import { importAddressMatches } from "@/utils/importAddressVerification";
+import { importPhonesMatch } from "@/utils/importPhoneMatching";
 import {
   normalizeQuotaPausedImportRow,
   sanitizeQuotaPauseWarnings,
@@ -1527,7 +1528,7 @@ async function applyPhoneUpdate({ request, user, row, write }) {
       return manualContactResult("phone", action, "The selected current NXT phone is no longer available. Refresh the preview before applying.");
     }
     const duplicate = phones.find(
-      (phone) => getContactId(phone, "phone") !== targetId && getPhoneNumber(phone) === number,
+      (phone) => getContactId(phone, "phone") !== targetId && importPhonesMatch(getPhoneNumber(phone), number),
     );
     if (duplicate) {
       return manualContactResult("phone", action, `${number} already exists as a different NXT phone number.`);
@@ -1546,7 +1547,7 @@ async function applyPhoneUpdate({ request, user, row, write }) {
       blackbaudResult: result || null,
     };
   }
-  const existing = phones.find((phone) => getPhoneNumber(phone) === number);
+  const existing = phones.find((phone) => importPhonesMatch(getPhoneNumber(phone), number));
   if (existing) {
     const existingId = getContactId(existing, "phone");
     if (parseBoolean(write?.makePrimary) && existingId) {
@@ -1567,7 +1568,7 @@ async function applyPhoneUpdate({ request, user, row, write }) {
   }
   const change = await protectedPrimaryChange({
     request, user, row, write, kind: "phone", contacts: phones,
-    matches: (contact) => getPhoneNumber(contact) === number,
+    matches: (contact) => importPhonesMatch(getPhoneNumber(contact), number),
     commit: () => blackbaudApiFetch("/constituent/v1/phones", {
     userId: user.id,
     authUserId: user.id,
