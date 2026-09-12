@@ -376,7 +376,8 @@ export async function GET(request) {
       ORDER BY
         CASE WHEN up.status = 'Active' THEN 0 ELSE 1 END,
         up.priority_order ASC,
-        up.created_at DESC
+        up.created_at DESC,
+        up.id
     `;
     const blackbaudActivityResult = await loadBlackbaudActivityByProspect({
       prospects,

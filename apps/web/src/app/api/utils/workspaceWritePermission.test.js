@@ -11,6 +11,7 @@ const routes = [
   ["edit prospect", "PUT", () => import("../prospects/[id]/route")],
   ["delete prospect", "DELETE", () => import("../prospects/[id]/route")],
   ["reorder prospects", "POST", () => import("../prospects/reorder/route")],
+  ["save full prospect ranking", "PUT", () => import("../prospects/reorder/route")],
   ["log action", "POST", () => import("../prospects/[id]/actions/route")],
   ["log progress", "POST", () => import("../prospects/[id]/updates/route")],
   ["edit action", "PUT", () => import("../prospects/[prospectId]/updates/[updateId]/route")],

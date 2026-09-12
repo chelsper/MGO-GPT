@@ -1,6 +1,7 @@
 "use client";
 
 import ProspectExportButton from "@/components/ProspectExport";
+import ProspectRanking from "@/components/ProspectRanking";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
@@ -9442,21 +9443,6 @@ export default function MyTopProspectsPage() {
     },
   });
 
-  const reorderMutation = useMutation({
-    mutationFn: async (body) => {
-      const res = await fetch("/api/prospects/reorder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error("Failed to reorder");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["prospects"] });
-    },
-  });
-
   const syncMutation = useMutation({
     onMutate: () => {
       setPortfolioSyncMessage("");
@@ -11040,6 +11026,18 @@ export default function MyTopProspectsPage() {
             <ProspectExportButton viewerId={profileStatus?.user?.id} workspaceId={activeWorkspaceUserId}
               workspaceName={profileStatus?.workspaceUser?.name || "this workspace"}
               prospectIds={filteredActiveProspects.map((p) => p.id)} />
+            {!isExecutiveReadOnly && <ProspectRanking
+              key={`${profileStatus?.user?.id}:${activeWorkspaceUserId}`}
+              workspaceId={activeWorkspaceUserId}
+              workspaceName={profileStatus?.workspaceUser?.name || "My workspace"}
+              onSaved={(ids) => {
+                const ranks = new Map(ids.map((id, index) => [String(id), index + 1]));
+                // Only ranks changed. Keep cached detail data without an NXT refresh.
+                queryClient.setQueryData(["prospects", activeWorkspaceUserId], (current) =>
+                  (current || []).map((p) => ranks.has(String(p.id)) ? { ...p, priority_order: ranks.get(String(p.id)) } : p)
+                    .sort((a, b) => (a.status === "Active" ? 0 : 1) - (b.status === "Active" ? 0 : 1) ||
+                      (a.priority_order ?? Infinity) - (b.priority_order ?? Infinity)));
+              }} />}
           </div>
           <div
             style={{
@@ -11174,7 +11172,7 @@ export default function MyTopProspectsPage() {
           </div>
         ) : (
           <div style={{ marginBottom: "32px" }}>
-            {filteredActiveProspects.map((p, idx) => (
+            {filteredActiveProspects.map((p) => (
               (() => {
                 const nextAction = getProspectNextAction(p);
                 const nextStepBadge = getNextStepBadge(p);
@@ -11221,7 +11219,7 @@ export default function MyTopProspectsPage() {
                         textAlign: "center",
                       }}
                     >
-                      {idx + 1}
+                      {p.priority_order || activeProspects.findIndex((prospect) => prospect.id === p.id) + 1}
                     </span>
 
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -11498,82 +11496,6 @@ export default function MyTopProspectsPage() {
                       ) : null}
                     </div>
 
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "row",
-                        gap: "6px",
-                        flexShrink: 0,
-                        alignItems: "center",
-                        alignSelf: "flex-start",
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={`Reorder ${p.prospect_name}`}
-                    >
-                      <div
-                        style={{
-                          fontSize: "10px",
-                          color: "#6B7280",
-                          fontWeight: "700",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.04em",
-                          lineHeight: 1.2,
-                          marginRight: "2px",
-                        }}
-                      >
-                        Rank
-                      </div>
-                      <button
-                        onClick={() =>
-                          reorderMutation.mutate({
-                            prospectId: p.id,
-                            direction: "up",
-                          })
-                        }
-                        disabled={idx === 0 || isExecutiveReadOnly}
-                        title="Promote prospect"
-                        style={{
-                          width: "30px",
-                          height: "30px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "6px",
-                          backgroundColor: idx === 0 ? "#F9FAFB" : "white",
-                          cursor: idx === 0 || isExecutiveReadOnly ? "default" : "pointer",
-                          opacity: idx === 0 || isExecutiveReadOnly ? 0.3 : 1,
-                        }}
-                      >
-                        <ChevronUp size={14} color="#374151" />
-                      </button>
-                      <button
-                        onClick={() =>
-                          reorderMutation.mutate({
-                            prospectId: p.id,
-                            direction: "down",
-                          })
-                        }
-                        disabled={idx === filteredActiveProspects.length - 1 || isExecutiveReadOnly}
-                        title="Demote prospect"
-                        style={{
-                          width: "30px",
-                          height: "30px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "6px",
-                          backgroundColor:
-                            idx === filteredActiveProspects.length - 1 ? "#F9FAFB" : "white",
-                          cursor:
-                            idx === filteredActiveProspects.length - 1 || isExecutiveReadOnly ? "default" : "pointer",
-                          opacity: idx === filteredActiveProspects.length - 1 || isExecutiveReadOnly ? 0.3 : 1,
-                        }}
-                      >
-                        <ChevronDown size={14} color="#374151" />
-                      </button>
-                    </div>
                   </div>
                 );
               })()

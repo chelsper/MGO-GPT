@@ -27,6 +27,7 @@ it.each(["admin", "mgo,admin"])("enables Admin editing and action entry for %s",
   render(<MyProspects />);
   expect(screen.getByRole("link", { name: "Log Update" })).toHaveAttribute("href", "/action-opportunity-update");
   expect(screen.getByRole("button", { name: "Add Prospect" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Reorder prospects" })).toBeEnabled();
   expect(screen.getByText("Editing Selected MGO's workspace")).toBeInTheDocument();
   expect(screen.getByText(/Actions credit this MGO/)).toBeInTheDocument();
 });
@@ -35,6 +36,7 @@ it("keeps Executive viewers read-only", () => {
   render(<MyProspects />);
   expect(screen.queryByRole("link", { name: "Log Update" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Add Prospect" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Reorder prospects" })).not.toBeInTheDocument();
   expect(screen.getByText(/workspace in read-only mode/)).toBeInTheDocument();
 });
 it("does not flash editing controls before permissions load", () => {
