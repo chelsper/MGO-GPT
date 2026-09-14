@@ -10,8 +10,8 @@ vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn() }));
 
 const mapped = { lifetimeGiving: { totalGiving: 100 }, proposalSummary: [] };
 let job, snapshot, giving;
-const request = () => new Request("https://jumgogpt.app/api/blackbaud/portfolio-refresh", {
-  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "process", jobId: "1" }),
+const request = (action = "process") => new Request("https://jumgogpt.app/api/blackbaud/portfolio-refresh", {
+  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, jobId: "1" }),
 });
 
 beforeEach(() => {
@@ -110,6 +110,59 @@ describe("nightly portfolio batches", () => {
     const result = await (await POST(request())).json();
     expect(result.paused).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("fixed_proposal_query_retry"))).toBe(false);
+  });
+
+  it.each(["resume", "retry_failed"])("does not let %s override a provider cooldown", async (action) => {
+    job.status = "paused";
+    job.paused_until = new Date(Date.now() + 60000).toISOString();
+    const result = await (await POST(request(action))).json();
+    expect(result.paused).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("UPDATE portfolio_refresh"))).toBe(false);
+  });
+
+  it("automatically requeues the fixed old errors before processing remaining work", async () => {
+    job.status = "paused";
+    job.paused_until = new Date(Date.now() - 1000).toISOString();
+    const originalSql = sql.getMockImplementation();
+    let countReads = 0;
+    sql.mockImplementation(async (strings, ...values) => {
+      const query = strings.join(" ");
+      if (query.includes("fixed_proposal_query_retry")) return [{ id: 24 }];
+      if (query.includes("WITH counts")) return [{ ...job, status: ++countReads === 1 ? "queued" : "completed" }];
+      return originalSql(strings, ...values);
+    });
+    expect((await (await POST(request())).json()).job.status).toBe("completed");
+    expect(fetch).toHaveBeenCalledOnce();
+    const queries = sql.mock.calls.map(([s]) => s.join(" "));
+    expect(queries.findIndex((q) => q.includes("fixed_proposal_query_retry"))).toBeLessThan(queries.findIndex((q) => q.includes("WITH next_items")));
+  });
+
+  it("does not requeue cancelled jobs", async () => {
+    job.status = "cancelled";
+    job.cancel_requested = true;
+    await POST(request());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("fixed_proposal_query_retry"))).toBe(false);
+  });
+
+  it("does not retry unrelated failures from a completed job", async () => {
+    job.status = "completed_with_failures";
+    await POST(request());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("WITH next_items"))).toBe(false);
+  });
+
+  it("keeps the longest cooldown when concurrent provider calls are throttled", async () => {
+    fetch.mockResolvedValue(Response.json({ error: "Throttled", retryAfterMs: 60000 }, { status: 429 }));
+    await POST(request());
+    const pauseQuery = sql.mock.calls.find(([s]) => s.join(" ").includes("SET status = 'paused'"))[0].join(" ");
+    expect(pauseQuery).toContain("paused_until = GREATEST(paused_until,");
+    expect(pauseQuery).toContain("cancel_requested = FALSE");
+    const itemWrite = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+    expect(itemWrite).toContain("pending");
+    expect(itemWrite).not.toContain("failed");
   });
 
   it("keeps the prior narrative and marks partial enrichment for retry", async () => {

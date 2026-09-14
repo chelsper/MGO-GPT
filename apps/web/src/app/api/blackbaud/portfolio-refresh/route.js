@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import { runPortfolioRefreshBatch } from "@/app/api/utils/portfolioRefreshPipeline";
+import requeueFixedPortfolioFailures from "@/app/api/utils/requeueFixedPortfolioFailures";
 import { getPortfolioSummaryStaleAfter, isPortfolioSummaryCurrent, isPortfolioGivingCurrent, selectPortfolioRefreshIds, hasPortfolioSummaryChanges } from "@/app/api/utils/portfolioSummaryFreshness";
 import { readPortfolioGivingSnapshots } from "@/app/api/utils/portfolioGivingSnapshots";
 import {
@@ -501,8 +502,8 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
       ).toISOString();
       await sql`
         UPDATE portfolio_refresh_jobs
-        SET status = 'paused', paused_until = ${pausedUntil}, updated_at = NOW()
-        WHERE id = ${job.id}
+        SET status = 'paused', paused_until = GREATEST(paused_until, ${pausedUntil}::timestamptz), updated_at = NOW()
+        WHERE id = ${job.id} AND cancel_requested = FALSE
       `;
       return { status: "paused" };
     }
@@ -637,7 +638,7 @@ export async function POST(request) {
     return Response.json({ job: serializeJob(job) }, { status: 201 });
   }
 
-  const job = await getJob(body?.jobId, workspaceUserId);
+  let job = await getJob(body?.jobId, workspaceUserId);
   if (!job) return Response.json({ error: "Refresh job not found" }, { status: 404 });
 
   if (action === "cancel") {
@@ -651,6 +652,9 @@ export async function POST(request) {
   }
 
   if (action === "retry_failed") {
+    if (job.status === "paused" && Date.parse(job.paused_until || "") > Date.now()) {
+      return Response.json({ job: serializeJob(job), paused: true });
+    }
     await sql`
       UPDATE portfolio_refresh_items
       SET status = 'pending', completed_at = NULL, updated_at = NOW()
@@ -684,6 +688,8 @@ export async function POST(request) {
   if (job.status === "paused" && Date.parse(job.paused_until || "") > Date.now()) {
     return Response.json({ job: serializeJob(job), paused: true });
   }
+  const recovered = await requeueFixedPortfolioFailures(job.id);
+  if (recovered.length) job = await refreshJobProgress(job.id);
   if (["completed", "completed_with_failures"].includes(job.status) && action === "process") {
     const failedItems = isAdminRole(context.sessionUser?.role)
       ? await getFailedItems(job.id)

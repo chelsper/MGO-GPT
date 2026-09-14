@@ -6,6 +6,7 @@ import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
+import usePortfolioRefreshRunner from "@/utils/usePortfolioRefreshRunner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -1532,8 +1533,8 @@ function PortfolioRefreshProgress({
             </button>
           ) : null}
           {paused ? (
-            <button type="button" onClick={onResume} disabled={isPending} style={smallActionButton}>
-              Resume
+            <button type="button" onClick={onResume} disabled={isPending || Date.parse(job.pausedUntil || "") > Date.now()} style={smallActionButton}>
+              {Date.parse(job.pausedUntil || "") > Date.now() ? "Waiting for Blackbaud" : "Resume now"}
             </button>
           ) : null}
           {completed && Number(job?.failedCount || 0) > 0 ? (
@@ -1568,7 +1569,7 @@ function PortfolioRefreshProgress({
             {job.status === "processing" || job.status === "queued"
               ? `Currently processing in batches of 10 from checkpoint ${Number(job.currentCursor || 0) + 1}.`
               : paused
-                ? `Paused due to Blackbaud throttling${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
+                ? `Waiting for Blackbaud's rate limit${job.pausedUntil ? ` until ${new Date(job.pausedUntil).toLocaleString()}` : ""}.`
                 : job.status === "cancelled"
                   ? "Refresh cancelled. Saved summaries were preserved."
                   : "Refresh pass completed."}
@@ -1577,6 +1578,14 @@ function PortfolioRefreshProgress({
               : ""}
           </div>
         </>
+      ) : null}
+
+      {paused && !error && Number.isFinite(Date.parse(job.pausedUntil || "")) ? (
+        <div role="status" style={{ color: "#92400E", fontSize: "12px", lineHeight: 1.5 }}>
+          This refresh will continue automatically after the cooldown while this page is open.
+          If you leave, overnight maintenance picks it up. Saved summaries remain available;
+          a rate-limit pause does not count as a failed record.
+        </div>
       ) : null}
 
       {isAdmin && job?.failedItems?.length ? (
@@ -8790,9 +8799,9 @@ export default function MyTopProspectsPage() {
       !isExecutiveReadOnly,
     staleTime: 0,
     refetchInterval: (query) =>
-      ["queued", "processing"].includes(query.state.data?.job?.status)
-        ? 3000
-        : false,
+      query.state.data?.job?.status === "paused"
+        ? 10000
+        : ["queued", "processing"].includes(query.state.data?.job?.status) ? 3000 : false,
     refetchOnWindowFocus: false,
   });
   const portfolioRefreshMutation = useMutation({
@@ -8822,29 +8831,13 @@ export default function MyTopProspectsPage() {
     },
   });
   const portfolioRefreshJob = portfolioRefreshState?.job || null;
-  useEffect(() => {
-    if (
-      !portfolioRefreshJob?.jobId ||
-      !["queued", "processing"].includes(portfolioRefreshJob.status) ||
-      portfolioRefreshMutation.isPending ||
-      activeWorkspaceTab !== "portfolio"
-    ) {
-      return undefined;
-    }
-    const timeoutId = window.setTimeout(() => {
-      portfolioRefreshMutation.mutate({
-        action: "process",
-        jobId: portfolioRefreshJob.jobId,
-      });
-    }, 600);
-    return () => window.clearTimeout(timeoutId);
-  }, [
-    activeWorkspaceTab,
-    portfolioRefreshJob?.jobId,
-    portfolioRefreshJob?.processedCount,
-    portfolioRefreshJob?.status,
-    portfolioRefreshMutation.isPending,
-  ]);
+  usePortfolioRefreshRunner({
+    job: portfolioRefreshJob,
+    enabled: activeWorkspaceTab === "portfolio" && !!user && !isExecutiveReadOnly,
+    isPending: portfolioRefreshMutation.isPending,
+    error: portfolioRefreshMutation.error,
+    onProcess: portfolioRefreshMutation.mutate,
+  });
 
   const portfolioAnnualConstituentIds = useMemo(() => {
     const seen = new Set();
