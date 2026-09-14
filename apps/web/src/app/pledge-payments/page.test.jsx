@@ -4,6 +4,7 @@ import PledgePaymentsPage from "./page";
 
 const payload = () => ({ today: "2026-09-09", job: { id: "job", status: "completed", total: 1, success: 1, failed: 0 }, issues: [], records: [{
   id: "1", name: "Example Donor", constituentId: "10", lookupId: "P100", totalCents: 10000, balanceCents: 7500,
+  fundDescriptions: ["Scholarships", "Student Success"], fundDescriptionsUnavailable: false,
   payments: [{ date: "2026-09-01", amountCents: 2500 }], refreshedAt: "2026-09-09T12:00:00Z",
   installments: [{ id: "1", date: "2026-09-01", amountCents: 5000, balanceCents: 2500 }, { id: "2", date: "2026-10-01", amountCents: 5000, balanceCents: 5000 }],
 }] });
@@ -17,9 +18,41 @@ describe("pledge payments worklist", () => {
     expect(screen.getByRole("tab", { name: /Past Due/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getAllByText("Total pledged").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Paid to date").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fund description").length).toBeGreaterThan(0);
+    expect(screen.getByText("Scholarships")).toBeInTheDocument();
+    expect(screen.getByText("Student Success")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Example Donor/ })).toHaveLength(1);
+    expect(screen.getByText(/1 pledges shown/)).toHaveTextContent("$25.00");
     fireEvent.click(screen.getByRole("tab", { name: /Upcoming/ }));
     expect(screen.getByRole("tab", { name: /Upcoming/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Oct 1, 2026")).toBeInTheDocument();
+    expect(screen.getByText("Scholarships")).toBeInTheDocument();
+    expect(screen.getByText("Student Success")).toBeInTheDocument();
+    expect(screen.getByText(/1 pledges shown/)).toHaveTextContent("$50.00");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("searches saved fund descriptions without requesting NXT", async () => {
+    render(<PledgePaymentsPage />);
+    await screen.findByText("Example Donor");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a constituent, pledge, or fund" }), { target: { value: "sChOlArShIp" } });
+    expect(screen.getByText("Example Donor")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /Upcoming/ }));
+    expect(screen.getByText("Example Donor")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [undefined, false, "Refresh to load fund description"],
+    [[], false, "Not provided by NXT"],
+    [[], true, "Fund description unavailable"],
+    [["Known fund"], true, "Some fund descriptions unavailable"],
+  ])("distinguishes legacy, absent, and unavailable descriptions without hiding amounts", async (fundDescriptions, fundDescriptionsUnavailable, message) => {
+    const data = payload();
+    Object.assign(data.records[0], { fundDescriptions, fundDescriptionsUnavailable });
+    fetch.mockResolvedValueOnce(Response.json(data));
+    render(<PledgePaymentsPage />);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByText("Example Donor")).toBeInTheDocument();
+    expect(screen.getByText("$100.00")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("expands schedules without requesting NXT and supports search", async () => {

@@ -70,7 +70,7 @@ export default function PledgePaymentsPage() {
   const resumable = !legacySource && ["discovering", "running", "paused"].includes(job?.status);
   const lists = pledgeWorklist(data?.records || [], data?.today);
   const selected = lists[tab];
-  const filtered = selected.filter((row) => `${row.name} ${row.lookupId}`.toLowerCase().includes(search.toLowerCase()));
+  const filtered = selected.filter((row) => `${row.name} ${row.lookupId} ${(row.fundDescriptions || []).join(" ")}`.toLowerCase().includes(search.toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 50) - 1));
   const visible = filtered.slice(currentPage * 50, (currentPage + 1) * 50);
   const changeTab = (value) => { setTab(value); setPage(0); };
@@ -115,7 +115,7 @@ export default function PledgePaymentsPage() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div><p className="text-sm text-gray-600">{tab === "pastDue" ? "Includes all unpaid payments due through today, oldest due date first." : "Unpaid future installments, ordered by the next due date. Amount due is for that next date only."}</p>
               <p className="mt-1 text-xs text-gray-500">As of {formatCalendarDate(data.today)} (Eastern). A pledge with arrears and future installments can appear in both tabs.</p></div>
-            <label className="w-full text-sm font-semibold sm:w-72">Find a constituent or pledge<input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" /></label>
+            <label className="w-full text-sm font-semibold sm:w-72">Find a constituent, pledge, or fund<input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" /></label>
           </div>
           <p className="text-sm text-gray-600">{filtered.length} pledges shown / {tab === "pastDue" ? "Total due through today" : "Total of next payments"}: <strong className="text-gray-900">{pledgeMoney(filtered.reduce((sum, row) => sum + row.amountDueCents, 0))}</strong>. Amounts in USD.</p>
         </div>

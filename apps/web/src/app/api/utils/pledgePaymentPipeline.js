@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { finishPledge, normalizeApplications, normalizeInstallments, normalizePaymentGift, normalizePledge, pledgeDataError, OPEN_PLEDGE_QUERY_ID } from "@/utils/pledgePayments";
 import { advancePledgeDiscovery, isPledgeQueryJob } from "./pledgeQuerySource";
+import { getGiftDisplayDetails } from "./giftDisplayDetails";
 
 export const pendingPledgeJob = (job) => ["discovering", "running", "paused"].includes(job?.status);
 export function newPledgeJob() {
@@ -14,6 +15,11 @@ export function safePledgeFailure(error, stage) {
     retryAfterMs: Math.max(0, Number(error?.retryAfterMs) || 0) };
 }
 
+const pausesRefresh = (error) => {
+  const { httpStatus, retryAfterMs } = safePledgeFailure(error);
+  return httpStatus === 429 || httpStatus === 401 || (httpStatus === 403 && retryAfterMs > 0);
+};
+
 // One step is at most one SKY request. Payment-heavy pledges checkpoint each
 // linked gift as well, so even a single long pledge does not need a long request.
 export async function advancePledge(item, read, now = new Date()) {
@@ -22,9 +28,29 @@ export async function advancePledge(item, read, now = new Date()) {
   const v2 = "https://api.sky.blackbaud.com/gft-gifts/v2/gifts";
   let stage = item.stage;
   if (stage === "gift") {
-    draft.gift = normalizePledge(await read(`${v1}/${item.pledgeId}`), item.pledgeId);
+    const gift = await read(`${v1}/${item.pledgeId}`);
+    draft.gift = normalizePledge(gift, item.pledgeId);
     if (draft.gift.balanceCents === 0) return { ...item, status: "success", draft: {}, payload: null, error: null };
-    stage = "installments";
+    const { fundDescriptions, fundIds } = getGiftDisplayDetails(gift);
+    draft.gift.fundDescriptions = fundDescriptions;
+    draft.pendingFundIds = fundIds.filter((id) => /^\d+$/.test(id));
+    draft.gift.fundDescriptionsUnavailable = draft.pendingFundIds.length !== fundIds.length;
+    stage = draft.pendingFundIds.length ? "fund_details" : "installments";
+  } else if (stage === "fund_details") {
+    const fundId = draft.pendingFundIds?.[0];
+    if (!fundId || !/^\d+$/.test(fundId)) throw pledgeDataError("invalid_checkpoint");
+    try {
+      const fund = await read(`https://api.sky.blackbaud.com/fundraising/v1/funds/${fundId}`);
+      const description = typeof fund?.description === "string" ? fund.description.trim() : "";
+      if (String(fund?.id) !== fundId || !description) throw pledgeDataError("missing_fund_description");
+      draft.gift.fundDescriptions = [...new Set([...draft.gift.fundDescriptions, description])];
+    } catch (error) {
+      if (pausesRefresh(error)) throw error;
+      // Optional fund metadata must not exclude a financially verified pledge.
+      draft.gift.fundDescriptionsUnavailable = true;
+    }
+    draft.pendingFundIds.shift();
+    if (!draft.pendingFundIds.length) stage = "installments";
   } else if (stage === "installments") {
     draft.installments = normalizeInstallments(await read(`${v2}/${item.pledgeId}/installments`), draft.gift);
     stage = "payments";
@@ -70,7 +96,7 @@ export async function runPledgeBatch({ job, store, read, query, maxSteps = 6, no
     try { updated = await advancePledge(item, read, new Date(now())); }
     catch (error) {
       const safe = safePledgeFailure(error, item.stage);
-      if (safe.httpStatus === 429 || safe.httpStatus === 401 || (safe.httpStatus === 403 && safe.retryAfterMs)) return pauseJob(error, item.stage, job, store, now);
+      if (pausesRefresh(error)) return pauseJob(error, item.stage, job, store, now);
       updated = { ...item, status: "failed", error: safe };
     }
     // DB failure aborts without changing the saved checkpoint or last good data.

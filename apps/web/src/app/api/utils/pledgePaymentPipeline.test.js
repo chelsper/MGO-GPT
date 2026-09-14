@@ -39,6 +39,80 @@ describe("resumable pledge payment pipeline", () => {
     expect(JSON.stringify(item)).not.toContain("privateField");
     expect(item.draft).toEqual({});
   });
+  it("resolves distinct split funds one request per step without changing the pledge amounts", async () => {
+    let item = initial();
+    const reader = vi.fn(async (url) => {
+      if (url.endsWith("/gifts/1")) return { ...giftRead("1"), gift_splits: [{ fund_id: "41" }, { fund_id: "42" }, { fund_id: "41" }] };
+      if (url.includes("/funds/")) return { id: url.split("/").at(-1), description: url.endsWith("/41") ? "Scholarships" : "Student Success", privateField: "not stored" };
+      return read(url);
+    });
+    for (let i = 0; i < 7; i++) {
+      const before = reader.mock.calls.length;
+      item = await advancePledge(item, reader);
+      expect(reader.mock.calls.length - before).toBeLessThanOrEqual(1);
+    }
+    expect(item.status).toBe("success");
+    expect(item.payload).toMatchObject({ totalCents: 10000, balanceCents: 10000,
+      fundDescriptions: ["Scholarships", "Student Success"], fundDescriptionsUnavailable: false });
+    expect(reader.mock.calls.filter(([url]) => url.endsWith("/funds/41"))).toHaveLength(1);
+    expect(item.draft).toEqual({});
+    expect(JSON.stringify(item)).not.toContain("privateField");
+  });
+  it.each([403, 404, 500, "mismatched_id", "missing_description"])("keeps a verified pledge when optional fund details are unavailable: %s", async (failure) => {
+    let item = initial();
+    const reader = async (url) => {
+      if (url.endsWith("/gifts/1")) return { ...giftRead("1"), gift_splits: [{ fund_id: "41", fund_description: "Known fund" }, { fund_id: "42" }] };
+      if (url.endsWith("/funds/41")) return { id: "41", description: "Known fund" };
+      if (url.endsWith("/funds/42")) {
+        if (failure === "mismatched_id") return { id: "999", description: "Wrong fund" };
+        if (failure === "missing_description") return { id: "42", description: null };
+        throw Object.assign(new Error("private response"), { httpStatus: failure });
+      }
+      return read(url);
+    };
+    for (let i = 0; i < 7; i++) item = await advancePledge(item, reader);
+    expect(item.status).toBe("success");
+    expect(item.payload).toMatchObject({ totalCents: 10000, fundDescriptions: ["Known fund"], fundDescriptionsUnavailable: true });
+    expect(JSON.stringify(item)).not.toMatch(/Wrong fund|private response/);
+  });
+  it.each([401, 429, 403])("preserves the fund checkpoint and resumes after HTTP %s without rereading completed funds", async (httpStatus) => {
+    const store = memoryStore();
+    store.items.set("1", initial());
+    let failFund = true;
+    const reader = vi.fn(async (url) => {
+      if (url.endsWith("/gifts/1")) return { ...giftRead("1"), gift_splits: [{ fund_id: "41" }, { fund_id: "42" }] };
+      if (url.includes("/funds/")) {
+        if (url.endsWith("/42") && failFund) throw Object.assign(new Error("stop"), { httpStatus, retryAfterMs: 1000 });
+        return { id: url.split("/").at(-1), description: "Scholarships" };
+      }
+      return read(url);
+    });
+    let clock = Date.now();
+    const now = () => clock;
+    let job = await runPledgeBatch({ job: { ...newPledgeJob(), id: "run", discoveryComplete: true }, store, read: reader, now });
+    expect(job.status).toBe("paused");
+    expect(store.items.get("1").draft.pendingFundIds).toEqual(["42"]);
+    failFund = false;
+    clock += 1001;
+    job = await runPledgeBatch({ job, store, read: reader, now });
+    expect(job.status).toBe("completed");
+    expect(store.items.get("1").payload.fundDescriptions).toEqual(["Scholarships"]);
+    expect(reader.mock.calls.filter(([url]) => url.endsWith("/funds/41"))).toHaveLength(1);
+    expect(reader.mock.calls.filter(([url]) => url.endsWith("/gifts/1"))).toHaveLength(1);
+  });
+  it("retains inline descriptions without requiring a fund lookup and resumes older checkpoints", async () => {
+    let item = await advancePledge(initial(), async () => ({ ...giftRead("1"), fund_description: "Scholarships" }));
+    expect(item.stage).toBe("installments");
+    expect(item.draft.gift.fundDescriptions).toEqual(["Scholarships"]);
+    delete item.draft.gift.fundDescriptions;
+    delete item.draft.gift.fundDescriptionsUnavailable;
+    delete item.draft.pendingFundIds;
+    const reader = vi.fn(read);
+    for (let i = 0; i < 4; i++) item = await advancePledge(item, reader);
+    expect(item.status).toBe("success");
+    expect(item.payload.fundDescriptions).toBeUndefined();
+    expect(reader.mock.calls.some(([url]) => url.includes("/funds/"))).toBe(false);
+  });
   it("checkpoints query discovery separately, then resumes a 301-pledge job after failure on 24", async () => {
     const store = memoryStore();
     let job = newPledgeJob();
