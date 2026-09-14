@@ -2,6 +2,7 @@
 
 import ProspectExportButton from "@/components/ProspectExport";
 import ProspectRanking from "@/components/ProspectRanking";
+import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
@@ -1478,6 +1479,7 @@ function PortfolioRefreshProgress({
   const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
   return (
+    <PortfolioRefreshStatus state={state} isPending={isPending} error={error}>
     <div
       style={{
         border: "1px solid #BFDBFE",
@@ -1610,6 +1612,7 @@ function PortfolioRefreshProgress({
       ) : null}
       {error ? <div style={{ color: "#991B1B", fontSize: "12px", fontWeight: 700 }}>{error.message}</div> : null}
     </div>
+    </PortfolioRefreshStatus>
   );
 }
 

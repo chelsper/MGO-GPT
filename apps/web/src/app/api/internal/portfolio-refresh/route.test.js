@@ -33,6 +33,7 @@ describe("scheduled portfolio refresh worker", () => {
     if (originalSecret === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = originalSecret;
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("rejects requests without the cron secret", async () => {
@@ -98,5 +99,33 @@ describe("scheduled portfolio refresh worker", () => {
     const query = sqlMock.mock.calls[2][0].join(" ");
     expect(query).toContain("portfolio_giving_snapshots");
     expect(query).toContain("attempted.mode = 'nightly'");
+  });
+
+  it("automatically starts a stale workspace on a later night without a portfolio page or manual retry", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-15T05:10:00Z"));
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ workspace_user_id: 8, stale_count: 140 }]);
+    fetch.mockResolvedValueOnce(Response.json({ job: { jobId: "46" } }))
+      .mockResolvedValueOnce(Response.json({ job: { jobId: "46", status: "queued" } }));
+    expect((await GET(request(""))).status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const [url, options] = fetch.mock.calls[0];
+    expect(new URL(url).searchParams.get("workspaceUserId")).toBe("8");
+    expect(options.headers["x-mgogpt-report-refresh"]).toBe("scheduled");
+    expect(JSON.parse(options.body)).toEqual({ action: "start", mode: "nightly" });
+    const query = sqlMock.mock.calls[2][0].join(" ");
+    expect(query).toContain("attempted.status IN ('completed', 'completed_with_failures', 'cancelled')");
+    expect(query).toContain("attempted.created_at >=");
+    expect(query).toContain("date_trunc('day', NOW() AT TIME ZONE 'America/New_York') + INTERVAL '1 hour'");
+  });
+
+  it.each(["2026-09-15T04:59:00Z", "2026-09-15T11:00:00Z", "2026-09-15T17:00:00Z"])("does not automatically retry outside the Eastern overnight window: %s", async (time) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(time));
+    const { GET } = await import("./route.js");
+    expect(await (await GET(request(""))).json()).toMatchObject({ status: "skipped", reason: "Outside the overnight portfolio refresh window." });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 });
