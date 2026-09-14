@@ -14,6 +14,7 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { createPortfolioGivingDataSource } from "@/app/api/utils/portfolioGivingDataCache";
 import { savePortfolioGivingSnapshot, withPortfolioGivingSnapshot } from "@/app/api/utils/portfolioGivingSnapshots";
+import loadProposalSummary from "@/app/api/utils/portfolioProposalSummary";
 import { GET as getCurrentFyGiving } from "@/app/api/blackbaud/current-fy-giving/route";
 import {
   getPortfolioSummaryStaleAfter,
@@ -1202,33 +1203,6 @@ async function buildSpouseAndFamilySummary({
   };
 }
 
-async function loadProposalSummary({ workspaceUserId, constituentId, currentFYNumber }) {
-  const proposals = await sql`
-    SELECT
-      p.prospect_name,
-      p.ask_amount,
-      p.expected_close_fy,
-      po.opportunity_title,
-      po.current_stage,
-      po.ask_type,
-      po.estimated_amount
-    FROM prospects p
-    LEFT JOIN constituents c ON c.id = p.constituent_id
-    LEFT JOIN prospect_opportunities po ON po.prospect_id = p.id
-    WHERE p.user_id = ${workspaceUserId}
-      AND COALESCE(p.blackbaud_constituent_id, c.blackbaud_constituent_id) = ${constituentId}
-      AND COALESCE(po.opportunity_status, 'Active') = 'Active'
-      AND LOWER(COALESCE(po.current_stage, po.ask_type, '')) IN ('solicitation', 'cultivation', 'solicitation - verbal')
-      AND CAST(NULLIF(RIGHT(REGEXP_REPLACE(COALESCE(po.expected_close_fy, p.expected_close_fy, ''), '[^0-9]', '', 'g'), 2), '') AS INTEGER) >= ${currentFYNumber}
-    ORDER BY
-      CAST(NULLIF(RIGHT(REGEXP_REPLACE(COALESCE(po.expected_close_fy, p.expected_close_fy, ''), '[^0-9]', '', 'g'), 2), '') AS INTEGER) ASC,
-      COALESCE(po.estimated_amount, p.ask_amount, 0) DESC
-    LIMIT 3
-  `;
-
-  return proposals;
-}
-
 function buildProspectSummaryNarrative({
   constituent,
   educationRecords,
@@ -1748,6 +1722,7 @@ async function handleGet(request, { params }) {
             ? error.message
             : "Failed to fetch Blackbaud constituent summary",
         providerStatus,
+        failureStage: error?.stage === "proposal_summary" ? "proposal_summary" : providerStatus ? "blackbaud_retrieval" : "summary_processing",
         quotaPaused,
         retryAfterMs,
       },

@@ -78,6 +78,32 @@ describe("nightly portfolio batches", () => {
     expect(sql.mock.calls.some((call) => call.includes("failed"))).toBe(true);
   });
 
+  it("records an app failure as HTTP 500 rather than the last successful NXT HTTP 200", async () => {
+    fetch.mockResolvedValue(Response.json({ error: "Local proposal query failed", failureStage: "proposal_summary", providerStatus: null }, {
+      status: 500, headers: { "x-mgogpt-nxt-last-status": "200", "x-mgogpt-nxt-last-endpoint": "/gift/v1/gifts", "x-mgogpt-nxt-api-calls": "4" },
+    }));
+    await POST(request());
+    const failure = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+    expect(failure).toContain("proposal_summary");
+    expect(failure).toContain(500);
+    expect(failure).not.toContain(200);
+    expect(failure).toContain("/api/blackbaud/constituents/123/summary");
+    expect(failure).not.toContain("/gift/v1/gifts");
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("UPDATE portfolio_constituent_snapshots"))).toBe(false);
+  });
+
+  it("keeps an explicit failed-provider status even when another NXT request finished successfully", async () => {
+    fetch.mockResolvedValue(Response.json({ error: "NXT rate limit", failureStage: "blackbaud_retrieval", providerStatus: 429, retryAfterMs: 60000 }, {
+      status: 429, headers: { "x-mgogpt-nxt-last-status": "200", "x-mgogpt-nxt-last-endpoint": "/gift/v1/gifts" },
+    }));
+    await POST(request());
+    const failure = sql.mock.calls.find(([s]) => s.join(" ").includes("retry_count = retry_count + 1"));
+    expect(failure).toContain("blackbaud_retrieval");
+    expect(failure).toContain(429);
+    expect(failure).not.toContain(200);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SET status = 'paused'"))).toBe(true);
+  });
+
   it("honors a persisted cooldown even when Process is clicked", async () => {
     job.status = "paused";
     job.paused_until = new Date(Date.now() + 60000).toISOString();

@@ -448,6 +448,19 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
   });
 
+  it("reports a local proposal-query failure without replacing a good giving snapshot", async () => {
+    const previousImplementation = sql.getMockImplementation();
+    sql.mockImplementation(async (strings, ...values) => {
+      if (strings.join(" ").includes("WITH proposals AS")) throw new Error("Local proposal query failed");
+      return previousImplementation(strings, ...values);
+    });
+    const response = await summary("giving_only=1&refresh=1");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ failureStage: "proposal_summary", providerStatus: null });
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_giving_snapshots"))).toBe(false);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);
+  });
+
   it("also lets badge loading reuse data fetched first by a summary", async () => {
     const first = await (await summary()).json();
     const second = await (await badges()).json();
