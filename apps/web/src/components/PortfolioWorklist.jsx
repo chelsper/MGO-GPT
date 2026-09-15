@@ -27,6 +27,7 @@ const quickViews = [
 ];
 
 const PortfolioExpansionContext = createContext(null);
+export const PortfolioDetailsVisibleContext = createContext(false);
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -162,7 +163,9 @@ export function PortfolioCard({
         hidden={!detailed && !expanded}
         className="portfolio-card__details"
       >
-        {children}
+        <PortfolioDetailsVisibleContext.Provider value={detailed || expanded}>
+          {children}
+        </PortfolioDetailsVisibleContext.Provider>
       </div>
     </article>
   );
@@ -518,6 +521,12 @@ export default function PortfolioWorklist({
               they are not live and may be older than the portfolio refresh.
               Missing dates do not mean no gifts or actions. Opening this list
               does not request activity from NXT.
+            </p>
+            <p>
+              Expanded, on-screen details check missing or older contacts only,
+              one record at a time. Saved details stay visible during a check.
+              Contacts checked within 24 hours are reused. This does not load
+              gifts, actions, or a full NXT summary, or start portfolio maintenance.
             </p>
             <p>
               Open first puts constituents with saved open opportunities ahead

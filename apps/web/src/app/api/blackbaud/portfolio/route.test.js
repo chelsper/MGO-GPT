@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
+import { portfolioContactCacheKey } from "@/app/api/utils/portfolioContactCacheKey";
 
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
@@ -283,7 +284,7 @@ describe("Blackbaud portfolio route", () => {
     await GET(new Request("https://example.com/api/blackbaud/portfolio"));
     const [strings, ...values] = sqlMock.mock.calls.find(([parts]) => parts.join("").includes("WITH saved_contacts"));
     const query = strings.join("?");
-    expect(values).toEqual([44, 2, ["100"], 44, ["100"], 44, 2, ["100"], [
+    expect(values).toEqual([44, 2, ["100"], [portfolioContactCacheKey("https://example.com", "100")], 44, ["100"], 44, 2, ["100"], [
       prospectActivityCacheKey("https://example.com", "100", "gift"),
       prospectActivityCacheKey("https://example.com", "100", "action"),
     ]]);

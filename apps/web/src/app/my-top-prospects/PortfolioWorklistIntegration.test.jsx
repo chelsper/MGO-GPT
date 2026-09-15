@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -99,6 +100,26 @@ it("shows saved contacts and their checked date immediately without requests", (
   expect(screen.getByText("100 Saved Street")).toBeVisible();
   expect(screen.getByText("Saved contact details · Checked September 15, 2026")).toBeVisible();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("checks only visible expanded contacts on the actual page without loading summaries", async () => {
+  let intersect;
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(callback) { intersect = callback; }
+    observe() {} disconnect() {}
+  });
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ status: "updated", contacts: {
+    email: "checked@example.com", phone: null, address: null, contactCheckedAt: new Date().toISOString(),
+  } }) });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  act(() => intersect([{ isIntersecting: true }]));
+  await waitFor(() => expect(screen.getByText("checked@example.com")).toBeVisible());
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0][0]).toBe("/api/blackbaud/constituents/100/portfolio-contact?viewer_id=2&workspace_id=44");
+  expect(screen.queryByText("Saved summary narrative")).not.toBeInTheDocument();
 });
 
 it("uses saved activity dates in collapsed rows without additional fetches or changing order", () => {

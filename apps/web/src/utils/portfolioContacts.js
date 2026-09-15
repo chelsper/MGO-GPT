@@ -1,4 +1,11 @@
 const CONTACT_FIELDS = ["email", "phone", "address"];
+export const PORTFOLIO_CONTACT_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function portfolioContactsAreFresh(person, now = Date.now()) {
+  const checkedAt = Date.parse(person?.contactCheckedAt || "");
+  return hasSavedPortfolioContacts(person) && Number.isFinite(checkedAt) &&
+    checkedAt <= now && now - checkedAt < PORTFOLIO_CONTACT_TTL_MS;
+}
 
 export function hasSavedPortfolioContacts(constituent) {
   return Boolean(

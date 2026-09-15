@@ -10,6 +10,7 @@ import sql from "@/app/api/utils/sql";
 import { hasSavedPortfolioContacts, mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { savedPortfolioActivityDate } from "@/utils/portfolioActivity";
 import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
+import { portfolioContactCacheKey } from "@/app/api/utils/portfolioContactCacheKey";
 import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
@@ -341,6 +342,8 @@ async function getCachedNxtPortfolioDetails({
       WHERE workspace_user_id = ${workspaceUserId}
         AND auth_user_id = ${authUserId}
         AND constituent_id = ANY(${constituentIds})
+        AND (cache_key NOT LIKE 'portfolio-contact-v1|%'
+          OR cache_key = ANY(${constituentIds.map(id => portfolioContactCacheKey(origin || "", id))}))
 
       UNION ALL
 

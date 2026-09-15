@@ -4,6 +4,7 @@ import ProspectExportButton from "@/components/ProspectExport";
 import ProspectRanking from "@/components/ProspectRanking";
 import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 import PortfolioWorklist, { PortfolioCard } from "@/components/PortfolioWorklist";
+import PortfolioContactDetails, { PortfolioContactRefreshProvider } from "@/components/PortfolioContactDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import useProspectPledgeStatus from "@/utils/useProspectPledgeStatus";
 import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
@@ -505,20 +506,6 @@ function getTodayDateOnlyTimestamp() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return today.getTime();
-}
-
-function formatPortfolioContact(person) {
-  return [person?.email, person?.phone].filter(Boolean).join(" · ");
-}
-
-function getPortfolioContactDisplay(person) {
-  const contact = formatPortfolioContact(person);
-  if (contact) return contact;
-  if (person?.address) return "";
-
-  return person?.contactDataSource === "not-loaded"
-    ? "Contact details have not been loaded yet"
-    : "No contact details available";
 }
 
 function buildPortfolioUpdateHref(person, mode) {
@@ -1818,7 +1805,6 @@ function PortfolioTier({
                   summaryState?.contactDetails,
                   { checkedAt: summaryState?.contactDetails?.contactCheckedAt },
                 );
-                const contactDisplay = getPortfolioContactDisplay(contactPerson);
                 const portfolioGivingSocieties =
                   annualGivingSocietiesByConstituentId[
                     String(person.constituentId || "")
@@ -1916,21 +1902,7 @@ function PortfolioTier({
                   </div>
                 ) : null}
               </div>
-              {contactDisplay ? (
-                <div style={{ fontSize: "13px", color: "#4B5563", lineHeight: 1.5 }}>
-                  {contactDisplay}
-                </div>
-              ) : null}
-              {contactPerson.address ? (
-                <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-                  {contactPerson.address}
-                </div>
-              ) : null}
-              {contactPerson.contactCheckedAt ? (
-                <div style={{ fontSize: "11px", color: "#64748B", lineHeight: 1.5 }}>
-                  Saved contact details · Checked {formatCalendarDate(contactPerson.contactCheckedAt)}
-                </div>
-              ) : null}
+              <PortfolioContactDetails person={contactPerson} />
               <CurrentFiscalYearGiving
                 giving={currentFiscalYearGiving}
                 yearLabel={currentFiscalYearLabel}
@@ -10451,6 +10423,12 @@ export default function MyTopProspectsPage() {
                 {blackbaudPortfolio.warning}
               </div>
             ) : (
+              <PortfolioContactRefreshProvider
+                key={portfolioPreferenceKey || activeWorkspaceUserId}
+                viewerId={profileStatus?.user?.id}
+                workspaceId={activeWorkspaceUserId}
+                enabled={!isLocalPortfolioFallback}
+              >
               <PortfolioWorklist
                 key={portfolioPreferenceKey || activeWorkspaceUserId}
                 storageKey={portfolioPreferenceKey}
@@ -10511,6 +10489,7 @@ export default function MyTopProspectsPage() {
                   />
                 )}
               />
+              </PortfolioContactRefreshProvider>
             )}
           </div>
         ) : null}

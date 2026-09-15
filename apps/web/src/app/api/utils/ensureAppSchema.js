@@ -101,6 +101,17 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS portfolio_contact_refresh_gates (
+        auth_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        origin_key TEXT NOT NULL,
+        lease_token TEXT,
+        lease_until TIMESTAMPTZ,
+        next_allowed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (auth_user_id, origin_key)
+      )
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS blackbaud_constituent_summary_cache (
         id BIGSERIAL PRIMARY KEY,
         workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -121,6 +132,11 @@ export default async function ensureAppSchema() {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_blackbaud_constituent_summary_cache_updated_at
       ON blackbaud_constituent_summary_cache (updated_at)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_blackbaud_constituent_summary_cache_contact
+      ON blackbaud_constituent_summary_cache (workspace_user_id, auth_user_id, constituent_id)
     `;
 
     await sql`
