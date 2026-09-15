@@ -6,6 +6,7 @@ import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 import PortfolioWorklist, { PortfolioCard } from "@/components/PortfolioWorklist";
 import PortfolioContactDetails, { PortfolioContactRefreshProvider } from "@/components/PortfolioContactDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
+import NextStepFields from "@/components/NextStepFields";
 import useProspectPledgeStatus from "@/utils/useProspectPledgeStatus";
 import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
@@ -593,7 +594,7 @@ function matchesPortfolioSearch(person, normalizedSearch) {
   );
 }
 
-function PortfolioFollowUpModal({ kind, person, onClose }) {
+export function PortfolioFollowUpModal({ kind, person, ownerName, onClose }) {
   const queryClient = useQueryClient();
   const isNextStep = kind === "next-step";
   const [title, setTitle] = useState("");
@@ -602,6 +603,10 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
   const [assignedUserId, setAssignedUserId] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const saveInFlight = useRef(false);
+  const dialogRef = useRef(null);
+  const previousFocus = useRef(typeof document === "undefined" ? null : document.activeElement);
+  useEffect(() => () => previousFocus.current?.focus?.(), []);
 
   const { data: teammates = [], isLoading: isLoadingTeammates } = useQuery({
     queryKey: ["portfolio-follow-up-teammates"],
@@ -652,6 +657,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
       return responsePayload;
     },
     onSuccess: () => {
+      saveInFlight.current = false;
       queryClient.invalidateQueries({ queryKey: ["pending-actions"] });
       queryClient.invalidateQueries({ queryKey: ["discussion-items"] });
       setSuccessMessage(
@@ -661,6 +667,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
       );
     },
     onError: (mutationError) => {
+      saveInFlight.current = false;
       setError(
         mutationError instanceof Error
           ? mutationError.message
@@ -671,12 +678,21 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
 
   const handleSubmit = (event) => {
     event.preventDefault();
+    if (saveInFlight.current || saveMutation.isPending) return;
     if (!title.trim()) {
       setError(isNextStep ? "Enter a next step." : "Enter a discussion subject.");
       return;
     }
     setError("");
+    saveInFlight.current = true;
     saveMutation.mutate();
+  };
+
+  const requestClose = () => {
+    if (saveInFlight.current || saveMutation.isPending) return;
+    if (!successMessage && (title || details || dueDate || assignedUserId) &&
+        !window.confirm("Discard your unsaved follow-up?")) return;
+    onClose();
   };
 
   const fieldStyle = {
@@ -693,7 +709,17 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
   return (
     <div
       role="presentation"
-      onMouseDown={onClose}
+      onMouseDown={requestClose}
+      onKeyDown={event => {
+        if (event.key === "Escape") { event.stopPropagation(); requestClose(); }
+        if (event.key === "Tab") {
+          const controls = Array.from(dialogRef.current?.querySelectorAll("button, input, select, textarea, a[href]") || [])
+            .filter(element => !element.matches(":disabled") && !element.closest("[hidden]"));
+          const first = controls[0], last = controls.at(-1);
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -706,6 +732,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
     >
       <div
         role="dialog"
+        ref={dialogRef}
         aria-modal="true"
         aria-labelledby="portfolio-follow-up-title"
         onMouseDown={(event) => event.stopPropagation()}
@@ -741,7 +768,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={saveMutation.isPending}
             aria-label="Close"
             style={{
@@ -757,7 +784,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: "20px 22px 22px" }}>
-          <div
+          {!isNextStep ? <div
             style={{
               marginBottom: "18px",
               padding: "10px 12px",
@@ -770,11 +797,11 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
             }}
           >
             This stays in JUMGOGPT and does not write to NXT.
-          </div>
+          </div> : null}
 
           {successMessage ? (
             <>
-              <div
+              <div role="status"
                 style={{
                   padding: "12px 14px",
                   borderRadius: "9px",
@@ -808,6 +835,11 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
             </>
           ) : (
             <>
+              {isNextStep ? (
+                <NextStepFields title={title} details={details} dueDate={dueDate}
+                  onTitleChange={setTitle} onDetailsChange={setDetails} onDueDateChange={setDueDate}
+                  ownerName={ownerName} disabled={saveMutation.isPending} autoFocus />
+              ) : <>
               <label style={{ display: "grid", gap: "7px", marginBottom: "16px" }}>
                 <span style={{ fontSize: "14px", fontWeight: "700", color: "#374151" }}>
                   {isNextStep ? "Next step" : "Discussion subject"} *
@@ -863,9 +895,10 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
                   </select>
                 </label>
               ) : null}
+              </>}
 
               {error ? (
-                <div
+                <div role="alert"
                   style={{
                     marginBottom: "16px",
                     padding: "10px 12px",
@@ -880,10 +913,10 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
                 </div>
               ) : null}
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: "10px", marginTop: "20px" }}>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={requestClose}
                   disabled={saveMutation.isPending}
                   style={{
                     border: "1px solid #D1D5DB",
@@ -900,7 +933,7 @@ function PortfolioFollowUpModal({ kind, person, onClose }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={saveMutation.isPending}
+                  disabled={saveMutation.isPending || !title.trim()}
                   style={{
                     border: "none",
                     borderRadius: "8px",
@@ -3065,7 +3098,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false, pledgeData }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false, pledgeData, ownerName }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -3115,6 +3148,8 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
   const [nextStepCompletedDraft, setNextStepCompletedDraft] = useState(false);
   const [nextStepNeedsDiscussionDraft, setNextStepNeedsDiscussionDraft] = useState(false);
   const [nextStepDiscussionNoteDraft, setNextStepDiscussionNoteDraft] = useState("");
+  const nextStepDraftDirty = useRef(false);
+  const nextStepSource = useRef(null);
   const [newOpportunityData, setNewOpportunityData] = useState({
     title: "",
     currentStage: "Identification",
@@ -3676,6 +3711,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-base"] });
       queryClient.invalidateQueries({ queryKey: ["prospect-summary-closed"] });
       queryClient.invalidateQueries({ queryKey: ["stewardship-actions"] });
+      nextStepDraftDirty.current = false;
       setShowNextStepForm(false);
       setActionError("");
     },
@@ -3757,7 +3793,11 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
     null;
 
   useEffect(() => {
+    // A saved-data refresh must not replace an in-progress draft or its target.
+    if (showNextStepForm && nextStepDraftDirty.current) return;
+    if (!showNextStepForm) nextStepDraftDirty.current = false;
     const source = primaryPendingAction;
+    nextStepSource.current = source;
     setNextStepTextDraft(source?.title || prospect?.next_action_text || "");
     setNextStepDetailsDraft(source?.details || "");
     setNextStepDueDateDraft(source?.due_date || prospect?.next_action_due_date || "");
@@ -3767,6 +3807,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
     setNextStepNeedsDiscussionDraft(Boolean(source?.needs_discussion));
     setNextStepDiscussionNoteDraft(source?.discussion_note || "");
   }, [
+    showNextStepForm,
     primaryPendingAction,
     prospect?.next_action_completed_at,
     prospect?.next_action_due_date,
@@ -4440,10 +4481,16 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
   };
 
   const saveNextStep = () => {
+    if (readOnly || savePendingActionMutation.isPending) return;
     setActionError("");
     const trimmed = nextStepTextDraft.trim();
+    if (!trimmed) { setActionError("Enter what should happen next."); return; }
+    if ((nextStepSource.current?.id || null) !== (primaryPendingAction?.id || null)) {
+      setActionError("The current next step changed while you were editing. Your draft is still here. Cancel and reopen the editor to review the current step before saving.");
+      return;
+    }
     savePendingActionMutation.mutate({
-      id: primaryPendingAction?.id || null,
+      id: nextStepSource.current?.id || null,
       body: {
         prospectId,
         constituentId: prospect?.constituent_id || null,
@@ -4452,7 +4499,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
         dueDate: trimmed ? nextStepDueDateDraft || null : null,
         status: nextStepCompletedDraft ? "Done" : "Open",
         isPrimary: true,
-        category: primaryPendingAction?.category || "General",
+        category: nextStepSource.current?.category || "General",
         needsDiscussion: nextStepNeedsDiscussionDraft,
         discussionNote: nextStepNeedsDiscussionDraft
           ? nextStepDiscussionNoteDraft.trim() || null
@@ -6323,6 +6370,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
 
           {actionError ? (
             <div
+              role="alert"
               style={{
                 marginBottom: "16px",
                 padding: "10px 12px",
@@ -6346,7 +6394,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                 borderColor: "#FDE68A",
               }}
             >
-              <p style={sectionEyebrowStyle}>Pending Actions</p>
+              <p style={sectionEyebrowStyle}>Set next step</p>
               <p style={{ margin: "0 0 14px", fontSize: "14px", color: "#4B5563", lineHeight: 1.6 }}>
                 Keep one clear pending action on this prospect, set a due date, and flag it for discussion when it needs coordination.
               </p>
@@ -6437,68 +6485,16 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                   ))}
                 </div>
               ) : null}
-              <div style={{ display: "grid", gap: "14px" }}>
-                <div>
-                  <label style={detailLabelStyle}>Pending Action</label>
-                  <textarea
-                    rows={3}
-                    value={nextStepTextDraft}
-                    onChange={(event) => setNextStepTextDraft(event.target.value)}
-                    placeholder="What should happen next?"
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "10px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                      fontFamily: "inherit",
-                      resize: "vertical",
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={detailLabelStyle}>Details</label>
-                  <textarea
-                    rows={2}
-                    value={nextStepDetailsDraft}
-                    onChange={(event) => setNextStepDetailsDraft(event.target.value)}
-                    placeholder="Optional context, handoff note, or prep detail."
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "10px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                      fontFamily: "inherit",
-                      resize: "vertical",
-                    }}
-                  />
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                    gap: "14px",
-                  }}
-                >
-                  <div>
-                    <label style={detailLabelStyle}>Due Date</label>
-                    <input
-                      type="date"
-                      value={nextStepDueDateDraft}
-                      onChange={(event) => setNextStepDueDateDraft(event.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        border: "1px solid #D1D5DB",
-                        borderRadius: "10px",
-                        fontSize: "14px",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                  </div>
+              <form aria-label="Edit next step" onSubmit={event => { event.preventDefault(); saveNextStep(); }}
+                style={{ display: "grid", gap: "14px" }}>
+                <NextStepFields
+                  title={nextStepTextDraft} details={nextStepDetailsDraft} dueDate={nextStepDueDateDraft}
+                  onTitleChange={value => { nextStepDraftDirty.current = true; setNextStepTextDraft(value); }}
+                  onDetailsChange={value => { nextStepDraftDirty.current = true; setNextStepDetailsDraft(value); }}
+                  onDueDateChange={value => { nextStepDraftDirty.current = true; setNextStepDueDateDraft(value); }}
+                  ownerName={ownerName || mgoUsers.find(option => String(option.id) === String(prospect.user_id))?.name}
+                  disabled={readOnly || savePendingActionMutation.isPending}
+                />
                   <label
                     style={{
                       display: "flex",
@@ -6506,17 +6502,15 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                       gap: "8px",
                       fontSize: "14px",
                       color: "#374151",
-                      paddingTop: "26px",
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={nextStepCompletedDraft}
-                      onChange={(event) => setNextStepCompletedDraft(event.target.checked)}
+                      onChange={(event) => { nextStepDraftDirty.current = true; setNextStepCompletedDraft(event.target.checked); }}
                     />
-                    Mark pending action complete
+                    Mark this next step complete
                   </label>
-                </div>
                 <div
                   style={{
                     display: "grid",
@@ -6536,7 +6530,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                     <input
                       type="checkbox"
                       checked={nextStepNeedsDiscussionDraft}
-                      onChange={(event) => setNextStepNeedsDiscussionDraft(event.target.checked)}
+                      onChange={(event) => { nextStepDraftDirty.current = true; setNextStepNeedsDiscussionDraft(event.target.checked); }}
                     />
                     Needs discussion
                   </label>
@@ -6595,7 +6589,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                     <textarea
                       rows={2}
                       value={nextStepDiscussionNoteDraft}
-                      onChange={(event) => setNextStepDiscussionNoteDraft(event.target.value)}
+                      onChange={(event) => { nextStepDraftDirty.current = true; setNextStepDiscussionNoteDraft(event.target.value); }}
                       placeholder="What needs review, input, or handoff?"
                       style={{
                         width: "100%",
@@ -6612,9 +6606,8 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                 ) : null}
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
-                    type="button"
-                    onClick={saveNextStep}
-                    disabled={savePendingActionMutation.isPending}
+                    type="submit"
+                    disabled={readOnly || savePendingActionMutation.isPending || !nextStepTextDraft.trim()}
                     style={{
                       padding: "10px 14px",
                       borderRadius: "999px",
@@ -6626,11 +6619,12 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                       cursor: "pointer",
                     }}
                   >
-                    {savePendingActionMutation.isPending ? "Saving..." : "Save pending action"}
+                    {savePendingActionMutation.isPending ? "Saving..." : "Save next step"}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
+                      nextStepDraftDirty.current = false;
                       setShowNextStepForm(false);
                       setNextStepTextDraft(primaryPendingAction?.title || prospect.next_action_text || "");
                       setNextStepDetailsDraft(primaryPendingAction?.details || "");
@@ -6658,7 +6652,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                     Cancel
                   </button>
                 </div>
-              </div>
+              </form>
             </div>
           ) : null}
 
@@ -11587,6 +11581,7 @@ export default function MyTopProspectsPage() {
       {selectedProspectId && (
         <ProspectDetailModal
           pledgeData={pledgeData}
+          ownerName={profileStatus?.workspaceUser?.name}
           prospectId={selectedProspectId}
           initialPanel={selectedProspectPanel}
           onClose={closeProspectWorkspace}
@@ -11598,6 +11593,7 @@ export default function MyTopProspectsPage() {
         <PortfolioFollowUpModal
           kind={portfolioFollowUp.kind}
           person={portfolioFollowUp.person}
+          ownerName={profileStatus?.workspaceUser?.name}
           onClose={() => setPortfolioFollowUp(null)}
         />
       ) : null}

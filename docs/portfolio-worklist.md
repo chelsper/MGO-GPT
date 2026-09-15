@@ -58,6 +58,15 @@ Recent gift/action sorting remains deferred: saved activity coverage is incomple
 - Throttling, a busy connection, network failures, and unverifiable responses stop automatic contact work. Saved values remain visible with a small contact-specific notice and a Retry control after the cooldown. Unknown failures never clear contacts or start a retry loop. A database failure prevents new NXT requests when the shared gate cannot be acquired.
 - This is not change detection: unchanged records may receive an on-demand check after 24 hours. NXT change notifications and changes to nightly schedules remain separate, deferred steps.
 
+## Next-Step Editor
+
+- My Portfolio and Top Prospects share the same title, optional notes and due-date fields. Today, Tomorrow and In 1 week use Eastern calendar dates; No date clears an existing due date. Existing notes remain available when collapsed.
+- The editor identifies the selected workspace owner and explicitly labels these as JUMGOGPT-only pending actions, not NXT action logs. Existing Admin attribution and server-side workspace permissions are unchanged. Opening the Portfolio next-step editor makes no request; no new queries, NXT calls or maintenance work are added to either editor.
+- Portfolio prevents repeat submissions while saving, retains drafts on failure, asks before discarding unsaved input, and traps/restores keyboard focus. Top Prospects preserves a dirty draft through saved-data refreshes and refuses to save against a different primary step if that change arrives during editing. This is client-side draft protection, not a server-side concurrent-edit lock.
+- Explicitly clearing a due date, notes or discussion note now differs from omitting that field in a partial update. Omitted values remain unchanged. Existing completion and discussion-link behavior is retained; reassignment and a larger Team Discussion redesign remain separate work.
+
 ## Verification
 
 Worklist and actual-page integration tests cover group scoping, duplicate membership, search, quick-view counts, pagination, Focus, unchanged category/rank data, unavailable-group recovery and workspace isolation. Browser QA uses synthetic records; new features are not tested against production until deployed.
+
+Next-step tests cover date boundaries, optional notes, request counts, failed saves, duplicate submission, keyboard focus, draft refreshes, changed primary steps, explicit field clearing and workspace write permissions. Synthetic browser QA checks the shared fields at desktop and narrow card widths without writing production records.

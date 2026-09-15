@@ -38,13 +38,13 @@ export async function PUT(request, { params }) {
       UPDATE pending_actions
       SET
         title = COALESCE(${body.title ?? null}, title),
-        details = COALESCE(${body.details ?? null}, details),
-        due_date = COALESCE(${body.dueDate ?? null}, due_date),
+        details = CASE WHEN ${Object.hasOwn(body, "details")} THEN ${body.details ?? null} ELSE details END,
+        due_date = CASE WHEN ${Object.hasOwn(body, "dueDate")} THEN ${body.dueDate || null}::date ELSE due_date END,
         category = COALESCE(${body.category ?? null}, category),
         status = COALESCE(${body.status ?? null}, status),
         is_primary = COALESCE(${body.isPrimary ?? null}, is_primary),
         needs_discussion = COALESCE(${body.needsDiscussion ?? null}, needs_discussion),
-        discussion_note = COALESCE(${body.discussionNote ?? null}, discussion_note),
+        discussion_note = CASE WHEN ${Object.hasOwn(body, "discussionNote")} THEN ${body.discussionNote ?? null} ELSE discussion_note END,
         prospect_opportunity_id = COALESCE(${body.prospectOpportunityId ?? null}, prospect_opportunity_id),
         completed_at = CASE
           WHEN ${body.status ?? null} = 'Done' THEN COALESCE(completed_at, NOW())
