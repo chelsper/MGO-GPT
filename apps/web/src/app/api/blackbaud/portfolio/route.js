@@ -7,6 +7,7 @@ import {
   isAuthorizedReportRefreshRequest,
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
+import { hasSavedPortfolioContacts, mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import {
   findBlackbaudConstituentByLookupId,
   findBlackbaudConstituentByEmail,
@@ -316,24 +317,52 @@ async function getCachedNxtPortfolioDetails({
     return new Map();
   }
 
+  // Filter before choosing the newest row: giving-only caches share this table
+  // but have no contacts. Project only identity/contact data, not full summaries.
+  // Workspace snapshots are already shared by the authorized summary endpoint;
+  // raw summary caches retain their separate authorizing-connection boundary.
   const rows = await sql`
+    WITH saved_contacts AS (
+      SELECT constituent_id,
+        payload #> '{mapped,constituent}' AS constituent,
+        COALESCE(payload #> '{raw,constituent}', payload -> 'raw') AS raw_constituent,
+        updated_at AS contact_checked_at,
+        'nxt-summary-cache' AS contact_data_source,
+        1 AS source_priority
+      FROM blackbaud_constituent_summary_cache
+      WHERE workspace_user_id = ${workspaceUserId}
+        AND auth_user_id = ${authUserId}
+        AND constituent_id = ANY(${constituentIds})
+
+      UNION ALL
+
+      SELECT constituent_id,
+        summary_payload #> '{mapped,constituent}' AS constituent,
+        summary_payload #> '{raw,constituent}' AS raw_constituent,
+        last_refreshed_at AS contact_checked_at,
+        'nxt-portfolio-snapshot' AS contact_data_source,
+        2 AS source_priority
+      FROM portfolio_constituent_snapshots
+      WHERE workspace_user_id = ${workspaceUserId}
+        AND constituent_id = ANY(${constituentIds})
+    )
     SELECT DISTINCT ON (constituent_id)
-      constituent_id,
-      payload
-    FROM blackbaud_constituent_summary_cache
-    WHERE workspace_user_id = ${workspaceUserId}
-      AND auth_user_id = ${authUserId}
-      AND constituent_id = ANY(${constituentIds})
-    ORDER BY constituent_id, updated_at DESC
+      constituent_id, constituent, raw_constituent,
+      contact_checked_at, contact_data_source
+    FROM saved_contacts
+    WHERE jsonb_typeof(constituent) = 'object'
+      AND jsonb_typeof(constituent -> 'email') IN ('string', 'null')
+      AND jsonb_typeof(constituent -> 'phone') IN ('string', 'null')
+      AND jsonb_typeof(constituent -> 'address') IN ('string', 'null')
+      AND (constituent ->> 'id' IS NULL OR constituent ->> 'id' = constituent_id)
+    ORDER BY constituent_id, contact_checked_at DESC NULLS LAST, source_priority
   `;
 
   return new Map(
     rows.flatMap((row) => {
-      const cachedPayload = parseCachedPayload(row.payload);
-      const constituent = cachedPayload?.mapped?.constituent;
-      const rawConstituent =
-        cachedPayload?.raw?.constituent ?? cachedPayload?.raw ?? null;
-      if (!constituent || !row.constituent_id) return [];
+      const constituent = parseCachedPayload(row.constituent);
+      const rawConstituent = parseCachedPayload(row.raw_constituent);
+      if (!hasSavedPortfolioContacts(constituent) || !row.constituent_id) return [];
 
       return [
         [
@@ -343,6 +372,8 @@ async function getCachedNxtPortfolioDetails({
             email: constituent.email || null,
             phone: constituent.phone || null,
             address: constituent.address || null,
+            contactDataSource: row.contact_data_source || "nxt-summary-cache",
+            contactCheckedAt: row.contact_checked_at || null,
             isDeceased:
               isDeceasedRecord(constituent) || isDeceasedRecord(rawConstituent),
           },
@@ -350,6 +381,67 @@ async function getCachedNxtPortfolioDetails({
       ];
     }),
   );
+}
+
+function mergePortfolioDetails(entry, localDetails = {}, cachedNxtDetails = {}) {
+  const hasSavedNxtContact = ["nxt-summary-cache", "nxt-portfolio-snapshot"].includes(
+    entry.contactDataSource,
+  );
+  const localFallback = hasSavedNxtContact ? entry : {
+    ...entry,
+    email: entry.email || localDetails.email || null,
+    phone: entry.phone || localDetails.phone || null,
+    address: entry.address || null,
+    contactDataSource: entry.email || entry.phone || entry.address || localDetails.email || localDetails.phone
+      ? entry.contactDataSource === "not-loaded" || !entry.contactDataSource
+        ? "local-workspace-record"
+        : entry.contactDataSource
+      : "not-loaded",
+  };
+  return mergeSavedPortfolioContacts(localFallback, cachedNxtDetails, {
+    source: cachedNxtDetails.contactDataSource,
+    checkedAt: cachedNxtDetails.contactCheckedAt,
+  });
+}
+
+async function getSavedPortfolioDetails({ workspaceUserId, authUserId, constituentIds }) {
+  const [localDetails, nxtDetails] = await Promise.all([
+    getLocalPortfolioDetails(workspaceUserId, constituentIds).catch((error) => {
+      console.warn("Could not enrich portfolio assignments from local records:", error);
+      return new Map();
+    }),
+    getCachedNxtPortfolioDetails({ workspaceUserId, authUserId, constituentIds }).catch((error) => {
+      console.warn("Could not enrich portfolio assignments from cached NXT summaries:", error);
+      return new Map();
+    }),
+  ]);
+  return { localDetails, nxtDetails };
+}
+
+async function enrichCachedPortfolioContacts(payload, workspaceUserId, authUserId) {
+  const entries = [...(payload?.leadSolicitor || []), ...(payload?.supportingSolicitor || [])];
+  const constituentIds = [...new Set(entries.map((entry) => String(entry.constituentId || "")).filter(Boolean))];
+  if (!constituentIds.length) return payload;
+  const { localDetails, nxtDetails } = await getSavedPortfolioDetails({
+    workspaceUserId, authUserId, constituentIds,
+  });
+  const enrich = (entry) => {
+    const id = String(entry.constituentId);
+    const local = localDetails.get(id);
+    const cached = nxtDetails.get(id);
+    const merged = mergePortfolioDetails(entry, local, cached);
+    return {
+      ...merged,
+      name: hasResolvedConstituentName(entry.name, id)
+        ? entry.name
+        : cached?.name || local?.name || entry.name,
+    };
+  };
+  return {
+    ...payload,
+    leadSolicitor: (payload?.leadSolicitor || []).map(enrich),
+    supportingSolicitor: (payload?.supportingSolicitor || []).map(enrich),
+  };
 }
 
 function enrichConstituents({
@@ -365,11 +457,8 @@ function enrichConstituents({
         cachedNxtDetailsByConstituentId.get(String(entry.constituentId)) || {};
       const liveIdentity =
         liveIdentityByConstituentId.get(String(entry.constituentId)) || {};
-      const hasCachedNxtContact = Boolean(
-        cachedNxtDetails.email || cachedNxtDetails.phone || cachedNxtDetails.address,
-      );
-      const hasLocalContact = Boolean(localDetails.email || localDetails.phone);
       return {
+        ...mergePortfolioDetails({}, localDetails, cachedNxtDetails),
         constituentId: entry.constituentId,
         lookupId: entry.lookupId || liveIdentity.lookupId || null,
         name:
@@ -378,14 +467,6 @@ function enrichConstituents({
           liveIdentity.name ||
           entry.name ||
           `NXT constituent ${entry.constituentId}`,
-        email: cachedNxtDetails.email || localDetails.email || null,
-        phone: cachedNxtDetails.phone || localDetails.phone || null,
-        address: cachedNxtDetails.address || null,
-        contactDataSource: hasCachedNxtContact
-          ? "nxt-summary-cache"
-          : hasLocalContact
-            ? "local-workspace-record"
-            : "not-loaded",
         lifetimeGiving: {
           totalGiving: null,
           totalReceivedGiving: null,
@@ -567,7 +648,7 @@ function isUsableStaleCache(timestamp) {
   return typeof ageMs === "number" && ageMs < PORTFOLIO_STALE_CACHE_TTL_MS;
 }
 
-async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = false } = {}) {
+async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = false, authUserId } = {}) {
   if (!workspaceUserId || !cacheKey) return null;
 
   const acceptedCacheKeys = Array.isArray(cacheKey) ? cacheKey : [cacheKey];
@@ -607,7 +688,8 @@ async function getCachedPortfolio(workspaceUserId, cacheKey, { allowStale = fals
   }
 
   return {
-    payload: row.blackbaud_portfolio_cache,
+    // Reusing contacts must not renew assignment freshness or write the cache.
+    payload: await enrichCachedPortfolioContacts(row.blackbaud_portfolio_cache, workspaceUserId, authUserId),
     cachedAt: row.blackbaud_portfolio_cached_at,
     cacheKey: row.blackbaud_portfolio_cache_key,
     cacheKeyMatch: storedCacheKey === String(matchingCacheKey) ? "exact" : "version-compatible",
@@ -906,7 +988,7 @@ export async function GET(request) {
       : null;
     const initialCachedPortfolio = includeDiagnostics || forceAssignmentRefresh
       ? null
-      : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true });
+      : await getCachedPortfolio(workspaceUser.id, initialCacheKeys, { allowStale: true, authUserId });
 
     if (initialCachedPortfolio) {
       const cachedPayload = await hydrateCachedPortfolio({
@@ -967,7 +1049,7 @@ export async function GET(request) {
       : null;
     const resolvedCachedPortfolio = includeDiagnostics || linkedFundraiserId
       ? null
-      : await getCachedPortfolio(workspaceUser.id, initialCacheKey, { allowStale: true });
+      : await getCachedPortfolio(workspaceUser.id, initialCacheKey, { allowStale: true, authUserId });
 
     if (resolvedCachedPortfolio) {
       return Response.json(
@@ -1133,20 +1215,8 @@ export async function GET(request) {
     ];
     // Cache and local enrichment are both optional. Neither may delay the
     // assignment list or trigger a live NXT request per constituent.
-    const [localDetailsByConstituentId, cachedNxtDetailsByConstituentId] = await Promise.all([
-      getLocalPortfolioDetails(workspaceUser.id, assignedConstituentIds).catch((error) => {
-        console.warn("Could not enrich portfolio assignments from local records:", error);
-        return new Map();
-      }),
-      getCachedNxtPortfolioDetails({
-        workspaceUserId: workspaceUser.id,
-        authUserId,
-        constituentIds: assignedConstituentIds,
-      }).catch((error) => {
-        console.warn("Could not enrich portfolio assignments from cached NXT summaries:", error);
-        return new Map();
-      }),
-    ]);
+    const { localDetails: localDetailsByConstituentId, nxtDetails: cachedNxtDetailsByConstituentId } =
+      await getSavedPortfolioDetails({ workspaceUserId: workspaceUser.id, authUserId, constituentIds: assignedConstituentIds });
 
     const initialLeadSolicitor = enrichConstituents({
       groupedAssignments: leadAssignments,

@@ -7,6 +7,7 @@ import PortfolioWorklist, { PortfolioCard } from "@/components/PortfolioWorklist
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import useProspectPledgeStatus from "@/utils/useProspectPledgeStatus";
 import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
+import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
@@ -513,6 +514,7 @@ function formatPortfolioContact(person) {
 function getPortfolioContactDisplay(person) {
   const contact = formatPortfolioContact(person);
   if (contact) return contact;
+  if (person?.address) return "";
 
   return person?.contactDataSource === "not-loaded"
     ? "Contact details have not been loaded yet"
@@ -1684,6 +1686,7 @@ function PortfolioTier({
       setSummaryStates((current) => ({
         ...current,
         [constituentId]: {
+          ...current[constituentId],
           status: "error",
           error: "NXT summary requests are paused while Blackbaud is temporarily unavailable.",
         },
@@ -1693,7 +1696,7 @@ function PortfolioTier({
 
     setSummaryStates((current) => ({
       ...current,
-      [constituentId]: { status: "loading" },
+      [constituentId]: { ...current[constituentId], status: "loading", error: null },
     }));
 
     try {
@@ -1710,12 +1713,23 @@ function PortfolioTier({
 
       setSummaryStates((current) => ({
         ...current,
-        [constituentId]: { status: "success", payload },
+        [constituentId]: {
+          ...current[constituentId],
+          status: "success",
+          error: null,
+          payload,
+          contactDetails: mergeSavedPortfolioContacts(
+            current[constituentId]?.contactDetails || {},
+            payload?.mapped?.constituent,
+            { checkedAt: payload?.summaryRefreshedAt },
+          ),
+        },
       }));
     } catch (error) {
       setSummaryStates((current) => ({
         ...current,
         [constituentId]: {
+          ...current[constituentId],
           status: "error",
           error: error instanceof Error ? error.message : "Failed to load NXT summary",
         },
@@ -1799,17 +1813,11 @@ function PortfolioTier({
                 );
                 const narrativeSummary =
                   summaryState?.payload?.mapped?.prospectSummaryNarrative || "";
-                const loadedNxtConstituent =
-                  summaryState?.payload?.mapped?.constituent || null;
-                const contactPerson = loadedNxtConstituent
-                  ? {
-                      ...person,
-                      email: loadedNxtConstituent.email || person.email,
-                      phone: loadedNxtConstituent.phone || person.phone,
-                      address: loadedNxtConstituent.address || person.address,
-                      contactDataSource: "nxt-summary-cache",
-                    }
-                  : person;
+                const contactPerson = mergeSavedPortfolioContacts(
+                  person,
+                  summaryState?.contactDetails,
+                  { checkedAt: summaryState?.contactDetails?.contactCheckedAt },
+                );
                 const contactDisplay = getPortfolioContactDisplay(contactPerson);
                 const portfolioGivingSocieties =
                   annualGivingSocietiesByConstituentId[
@@ -1916,6 +1924,11 @@ function PortfolioTier({
               {contactPerson.address ? (
                 <div style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                   {contactPerson.address}
+                </div>
+              ) : null}
+              {contactPerson.contactCheckedAt ? (
+                <div style={{ fontSize: "11px", color: "#64748B", lineHeight: 1.5 }}>
+                  Saved contact details · Checked {formatCalendarDate(contactPerson.contactCheckedAt)}
                 </div>
               ) : null}
               <CurrentFiscalYearGiving

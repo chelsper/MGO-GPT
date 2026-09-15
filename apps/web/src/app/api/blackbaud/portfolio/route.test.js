@@ -13,6 +13,41 @@ const getBlackbaudConfigIssuesMock = vi.fn();
 const listBlackbaudFundraiserAssignmentsMock = vi.fn();
 const searchBlackbaudConstituentsMock = vi.fn();
 
+const savedContacts = {
+  name: "Saved Donor", email: "saved@example.com", phone: "904-555-0199", address: "100 Saved Street",
+};
+
+function mockSavedPortfolio({ people, contacts = [], localRows = [], contactError = null }) {
+  const cachedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  sqlMock.mockImplementation(async (strings) => {
+    const query = strings.join("?");
+    if (query.includes("FROM users")) return [{
+      blackbaud_portfolio_cache: {
+        leadSolicitor: people, supportingSolicitor: [],
+        summary: { leadCount: people.length, supportingCount: 0 },
+        portfolioMeta: { assignmentDataStatus: "live" },
+      },
+      blackbaud_portfolio_cache_key: "v13:800", blackbaud_portfolio_cached_at: cachedAt,
+    }];
+    if (query.includes("WITH saved_contacts")) {
+      if (contactError) throw contactError;
+      return contacts;
+    }
+    if (query.includes("WITH local_portfolio_records")) return localRows;
+    return [];
+  });
+  return cachedAt;
+}
+
+function expectNoNxtReads() {
+  expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  expect(getBlackbaudConstituentByIdMock).not.toHaveBeenCalled();
+  expect(listBlackbaudFundraiserAssignmentsMock).not.toHaveBeenCalled();
+  expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
+  expect(findBlackbaudConstituentByEmailMock).not.toHaveBeenCalled();
+  expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+}
+
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({
   default: ensureAppSchemaMock,
@@ -155,15 +190,11 @@ describe("Blackbaud portfolio route", () => {
       .mockResolvedValueOnce([
         {
           constituent_id: "5044931",
-          payload: {
-            mapped: {
-              constituent: {
+          constituent: {
                 name: "Armando M. Codina",
                 email: "acodina@example.com",
                 phone: "904-555-0199",
                 address: "50 Casuarina Concourse, Miami, FL",
-              },
-            },
           },
         },
       ])
@@ -184,6 +215,144 @@ describe("Blackbaud portfolio route", () => {
       }),
     );
     expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["nxt-summary-cache", "nxt-portfolio-snapshot"])(
+    "merges saved %s contacts into cached assignments without renewing freshness", async (source) => {
+      const { GET } = await import("./route.js");
+      const original = {
+        constituentId: "100", name: "Assigned Donor", contactDataSource: "not-loaded",
+        assignmentTypes: ["Lead Solicitor"], lifetimeGiving: { totalGiving: 1000 },
+      };
+      const cachedAt = mockSavedPortfolio({ people: [original], contacts: [{
+        constituent_id: "100", constituent: savedContacts,
+        contact_checked_at: "2026-09-15T12:00:00Z", contact_data_source: source,
+      }] });
+      const response = await GET(new Request("https://example.com/api/blackbaud/portfolio"));
+      const payload = await response.json();
+      expect(response.status).toBe(200);
+      expect(payload.leadSolicitor[0]).toEqual({
+        ...original, email: savedContacts.email, phone: savedContacts.phone, address: savedContacts.address,
+        contactDataSource: source, contactCheckedAt: "2026-09-15T12:00:00.000Z",
+      });
+      expect(payload.portfolioMeta).toMatchObject({ cachedAt, source: "stale-cache" });
+      expect(payload.summary).toEqual({ leadCount: 1, supportingCount: 0 });
+      expect(original).not.toHaveProperty("email");
+      expect(sqlMock).toHaveBeenCalledTimes(3);
+      expect(sqlMock.mock.calls.some(([strings]) => strings.join("").includes("UPDATE users"))).toBe(false);
+      expectNoNxtReads();
+    },
+  );
+
+  it("filters incomplete and giving-only payloads before selecting the latest contact snapshot", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: [{
+      constituent_id: "100", constituent: savedContacts, contact_checked_at: "2026-09-14T12:00:00Z",
+    }] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    const [strings] = sqlMock.mock.calls.find(([parts]) => parts.join("").includes("WITH saved_contacts"));
+    const query = strings.join("?");
+    expect(query).toContain("payload #> '{mapped,constituent}' AS constituent");
+    expect(query).toContain("summary_payload #> '{mapped,constituent}' AS constituent");
+    expect(query).toContain("last_refreshed_at AS contact_checked_at");
+    expect(query).toMatch(/SELECT DISTINCT ON \(constituent_id\)[\s\S]*WHERE jsonb_typeof\(constituent\) = 'object'[\s\S]*ORDER BY constituent_id, contact_checked_at DESC NULLS LAST/);
+    for (const field of ["email", "phone", "address"]) {
+      expect(query).toContain(`jsonb_typeof(constituent -> '${field}') IN ('string', 'null')`);
+    }
+    expect(query).toContain("constituent ->> 'id' = constituent_id");
+    expect(payload.leadSolicitor[0].email).toBe(savedContacts.email);
+    expectNoNxtReads();
+  });
+
+  it("retains authorizing-connection and workspace scope and queries only assigned IDs", async () => {
+    const { GET } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({
+      sessionUser: { id: 2, role: "admin" },
+      workspaceUser: { id: 44, blackbaud_constituent_id: "800" }, isActing: true,
+    });
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }] });
+    await GET(new Request("https://example.com/api/blackbaud/portfolio"));
+    const [strings, ...values] = sqlMock.mock.calls.find(([parts]) => parts.join("").includes("WITH saved_contacts"));
+    const query = strings.join("?");
+    expect(values).toEqual([44, 2, ["100"], 44, ["100"]]);
+    expect(query.match(/workspace_user_id = \?/g)).toHaveLength(2);
+    expect(query).toContain("auth_user_id = ?");
+    expect(query.match(/constituent_id = ANY\(\?\)/g)).toHaveLength(2);
+    expectNoNxtReads();
+  });
+
+  it("uses fixed bulk reads for large portfolios instead of per-constituent calls", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: Array.from({ length: 500 }, (_, index) => ({
+      constituentId: String(index + 1), name: `Donor ${index + 1}`,
+    })) });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor).toHaveLength(500);
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+    expectNoNxtReads();
+  });
+
+  it("fills missing contacts from workspace records without requiring NXT summaries", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({
+      people: [{ constituentId: "100", name: "Donor", contactDataSource: "not-loaded" }],
+      localRows: [{ blackbaud_constituent_id: "100", ...savedContacts }],
+    });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0]).toMatchObject({
+      email: savedContacts.email, phone: savedContacts.phone, contactDataSource: "local-workspace-record",
+    });
+    expect(payload.leadSolicitor[0]).not.toHaveProperty("contactCheckedAt");
+    expectNoNxtReads();
+  });
+
+  it("keeps confirmed empty contacts empty instead of restoring older local values", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({
+      people: [{ constituentId: "100", name: "Donor", email: "old@example.com" }],
+      contacts: [{ constituent_id: "100", constituent: { email: null, phone: null, address: null }, contact_checked_at: "2026-09-15T12:00:00Z" }],
+      localRows: [{ blackbaud_constituent_id: "100", ...savedContacts }],
+    });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0]).toMatchObject({ email: null, phone: null, address: null, contactDataSource: "nxt-summary-cache" });
+    expectNoNxtReads();
+  });
+
+  it("preserves last-known contacts if optional database enrichment fails", async () => {
+    const { GET } = await import("./route.js");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const person = { constituentId: "100", ...savedContacts, contactDataSource: "nxt-summary-cache", contactCheckedAt: "2026-09-14T12:00:00Z" };
+      mockSavedPortfolio({ people: [person], contactError: new Error("Cache temporarily unavailable") });
+      const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+      expect(payload.leadSolicitor[0]).toEqual(person);
+      expectNoNxtReads();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("does not treat incomplete contact data as a confirmed absence", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({
+      people: [{ constituentId: "100", name: "Donor", email: savedContacts.email }],
+      contacts: [{ constituent_id: "100", constituent: { name: "Donor" } }],
+    });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].email).toBe(savedContacts.email);
+    expect(payload.leadSolicitor[0].contactDataSource).not.toBe("nxt-summary-cache");
+    expectNoNxtReads();
+  });
+
+  it("does not regress to an older contact snapshot", async () => {
+    const { GET } = await import("./route.js");
+    const person = { constituentId: "100", ...savedContacts, contactDataSource: "nxt-summary-cache", contactCheckedAt: "2026-09-15T12:00:00Z" };
+    mockSavedPortfolio({ people: [person], contacts: [{
+      constituent_id: "100", constituent: { ...savedContacts, email: "old@example.com" }, contact_checked_at: "2026-09-14T12:00:00Z",
+    }] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0]).toEqual(person);
+    expectNoNxtReads();
   });
 
   it("resolves an otherwise unnamed assignment without loading a full summary", async () => {
@@ -321,6 +490,7 @@ describe("Blackbaud portfolio route", () => {
 
     const cachedPayload = firstPayload;
     sqlMock.mockReset();
+    sqlMock.mockResolvedValue([]);
     sqlMock.mockResolvedValueOnce([
       {
         blackbaud_portfolio_cache: cachedPayload,

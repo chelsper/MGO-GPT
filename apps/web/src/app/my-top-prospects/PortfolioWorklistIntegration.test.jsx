@@ -87,6 +87,91 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("shows saved contacts and their checked date immediately without requests", () => {
+  Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], {
+    email: "saved@example.com", phone: "904-555-0199", address: "100 Saved Street",
+    contactDataSource: "nxt-portfolio-snapshot", contactCheckedAt: "2026-09-15T12:00:00Z",
+  });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.getByText("saved@example.com · 904-555-0199")).toBeVisible();
+  expect(screen.getByText("100 Saved Street")).toBeVisible();
+  expect(screen.getByText("Saved contact details · Checked September 15, 2026")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("distinguishes saved empty contacts from contacts that have never loaded", () => {
+  Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], {
+    email: null, phone: null, address: null, contactDataSource: "nxt-summary-cache",
+  });
+  state.data["blackbaud-portfolio"].supportingSolicitor[0].contactDataSource = "not-loaded";
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: "detailed" } });
+  expect(screen.getByText("No contact details available")).toBeVisible();
+  expect(screen.getByText("Contact details have not been loaded yet")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("does not show a missing-contact message when a saved address is available", () => {
+  Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], {
+    email: null, phone: null, address: "100 Saved Street", contactDataSource: "nxt-summary-cache",
+  });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.getByText("100 Saved Street")).toBeVisible();
+  expect(within(screen.getAllByRole("article")[0]).queryByText("No contact details available")).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("keeps loaded contacts visible while an explicit summary refresh is pending and after failure", async () => {
+  let finishRefresh;
+  const refresh = new Promise((resolve) => { finishRefresh = resolve; });
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      mapped: { constituent: { email: "loaded@example.com", phone: "904-555-0199", address: "100 Loaded Street" } },
+      summaryRefreshedAt: "2026-09-15T12:00:00Z",
+    }),
+  }).mockImplementationOnce(() => refresh);
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  await waitFor(() => expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible());
+  fireEvent.click(screen.getByRole("button", { name: "Refresh this summary" }));
+  expect(screen.getByText("Loading NXT summary...")).toBeVisible();
+  expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible();
+  expect(screen.getByText("100 Loaded Street")).toBeVisible();
+  finishRefresh({ ok: false, json: async () => ({ error: "NXT temporarily unavailable" }) });
+  await waitFor(() => expect(screen.getByText("NXT temporarily unavailable")).toBeVisible());
+  expect(screen.getByText("loaded@example.com · 904-555-0199")).toBeVisible();
+  expect(screen.getByText("100 Loaded Street")).toBeVisible();
+  expect(screen.getByText("Saved contact details · Checked September 15, 2026")).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it("does not restore old card contacts when a newer saved summary has empty fields", async () => {
+  Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], {
+    email: "old@example.com", phone: "904-555-0100", address: "100 Old Street",
+    contactDataSource: "nxt-summary-cache", contactCheckedAt: "2026-09-14T12:00:00Z",
+  });
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({
+    mapped: { constituent: { email: null, phone: null, address: null } },
+    summaryRefreshedAt: "2026-09-15T12:00:00Z",
+  }) });
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  await waitFor(() => expect(within(screen.getAllByRole("article")[0]).getByText("No contact details available")).toBeVisible());
+  expect(screen.queryByText("old@example.com · 904-555-0100")).not.toBeInTheDocument();
+  expect(screen.queryByText("100 Old Street")).not.toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
 it("shows saved pledge presence only inside expanded or detailed portfolio cards", () => {
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));

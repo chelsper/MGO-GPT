@@ -80,6 +80,28 @@ executive fundraiser-credit calculations do not use this cache.
   separate giving/narrative timestamps, and allow stale-giving refresh without
   an administrator full rebuild.
 
+## Saved Portfolio Contacts
+
+- My Portfolio merges saved contact details into both fresh and stale assignment
+  responses. It uses two bulk database reads, not a contact/summary request per
+  card. Opening cards, changing density, sorting and filtering add no NXT reads.
+- Contact selection excludes giving-only, incomplete and malformed payloads
+  before choosing the newest complete contact snapshot. Raw summary caches stay
+  scoped to the workspace and authorizing connection. Existing shared workspace
+  intelligence snapshots use the same workspace boundary as the summary endpoint.
+  Only assigned constituent IDs are read, and full summaries are not returned.
+- Saved contact checks use the summary-cache retrieval timestamp or the workspace
+  snapshot's last successful refresh, never maintenance's `updated_at`. Reusing
+  contacts does not write or renew the assignment cache or its identity deadlines.
+- Missing contacts may fall back to local workspace records. Explicitly empty
+  fields in a saved NXT contact snapshot remain empty; older local values are not
+  restored. Missing/malformed snapshots and optional cache-read failures retain
+  last-known contacts. Older snapshots cannot replace newer dated contact data.
+- Detailed cards show the saved-contact checked date when known. Contacts loaded
+  through the existing explicit NXT Summary control remain visible while that
+  summary refreshes and if the request fails. No webhook, contact-only fetch,
+  additional polling, or nightly scheduling change is introduced by this fix.
+
 ## Verification
 
 Tests cover badge-first and summary-first reuse, manual bypass, matching filters,
