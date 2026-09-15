@@ -64,7 +64,8 @@
 .portfolio-worklist button {
   cursor: pointer;
 }
-.portfolio-worklist__help button {
+.portfolio-worklist__help button,
+.portfolio-worklist__empty button {
   color: #4338ca;
   background: white;
   border: 1px solid #e0e7ff;
@@ -73,6 +74,44 @@
   padding: 8px 10px;
   font-size: 12px;
   font-weight: 700;
+}
+.portfolio-worklist__quick-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.portfolio-worklist__quick-views button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 24px;
+  background: white;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 700;
+}
+.portfolio-worklist__quick-views button[aria-pressed="true"] {
+  background: #4338ca;
+  border-color: #4338ca;
+  color: white;
+}
+.portfolio-worklist__quick-views button span {
+  font-variant-numeric: tabular-nums;
+}
+.portfolio-worklist__quick-views button:focus-visible {
+  outline: 2px solid #4338ca;
+  outline-offset: 3px;
+}
+.portfolio-worklist__filter-note {
+  margin: 10px 0 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .portfolio-worklist__pagination {
   display: flex;
@@ -120,10 +159,9 @@
 }
 .portfolio-card__summary {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 0.8fr) minmax(
-      180px,
-      1.3fr
-    ) auto;
+  grid-template-columns:
+    minmax(180px, 1.1fr) minmax(160px, 0.8fr) minmax(180px, 1.3fr)
+    auto;
   align-items: center;
   gap: 14px;
   padding: 14px;

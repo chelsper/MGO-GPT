@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, Star } from "lucide-react";
 import {
   DEFAULT_PORTFOLIO_VIEW,
+  matchesPortfolioQuickView,
   normalizePortfolioView,
   paginatePortfolioTiers,
   reconcilePortfolioOrder,
@@ -9,6 +10,13 @@ import {
 } from "@/utils/portfolioWorklist";
 import "./PortfolioWorklist.css";
 import { formatCalendarDate } from "@/utils/prospectActivity";
+import { getStandingsPeriods } from "@/utils/standingsPeriods";
+
+const quickViews = [
+  { key: "all", label: "All" },
+  { key: "open", label: "Open opportunities" },
+  { key: "due", label: "Follow-ups due" },
+];
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -123,6 +131,7 @@ export default function PortfolioWorklist({
   const [view, setView] = useState(() => savedView(storageKey));
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [today, setToday] = useState(() => getStandingsPeriods().asOf);
   const [order, setOrder] = useState(() =>
     sortPortfolioPeople(people, signals, view.sort).map((person) =>
       String(person.constituentId),
@@ -130,6 +139,16 @@ export default function PortfolioWorklist({
   );
   const listRef = useRef(null);
   const searchId = useId();
+  useEffect(() => {
+    // Keep date-only follow-ups correct across Eastern midnight without fetching.
+    const updateDay = () => setToday(getStandingsPeriods().asOf);
+    const timer = window.setInterval(updateDay, 60_000);
+    window.addEventListener("focus", updateDay);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateDay);
+    };
+  }, []);
   const sortedPeople = sortPortfolioPeople(people, signals, view.sort);
   const reconciledOrder = reconcilePortfolioOrder(order, sortedPeople);
   useEffect(() => {
@@ -145,6 +164,17 @@ export default function PortfolioWorklist({
   }, [storageKey, view]);
 
   const orderById = new Map(reconciledOrder.map((id, index) => [id, index]));
+  const query = search.trim().toLowerCase();
+  const quickViewIds = { all: new Set(), open: new Set(), due: new Set() };
+  for (const person of people) {
+    if (!matchesSearch(person, query)) continue;
+    const id = String(person.constituentId);
+    for (const { key } of quickViews) {
+      if (matchesPortfolioQuickView(signals.get(id), key, today)) {
+        quickViewIds[key].add(id);
+      }
+    }
+  }
   const tiers =
     view.group === "solicitor"
       ? roleTiers
@@ -153,8 +183,11 @@ export default function PortfolioWorklist({
         : [
             {
               key: "all",
-              title: "All constituents",
-              description: "Your assigned portfolio, in one list.",
+              title:
+                view.quickView === "all"
+                  ? "All constituents"
+                  : quickViews.find(({ key }) => key === view.quickView).label,
+              description: "Your assigned portfolio, using saved data.",
               accent: { background: "#EEF2FF", text: "#4338CA" },
               items: people,
             },
@@ -167,7 +200,7 @@ export default function PortfolioWorklist({
         const id = String(person.constituentId);
         if (seen.has(id)) return false;
         seen.add(id);
-        return matchesSearch(person, search.trim().toLowerCase());
+        return quickViewIds[view.quickView].has(id);
       })
       .sort(
         (left, right) =>
@@ -183,7 +216,8 @@ export default function PortfolioWorklist({
   function changeView(patch) {
     const next = normalizePortfolioView({ ...view, ...patch });
     setView(next);
-    if (patch.sort || patch.group || patch.pageSize) setPage(1);
+    if (patch.sort || patch.group || patch.pageSize || patch.quickView)
+      setPage(1);
     if (patch.sort)
       setOrder(
         sortPortfolioPeople(people, signals, next.sort).map((person) =>
@@ -204,7 +238,7 @@ export default function PortfolioWorklist({
       >
         <span aria-live={position === "Top" ? "polite" : "off"}>
           {result.start}-{result.end} of {result.total}
-          {search.trim()
+          {query || view.quickView !== "all"
             ? ` matches (${people.length} in portfolio)`
             : " constituents"}
         </span>
@@ -296,6 +330,29 @@ export default function PortfolioWorklist({
           </select>
         </label>
       </div>
+      <div
+        className="portfolio-worklist__quick-views"
+        role="group"
+        aria-label="Portfolio quick views"
+      >
+        {quickViews.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={view.quickView === key}
+            onClick={() => changeView({ quickView: key })}
+          >
+            {label} <span>{quickViewIds[key].size}</span>
+          </button>
+        ))}
+      </div>
+      {view.quickView !== "all" && (
+        <p className="portfolio-worklist__filter-note">
+          {view.quickView === "due"
+            ? `Unfinished saved next steps due through ${formatCalendarDate(today, { month: "short", day: "numeric", year: "numeric" })} (Eastern). Missing dates are not counted.`
+            : "Constituents with saved linked open opportunities, across all fiscal years. Records without saved opportunity data are not included."}
+        </p>
+      )}
       <div className="portfolio-worklist__help">
         <details>
           <summary>About this view</summary>
@@ -307,8 +364,12 @@ export default function PortfolioWorklist({
             {view.group !== "all"
               ? " Sorting applies within each group."
               : ""}{" "}
-            Background updates do not rearrange this list. Reapply sort to use
-            updated values. These controls make no additional NXT requests.
+            Quick-view counts respect your search and count each constituent
+            once, before pagination. Follow-ups due uses unfinished saved next
+            steps due today or earlier (Eastern), not NXT action history.
+            Background updates may change filter membership, but do not reorder
+            existing cards. Reapply sort to use updated values. These controls
+            make no additional NXT requests.
           </p>
         </details>
         <button
@@ -339,9 +400,24 @@ export default function PortfolioWorklist({
         {result.tiers.map((tier) => renderTier(tier, view.density))}
         {!result.total && (
           <div className="portfolio-worklist__empty">
-            {search.trim()
-              ? "No constituents match this search. Try a different name or clear the search."
-              : "No constituents in this portfolio yet."}
+            <p>
+              {query
+                ? "No constituents match this search and quick view. Try a different name or clear the search."
+                : view.quickView !== "all"
+                  ? "No constituents match this quick view in the saved data. This does not confirm that none exist in NXT."
+                  : "No constituents in this portfolio yet."}
+            </p>
+            {(query || view.quickView !== "all") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  changeView({ quickView: "all" });
+                }}
+              >
+                Show all constituents
+              </button>
+            )}
           </div>
         )}
       </div>

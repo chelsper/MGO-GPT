@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -56,12 +57,17 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 const topNav = () =>
   within(screen.getByRole("navigation", { name: "Top portfolio pagination" }));
 const firstPerson = () => screen.getAllByRole("article")[0].textContent;
+const quickView = (name) =>
+  within(
+    screen.getByRole("group", { name: "Portfolio quick views" }),
+  ).getByRole("button", { name });
 
 describe("portfolio worklist", () => {
   it("defaults to compact, sorted, 25-row view and searches across all pages", () => {
@@ -138,6 +144,7 @@ describe("portfolio worklist", () => {
     fireEvent.change(screen.getByLabelText("Per page"), {
       target: { value: "50" },
     });
+    fireEvent.click(quickView(/Open opportunities/));
     fireEvent.change(screen.getByRole("searchbox"), {
       target: { value: "Person 05" },
     });
@@ -146,14 +153,138 @@ describe("portfolio worklist", () => {
       pageSize: 50,
       sort: "open",
       density: "compact",
+      quickView: "open",
     });
     rerender(<View key="second" storageKey={portfolioViewKey(1, 3)} />);
     expect(screen.getByLabelText("Organize by")).toHaveValue("all");
     expect(screen.getByLabelText("Per page")).toHaveValue("25");
+    expect(quickView(/^All /)).toHaveAttribute("aria-pressed", "true");
     rerender(<View key="first-again" />);
     expect(screen.getByLabelText("Organize by")).toHaveValue("category");
     expect(screen.getByLabelText("Per page")).toHaveValue("50");
+    expect(quickView(/Open opportunities/)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(screen.getByRole("searchbox")).toHaveValue("");
+  });
+  it("filters the entire saved portfolio before pagination and grouping, with search-aware counts", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T16:00:00Z"));
+    const saved = new Map(signals);
+    saved.set("60", { nextStep: "Call", dueDate: "2026-09-15" });
+    saved.set("61", {
+      ...saved.get("61"),
+      nextStep: "Visit",
+      dueDate: "2026-09-10",
+    });
+    render(<View signals={saved} />);
+    expect(quickView(/^All 61$/)).toHaveAttribute("aria-pressed", "true");
+    expect(quickView(/^Follow-ups due 2$/)).toBeVisible();
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    fireEvent.click(quickView(/Follow-ups due/));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(topNav().getByText("Page 1 of 1")).toBeVisible();
+    expect(
+      topNav().getByText("1-2 of 2 matches (61 in portfolio)"),
+    ).toBeVisible();
+    expect(screen.getByText(/Sep 15, 2026 \(Eastern\)/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "solicitor" },
+    });
+    expect(screen.getByRole("heading", { name: "Supporting" })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Lead" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "Person 60" },
+    });
+    expect(quickView(/^All 1$/)).toBeVisible();
+    expect(quickView(/^Open opportunities 0$/)).toBeVisible();
+    expect(quickView(/^Follow-ups due 1$/)).toBeVisible();
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    fireEvent.click(quickView(/Open opportunities/));
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all constituents" }),
+    );
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(quickView(/^All 61$/)).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByRole("article")).toHaveLength(25);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("counts people once even if they appear in multiple groups", () => {
+    render(
+      <View
+        people={[...people, people[60]]}
+        categoryTiers={[
+          { key: "one", title: "One", items: people },
+          { key: "two", title: "Two", items: [people[60]] },
+        ]}
+      />,
+    );
+    expect(quickView(/^All 61$/)).toBeVisible();
+    expect(quickView(/^Open opportunities 1$/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "category" },
+    });
+    fireEvent.click(quickView(/Open opportunities/));
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "One" })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Two" }),
+    ).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("updates due filters across Eastern midnight, not UTC midnight, without fetching", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-16T03:59:30Z"));
+    render(
+      <View
+        signals={
+          new Map([
+            ["1", { nextStep: "Today", dueDate: "2026-09-15" }],
+            ["2", { nextStep: "Tomorrow", dueDate: "2026-09-16" }],
+          ])
+        }
+      />,
+    );
+    fireEvent.click(quickView(/^Follow-ups due 1$/));
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(quickView(/^Follow-ups due 2$/)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(screen.getByText(/Sep 16, 2026 \(Eastern\)/)).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("removes resolved follow-ups on saved-data updates and offers recovery from an empty filter", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T16:00:00Z"));
+    const { rerender } = render(
+      <View
+        signals={new Map([["1", { nextStep: "Call", dueDate: "2026-09-15" }]])}
+      />,
+    );
+    fireEvent.click(quickView(/^Follow-ups due 1$/));
+    rerender(<View signals={new Map()} />);
+    expect(quickView(/^Follow-ups due 0$/)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /No constituents match this quick view in the saved data/,
+      ),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all constituents" }),
+    );
+    expect(screen.getAllByRole("article")).toHaveLength(25);
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("survives corrupted or unavailable local storage", () => {
     localStorage.setItem(storageKey, "invalid json");

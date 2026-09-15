@@ -69,14 +69,12 @@ beforeEach(() => {
   };
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          mapped: { prospectSummaryNarrative: "Saved summary narrative" },
-        }),
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        mapped: { prospectSummaryNarrative: "Saved summary narrative" },
       }),
+    }),
   );
 });
 afterEach(() => {
@@ -138,4 +136,22 @@ it("preserves read-only protection inside expanded cards", () => {
   ).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Open NXT profile" })).toBeVisible();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("narrows the actual portfolio using saved opportunities and next steps without NXT calls", () => {
+  state.data.prospects[0].next_action_due_date = "2025-09-15";
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getAllByRole("article")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Open opportunities 1" }));
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+  fireEvent.click(screen.getByRole("button", { name: "Follow-ups due 1" }));
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show details for Zelda Donor" }),
+  );
+  expect(screen.getByRole("button", { name: "Set next step" })).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(state.data.prospects[0].priority_order).toBe(1);
 });

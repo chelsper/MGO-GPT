@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPortfolioSignals,
   DEFAULT_PORTFOLIO_VIEW,
+  matchesPortfolioQuickView,
   normalizePortfolioView,
   paginatePortfolioTiers,
   portfolioViewKey,
@@ -68,6 +69,43 @@ describe("saved portfolio signals", () => {
       dueDate: "2026-09-20",
     });
   });
+  it("surfaces the earliest valid unfinished step across duplicate local rows", () => {
+    const rows = [
+      row("1", 0, { next_action_text: "Undated" }),
+      row("1", 0, {
+        next_action_text: "Future",
+        next_action_due_date: "2026-10-01",
+      }),
+      row("1", 0, {
+        next_action_text: "Invalid",
+        next_action_due_date: "2026-02-30",
+      }),
+      row("1", 0, {
+        next_action_text: "Call",
+        next_action_due_date: "2026-09-01",
+      }),
+      row("1", 0, {
+        next_action_text: "Done",
+        next_action_due_date: "2026-08-01",
+        next_action_completed_at: "2026-08-01",
+      }),
+      row("1", 0, {
+        next_action_text: "Archived",
+        next_action_due_date: "2026-08-01",
+        status: "Archived",
+      }),
+      row("1", 0, {
+        next_action_text: "  ",
+        next_action_due_date: "2026-08-01",
+      }),
+    ];
+    const original = structuredClone(rows);
+    expect(buildPortfolioSignals(rows).get("1")).toMatchObject({
+      nextStep: "Call",
+      dueDate: "2026-09-01",
+    });
+    expect(rows).toEqual(original);
+  });
   it("sorts saved opens first, known zero next, missing last without mutating source order", () => {
     const signals = buildPortfolioSignals([row("1", 1), row("2", 0)]);
     const original = structuredClone(people);
@@ -88,6 +126,77 @@ describe("saved portfolio signals", () => {
         { constituentId: "4" },
       ]),
     ).toEqual(["2", "3", "4"]);
+  });
+});
+
+describe("portfolio quick views", () => {
+  it("includes missing data in All, but requires a saved open signal in Open opportunities", () => {
+    expect(matchesPortfolioQuickView(undefined, "all", "2026-09-15")).toBe(
+      true,
+    );
+    expect(matchesPortfolioQuickView(undefined, "open", "2026-09-15")).toBe(
+      false,
+    );
+    expect(
+      matchesPortfolioQuickView(
+        { hasOpen: false, openCount: 0 },
+        "open",
+        "2026-09-15",
+      ),
+    ).toBe(false);
+    expect(
+      matchesPortfolioQuickView(
+        { hasOpen: true, openCount: null },
+        "open",
+        "2026-09-15",
+      ),
+    ).toBe(true);
+  });
+  it.each([
+    ["2026-09-14", true],
+    ["2026-09-15", true],
+    ["2026-09-15T00:00:00.000Z", true],
+    ["2026-09-16", false],
+    ["2026-02-30", false],
+    ["invalid", false],
+    [null, false],
+  ])(
+    "treats %s as a calendar due date through today: %s",
+    (dueDate, expected) => {
+      expect(
+        matchesPortfolioQuickView(
+          { nextStep: "Call", dueDate },
+          "due",
+          "2026-09-15",
+        ),
+      ).toBe(expected);
+    },
+  );
+  it("does not infer due follow-ups from stale activity, missing steps, or an invalid cutoff", () => {
+    expect(
+      matchesPortfolioQuickView({ dueDate: "2026-09-01" }, "due", "2026-09-15"),
+    ).toBe(false);
+    expect(
+      matchesPortfolioQuickView(
+        { nextStep: "  ", dueDate: "2026-09-01" },
+        "due",
+        "2026-09-15",
+      ),
+    ).toBe(false);
+    expect(
+      matchesPortfolioQuickView(
+        { latest_activity_at: "2026-01-01" },
+        "due",
+        "2026-09-15",
+      ),
+    ).toBe(false);
+    expect(
+      matchesPortfolioQuickView(
+        { nextStep: "Call", dueDate: "2026-09-01" },
+        "due",
+        "invalid",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -128,6 +237,7 @@ describe("worklist pagination and preferences", () => {
     expect(
       normalizePortfolioView({
         density: "bad",
+        quickView: "bad",
         group: "bad",
         sort: "bad",
         pageSize: 100,
@@ -143,6 +253,7 @@ describe("worklist pagination and preferences", () => {
       }),
     ).toEqual({
       density: "detailed",
+      quickView: "all",
       group: "category",
       sort: "name",
       pageSize: 50,
@@ -150,5 +261,9 @@ describe("worklist pagination and preferences", () => {
     expect(portfolioViewKey(1, 2)).not.toBe(portfolioViewKey(2, 2));
     expect(portfolioViewKey(1, 2)).not.toBe(portfolioViewKey(1, 3));
     expect(portfolioViewKey(null, 2)).toBeNull();
+    expect(normalizePortfolioView({ quickView: "open" }).quickView).toBe(
+      "open",
+    );
+    expect(normalizePortfolioView({ quickView: "due" }).quickView).toBe("due");
   });
 });

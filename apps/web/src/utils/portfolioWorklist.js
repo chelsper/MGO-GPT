@@ -1,5 +1,8 @@
+import { calendarDate } from "./prospectActivity";
+
 export const DEFAULT_PORTFOLIO_VIEW = {
   density: "compact",
+  quickView: "all",
   group: "all",
   sort: "open",
   pageSize: 25,
@@ -8,6 +11,9 @@ export const DEFAULT_PORTFOLIO_VIEW = {
 export function normalizePortfolioView(value) {
   return {
     density: value?.density === "detailed" ? "detailed" : "compact",
+    quickView: ["all", "open", "due"].includes(value?.quickView)
+      ? value.quickView
+      : "all",
     group: ["all", "solicitor", "category"].includes(value?.group)
       ? value.group
       : "all",
@@ -53,12 +59,19 @@ export function buildPortfolioSignals(prospects) {
         : counts.every((count) => count === 0)
           ? 0
           : null;
-    const nextStepRow = rows.find(
+    const nextStepRows = rows.filter(
       (row) =>
         row.status === "Active" &&
-        row.next_action_text &&
+        row.next_action_text?.trim() &&
         !row.next_action_completed_at,
     );
+    // When several local rows link to one person, surface the earliest dated
+    // unfinished step so an overdue follow-up isn't hidden behind a future one.
+    const nextStepRow = nextStepRows.sort((left, right) =>
+      (calendarDate(left.next_action_due_date) || "9999-12-31").localeCompare(
+        calendarDate(right.next_action_due_date) || "9999-12-31",
+      ),
+    )[0];
     signals.set(id, {
       hasOpen: counts.some((count) => count > 0),
       openCount,
@@ -71,6 +84,18 @@ export function buildPortfolioSignals(prospects) {
     });
   }
   return signals;
+}
+
+export function matchesPortfolioQuickView(signal, quickView, today) {
+  if (quickView === "open") return signal?.hasOpen === true;
+  if (quickView === "due") {
+    const dueDate = calendarDate(signal?.dueDate);
+    const asOf = calendarDate(today);
+    return Boolean(
+      signal?.nextStep?.trim() && dueDate && asOf && dueDate <= asOf,
+    );
+  }
+  return true;
 }
 
 export function sortPortfolioPeople(people, signals, sort) {
