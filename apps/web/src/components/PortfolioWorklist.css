@@ -1,0 +1,240 @@
+.portfolio-worklist {
+  min-width: 0;
+  scroll-margin-top: 150px;
+}
+.portfolio-worklist:focus-visible {
+  outline: 2px solid #6554f5;
+  outline-offset: 4px;
+}
+.portfolio-worklist__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+.portfolio-worklist__toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 700;
+}
+.portfolio-worklist__search {
+  flex: 1 1 260px;
+}
+.portfolio-worklist__toolbar input,
+.portfolio-worklist__toolbar select {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  color: #111827;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.portfolio-worklist__help {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 10px 0;
+}
+.portfolio-worklist__help details {
+  flex: 1 1 140px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.portfolio-worklist__help summary {
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+}
+.portfolio-worklist__help p {
+  margin: 0 0 10px;
+}
+.portfolio-worklist button {
+  cursor: pointer;
+}
+.portfolio-worklist__help button {
+  color: #4338ca;
+  background: white;
+  border: 1px solid #e0e7ff;
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.portfolio-worklist__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+  color: #4b5563;
+  font-size: 13px;
+}
+.portfolio-worklist__pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.portfolio-worklist__pagination button {
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  background: white;
+  color: #4338ca;
+  padding: 8px 12px;
+  min-height: 44px;
+  font-weight: 700;
+}
+.portfolio-worklist__pagination button:disabled {
+  color: #9ca3af;
+  cursor: default;
+}
+.portfolio-worklist__groups {
+  display: grid;
+  gap: 14px;
+}
+.portfolio-worklist__empty {
+  padding: 28px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  color: #6b7280;
+}
+.portfolio-card {
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+.portfolio-card__summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 0.8fr) minmax(
+      180px,
+      1.3fr
+    ) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+}
+.portfolio-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.portfolio-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+.portfolio-card__star {
+  color: #b45309;
+  flex-shrink: 0;
+}
+.portfolio-card__opportunities,
+.portfolio-card__next-step {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+.portfolio-card__opportunities--open {
+  color: #047857;
+}
+.portfolio-card__opportunities strong {
+  font-size: 14px;
+}
+.portfolio-card__next-step > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #4b5563;
+  font-size: 13px;
+}
+.portfolio-card--expanded .portfolio-card__next-step > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.portfolio-card__next-step small {
+  font-size: 11px;
+}
+.portfolio-card__toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c7d2fe;
+  border-radius: 9px;
+  background: white;
+  padding: 9px 10px;
+  min-height: 44px;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.portfolio-card__details {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  gap: 6px;
+  padding: 14px;
+  border-top: 1px solid #e5e7eb;
+}
+.portfolio-card__details[hidden] {
+  display: none;
+}
+.portfolio-card--detailed .portfolio-card__details {
+  border-top: 0;
+}
+@media (max-width: 1000px) {
+  .portfolio-card__summary {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+  .portfolio-card__identity {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 600px) {
+  .portfolio-worklist__toolbar label {
+    flex: 1 1 calc(50% - 12px);
+  }
+  .portfolio-worklist__toolbar .portfolio-worklist__search {
+    flex-basis: 100%;
+  }
+  .portfolio-card__summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .portfolio-card__identity {
+    grid-column: 1;
+  }
+  .portfolio-card__toggle {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .portfolio-card__opportunities {
+    grid-column: 1;
+  }
+  .portfolio-card__next-step {
+    grid-column: 1 / -1;
+  }
+  .portfolio-worklist__pagination > div {
+    justify-content: space-between;
+    width: 100%;
+  }
+}

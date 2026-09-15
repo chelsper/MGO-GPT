@@ -131,11 +131,13 @@ describe("prospects route", () => {
       id: 7, user_id: 44, status: "Active", expected_close_fy: "FY26",
       prospect_name: "NXT constituent 123", cached_constituent_name: "Alex Prospect",
       open_opportunity_dates: ["2027-06-30"],
+      portfolio_open_opportunity_count: "2", portfolio_open_pipeline_amount: "35000",
     }]);
     const response = await GET(new Request("https://example.com/api/prospects"));
     const [prospect] = await response.json();
     expect(response.status).toBe(200);
     expect(prospect).toMatchObject({ prospect_name: "Alex Prospect", name_status: "loaded", open_opportunity_fys: ["FY27"] });
+    expect(prospect).toMatchObject({ portfolio_open_opportunity_count: "2", portfolio_open_pipeline_amount: "35000" });
     expect(getBlackbaudActionMock).not.toHaveBeenCalled();
     expect(getBlackbaudOpportunityMock).not.toHaveBeenCalled();
     expect(sqlMockImpl).toHaveBeenCalledTimes(1);
@@ -143,6 +145,12 @@ describe("prospects route", () => {
     expect(query).toContain("identity_snapshot.workspace_user_id = up.user_id");
     expect(query).toContain("identity_snapshot.constituent_id = COALESCE(up.blackbaud_constituent_id, c.blackbaud_constituent_id)");
     expect(query).toContain("JSONB_AGG(po.expected_date) FILTER (WHERE po.opportunity_status = 'Active')");
+    const summaryQuery = query.slice(query.indexOf("opportunity_summary AS ("), query.indexOf("opportunity_gift_summary AS ("));
+    expect(summaryQuery).toContain("AS portfolio_open_opportunity_count");
+    expect(summaryQuery).toContain("AS portfolio_open_pipeline_amount");
+    expect(summaryQuery.match(/NOT IN \('funded', 'withdrawn', 'declined', 'closed gift secured', 'closed withdrawn', 'closed declined'\)/g)).toHaveLength(2);
+    expect(summaryQuery).toContain("INNER JOIN user_prospects up ON up.id = po.prospect_id");
+    expect(summaryQuery).not.toMatch(/expected_date\s*[<>]=?/);
   });
 
   it("creates a top prospect with only a name and Blackbaud constituent link", async () => {

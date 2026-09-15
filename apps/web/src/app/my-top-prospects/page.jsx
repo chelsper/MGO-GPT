@@ -3,6 +3,8 @@
 import ProspectExportButton from "@/components/ProspectExport";
 import ProspectRanking from "@/components/ProspectRanking";
 import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
+import PortfolioWorklist, { PortfolioCard } from "@/components/PortfolioWorklist";
+import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
@@ -1662,6 +1664,9 @@ function PortfolioTier({
   portfolioCategoryByConstituentId = {},
   onMovePortfolioCategory,
   movingPortfolioCategoryConstituentId = "",
+  density = "detailed",
+  signals = new Map(),
+  totalCount = items.length,
   emptyMessage = "No current constituents in this tier right now.",
 }) {
   const [expandedSummaries, setExpandedSummaries] = useState({});
@@ -1764,22 +1769,19 @@ function PortfolioTier({
             fontWeight: "700",
           }}
         >
-          {items.length} constituent{items.length === 1 ? "" : "s"}
+          {items.length < totalCount ? `${items.length} of ${totalCount}` : totalCount} constituent{totalCount === 1 ? "" : "s"}
         </div>
       </div>
 
       {items.length ? (
         <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
           {items.map((person) => (
-            <div
+            <PortfolioCard
               key={person.constituentId}
-              style={{
-                borderRadius: "12px",
-                backgroundColor: "#F9FAFB",
-                padding: "14px",
-                display: "grid",
-                gap: "6px",
-              }}
+              person={person}
+              signal={signals.get(String(person.constituentId))}
+              density={density}
+              isTopProspect={topProspectConstituentIds.has(String(person.constituentId))}
             >
               {(() => {
                 const isTopProspect = topProspectConstituentIds.has(
@@ -2264,7 +2266,7 @@ function PortfolioTier({
                   </>
                 );
               })()}
-            </div>
+            </PortfolioCard>
           ))}
         </div>
       ) : (
@@ -8539,7 +8541,6 @@ export default function MyTopProspectsPage() {
   const [fyFilter, setFyFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [portfolioSearchTerm, setPortfolioSearchTerm] = useState("");
   const [addProspectInitialData, setAddProspectInitialData] = useState(null);
   const [addProspectMessage, setAddProspectMessage] = useState("");
   const [addProspectError, setAddProspectError] = useState("");
@@ -8550,8 +8551,6 @@ export default function MyTopProspectsPage() {
   const [removingSolicitorConstituentId, setRemovingSolicitorConstituentId] =
     useState("");
   const [portfolioFollowUp, setPortfolioFollowUp] = useState(null);
-  const [portfolioOrganizationView, setPortfolioOrganizationView] =
-    useState("solicitor");
   const [showPortfolioCategoryManager, setShowPortfolioCategoryManager] =
     useState(false);
   const [portfolioCategoryFeedback, setPortfolioCategoryFeedback] = useState("");
@@ -9736,15 +9735,8 @@ export default function MyTopProspectsPage() {
   );
   const archivedProspects = prospects.filter((p) => p.status === "Archived");
   const normalizedSearch = searchTerm.trim().toLowerCase();
-  const normalizedPortfolioSearch = portfolioSearchTerm.trim().toLowerCase();
   const portfolioLeadSolicitor = blackbaudPortfolio?.leadSolicitor || [];
   const portfolioSupportingSolicitor = blackbaudPortfolio?.supportingSolicitor || [];
-  const filteredPortfolioLeadSolicitor = portfolioLeadSolicitor.filter((person) =>
-    matchesPortfolioSearch(person, normalizedPortfolioSearch),
-  );
-  const filteredPortfolioSupportingSolicitor = portfolioSupportingSolicitor.filter((person) =>
-    matchesPortfolioSearch(person, normalizedPortfolioSearch),
-  );
   const portfolioConstituentById = new Map();
   for (const person of [...portfolioLeadSolicitor, ...portfolioSupportingSolicitor]) {
     const constituentId = String(person?.constituentId || "").trim();
@@ -9752,11 +9744,9 @@ export default function MyTopProspectsPage() {
     portfolioConstituentById.set(constituentId, person);
   }
   const portfolioConstituents = Array.from(portfolioConstituentById.values());
-  const filteredPortfolioConstituentList = portfolioConstituents.filter((person) =>
-    matchesPortfolioSearch(person, normalizedPortfolioSearch),
-  );
   const totalPortfolioConstituents = portfolioConstituents.length;
-  const filteredPortfolioConstituents = filteredPortfolioConstituentList.length;
+  const portfolioSignals = buildPortfolioSignals(prospects);
+  const portfolioPreferenceKey = portfolioViewKey(profileStatus?.user?.id, activeWorkspaceUserId);
   const rawPortfolioCategories = Array.isArray(portfolioCategoryData?.categories)
     ? portfolioCategoryData.categories
     : [];
@@ -9838,7 +9828,7 @@ export default function MyTopProspectsPage() {
       : "Your private JUMGOGPT organization category.",
     accent: portfolioCategoryAccents[index % portfolioCategoryAccents.length],
     hierarchyDepth: category.hierarchyDepth || 0,
-    items: filteredPortfolioConstituentList.filter(
+    items: portfolioConstituents.filter(
       (person) =>
         String(
           portfolioCategoryByConstituentId[String(person?.constituentId || "")]
@@ -9846,7 +9836,7 @@ export default function MyTopProspectsPage() {
         ) === String(category.id),
     ),
   }));
-  const uncategorizedPortfolioItems = filteredPortfolioConstituentList.filter(
+  const uncategorizedPortfolioItems = portfolioConstituents.filter(
     (person) =>
       !portfolioCategoryByConstituentId[String(person?.constituentId || "")],
   );
@@ -10243,15 +10233,13 @@ export default function MyTopProspectsPage() {
                 <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                   {isLocalPortfolioFallback
                     ? "A live NXT assignment refresh is temporarily unavailable. This safe fallback uses your locally saved Top Prospects and does not confirm current NXT solicitor roles."
-                    : "Pulled from Raiser's Edge NXT by your fundraiser assignment role. Lead Solicitor appears first, followed by Secondary and Athletics Solicitor assignments."}
+                    : "Pulled from Raiser's Edge NXT by your fundraiser assignment role. Browse one list, or organize by solicitor role or your categories."}
                 </div>
               </div>
               <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
                 {blackbaudPortfolio?.summary ? (
                   <div style={{ fontSize: "13px", color: "#4B5563", fontWeight: "600" }}>
-                    {normalizedPortfolioSearch
-                      ? `${filteredPortfolioConstituents} of ${totalPortfolioConstituents}`
-                      : `${totalPortfolioConstituents} ${
+                    {`${totalPortfolioConstituents} ${
                           isLocalPortfolioFallback ? "saved" : "assigned"
                         } constituents`}
                   </div>
@@ -10339,122 +10327,6 @@ export default function MyTopProspectsPage() {
               />
             ) : null}
 
-            {!isBlackbaudPortfolioLoading &&
-            !isBlackbaudPortfolioError &&
-            !blackbaudPortfolio?.warning ? (
-              <div
-                style={{
-                  display: "grid",
-                  gap: "8px",
-                  padding: "12px",
-                  borderRadius: "12px",
-                  border: "1px solid #E5E7EB",
-                  backgroundColor: "#F9FAFB",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "10px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <label
-                    htmlFor="portfolio-search"
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 800,
-                      color: "#374151",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    Search Portfolio
-                  </label>
-                  <span style={{ fontSize: "12px", color: "#6B7280", fontWeight: 700 }}>
-                    {normalizedPortfolioSearch
-                      ? `Showing ${filteredPortfolioConstituents} of ${totalPortfolioConstituents}`
-                      : `${totalPortfolioConstituents} assigned constituents`}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "10px",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <input
-                    id="portfolio-search"
-                    name="portfolioSearch"
-                    type="search"
-                    value={portfolioSearchTerm}
-                    onChange={(event) => setPortfolioSearchTerm(event.target.value)}
-                    placeholder="Search by name, email, lookup ID, or assignment"
-                    style={{
-                      flex: "1 1 260px",
-                      minWidth: 0,
-                      padding: "10px 12px",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "10px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                      backgroundColor: "white",
-                    }}
-                  />
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      color: "#4B5563",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    Organize by
-                    <select
-                      aria-label="Organize portfolio by"
-                      value={portfolioOrganizationView}
-                      onChange={(event) => setPortfolioOrganizationView(event.target.value)}
-                      style={{
-                        padding: "10px 12px",
-                        border: "1px solid #D1D5DB",
-                        borderRadius: "10px",
-                        backgroundColor: "white",
-                        color: "#111827",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                      }}
-                    >
-                      <option value="solicitor">Solicitor role</option>
-                      <option value="category">My categories</option>
-                    </select>
-                  </label>
-                  {portfolioSearchTerm ? (
-                    <button
-                      type="button"
-                      onClick={() => setPortfolioSearchTerm("")}
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: "10px",
-                        border: "1px solid #D1D5DB",
-                        backgroundColor: "white",
-                        color: "#4B5563",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
 
             {portfolioSyncMessage ? (
               <div
@@ -10551,119 +10423,41 @@ export default function MyTopProspectsPage() {
                 {blackbaudPortfolio.warning}
               </div>
             ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                  gap: "14px",
-                }}
-              >
-                {portfolioOrganizationView === "category" ? (
-                  portfolioCategoryTiers.map((tier) => (
-                    <div
-                      key={tier.key}
-                      style={
-                        tier.hierarchyDepth
-                          ? {
-                              marginLeft: `${Math.min(tier.hierarchyDepth, 3) * 18}px`,
-                              borderLeft: "3px solid #E0E7FF",
-                              paddingLeft: "10px",
-                            }
-                          : undefined
-                      }
-                    >
-                      <PortfolioTier
-                        title={tier.title}
-                        description={tier.description}
-                        items={tier.items}
-                        accent={tier.accent}
-                        onAddToTopProspects={openPortfolioAddModal}
-                        isAdding={addMutation.isPending}
-                        isReadOnly={isExecutiveReadOnly}
-                        topProspectConstituentIds={topProspectConstituentIds}
-                        topProspectByConstituentId={topProspectByConstituentId}
-                        onRemoveFromTopProspects={removePortfolioTopProspect}
-                        isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
-                        onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
-                        allowSolicitorAssignmentRemoval={!isLocalPortfolioFallback}
-                        allowNxtSummary={!isLocalPortfolioFallback}
-                        onOpenPortfolioNextStep={(person) =>
-                          openPortfolioFollowUp("next-step", person)
-                        }
-                        onOpenPortfolioDiscussion={(person) =>
-                          openPortfolioFollowUp("discussion", person)
-                        }
-                        isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
-                        removingSolicitorConstituentId={removingSolicitorConstituentId}
-                        annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
-                        currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
-                        currentFiscalYearLabel={portfolioCurrentFyLabel}
-                        portfolioCategories={portfolioCategories}
-                        portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
-                        onMovePortfolioCategory={movePortfolioCategory}
-                        movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
-                        emptyMessage={
-                          normalizedPortfolioSearch
-                            ? "No constituents match this search."
-                            : tier.key === "uncategorized"
-                              ? "All current portfolio assignments have been organized."
-                              : "No constituents in this category yet."
-                        }
-                      />
-                    </div>
-                  ))
-                ) : (
-                  <>
-                <PortfolioTier
-                  title={
-                    isLocalPortfolioFallback
-                      ? "Locally synced Top Prospects"
-                      : "Lead Solicitor"
-                  }
-                  description={
-                    isLocalPortfolioFallback
+              <PortfolioWorklist
+                key={portfolioPreferenceKey || activeWorkspaceUserId}
+                storageKey={portfolioPreferenceKey}
+                people={portfolioConstituents}
+                signals={portfolioSignals}
+                matchesSearch={matchesPortfolioSearch}
+                categoryTiers={portfolioCategoryTiers}
+                roleTiers={[
+                  {
+                    key: "lead",
+                    title: isLocalPortfolioFallback ? "Locally synced Top Prospects" : "Lead Solicitor",
+                    description: isLocalPortfolioFallback
                       ? "A locally saved fallback while live NXT assignments are unavailable."
-                      : "Your primary portfolio assignments in NXT."
-                  }
-                  items={filteredPortfolioLeadSolicitor}
-                  accent={{ background: "#EEF2FF", text: "#4338CA" }}
-                  onAddToTopProspects={openPortfolioAddModal}
-                  isAdding={addMutation.isPending}
-                  isReadOnly={isExecutiveReadOnly}
-                  topProspectConstituentIds={topProspectConstituentIds}
-                  topProspectByConstituentId={topProspectByConstituentId}
-                  onRemoveFromTopProspects={removePortfolioTopProspect}
-                  isRemovingFromTopProspects={removePortfolioTopProspectMutation.isPending}
-                  onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
-                  allowSolicitorAssignmentRemoval={!isLocalPortfolioFallback}
-                  allowNxtSummary={!isLocalPortfolioFallback}
-                  onOpenPortfolioNextStep={(person) =>
-                    openPortfolioFollowUp("next-step", person)
-                  }
-                  onOpenPortfolioDiscussion={(person) =>
-                    openPortfolioFollowUp("discussion", person)
-                  }
-                  isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
-                  removingSolicitorConstituentId={removingSolicitorConstituentId}
-                  annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
-                  currentFiscalYearGivingByConstituentId={portfolioCurrentFyGivingByConstituentId}
-                  currentFiscalYearLabel={portfolioCurrentFyLabel}
-                  portfolioCategories={portfolioCategories}
-                  portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
-                  onMovePortfolioCategory={movePortfolioCategory}
-                  movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
-                  emptyMessage={
-                    normalizedPortfolioSearch
-                      ? "No Lead Solicitor assignments match this search."
-                      : "No current constituents in this tier right now."
-                  }
-                />
-                {!isLocalPortfolioFallback ? (
+                      : "Your primary portfolio assignments in NXT.",
+                    items: portfolioLeadSolicitor,
+                    accent: { background: "#EEF2FF", text: "#4338CA" },
+                  },
+                  ...(!isLocalPortfolioFallback ? [{
+                    key: "supporting",
+                    title: "Secondary / Athletics Solicitor",
+                    description: "Supporting assignments where you still need visibility and follow-up.",
+                    items: portfolioSupportingSolicitor,
+                    accent: { background: "#ECFDF5", text: "#065F46" },
+                  }] : []),
+                ]}
+                renderTier={(tier, density) => (
                   <PortfolioTier
-                    title="Secondary / Athletics Solicitor"
-                    description="Supporting assignments where you still need visibility and follow-up."
-                    items={filteredPortfolioSupportingSolicitor}
-                    accent={{ background: "#ECFDF5", text: "#065F46" }}
+                    key={tier.key}
+                    title={tier.title}
+                    description={tier.description}
+                    items={tier.items}
+                    totalCount={tier.totalCount}
+                    accent={tier.accent}
+                    density={density}
+                    signals={portfolioSignals}
                     onAddToTopProspects={openPortfolioAddModal}
                     isAdding={addMutation.isPending}
                     isReadOnly={isExecutiveReadOnly}
@@ -10674,12 +10468,8 @@ export default function MyTopProspectsPage() {
                     onRemoveSolicitorAssignment={removePortfolioSolicitorAssignment}
                     allowSolicitorAssignmentRemoval={!isLocalPortfolioFallback}
                     allowNxtSummary={!isLocalPortfolioFallback}
-                    onOpenPortfolioNextStep={(person) =>
-                      openPortfolioFollowUp("next-step", person)
-                    }
-                    onOpenPortfolioDiscussion={(person) =>
-                      openPortfolioFollowUp("discussion", person)
-                    }
+                    onOpenPortfolioNextStep={(person) => openPortfolioFollowUp("next-step", person)}
+                    onOpenPortfolioDiscussion={(person) => openPortfolioFollowUp("discussion", person)}
                     isRemovingSolicitorAssignment={removeSolicitorAssignmentMutation.isPending}
                     removingSolicitorConstituentId={removingSolicitorConstituentId}
                     annualGivingSocietiesByConstituentId={portfolioAnnualGivingSocietiesByConstituentId}
@@ -10689,16 +10479,9 @@ export default function MyTopProspectsPage() {
                     portfolioCategoryByConstituentId={portfolioCategoryByConstituentId}
                     onMovePortfolioCategory={movePortfolioCategory}
                     movingPortfolioCategoryConstituentId={movingPortfolioCategoryConstituentId}
-                    emptyMessage={
-                      normalizedPortfolioSearch
-                        ? "No supporting assignments match this search."
-                        : "No current constituents in this tier right now."
-                    }
                   />
-                ) : null}
-                  </>
                 )}
-              </div>
+              />
             )}
           </div>
         ) : null}

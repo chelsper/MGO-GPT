@@ -218,6 +218,18 @@ export async function GET(request) {
         SELECT
           po.prospect_id,
           COUNT(*) AS linked_opportunity_count,
+          COUNT(*) FILTER (
+            WHERE po.opportunity_status = 'Active'
+              AND COALESCE(po.closed_amount, 0) <= 0
+              AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(po.current_stage, '')), '[[:space:]–—-]+', ' ', 'g'))
+                NOT IN ('funded', 'withdrawn', 'declined', 'closed gift secured', 'closed withdrawn', 'closed declined')
+          ) AS portfolio_open_opportunity_count,
+          COALESCE(SUM(COALESCE(po.estimated_amount, 0)) FILTER (
+            WHERE po.opportunity_status = 'Active'
+              AND COALESCE(po.closed_amount, 0) <= 0
+              AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(po.current_stage, '')), '[[:space:]–—-]+', ' ', 'g'))
+                NOT IN ('funded', 'withdrawn', 'declined', 'closed gift secured', 'closed withdrawn', 'closed declined')
+          ), 0) AS portfolio_open_pipeline_amount,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Active') AS active_opportunity_count,
           JSONB_AGG(po.expected_date) FILTER (WHERE po.opportunity_status = 'Active') AS open_opportunity_dates,
           COUNT(*) FILTER (WHERE po.opportunity_status = 'Closed – Gift Secured') AS secured_opportunity_count,
@@ -347,6 +359,8 @@ export async function GET(request) {
         COALESCE(os.open_opportunity_dates, '[]'::jsonb) AS open_opportunity_dates,
         COALESCE(os.linked_opportunity_count, 0) AS linked_opportunity_count,
         COALESCE(os.active_opportunity_count, 0) AS active_opportunity_count,
+        COALESCE(os.portfolio_open_opportunity_count, 0) AS portfolio_open_opportunity_count,
+        COALESCE(os.portfolio_open_pipeline_amount, 0) AS portfolio_open_pipeline_amount,
         COALESCE(os.secured_opportunity_count, 0) AS secured_opportunity_count,
         COALESCE(os.declined_opportunity_count, 0) AS declined_opportunity_count,
         COALESCE(os.active_pipeline_amount, 0) AS active_pipeline_amount,
