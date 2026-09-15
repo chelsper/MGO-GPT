@@ -12,6 +12,7 @@ import {
 } from "./prospectPledgeStatus";
 
 const origin = "https://app.example";
+const today = "2026-09-15";
 const job = {
   id: "run",
   source: "saved_query",
@@ -34,6 +35,7 @@ const item = (id = "1", constituentId = "100", overrides = {}) => ({
   payload: {
     id,
     constituentId,
+    totalCents: 500,
     balanceCents: 300,
     refreshedAt: "2026-09-15T13:00:00Z",
     installments: [
@@ -48,17 +50,27 @@ const item = (id = "1", constituentId = "100", overrides = {}) => ({
 beforeEach(() => vi.resetAllMocks());
 
 describe("pledge presence projection", () => {
-  it("counts gifts once across installments/tabs and counts multiple pledges without exposing details", () => {
+  it("sums gifts once across installments/tabs without exposing raw schedules or payment details", () => {
     const result = pledgePresence(
       [item(), item(), item("2"), item("3", "999")],
       new Set(["100"]),
       job,
+      today,
     );
     expect(result).toEqual({
-      100: { count: 2, stale: false, verifiedAt: "2026-09-15T13:00:00.000Z" },
+      100: {
+        count: 2,
+        stale: false,
+        verifiedAt: "2026-09-15T13:00:00.000Z",
+        totalCents: 1000,
+        balanceCents: 600,
+        overdueCents: 200,
+        nextPaymentDueDate: "2026-12-01",
+        asOf: today,
+      },
     });
     expect(JSON.stringify(result)).not.toMatch(
-      /Private donor|payment data|balance|installments/,
+      /Private donor|payment data|payments|installments/,
     );
   });
   it("omits settled, unverified, malformed, mismatched and out-of-manifest pledges", () => {
@@ -88,12 +100,181 @@ describe("pledge presence projection", () => {
       status: "failed",
     };
     expect(
-      pledgePresence([item(), retained], new Set(["100"]), job)[100],
+      pledgePresence([item(), retained], new Set(["100"]), job, today)[100],
     ).toEqual({
       count: 2,
       stale: true,
       verifiedAt: "2026-09-10T13:00:00.000Z",
+      totalCents: 1000,
+      balanceCents: 600,
+      overdueCents: 200,
+      nextPaymentDueDate: "2026-12-01",
+      asOf: today,
     });
+  });
+  it("uses remaining balances, ignores settled installments, and includes due-today only in the next date", () => {
+    const result = pledgePresence(
+      [
+        item("1", "100", {
+          installments: [
+            { date: "2026-12-01", balanceCents: 100, amountCents: 100 },
+            { date: "2026-09-14", balanceCents: 50, amountCents: 150 },
+            {
+              date: "2026-09-15T00:00:00Z",
+              balanceCents: 150,
+              amountCents: 150,
+            },
+            { date: "2026-08-01", balanceCents: 0, amountCents: 100 },
+          ],
+        }),
+        item("2", "100", {
+          installments: [{ date: "2026-10-01", balanceCents: 300 }],
+        }),
+      ],
+      new Set(["100"]),
+      job,
+      today,
+    )[100];
+    expect(result).toMatchObject({
+      totalCents: 1000,
+      balanceCents: 600,
+      overdueCents: 50,
+      nextPaymentDueDate: today,
+    });
+  });
+  it("chooses the earliest upcoming date across pledges regardless of input order", () => {
+    const earlier = item("2", "100", {
+      installments: [{ date: "2026-10-01", balanceCents: 300 }],
+    });
+    for (const rows of [
+      [item(), earlier],
+      [earlier, item()],
+    ]) {
+      expect(
+        pledgePresence(rows, new Set(["100"]), job, today)[100]
+          .nextPaymentDueDate,
+      ).toBe("2026-10-01");
+    }
+  });
+  it("reports no upcoming date when every outstanding installment is overdue", () => {
+    expect(
+      pledgePresence(
+        [
+          item("1", "100", {
+            installments: [{ date: "2026-09-14", balanceCents: 300 }],
+          }),
+        ],
+        new Set(["100"]),
+        job,
+        today,
+      )[100],
+    ).toMatchObject({
+      overdueCents: 300,
+      nextPaymentDueDate: null,
+    });
+  });
+  it("returns zero overdue for future-only payments without treating it as a missing amount", () => {
+    expect(
+      pledgePresence(
+        [
+          item("1", "100", {
+            installments: [{ date: "2026-09-16", balanceCents: 300 }],
+          }),
+        ],
+        new Set(["100"]),
+        job,
+        today,
+      )[100],
+    ).toMatchObject({
+      overdueCents: 0,
+      nextPaymentDueDate: "2026-09-16",
+    });
+  });
+  it.each([
+    undefined,
+    null,
+    -1,
+    299,
+    "500",
+    500.5,
+    Number.MAX_SAFE_INTEGER + 1,
+  ])(
+    "keeps confirmed balances but never substitutes a partial pledged total for invalid amount %s",
+    (totalCents) => {
+      const result = pledgePresence(
+        [item(), item("2", "100", { totalCents }), item("3")],
+        new Set(["100"]),
+        job,
+        today,
+      )[100];
+      expect(result).toMatchObject({
+        count: 3,
+        totalCents: null,
+        balanceCents: 900,
+        overdueCents: 300,
+      });
+    },
+  );
+  it("does not publish unsafe aggregate amounts", () => {
+    const huge = item("2", "100", {
+      totalCents: Number.MAX_SAFE_INTEGER,
+      balanceCents: Number.MAX_SAFE_INTEGER,
+      installments: [
+        { date: "2026-08-01", balanceCents: Number.MAX_SAFE_INTEGER },
+      ],
+    });
+    expect(
+      pledgePresence(
+        [item(), huge, item("3")],
+        new Set(["100"]),
+        job,
+        today,
+      )[100],
+    ).toMatchObject({
+      count: 3,
+      totalCents: null,
+      balanceCents: null,
+      overdueCents: null,
+    });
+  });
+  it("classifies dates by Eastern today even before UTC and Eastern dates agree", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-16T02:00:00Z"));
+      expect(
+        pledgePresence(
+          [
+            item("1", "100", {
+              installments: [{ date: today, balanceCents: 300 }],
+            }),
+          ],
+          new Set(["100"]),
+          job,
+        )[100],
+      ).toMatchObject({
+        asOf: today,
+        overdueCents: 0,
+        nextPaymentDueDate: today,
+      });
+      vi.setSystemTime(new Date("2026-09-16T04:00:00Z"));
+      expect(
+        pledgePresence(
+          [
+            item("1", "100", {
+              installments: [{ date: today, balanceCents: 300 }],
+            }),
+          ],
+          new Set(["100"]),
+          job,
+        )[100],
+      ).toMatchObject({
+        asOf: "2026-09-16",
+        overdueCents: 300,
+        nextPaymentDueDate: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

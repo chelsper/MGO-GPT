@@ -11,12 +11,22 @@ and app origin; one user's NXT connection is not used to populate another's cach
 Top Prospects' View Prospect detail and My Portfolio's expanded/Detailed cards
 show **Active pledge** when the constituent has a verified unpaid pledge in the
 saved report. Compact card headers stay unchanged. The indicator shows a pledge
-count and verification date, not gift amounts, schedules, or payment details.
+count, verification date, and summarized **Total pledged**, **Balance due**, and
+**Next payment due**. **Overdue amount** appears only for a positive overdue
+balance. Amounts are USD and sum the included active pledge gifts once each;
+total pledged is not lifetime giving, and balance is not inferred from payments.
+Missing amounts or unsafe sums show unavailable, never zero or a partial total.
+The next payment is the earliest unpaid installment due **today or later** across
+those pledges; if all outstanding installments are in the past, it says "No
+upcoming payment." Overdue is the remaining balance of unpaid installments
+strictly **before Eastern today**, excluding due-today and settled installments.
+These dates are recalculated from saved schedules on the existing app read; the
+as-of date is shown separately from the report's verification date.
 Retained failed/pending records are labeled as older report data. With multiple
 pledges, the date is the oldest included verification, not a newer date that
 would imply every pledge was just checked.
 
-`GET /api/prospect-pledge-status` is a narrow shared presence projection for
+`GET /api/prospect-pledge-status` is a narrow shared pledge summary projection for
 active workspace users. It selects the most recently started query-12033 job
 owned by an active admin/Advancement Services user on the same app origin.
 It never unions older reports from other users. Discovery must be complete;
@@ -28,7 +38,8 @@ The server intersects those results with the authenticated selected workspace's
 saved NXT portfolio and local Top Prospects constituent **system IDs**. Caller-
 provided constituent/workspace IDs cannot widen access. Existing authorized
 Admin/Executive delegated read access is preserved. This deliberately shares
-only pledge presence for assigned prospects; the full report endpoint stays
+only pledge presence and the above summary figures for assigned prospects; raw
+schedules, payment details, and other donors are not returned. The full report endpoint stays
 reviewer-only and no other user's connection or raw cache is returned.
 
 The page makes one independent cached app read per viewer/workspace, not one

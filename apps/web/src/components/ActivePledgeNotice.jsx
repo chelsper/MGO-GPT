@@ -1,3 +1,13 @@
+import { calendarDate, formatCalendarDate } from "@/utils/prospectActivity";
+
+const currency = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
+const validCents = (value) => Number.isSafeInteger(value) && value >= 0;
+const amount = (value) =>
+  validCents(value) ? currency.format(value / 100) : "Unavailable";
+
 export default function ActivePledgeNotice({ status, incomplete = false }) {
   if (!Number.isSafeInteger(status?.count) || status.count < 1) return null;
   const verifiedAt = Date.parse(status.verifiedAt);
@@ -9,6 +19,27 @@ export default function ActivePledgeNotice({ status, incomplete = false }) {
         day: "numeric",
       }).format(new Date(verifiedAt))
     : null;
+  const asOf = calendarDate(status.asOf);
+  const nextDue = calendarDate(status.nextPaymentDueDate);
+  const metrics = [
+    { label: "Total pledged", value: amount(status.totalCents) },
+    { label: "Balance due", value: amount(status.balanceCents) },
+    {
+      label: "Next payment due",
+      value: nextDue
+        ? `${formatCalendarDate(nextDue, { month: "short", day: "numeric", year: "numeric" })}${nextDue === asOf ? " (today)" : ""}`
+        : asOf && status.nextPaymentDueDate === null
+          ? "No upcoming payment"
+          : "Unavailable",
+    },
+  ];
+  if (validCents(status.overdueCents) && status.overdueCents > 0) {
+    metrics.push({
+      label: "Overdue amount",
+      value: amount(status.overdueCents),
+      overdue: true,
+    });
+  }
   return (
     <aside
       aria-label="Saved pledge status"
@@ -18,6 +49,46 @@ export default function ActivePledgeNotice({ status, incomplete = false }) {
         {status.stale ? "Active pledge in older report data" : "Active pledge"}
         {status.count > 1 ? ` (${status.count} pledges)` : ""}
       </p>
+      <dl
+        className="my-3 grid gap-x-5 gap-y-3"
+        style={{
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(min(100%, 10rem), 1fr))",
+        }}
+      >
+        {metrics.map(({ label, value, overdue }) => (
+          <div
+            key={label}
+            className={`min-w-0 ${overdue ? "text-amber-900" : ""}`}
+          >
+            <dt className="text-xs font-medium">{label}</dt>
+            <dd className="mt-1 break-words text-base font-semibold tabular-nums">
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {status.count > 1 && (
+        <p className="text-xs leading-relaxed">
+          Combined amounts across these {status.count} active pledges.
+        </p>
+      )}
+      {asOf && (
+        <p className="text-xs leading-relaxed">
+          Due dates as of{" "}
+          {formatCalendarDate(asOf, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}{" "}
+          (Eastern). Next payment includes today; overdue excludes today.
+        </p>
+      )}
+      {status.overdueCents === null && (
+        <p className="text-xs leading-relaxed">
+          Overdue amount could not be verified.
+        </p>
+      )}
       <p className="mt-1 text-xs leading-relaxed">
         Listed in the saved Pledge Payments report (query 12033).
         {verifiedDate ? ` Verified ${verifiedDate} (Eastern).` : ""}

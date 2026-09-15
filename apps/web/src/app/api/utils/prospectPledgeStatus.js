@@ -4,10 +4,22 @@ import { isPledgeQueryJob } from "./pledgeQuerySource";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import { calendarDate } from "@/utils/prospectActivity";
 import { OPEN_PLEDGE_QUERY_ID } from "@/utils/pledgePayments";
+import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
 const validId = (value) => /^[1-9]\d{0,19}$/.test(String(value ?? ""));
+const sumCents = (a, b) =>
+  Number.isSafeInteger(a) &&
+  Number.isSafeInteger(b) &&
+  Number.isSafeInteger(a + b)
+    ? a + b
+    : null;
 
-export function pledgePresence(items, allowedIds, job) {
+export function pledgePresence(
+  items,
+  allowedIds,
+  job,
+  today = getStandingsPeriods().asOf,
+) {
   const byConstituentId = {};
   const seen = new Set();
   for (const item of items) {
@@ -43,6 +55,20 @@ export function pledgePresence(items, allowedIds, job) {
     seen.add(record.id);
     const previous = byConstituentId[id];
     const verifiedAt = new Date(record.refreshedAt).toISOString();
+    const totalCents =
+      Number.isSafeInteger(record.totalCents) &&
+      record.totalCents >= record.balanceCents
+        ? record.totalCents
+        : null;
+    let overdueCents = 0;
+    let nextPaymentDueDate = previous?.nextPaymentDueDate || null;
+    for (const entry of schedule) {
+      if (entry.balanceCents === 0) continue;
+      const date = calendarDate(entry.date);
+      if (date < today) overdueCents += entry.balanceCents;
+      else if (!nextPaymentDueDate || date < nextPaymentDueDate)
+        nextPaymentDueDate = date;
+    }
     byConstituentId[id] = {
       count: (previous?.count || 0) + 1,
       verifiedAt:
@@ -50,6 +76,18 @@ export function pledgePresence(items, allowedIds, job) {
           ? previous.verifiedAt
           : verifiedAt,
       stale: Boolean(previous?.stale || item.status !== "success"),
+      // Missing amounts or unsafe sums must not become zero or partial totals.
+      totalCents: sumCents(previous ? previous.totalCents : 0, totalCents),
+      balanceCents: sumCents(
+        previous ? previous.balanceCents : 0,
+        record.balanceCents,
+      ),
+      overdueCents: sumCents(
+        previous ? previous.overdueCents : 0,
+        overdueCents,
+      ),
+      nextPaymentDueDate,
+      asOf: today,
     };
   }
   return byConstituentId;

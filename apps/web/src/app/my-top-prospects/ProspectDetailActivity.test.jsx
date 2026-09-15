@@ -26,8 +26,14 @@ function renderDetail(readOnly = false, pledgeData) {
 }
 afterEach(cleanup);
 it("shows the same saved pledge notice in Top Prospects details by constituent system ID", () => {
-  renderDetail(true, { byConstituentId: { 100: { count: 1, stale: true, verifiedAt: "2026-09-10T13:00:00Z" }, 999: { count: 9 } } });
+  renderDetail(true, { byConstituentId: { 100: { count: 1, stale: true, verifiedAt: "2026-09-10T13:00:00Z",
+    totalCents: 500000, balanceCents: 200000, overdueCents: 0,
+    nextPaymentDueDate: "2026-12-01", asOf: "2026-09-15" }, 999: { count: 9 } } });
   expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Active pledge in older report data");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Total pledged$5,000.00");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Balance due$2,000.00");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Next payment dueDec 1, 2026");
+  expect(screen.queryByText("Overdue amount")).not.toBeInTheDocument();
   expect(screen.getAllByRole("complementary", { name: "Saved pledge status" })).toHaveLength(1);
   expect(screen.queryByText("9 pledges")).not.toBeInTheDocument();
 });

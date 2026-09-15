@@ -42,7 +42,9 @@ beforeEach(() => {
   };
   state.data = {
     "prospect-pledge-status": {
-      byConstituentId: { 100: { count: 2, verifiedAt: "2026-09-15T13:00:00Z", stale: false } },
+      byConstituentId: { 100: { count: 2, verifiedAt: "2026-09-15T13:00:00Z", stale: false,
+        totalCents: 2500000, balanceCents: 1200000, overdueCents: 250000,
+        nextPaymentDueDate: "2026-12-01", asOf: "2026-09-15" } },
     },
     prospects: [
       {
@@ -91,6 +93,10 @@ it("shows saved pledge presence only inside expanded or detailed portfolio cards
   expect(screen.queryByRole("complementary", { name: "Saved pledge status" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
   expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Active pledge (2 pledges)");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Total pledged$25,000.00");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Balance due$12,000.00");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Next payment dueDec 1, 2026");
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Overdue amount$2,500.00");
   fireEvent.click(screen.getByRole("button", { name: "Hide details for Zelda Donor" }));
   expect(screen.queryByRole("complementary", { name: "Saved pledge status" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("View"), { target: { value: "detailed" } });
