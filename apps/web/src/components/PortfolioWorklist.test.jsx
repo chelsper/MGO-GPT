@@ -65,6 +65,7 @@ function View(props) {
               density={density}
             >
               <button type="button">Action for {person.name}</button>
+              <input aria-label={`Draft for ${person.name}`} defaultValue="" />
             </PortfolioCard>
           ))}
         </div>
@@ -92,6 +93,192 @@ const quickView = (name) =>
   ).getByRole("button", { name });
 
 describe("portfolio worklist", () => {
+  it("keeps an explicitly opened Focus card in view without scrolling on density changes", () => {
+    render(<View />);
+    const button = screen.getByRole("button", {
+      name: "Show details for Person 61",
+    });
+    const scroll = vi.fn();
+    button.scrollIntoView = scroll;
+    fireEvent.click(button);
+    expect(scroll).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "focus" },
+    });
+    expect(scroll).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(scroll).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(scroll).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("opens one card at a time in Focus without losing fields or fetching", () => {
+    render(<View />);
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "focus" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    const draft = screen.getByRole("textbox", { name: "Draft for Person 61" });
+    fireEvent.change(draft, { target: { value: "Keep this draft" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 01" }),
+    );
+    expect(
+      screen.getAllByRole("button", { name: /Hide details for/ }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Action for Person 01" }),
+    ).toBeVisible();
+    expect(draft).not.toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("Keep this draft");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+    expect(
+      screen.getByRole("region", { name: "Portfolio worklist" }),
+    ).toHaveFocus();
+    expect(
+      screen.queryByRole("button", { name: /Hide details for/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    expect(draft).toHaveValue("Keep this draft");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps Compact multi-open and Detailed full-page behavior", () => {
+    render(<View />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 01" }),
+    );
+    expect(
+      screen.getAllByRole("button", { name: /Hide details for/ }),
+    ).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+    expect(
+      screen.queryByRole("button", { name: /Hide details for/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "detailed" },
+    });
+    expect(screen.getAllByRole("button", { name: /Action for/ })).toHaveLength(
+      25,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Collapse details" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "compact" },
+    });
+    expect(
+      screen.queryByRole("button", { name: /Action for/ }),
+    ).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps the last opened card when entering Focus without changing pages", () => {
+    render(<View />);
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 25" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 26" }),
+    );
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "focus" },
+    });
+    expect(topNav().getByText("Page 2 of 3")).toBeVisible();
+    expect(
+      screen.getAllByRole("button", { name: /Hide details for/ }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Hide details for Person 26" }),
+    ).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("retains Focus expansion by constituent across paging, filters and grouping", () => {
+    render(<View />);
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "focus" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    expect(
+      screen.queryByRole("button", { name: /Hide details for/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 25" }),
+    );
+    fireEvent.click(topNav().getByRole("button", { name: "Previous" }));
+    expect(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "Person 25" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Hide details for Person 25" }),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "solicitor" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Hide details for Person 25" }),
+    ).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("prunes expansion when a constituent leaves the portfolio", () => {
+    const { rerender } = render(<View />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    rerender(<View people={people.slice(0, 60)} />);
+    rerender(<View />);
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "Person 61" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("remembers Focus only for its viewer/workspace, without storing expanded IDs", () => {
+    const { rerender } = render(<View key="first" />);
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "focus" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({
+      density: "focus",
+      quickView: "all",
+      group: "all",
+      sort: "open",
+      pageSize: 25,
+    });
+    rerender(<View key="other-viewer" storageKey={portfolioViewKey(3, 2)} />);
+    expect(screen.getByLabelText("View")).toHaveValue("compact");
+    rerender(
+      <View key="other-workspace" storageKey={portfolioViewKey(1, 3)} />,
+    );
+    expect(screen.getByLabelText("View")).toHaveValue("compact");
+    rerender(<View key="return" />);
+    expect(screen.getByLabelText("View")).toHaveValue("focus");
+    expect(
+      screen.queryByRole("button", { name: /Hide details for/ }),
+    ).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("defaults to compact, sorted, 25-row view and searches across all pages", () => {
     render(<View />);
     expect(screen.getAllByRole("article")).toHaveLength(25);

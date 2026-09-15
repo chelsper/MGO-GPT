@@ -121,22 +121,68 @@ it("expands the actual portfolio card without fetching; NXT Summary remains expl
   expect(state.data.prospects[0].priority_order).toBe(1);
 });
 
-it("preserves read-only protection inside expanded cards", () => {
-  state.profile.user.role = "executive";
+it("preserves loaded summaries and existing actions when Focus switches cards", async () => {
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), {
+    target: { value: "focus" },
+  });
   fireEvent.click(
     screen.getByRole("button", { name: "Show details for Zelda Donor" }),
   );
-  expect(
-    screen.queryByRole("link", { name: "Log action" }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole("button", { name: "Set next step" }),
-  ).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open NXT profile" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Set next step" })).toBeEnabled();
   expect(fetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  await waitFor(() =>
+    expect(screen.getByText("Saved summary narrative")).toBeVisible(),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show details for Amy Donor" }),
+  );
+  expect(screen.getByText("Saved summary narrative")).not.toBeVisible();
+  expect(screen.getByRole("link", { name: "Log action" })).toHaveAttribute(
+    "href",
+    expect.stringContaining("blackbaudConstituentId=101"),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show details for Zelda Donor" }),
+  );
+  expect(screen.getByText("Saved summary narrative")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show details for Zelda Donor" }),
+  );
+  expect(screen.getByText("Saved summary narrative")).toBeVisible();
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(
+    "/api/blackbaud/constituents/100/summary",
+  );
+  expect(state.data.prospects[0].priority_order).toBe(1);
 });
+
+it.each(["compact", "focus"])(
+  "preserves read-only protection inside %s cards",
+  (density) => {
+    state.profile.user.role = "executive";
+    render(<MyProspects />);
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: density },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Zelda Donor" }),
+    );
+    expect(
+      screen.queryByRole("link", { name: "Log action" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Set next step" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open NXT profile" }),
+    ).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
 
 it("narrows the actual portfolio using saved opportunities and next steps without NXT calls", () => {
   state.data.prospects[0].next_action_due_date = "2025-09-15";

@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { ChevronDown, Star } from "lucide-react";
 import {
   DEFAULT_PORTFOLIO_VIEW,
@@ -17,6 +24,8 @@ const quickViews = [
   { key: "open", label: "Open opportunities" },
   { key: "due", label: "Follow-ups due" },
 ];
+
+const PortfolioExpansionContext = createContext(null);
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -42,8 +51,21 @@ export function PortfolioCard({
   children,
 }) {
   const detailsId = useId();
-  const [expanded, setExpanded] = useState(false);
+  const expansion = useContext(PortfolioExpansionContext);
+  const [standaloneExpanded, setStandaloneExpanded] = useState(false);
+  const toggleRef = useRef(null);
+  const scrollOnExpand = useRef(false);
+  const cardId = String(person.constituentId ?? detailsId);
+  const expanded = expansion
+    ? expansion.ids.includes(cardId)
+    : standaloneExpanded;
   const detailed = density === "detailed";
+  useEffect(() => {
+    // Closing the previous tall card can move the selected card off-screen.
+    if (expanded && scrollOnExpand.current)
+      toggleRef.current?.scrollIntoView?.({ block: "nearest" });
+    scrollOnExpand.current = false;
+  }, [expanded]);
   const openLabel =
     signal?.openCount != null
       ? `${signal.openCount} saved open ${signal.openCount === 1 ? "opportunity" : "opportunities"}`
@@ -92,12 +114,17 @@ export function PortfolioCard({
             )}
           </div>
           <button
+            ref={toggleRef}
             type="button"
             className="portfolio-card__toggle"
             aria-expanded={expanded}
             aria-controls={detailsId}
             aria-label={`${expanded ? "Hide" : "Show"} details for ${person.name || "constituent"}`}
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => {
+              scrollOnExpand.current = density === "focus" && !expanded;
+              if (expansion) expansion.toggle(cardId);
+              else setStandaloneExpanded(!standaloneExpanded);
+            }}
           >
             {expanded ? "Hide details" : "Show details"}
             <ChevronDown
@@ -131,6 +158,7 @@ export default function PortfolioWorklist({
   const [view, setView] = useState(() => savedView(storageKey));
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [expandedIds, setExpandedIds] = useState([]);
   const [today, setToday] = useState(() => getStandingsPeriods().asOf);
   const [order, setOrder] = useState(() =>
     sortPortfolioPeople(people, signals, view.sort).map((person) =>
@@ -154,6 +182,15 @@ export default function PortfolioWorklist({
   useEffect(() => {
     if (reconciledOrder !== order) setOrder(reconciledOrder);
   }, [reconciledOrder, order]);
+  useEffect(() => {
+    const available = new Set(
+      people.map((person) => String(person.constituentId)),
+    );
+    setExpandedIds((current) => {
+      const next = current.filter((id) => available.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [people]);
   useEffect(() => {
     if (!storageKey) return;
     try {
@@ -209,6 +246,13 @@ export default function PortfolioWorklist({
       ),
   }));
   const result = paginatePortfolioTiers(filteredTiers, page, view.pageSize);
+  const hasVisibleDetails =
+    view.density !== "detailed" &&
+    result.tiers.some((tier) =>
+      tier.items.some((person) =>
+        expandedIds.includes(String(person.constituentId)),
+      ),
+    );
   useEffect(() => {
     if (page !== result.page) setPage(result.page);
   }, [page, result.page]);
@@ -216,6 +260,8 @@ export default function PortfolioWorklist({
   function changeView(patch) {
     const next = normalizePortfolioView({ ...view, ...patch });
     setView(next);
+    if (patch.density === "focus")
+      setExpandedIds((current) => current.slice(-1));
     if (patch.sort || patch.group || patch.pageSize || patch.quickView)
       setPage(1);
     if (patch.sort)
@@ -266,168 +312,202 @@ export default function PortfolioWorklist({
   }
 
   return (
-    <section
-      className="portfolio-worklist"
-      ref={listRef}
-      tabIndex={-1}
-      aria-label="Portfolio worklist"
+    <PortfolioExpansionContext.Provider
+      value={{
+        ids: expandedIds,
+        toggle: (id) =>
+          setExpandedIds((current) =>
+            current.includes(id)
+              ? current.filter((openId) => openId !== id)
+              : view.density === "focus"
+                ? [id]
+                : [...current, id],
+          ),
+      }}
     >
-      <div className="portfolio-worklist__toolbar">
-        <label className="portfolio-worklist__search" htmlFor={searchId}>
-          Search portfolio
-          <input
-            id={searchId}
-            type="search"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Name, email, lookup ID, or assignment"
-          />
-        </label>
-        <label className="portfolio-worklist__wide-control">
-          Sort by
-          <select
-            value={view.sort}
-            onChange={(event) => changeView({ sort: event.target.value })}
-          >
-            <option value="open">Open first</option>
-            <option value="due">Next step due</option>
-            <option value="pipeline">Largest open pipeline</option>
-            <option value="name">Name A-Z</option>
-          </select>
-        </label>
-        <label className="portfolio-worklist__wide-control">
-          Organize by
-          <select
-            value={view.group}
-            onChange={(event) => changeView({ group: event.target.value })}
-          >
-            <option value="all">No grouping</option>
-            <option value="solicitor">Solicitor role</option>
-            <option value="category">My categories</option>
-          </select>
-        </label>
-        <label>
-          View
-          <select
-            value={view.density}
-            onChange={(event) => changeView({ density: event.target.value })}
-          >
-            <option value="compact">Compact</option>
-            <option value="detailed">Detailed</option>
-          </select>
-        </label>
-        <label>
-          Per page
-          <select
-            value={view.pageSize}
-            onChange={(event) =>
-              changeView({ pageSize: Number(event.target.value) })
-            }
-          >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-          </select>
-        </label>
-      </div>
-      <div
-        className="portfolio-worklist__quick-views"
-        role="group"
-        aria-label="Portfolio quick views"
+      <section
+        className="portfolio-worklist"
+        ref={listRef}
+        tabIndex={-1}
+        aria-label="Portfolio worklist"
       >
-        {quickViews.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={view.quickView === key}
-            onClick={() => changeView({ quickView: key })}
-          >
-            {label} <span>{quickViewIds[key].size}</span>
-          </button>
-        ))}
-      </div>
-      {view.quickView !== "all" && (
-        <p className="portfolio-worklist__filter-note">
-          {view.quickView === "due"
-            ? `Unfinished saved next steps due through ${formatCalendarDate(today, { month: "short", day: "numeric", year: "numeric" })} (Eastern). Missing dates are not counted.`
-            : "Constituents with saved linked open opportunities, across all fiscal years. Records without saved opportunity data are not included."}
-        </p>
-      )}
-      <div className="portfolio-worklist__help">
-        <details>
-          <summary>About this view</summary>
-          <p>
-            Open first puts constituents with saved open opportunities ahead of
-            the rest, then sorts by name. Uses saved linked opportunities across
-            all fiscal years, not a complete NXT opportunity inventory. Missing
-            data is not a zero. Next step due sorts unfinished dated steps
-            oldest first. Largest open pipeline sorts saved open opportunity
-            amounts highest first. Missing dates and unavailable amounts sort
-            last; ties sort by name. These sorts do not change Top Prospects
-            ranks.
-            {view.group !== "all"
-              ? " Sorting applies within each group."
-              : ""}{" "}
-            Quick-view counts respect your search and count each constituent
-            once, before pagination. Follow-ups due uses unfinished saved next
-            steps due today or earlier (Eastern), not NXT action history.
-            Background updates may change filter membership, but do not reorder
-            existing cards. Reapply sort to use updated values. These controls
-            make no additional NXT requests.
+        <div className="portfolio-worklist__toolbar">
+          <label className="portfolio-worklist__search" htmlFor={searchId}>
+            Search portfolio
+            <input
+              id={searchId}
+              type="search"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Name, email, lookup ID, or assignment"
+            />
+          </label>
+          <label className="portfolio-worklist__wide-control">
+            Sort by
+            <select
+              value={view.sort}
+              onChange={(event) => changeView({ sort: event.target.value })}
+            >
+              <option value="open">Open first</option>
+              <option value="due">Next step due</option>
+              <option value="pipeline">Largest open pipeline</option>
+              <option value="name">Name A-Z</option>
+            </select>
+          </label>
+          <label className="portfolio-worklist__wide-control">
+            Organize by
+            <select
+              value={view.group}
+              onChange={(event) => changeView({ group: event.target.value })}
+            >
+              <option value="all">No grouping</option>
+              <option value="solicitor">Solicitor role</option>
+              <option value="category">My categories</option>
+            </select>
+          </label>
+          <label>
+            View
+            <select
+              value={view.density}
+              onChange={(event) => changeView({ density: event.target.value })}
+            >
+              <option value="compact">Compact</option>
+              <option value="focus">Focus</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </label>
+          <label>
+            Per page
+            <select
+              value={view.pageSize}
+              onChange={(event) =>
+                changeView({ pageSize: Number(event.target.value) })
+              }
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+          </label>
+        </div>
+        {view.density === "focus" && (
+          <p className="portfolio-worklist__filter-note">
+            Focus view keeps one constituent's details open at a time.
           </p>
-        </details>
-        <button
-          type="button"
-          onClick={() => {
-            setOrder(
-              sortedPeople.map((person) => String(person.constituentId)),
-            );
-            setPage(1);
-          }}
+        )}
+        <div
+          className="portfolio-worklist__quick-views"
+          role="group"
+          aria-label="Portfolio quick views"
         >
-          Reapply sort
-        </button>
-        {search && (
+          {quickViews.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={view.quickView === key}
+              onClick={() => changeView({ quickView: key })}
+            >
+              {label} <span>{quickViewIds[key].size}</span>
+            </button>
+          ))}
+        </div>
+        {view.quickView !== "all" && (
+          <p className="portfolio-worklist__filter-note">
+            {view.quickView === "due"
+              ? `Unfinished saved next steps due through ${formatCalendarDate(today, { month: "short", day: "numeric", year: "numeric" })} (Eastern). Missing dates are not counted.`
+              : "Constituents with saved linked open opportunities, across all fiscal years. Records without saved opportunity data are not included."}
+          </p>
+        )}
+        <div className="portfolio-worklist__help">
+          <details>
+            <summary>About this view</summary>
+            <p>
+              Open first puts constituents with saved open opportunities ahead
+              of the rest, then sorts by name. Uses saved linked opportunities
+              across all fiscal years, not a complete NXT opportunity inventory.
+              Missing data is not a zero. Next step due sorts unfinished dated
+              steps oldest first. Largest open pipeline sorts saved open
+              opportunity amounts highest first. Missing dates and unavailable
+              amounts sort last; ties sort by name. These sorts do not change
+              Top Prospects ranks.
+              {view.group !== "all"
+                ? " Sorting applies within each group."
+                : ""}{" "}
+              Quick-view counts respect your search and count each constituent
+              once, before pagination. Follow-ups due uses unfinished saved next
+              steps due today or earlier (Eastern), not NXT action history.
+              Background updates may change filter membership, but do not
+              reorder existing cards. Reapply sort to use updated values. These
+              controls make no additional NXT requests. Focus view closes the
+              previous card when another is opened. Compact allows several open
+              cards; Detailed shows every card on this page in full. Collapsing
+              details does not reset fields or load NXT.
+            </p>
+          </details>
           <button
             type="button"
             onClick={() => {
-              setSearch("");
+              setOrder(
+                sortedPeople.map((person) => String(person.constituentId)),
+              );
               setPage(1);
             }}
           >
-            Clear search
+            Reapply sort
           </button>
-        )}
-      </div>
-      {pagination("Top")}
-      <div className="portfolio-worklist__groups">
-        {result.tiers.map((tier) => renderTier(tier, view.density))}
-        {!result.total && (
-          <div className="portfolio-worklist__empty">
-            <p>
-              {query
-                ? "No constituents match this search and quick view. Try a different name or clear the search."
-                : view.quickView !== "all"
-                  ? "No constituents match this quick view in the saved data. This does not confirm that none exist in NXT."
-                  : "No constituents in this portfolio yet."}
-            </p>
-            {(query || view.quickView !== "all") && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch("");
-                  changeView({ quickView: "all" });
-                }}
-              >
-                Show all constituents
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      {result.pageCount > 1 && pagination("Bottom")}
-    </section>
+          {hasVisibleDetails && (
+            <button
+              type="button"
+              onClick={() => {
+                setExpandedIds([]);
+                listRef.current?.focus({ preventScroll: true });
+              }}
+            >
+              Collapse details
+            </button>
+          )}
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setPage(1);
+              }}
+            >
+              Clear search
+            </button>
+          )}
+        </div>
+        {pagination("Top")}
+        <div className="portfolio-worklist__groups">
+          {result.tiers.map((tier) => renderTier(tier, view.density))}
+          {!result.total && (
+            <div className="portfolio-worklist__empty">
+              <p>
+                {query
+                  ? "No constituents match this search and quick view. Try a different name or clear the search."
+                  : view.quickView !== "all"
+                    ? "No constituents match this quick view in the saved data. This does not confirm that none exist in NXT."
+                    : "No constituents in this portfolio yet."}
+              </p>
+              {(query || view.quickView !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    changeView({ quickView: "all" });
+                  }}
+                >
+                  Show all constituents
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        {result.pageCount > 1 && pagination("Bottom")}
+      </section>
+    </PortfolioExpansionContext.Provider>
   );
 }

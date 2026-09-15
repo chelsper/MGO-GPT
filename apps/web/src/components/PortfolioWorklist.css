@@ -211,6 +211,7 @@
   font-size: 11px;
 }
 .portfolio-card__toggle {
+  scroll-margin-top: 150px;
   display: inline-flex;
   gap: 6px;
   align-items: center;

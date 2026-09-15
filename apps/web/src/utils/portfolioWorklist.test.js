@@ -293,6 +293,13 @@ describe("portfolio priority sorts", () => {
 });
 
 describe("worklist pagination and preferences", () => {
+  it("accepts Focus while keeping Compact as the backward-compatible default", () => {
+    expect(normalizePortfolioView({ density: "focus" }).density).toBe("focus");
+    expect(normalizePortfolioView({ density: "invalid" }).density).toBe(
+      "compact",
+    );
+    expect(normalizePortfolioView({}).density).toBe("compact");
+  });
   const all = Array.from({ length: 61 }, (_, id) => ({
     constituentId: String(id),
   }));

@@ -10,7 +10,9 @@ export const DEFAULT_PORTFOLIO_VIEW = {
 
 export function normalizePortfolioView(value) {
   return {
-    density: value?.density === "detailed" ? "detailed" : "compact",
+    density: ["compact", "focus", "detailed"].includes(value?.density)
+      ? value.density
+      : "compact",
     quickView: ["all", "open", "due"].includes(value?.quickView)
       ? value.quickView
       : "all",
