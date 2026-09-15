@@ -159,6 +159,48 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   expect(state.data.prospects[0].priority_order).toBe(1);
 });
 
+it("filters actual category and solicitor groups without writes, fetching or rank changes", () => {
+  state.data["portfolio-categories"] = {
+    categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],
+    assignments: [{ blackbaud_constituent_id: "100", category_id: 9 }],
+  };
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.change(screen.getByLabelText("View"), {
+    target: { value: "focus" },
+  });
+  fireEvent.change(screen.getByLabelText("Organize by"), {
+    target: { value: "category" },
+  });
+  fireEvent.change(screen.getByLabelText("Show group"), {
+    target: { value: "category-9" },
+  });
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show details for Zelda Donor" }),
+  );
+  expect(screen.getByRole("button", { name: "Set next step" })).toBeEnabled();
+  expect(
+    screen.getByRole("combobox", {
+      name: "Move Zelda Donor to portfolio category",
+    }),
+  ).toHaveValue("9");
+  fireEvent.change(screen.getByLabelText("Organize by"), {
+    target: { value: "solicitor" },
+  });
+  expect(screen.getByLabelText("Show group")).toHaveValue("");
+  fireEvent.change(screen.getByLabelText("Show group"), {
+    target: { value: "supporting" },
+  });
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Amy Donor");
+  expect(screen.getByLabelText("View")).toHaveValue("focus");
+  expect(fetch).not.toHaveBeenCalled();
+  expect(state.data.prospects[0].priority_order).toBe(1);
+  expect(state.data["portfolio-categories"].assignments[0].category_id).toBe(9);
+});
+
 it.each(["compact", "focus"])(
   "preserves read-only protection inside %s cards",
   (density) => {

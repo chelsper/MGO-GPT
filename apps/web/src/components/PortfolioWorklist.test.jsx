@@ -93,6 +93,233 @@ const quickView = (name) =>
   ).getByRole("button", { name });
 
 describe("portfolio worklist", () => {
+  it("filters a solicitor group before pagination while retaining Focus and sort", () => {
+    render(<View />);
+    expect(screen.queryByLabelText("Show group")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "solicitor" },
+    });
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "support" },
+    });
+    expect(topNav().getByText("Page 1 of 2")).toBeVisible();
+    expect(screen.getAllByRole("article")).toHaveLength(25);
+    expect(firstPerson()).toContain("Person 61");
+    expect(quickView(/^All 31$/)).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Lead" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    expect(screen.getAllByRole("article")).toHaveLength(6);
+    fireEvent.change(screen.getByLabelText("View"), {
+      target: { value: "focus" },
+    });
+    expect(topNav().getByText("Page 2 of 2")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Sort by"), {
+      target: { value: "pipeline" },
+    });
+    expect(screen.getByLabelText("Show group")).toHaveValue("support");
+    expect(firstPerson()).toContain("Person 61");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show details for Person 61" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Action for Person 61" }),
+    ).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("scopes quick-view counts to the group and group counts to search and quick view", () => {
+    render(<View />);
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "solicitor" },
+    });
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "support" },
+    });
+    expect(quickView(/^All 31$/)).toBeVisible();
+    expect(quickView(/^Open opportunities 1$/)).toBeVisible();
+    fireEvent.click(quickView(/^Open opportunities 1$/));
+    const groups = within(screen.getByLabelText("Show group"));
+    expect(
+      groups.getByRole("option", { name: "All roles (1)" }),
+    ).toBeInTheDocument();
+    expect(
+      groups.getByRole("option", { name: "Lead (0)" }),
+    ).toBeInTheDocument();
+    expect(
+      groups.getByRole("option", { name: "Supporting (1)" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    fireEvent.click(quickView(/^All 31$/));
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "Person 01" },
+    });
+    expect(quickView(/^All 0$/)).toBeVisible();
+    expect(
+      groups.getByRole("option", { name: "Lead (1)" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(screen.getByText(/No constituents match this group/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Show all groups" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("Person 01");
+    expect(firstPerson()).toContain("Person 01");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("selects categories, subcategories and Uncategorized independently", () => {
+    render(
+      <View
+        categoryTiers={[
+          {
+            key: "category-1",
+            title: "Planned giving",
+            items: people.slice(0, 20),
+          },
+          {
+            key: "category-2",
+            title: "- Follow-up",
+            hierarchyDepth: 1,
+            items: people.slice(20, 30),
+          },
+          {
+            key: "uncategorized",
+            title: "Uncategorized",
+            items: people.slice(30),
+          },
+          { key: "category-3", title: "Empty", items: [] },
+        ]}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "category" },
+    });
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "category-1" },
+    });
+    expect(screen.getAllByRole("article")).toHaveLength(20);
+    expect(
+      screen.getByText(/Subcategories are separate groups\.$/),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "category-2" },
+    });
+    expect(screen.getAllByRole("article")).toHaveLength(10);
+    expect(firstPerson()).toContain("Person 21");
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "uncategorized" },
+    });
+    expect(quickView(/^All 31$/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "category-3" },
+    });
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all constituents" }),
+    );
+    expect(screen.getByLabelText("Show group")).toHaveValue("");
+    expect(screen.getAllByRole("article")).toHaveLength(25);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps counts consistent for duplicate and out-of-portfolio group members", () => {
+    render(
+      <View
+        categoryTiers={[
+          { key: "one", title: "One", items: [...people, people[60]] },
+          {
+            key: "two",
+            title: "Two",
+            items: [
+              people[60],
+              { constituentId: "999", name: "Outside portfolio" },
+            ],
+          },
+        ]}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "category" },
+    });
+    const groups = within(screen.getByLabelText("Show group"));
+    expect(
+      groups.getByRole("option", { name: "All categories (61)" }),
+    ).toBeInTheDocument();
+    expect(
+      groups.getByRole("option", { name: "One (61)" }),
+    ).toBeInTheDocument();
+    expect(groups.getByRole("option", { name: "Two (0)" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "two" },
+    });
+    expect(quickView(/^All 0$/)).toBeVisible();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("updates group membership without broadening a deleted group silently", () => {
+    const { rerender } = render(<View />);
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "category" },
+    });
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "category" },
+    });
+    rerender(
+      <View
+        categoryTiers={[
+          { key: "category", title: "Renamed", items: [people[60]] },
+        ]}
+      />,
+    );
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByLabelText("Show group")).toHaveValue("category");
+    expect(screen.getByRole("heading", { name: "Renamed" })).toBeVisible();
+    rerender(
+      <View
+        categoryTiers={[
+          { key: "replacement", title: "Replacement", items: people },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByRole("option", { name: "Unavailable group (0)" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all groups" }));
+    expect(screen.getAllByRole("article")).toHaveLength(25);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("clears group selection on grouping changes and new workspace visits, not in stored preferences", () => {
+    const { rerender } = render(<View key="first" />);
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "solicitor" },
+    });
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "support" },
+    });
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "category" },
+    });
+    expect(screen.getByLabelText("Show group")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Show group"), {
+      target: { value: "category" },
+    });
+    expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({
+      density: "compact",
+      quickView: "all",
+      group: "category",
+      sort: "open",
+      pageSize: 25,
+    });
+    rerender(<View key="other" storageKey={portfolioViewKey(1, 3)} />);
+    expect(screen.queryByLabelText("Show group")).not.toBeInTheDocument();
+    rerender(<View key="return" />);
+    expect(screen.getByLabelText("Organize by")).toHaveValue("category");
+    expect(screen.getByLabelText("Show group")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Organize by"), {
+      target: { value: "all" },
+    });
+    expect(screen.queryByLabelText("Show group")).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("keeps an explicitly opened Focus card in view without scrolling on density changes", () => {
     render(<View />);
     const button = screen.getByRole("button", {

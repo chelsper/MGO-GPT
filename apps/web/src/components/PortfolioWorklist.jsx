@@ -157,6 +157,7 @@ export default function PortfolioWorklist({
 }) {
   const [view, setView] = useState(() => savedView(storageKey));
   const [search, setSearch] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("");
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState([]);
   const [today, setToday] = useState(() => getStandingsPeriods().asOf);
@@ -230,22 +231,50 @@ export default function PortfolioWorklist({
             },
           ];
   const seen = new Set();
-  const filteredTiers = tiers.map((tier) => ({
+  const uniqueTiers = tiers.map((tier) => ({
+    ...tier,
+    items: tier.items.filter((person) => {
+      const id = String(person.constituentId);
+      if (seen.has(id) || !orderById.has(id)) return false;
+      seen.add(id);
+      return true;
+    }),
+  }));
+  const activeGroup = uniqueTiers.find(
+    (tier) => String(tier.key) === selectedGroup,
+  );
+  const scopedIds = new Set(
+    uniqueTiers
+      .filter((tier) => !selectedGroup || String(tier.key) === selectedGroup)
+      .flatMap((tier) =>
+        tier.items.map((person) => String(person.constituentId)),
+      ),
+  );
+  const quickViewCounts = Object.fromEntries(
+    quickViews.map(({ key }) => [
+      key,
+      [...quickViewIds[key]].filter((id) => scopedIds.has(id)).length,
+    ]),
+  );
+  const filteredTiers = uniqueTiers.map((tier) => ({
     ...tier,
     items: tier.items
-      .filter((person) => {
-        const id = String(person.constituentId);
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return quickViewIds[view.quickView].has(id);
-      })
+      .filter((person) =>
+        quickViewIds[view.quickView].has(String(person.constituentId)),
+      )
       .sort(
         (left, right) =>
           orderById.get(String(left.constituentId)) -
           orderById.get(String(right.constituentId)),
       ),
   }));
-  const result = paginatePortfolioTiers(filteredTiers, page, view.pageSize);
+  const result = paginatePortfolioTiers(
+    filteredTiers.filter(
+      (tier) => !selectedGroup || String(tier.key) === selectedGroup,
+    ),
+    page,
+    view.pageSize,
+  );
   const hasVisibleDetails =
     view.density !== "detailed" &&
     result.tiers.some((tier) =>
@@ -260,6 +289,7 @@ export default function PortfolioWorklist({
   function changeView(patch) {
     const next = normalizePortfolioView({ ...view, ...patch });
     setView(next);
+    if (patch.group) setSelectedGroup("");
     if (patch.density === "focus")
       setExpandedIds((current) => current.slice(-1));
     if (patch.sort || patch.group || patch.pageSize || patch.quickView)
@@ -270,6 +300,10 @@ export default function PortfolioWorklist({
           String(person.constituentId),
         ),
       );
+  }
+  function changeGroup(key) {
+    setSelectedGroup(key);
+    setPage(1);
   }
   function changePage(next) {
     setPage(next);
@@ -284,7 +318,7 @@ export default function PortfolioWorklist({
       >
         <span aria-live={position === "Top" ? "polite" : "off"}>
           {result.start}-{result.end} of {result.total}
-          {query || view.quickView !== "all"
+          {query || view.quickView !== "all" || selectedGroup
             ? ` matches (${people.length} in portfolio)`
             : " constituents"}
         </span>
@@ -368,6 +402,32 @@ export default function PortfolioWorklist({
               <option value="category">My categories</option>
             </select>
           </label>
+          {view.group !== "all" && (
+            <label className="portfolio-worklist__wide-control portfolio-worklist__group-control">
+              Show group
+              <select
+                value={selectedGroup}
+                onChange={(event) => changeGroup(event.target.value)}
+              >
+                <option value="">
+                  All {view.group === "category" ? "categories" : "roles"} (
+                  {filteredTiers.reduce(
+                    (sum, tier) => sum + tier.items.length,
+                    0,
+                  )}
+                  )
+                </option>
+                {selectedGroup && !activeGroup && (
+                  <option value={selectedGroup}>Unavailable group (0)</option>
+                )}
+                {filteredTiers.map((tier) => (
+                  <option key={tier.key} value={tier.key}>
+                    {tier.title} ({tier.items.length})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             View
             <select
@@ -397,6 +457,13 @@ export default function PortfolioWorklist({
             Focus view keeps one constituent's details open at a time.
           </p>
         )}
+        {selectedGroup && (
+          <p className="portfolio-worklist__filter-note">
+            {activeGroup
+              ? `Showing only ${activeGroup.title.trim()}. Counts reflect this group and your search.${view.group === "category" ? " Subcategories are separate groups." : ""}`
+              : "The selected group is no longer available. Show all groups to continue."}
+          </p>
+        )}
         <div
           className="portfolio-worklist__quick-views"
           role="group"
@@ -409,7 +476,7 @@ export default function PortfolioWorklist({
               aria-pressed={view.quickView === key}
               onClick={() => changeView({ quickView: key })}
             >
-              {label} <span>{quickViewIds[key].size}</span>
+              {label} <span>{quickViewCounts[key]}</span>
             </button>
           ))}
         </div>
@@ -435,15 +502,20 @@ export default function PortfolioWorklist({
               {view.group !== "all"
                 ? " Sorting applies within each group."
                 : ""}{" "}
-              Quick-view counts respect your search and count each constituent
-              once, before pagination. Follow-ups due uses unfinished saved next
-              steps due today or earlier (Eastern), not NXT action history.
-              Background updates may change filter membership, but do not
-              reorder existing cards. Reapply sort to use updated values. These
-              controls make no additional NXT requests. Focus view closes the
-              previous card when another is opened. Compact allows several open
-              cards; Detailed shows every card on this page in full. Collapsing
-              details does not reset fields or load NXT.
+              Quick-view counts respect your search and selected group and count
+              each constituent once, before pagination. Show group narrows the
+              list without changing assignments or categories. Group-option
+              counts also respect the selected quick view. Subcategories are
+              separate groups. Search and group selection apply only to this
+              visit; they are not saved as preferences. Follow-ups due uses
+              unfinished saved next steps due today or earlier (Eastern), not
+              NXT action history. Background updates may change filter
+              membership, but do not reorder existing cards. Reapply sort to use
+              updated values. These controls make no additional NXT requests.
+              Focus view closes the previous card when another is opened.
+              Compact allows several open cards; Detailed shows every card on
+              this page in full. Collapsing details does not reset fields or
+              load NXT.
             </p>
           </details>
           <button
@@ -468,6 +540,11 @@ export default function PortfolioWorklist({
               Collapse details
             </button>
           )}
+          {selectedGroup && (
+            <button type="button" onClick={() => changeGroup("")}>
+              Show all groups
+            </button>
+          )}
           {search && (
             <button
               type="button"
@@ -486,17 +563,22 @@ export default function PortfolioWorklist({
           {!result.total && (
             <div className="portfolio-worklist__empty">
               <p>
-                {query
-                  ? "No constituents match this search and quick view. Try a different name or clear the search."
-                  : view.quickView !== "all"
-                    ? "No constituents match this quick view in the saved data. This does not confirm that none exist in NXT."
-                    : "No constituents in this portfolio yet."}
+                {selectedGroup
+                  ? activeGroup
+                    ? "No constituents match this group with the current search and quick view. Try another group or show all constituents."
+                    : "The selected group is no longer available. Show all constituents to continue."
+                  : query
+                    ? "No constituents match this search and quick view. Try a different name or clear the search."
+                    : view.quickView !== "all"
+                      ? "No constituents match this quick view in the saved data. This does not confirm that none exist in NXT."
+                      : "No constituents in this portfolio yet."}
               </p>
-              {(query || view.quickView !== "all") && (
+              {(query || view.quickView !== "all" || selectedGroup) && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearch("");
+                    setSelectedGroup("");
                     changeView({ quickView: "all" });
                   }}
                 >
