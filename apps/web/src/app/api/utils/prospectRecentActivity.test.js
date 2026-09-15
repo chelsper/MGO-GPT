@@ -1,4 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
 const mocks = vi.hoisted(() => ({ sql: vi.fn(), fetch: vi.fn() }));
 vi.mock("./sql", () => ({ default: mocks.sql }));
 vi.mock("./blackbaud", () => ({ blackbaudApiFetch: mocks.fetch }));
@@ -6,6 +8,16 @@ import { loadProspectRecentActivity, normalizeLatestGift, normalizeRecentActions
 const context = { userId: 4, authUserId: 4, origin: "https://example.com", constituentId: "100" };
 const actionResponse = { count: 1, value: [{ id: "a", constituent_id: "100", date: "2026-08-01", summary: "Meeting", type: "Cultivation" }] };
 const giftResponse = { id: "g", date: "2026-08-02", amount: { value: 0 }, type: "Gift", funds: [{ description: "Scholarships" }] };
+
+it("retains the existing activity cache keys and separates origin, constituent and kind", () => {
+  const key = prospectActivityCacheKey(context.origin, "100", "gift");
+  const digest = createHash("sha256").update(JSON.stringify([context.origin, "100"])).digest("hex");
+  expect(key).toBe(`prospect-activity-v1|gift|${digest}`);
+  expect(prospectActivityCacheKey(context.origin, 100, "gift")).toBe(key);
+  expect(prospectActivityCacheKey("https://other.example.com", "100", "gift")).not.toBe(key);
+  expect(prospectActivityCacheKey(context.origin, "101", "gift")).not.toBe(key);
+  expect(prospectActivityCacheKey(context.origin, "100", "action")).not.toBe(key);
+});
 beforeEach(() => {
   vi.resetAllMocks(); mocks.sql.mockResolvedValue([]);
   mocks.fetch.mockImplementation((path) => Promise.resolve(path.endsWith("/actions") ? actionResponse : giftResponse));

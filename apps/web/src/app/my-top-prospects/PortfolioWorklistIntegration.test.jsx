@@ -101,6 +101,27 @@ it("shows saved contacts and their checked date immediately without requests", (
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("uses saved activity dates in collapsed rows without additional fetches or changing order", () => {
+  state.data["blackbaud-portfolio"].leadSolicitor[0].savedActivity = {
+    gift: { date: "2026-08-31", checkedAt: "2026-09-14T12:00:00Z" },
+    action: { date: "2026-09-10", checkedAt: "2026-09-14T12:00:00Z" },
+  };
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByText("Last gift (saved)")).toBeVisible();
+  expect(screen.getByText("Aug 31, 2026")).toBeVisible();
+  expect(screen.getByText("Last action (saved)")).toBeVisible();
+  expect(screen.getByText("Sep 10, 2026")).toBeVisible();
+  const amy = within(screen.getAllByRole("article")[1]);
+  expect(amy.queryByText(/Opportunity data unavailable|No saved next step|Last gift|Last action/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: "focus" } });
+  fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "name" } });
+  expect(screen.getAllByRole("article")[0]).toHaveTextContent("Amy Donor");
+  expect(state.data.prospects[0].priority_order).toBe(1);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("distinguishes saved empty contacts from contacts that have never loaded", () => {
   Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], {
     email: null, phone: null, address: null, contactDataSource: "nxt-summary-cache",

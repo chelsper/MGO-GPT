@@ -20,7 +20,14 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 
 ## Deliberately Deferred
 
-Recent gift/action sorting needs reliable dates and freshness metadata in the existing loaded portfolio data. Current activity caches are incomplete and connection-scoped; daily giving snapshots do not provide a uniform all-time activity signal. Do not fetch one summary per constituent, reuse another user's private activity cache, infer dates from narrative text, or present missing activity as no activity. A future step should first expose small, appropriately scoped saved-date fields without triggering NXT calls, then add clearly labeled optional sorts.
+Recent gift/action sorting remains deferred: saved activity coverage is incomplete, and daily giving snapshots do not provide a uniform all-time activity signal. Missing activity is not evidence of no activity. No new sorting or background refresh behavior is introduced by the saved-date display below.
+
+## Quiet Rows And Saved Activity
+
+- Compact and Focus rows show positive saved open-opportunity signals, real unfinished next steps, and available last gift/action dates. Unknown/zero opportunities, absent steps and missing dates do not produce filler messages. A row with no signals shows its name and details button.
+- The portfolio endpoint projects only dates and original check times from the existing `prospect-activity-v1` cache, alongside its existing bulk contact query. These entries come from the latest-gift endpoint and complete action responses; they are not inferred from FY gift totals, narrative text, scheduled actions or maintenance timestamps.
+- Activity requires an exact workspace, authorizing connection, constituent and origin-specific cache key. It is not read from another connection or saved into shared assignment JSON. Empty, malformed, future-dated and missing results remain hidden. Old successful checks remain usable with a saved label and checked-date tooltip, not a claim of live freshness.
+- Opening, expanding, filtering and sorting the list add no NXT requests, database round trips, per-card loaders or refresh jobs. This does not populate activity for previously unopened prospects or change the existing on-demand activity TTL. `About this view` explains the coverage and freshness limits.
 
 ## Verification
 

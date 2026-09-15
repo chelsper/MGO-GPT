@@ -18,6 +18,7 @@ import {
 import "./PortfolioWorklist.css";
 import { formatCalendarDate } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { savedPortfolioActivityDate } from "@/utils/portfolioActivity";
 
 const quickViews = [
   { key: "all", label: "All" },
@@ -67,11 +68,16 @@ export function PortfolioCard({
     scrollOnExpand.current = false;
   }, [expanded]);
   const openLabel =
-    signal?.openCount != null
+    signal?.openCount > 0
       ? `${signal.openCount} saved open ${signal.openCount === 1 ? "opportunity" : "opportunities"}`
       : signal?.hasOpen
         ? "Open opportunities saved"
-        : "Opportunity data unavailable";
+        : null;
+  const nextStep = signal?.nextStep?.trim();
+  const activityDates = ["gift", "action"].flatMap((kind) => {
+    const activity = savedPortfolioActivityDate(person.savedActivity?.[kind]);
+    return activity ? [{ kind, ...activity }] : [];
+  });
   const dueDate = formatCalendarDate(signal?.dueDate, {
     month: "short",
     day: "numeric",
@@ -97,20 +103,36 @@ export function PortfolioCard({
               />
             )}
           </div>
-          <div
-            className={`portfolio-card__opportunities ${signal?.hasOpen ? "portfolio-card__opportunities--open" : ""}`}
-          >
-            <span>{openLabel}</span>
-            {signal?.amount != null && (
-              <strong>{currency.format(signal.amount)}</strong>
+          <div className="portfolio-card__signals">
+            {openLabel && (
+              <div className="portfolio-card__opportunities portfolio-card__opportunities--open">
+                <span>{openLabel}</span>
+                {signal?.amount != null && (
+                  <strong>{currency.format(signal.amount)}</strong>
+                )}
+              </div>
             )}
-          </div>
-          <div className="portfolio-card__next-step">
-            <span title={signal?.nextStep || undefined}>
-              {signal?.nextStep || "No saved next step"}
-            </span>
-            {signal?.nextStep && (
-              <small>{dueDate ? `Due ${dueDate}` : "No due date"}</small>
+            {nextStep && (
+              <div className="portfolio-card__next-step">
+                <span title={nextStep}>{nextStep}</span>
+                {dueDate && <small>Due {dueDate}</small>}
+              </div>
+            )}
+            {activityDates.length > 0 && (
+              <div className="portfolio-card__activity-dates">
+                {activityDates.map(({ kind, date, checkedAt }) => (
+                  <div
+                    key={kind}
+                    className="portfolio-card__activity"
+                    title={`Saved NXT activity. Checked ${formatCalendarDate(getStandingsPeriods(new Date(checkedAt)).asOf)} (Eastern). Not a live check.`}
+                  >
+                    <span>Last {kind} (saved)</span>
+                    <time dateTime={date}>
+                      {formatCalendarDate(date, { month: "short", day: "numeric", year: "numeric" })}
+                    </time>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
           <button
@@ -490,6 +512,13 @@ export default function PortfolioWorklist({
         <div className="portfolio-worklist__help">
           <details>
             <summary>About this view</summary>
+            <p>
+              Rows show available information only. Last gift and last action
+              dates are saved NXT activity, as of their last successful check;
+              they are not live and may be older than the portfolio refresh.
+              Missing dates do not mean no gifts or actions. Opening this list
+              does not request activity from NXT.
+            </p>
             <p>
               Open first puts constituents with saved open opportunities ahead
               of the rest, then sorts by name. Uses saved linked opportunities

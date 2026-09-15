@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
 
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
@@ -46,6 +47,14 @@ function expectNoNxtReads() {
   expect(findBlackbaudConstituentByLookupIdMock).not.toHaveBeenCalled();
   expect(findBlackbaudConstituentByEmailMock).not.toHaveBeenCalled();
   expect(searchBlackbaudConstituentsMock).not.toHaveBeenCalled();
+}
+
+function activityRow(id, kind, overrides = {}) {
+  return {
+    constituent_id: id,
+    activity_cache_key: prospectActivityCacheKey("https://example.com", id, kind),
+    activity: { version: 1, id: `${kind}-1`, date: "2026-08-01", checkedAt: "2026-09-14T12:00:00Z", ...overrides },
+  };
 }
 
 vi.mock("@/auth", () => ({ auth: authMock }));
@@ -274,11 +283,87 @@ describe("Blackbaud portfolio route", () => {
     await GET(new Request("https://example.com/api/blackbaud/portfolio"));
     const [strings, ...values] = sqlMock.mock.calls.find(([parts]) => parts.join("").includes("WITH saved_contacts"));
     const query = strings.join("?");
-    expect(values).toEqual([44, 2, ["100"], 44, ["100"]]);
-    expect(query.match(/workspace_user_id = \?/g)).toHaveLength(2);
-    expect(query).toContain("auth_user_id = ?");
-    expect(query.match(/constituent_id = ANY\(\?\)/g)).toHaveLength(2);
+    expect(values).toEqual([44, 2, ["100"], 44, ["100"], 44, 2, ["100"], [
+      prospectActivityCacheKey("https://example.com", "100", "gift"),
+      prospectActivityCacheKey("https://example.com", "100", "action"),
+    ]]);
+    expect(query.match(/workspace_user_id = \?/g)).toHaveLength(3);
+    expect(query.match(/auth_user_id = \?/g)).toHaveLength(2);
+    expect(query.match(/constituent_id = ANY\(\?\)/g)).toHaveLength(3);
+    expect(query).toContain("cache_key = ANY(?)");
     expectNoNxtReads();
+  });
+
+  it("projects saved gift and action dates with contacts in the same bulk read", async () => {
+    const { GET } = await import("./route.js");
+    const cachedAt = mockSavedPortfolio({
+      people: [{ constituentId: "100", name: "Donor" }, { constituentId: "101", name: "No contacts" }],
+      contacts: [
+        activityRow("100", "gift"),
+        { constituent_id: "100", constituent: savedContacts },
+        activityRow("100", "action", { date: "2026-09-10" }),
+        activityRow("101", "action"),
+      ],
+    });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].savedActivity).toEqual({
+      gift: { date: "2026-08-01", checkedAt: "2026-09-14T12:00:00.000Z" },
+      action: { date: "2026-09-10", checkedAt: "2026-09-14T12:00:00.000Z" },
+    });
+    expect(payload.leadSolicitor[0].email).toBe(savedContacts.email);
+    expect(payload.leadSolicitor[1].savedActivity.action.date).toBe("2026-08-01");
+    expect(payload.leadSolicitor[1]).not.toHaveProperty("contactCheckedAt");
+    expect(payload.portfolioMeta.cachedAt).toBe(cachedAt);
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+    expectNoNxtReads();
+  });
+
+  it.each([
+    { version: 2 }, { id: null }, { date: null }, { date: "bad" },
+    { date: "2099-01-01" }, { checkedAt: null }, { checkedAt: "2099-01-01T12:00:00Z" },
+  ])("hides empty, malformed, or future saved activity: %j", async (activity) => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: [activityRow("100", "gift", activity)] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0]).not.toHaveProperty("savedActivity");
+    expectNoNxtReads();
+  });
+
+  it("excludes other origins, other constituent keys, and unassigned activity", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: [
+      { ...activityRow("100", "gift"), activity_cache_key: prospectActivityCacheKey("https://other.example.com", "100", "gift") },
+      { ...activityRow("100", "action"), activity_cache_key: prospectActivityCacheKey("https://example.com", "101", "action") },
+      activityRow("101", "gift"),
+    ] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0]).not.toHaveProperty("savedActivity");
+    expectNoNxtReads();
+  });
+
+  it("never reuses activity embedded in a shared assignment cache, even on read failure", async () => {
+    const { GET } = await import("./route.js");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const contactError of [null, new Error("unavailable")]) {
+        mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor", savedActivity: { gift: { date: "2026-08-01" } } }], contactError });
+        const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+        expect(payload.leadSolicitor[0]).not.toHaveProperty("savedActivity");
+      }
+      expectNoNxtReads();
+    } finally { warn.mockRestore(); }
+  });
+
+  it("returns authorized activity on fresh assignments without persisting it in shared JSON", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockImplementation(async (strings) => strings.join("").includes("WITH saved_contacts")
+      ? [activityRow("5044931", "gift")] : []);
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.supportingSolicitor[0].savedActivity.gift.date).toBe("2026-08-01");
+    const [, stored] = sqlMock.mock.calls.find(([parts]) => parts.join("").includes("UPDATE users"));
+    expect(JSON.parse(stored).supportingSolicitor[0]).not.toHaveProperty("savedActivity");
+    expect(sqlMock).toHaveBeenCalledTimes(4);
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
   });
 
   it("uses fixed bulk reads for large portfolios instead of per-constituent calls", async () => {

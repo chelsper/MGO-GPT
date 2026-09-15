@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import sql from "./sql";
 import { blackbaudApiFetch } from "./blackbaud";
 import { calendarDate, latestDatedAction } from "@/utils/prospectActivity";
+import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
 
 export const ACTIVITY_TTL_MS = 60 * 60 * 1000;
 const inFlight = new Map();
@@ -32,10 +32,9 @@ export function normalizeLatestGift(response) {
 // Only opened prospects use this cache; no portfolio-wide enrichment or AI work.
 // Each section retains its last good value independently when SKY is unavailable.
 export async function loadProspectRecentActivity({ userId, authUserId, origin, constituentId }) {
-  const digest = createHash("sha256").update(JSON.stringify([origin, String(constituentId)])).digest("hex");
   const result = {};
   for (const kind of ["action", "gift"]) {
-    const key = `prospect-activity-v1|${kind}|${digest}`;
+    const key = prospectActivityCacheKey(origin, constituentId, kind);
     const flightKey = JSON.stringify([userId, authUserId, key]);
     let pending = inFlight.get(flightKey);
     if (!pending) {

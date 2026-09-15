@@ -833,7 +833,7 @@ describe("portfolio worklist", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getAllByRole("article")).toHaveLength(25);
   });
-  it("does not mistake unavailable opportunities for none, and shows a date without a timezone shift", () => {
+  it("hides unavailable opportunities and shows a real next step without a timezone shift", () => {
     render(
       <PortfolioCard
         person={people[0]}
@@ -844,8 +844,44 @@ describe("portfolio worklist", () => {
       </PortfolioCard>,
     );
     expect(
-      screen.getByText("Opportunity data unavailable"),
-    ).toBeInTheDocument();
+      screen.queryByText("Opportunity data unavailable"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("0 saved open opportunities")).not.toBeInTheDocument();
     expect(screen.getByText("Due Sep 20, 2026")).toBeInTheDocument();
+  });
+
+  it.each([undefined, { openCount: 0 }, { openCount: null, nextStep: "  " }])("keeps an empty row quiet without suggesting no NXT activity exists: %j", (signal) => {
+    render(<PortfolioCard person={people[0]} signal={signal} density="compact">Details</PortfolioCard>);
+    expect(screen.getByText("Person 01")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Show details for Person 01" })).toBeVisible();
+    expect(screen.queryByText(/unavailable|No saved next step|0 saved open|No due date|Last gift|Last action/)).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("shows only available saved activity dates alongside real opportunities and steps", () => {
+    render(<PortfolioCard person={{ ...people[0], savedActivity: {
+      gift: { date: "2026-08-31", checkedAt: "2026-09-14T12:00:00Z" },
+      action: { date: "2026-09-10", checkedAt: "2026-09-14T12:00:00Z" },
+    } }} signal={{ hasOpen: true, openCount: 1, amount: 15000, nextStep: "Call donor" }} density="focus">Details</PortfolioCard>);
+    expect(screen.getByText("Last gift (saved)")).toBeVisible();
+    expect(screen.getByText("Aug 31, 2026")).toHaveAttribute("dateTime", "2026-08-31");
+    expect(screen.getByText("Last action (saved)")).toBeVisible();
+    expect(screen.getByText("Sep 10, 2026")).toBeVisible();
+    expect(screen.getByText("Last gift (saved)").parentElement).toHaveAttribute("title", expect.stringContaining("Checked September 14, 2026"));
+    expect(screen.getByText("1 saved open opportunity")).toBeVisible();
+    expect(screen.getByText("$15,000")).toBeVisible();
+    expect(screen.getByText("Call donor")).toBeVisible();
+    expect(screen.queryByText("No due date")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show details for Person 01" }));
+    expect(screen.getByText("Details")).toBeVisible();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not invent activity dates from fiscal-year, maintenance or narrative data", () => {
+    render(<PortfolioCard person={{ ...people[0], lastGiftDate: "2026-08-31", latest_activity_at: "2026-09-10",
+      savedActivity: { gift: { date: "2026-08-31" }, action: { date: "2099-01-01", checkedAt: "2026-09-14T12:00:00Z" } },
+    }} density="compact">Details</PortfolioCard>);
+    expect(screen.queryByText(/Last gift|Last action/)).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
