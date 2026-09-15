@@ -41,6 +41,17 @@ it("retries schema initialization after a failure instead of caching the rejecti
   expect(sqlMock).toHaveBeenCalledTimes(calls);
 });
 
+it("serializes the activity snapshots, queue and gate schema in one transaction", async () => {
+  await ensureAppSchema();
+  const queries = sqlMock.mock.calls.map(([strings]) => strings.join(" "));
+  const activity = queries.filter(query => query.includes("CREATE TABLE IF NOT EXISTS portfolio_activity_snapshots"));
+  expect(activity).toHaveLength(1);
+  expect(activity[0]).toContain("DO $activity_schema$");
+  expect(activity[0]).toContain("pg_advisory_xact_lock(734019, 2)");
+  expect(activity[0]).toContain("CREATE TABLE IF NOT EXISTS portfolio_activity_refresh_gates");
+  expect(activity[0]).toContain("PRIMARY KEY (workspace_user_id, origin, constituent_id, kind)");
+});
+
 it("shares one initialization across concurrent requests on a worker", async () => {
   await Promise.all([ensureAppSchema(), ensureAppSchema(), ensureAppSchema()]);
   const queries = sqlMock.mock.calls.map(([strings]) => strings.join(" "));

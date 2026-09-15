@@ -16,6 +16,10 @@
     {
       "path": "/api/internal/portfolio-refresh",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/portfolio-activity-refresh",
+      "schedule": "5-59/10 * * * *"
     }
   ]
 }

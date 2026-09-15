@@ -9,6 +9,7 @@ import {
 import sql from "@/app/api/utils/sql";
 import { hasSavedPortfolioContacts, mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { savedPortfolioActivityDate } from "@/utils/portfolioActivity";
+import { savedActivityEntry } from "@/app/api/utils/portfolioActivityData";
 import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
 import { portfolioContactCacheKey } from "@/app/api/utils/portfolioContactCacheKey";
 import {
@@ -330,6 +331,10 @@ async function getCachedNxtPortfolioDetails({
       prospectActivityCacheKey(origin, id, kind), { id: String(id), kind },
     ]) : [],
   ));
+  const rawActivityKeys = [...activityKeys.keys()];
+  for (const id of constituentIds) for (const kind of ["gift", "action"]) {
+    activityKeys.set(`portfolio-activity-v1|${origin}|${kind}|${id}`, { id: String(id), kind, shared: true });
+  }
   const rows = await sql`
     WITH saved_contacts AS (
       SELECT constituent_id,
@@ -385,10 +390,20 @@ async function getCachedNxtPortfolioDetails({
     WHERE workspace_user_id = ${workspaceUserId}
       AND auth_user_id = ${authUserId}
       AND constituent_id = ANY(${constituentIds})
-      AND cache_key = ANY(${[...activityKeys.keys()]})
+      AND cache_key = ANY(${rawActivityKeys})
+
+    UNION ALL
+
+    SELECT constituent_id, NULL::jsonb, NULL::jsonb, NULL::timestamptz, NULL::text,
+      'portfolio-activity-v1|' || origin || '|' || kind || '|' || constituent_id,
+      jsonb_build_object('version', 1, 'id', record_id, 'date', activity_date, 'checkedAt', checked_at)
+    FROM portfolio_activity_snapshots
+    WHERE workspace_user_id = ${workspaceUserId} AND origin = ${origin}
+      AND constituent_id = ANY(${constituentIds}) AND checked_at IS NOT NULL
   `;
 
   const details = new Map();
+  const latestActivity = new Map();
   const assignedIds = new Set(constituentIds.map(String));
   const now = new Date();
   for (const row of rows) {
@@ -397,9 +412,16 @@ async function getCachedNxtPortfolioDetails({
     if (row.activity_cache_key) {
       const expected = activityKeys.get(row.activity_cache_key);
       const activity = parseCachedPayload(row.activity);
+      const empty = expected?.shared && activity?.version === 1 && activity.id === null && activity.date === null
+        ? savedActivityEntry({ version: 1, data: null, fetchedAt: activity.checkedAt }, now) : null;
       const saved = activity?.version === 1 && typeof activity.id === "string" && activity.id.trim()
         ? savedPortfolioActivityDate(activity, now) : null;
-      if (expected?.id !== id || !saved) continue;
+      if (expected?.id !== id || (!saved && !empty)) continue;
+      const freshnessKey = `${id}|${expected.kind}`;
+      const checkedAt = Date.parse((saved || empty).checkedAt);
+      const latest = latestActivity.get(freshnessKey);
+      if (latest && (latest.checkedAt > checkedAt || (latest.checkedAt === checkedAt && latest.shared))) continue;
+      latestActivity.set(freshnessKey, { checkedAt, shared: expected.shared });
       const previous = details.get(id) || {};
       details.set(id, {
         ...previous,

@@ -2159,13 +2159,20 @@ export function buildBlackbaudActionPayload({
 }
 
 export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
-  return blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
+  const result = await blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
     userId,
     authUserId,
     origin,
     method: "POST",
     body: payload,
   });
+  if (result?.id) {
+    try {
+      const { requestPortfolioActionRefresh } = await import("./portfolioActivityStore");
+      await requestPortfolioActionRefresh({ origin, constituentId: payload?.constituent_id });
+    } catch { /* A refresh hint must not turn a successful NXT write into a retry. */ }
+  }
+  return result;
 }
 
 export async function getBlackbaudAction({

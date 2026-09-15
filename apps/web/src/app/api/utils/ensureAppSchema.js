@@ -144,6 +144,40 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      DO $activity_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 2);
+        CREATE TABLE IF NOT EXISTS portfolio_activity_snapshots (
+          workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          origin TEXT NOT NULL,
+          constituent_id TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK (kind IN ('gift', 'action')),
+          record_id TEXT,
+          activity_date TEXT,
+          checked_at TIMESTAMPTZ,
+          checked_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+          seed_complete BOOLEAN NOT NULL DEFAULT FALSE,
+          next_check_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          requested_at TIMESTAMPTZ,
+          scan JSONB,
+          last_error TEXT,
+          PRIMARY KEY (workspace_user_id, origin, constituent_id, kind)
+        );
+        CREATE INDEX IF NOT EXISTS idx_portfolio_activity_due
+          ON portfolio_activity_snapshots (origin, next_check_at);
+        CREATE TABLE IF NOT EXISTS portfolio_activity_refresh_gates (
+          origin TEXT PRIMARY KEY,
+          lease_token TEXT,
+          lease_until TIMESTAMPTZ,
+          next_allowed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          call_day DATE NOT NULL DEFAULT (NOW() AT TIME ZONE 'America/New_York')::date,
+          call_count INTEGER NOT NULL DEFAULT 0
+        );
+      END;
+      $activity_schema$
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS portfolio_constituent_snapshots (
         id BIGSERIAL PRIMARY KEY,
         workspace_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

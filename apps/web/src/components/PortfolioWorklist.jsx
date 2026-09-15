@@ -521,6 +521,9 @@ export default function PortfolioWorklist({
               they are not live and may be older than the portfolio refresh.
               Missing dates do not mean no gifts or actions. Opening this list
               does not request activity from NXT.
+              {" "}For enabled portfolios, background checks fill missing dates
+              and refresh older checks within a limited daily budget. Saved
+              dates remain visible if a check is delayed.
             </p>
             <p>
               Expanded, on-screen details check missing or older contacts only,

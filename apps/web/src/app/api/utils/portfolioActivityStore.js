@@ -1,0 +1,127 @@
+import { randomUUID } from "node:crypto";
+import sql from "./sql";
+import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
+import { ACTIVITY_DAILY_CALLS, activityOrigin, activityWorkspaceIds } from "./portfolioActivityData";
+
+export async function claimActivityGate(origin) {
+  const token = randomUUID();
+  const rows = await sql`
+    INSERT INTO portfolio_activity_refresh_gates (origin, lease_token, lease_until)
+    VALUES (${origin}, ${token}, NOW() + INTERVAL '150 seconds')
+    ON CONFLICT (origin) DO UPDATE SET lease_token = EXCLUDED.lease_token, lease_until = EXCLUDED.lease_until
+    WHERE (portfolio_activity_refresh_gates.lease_until IS NULL OR portfolio_activity_refresh_gates.lease_until <= NOW())
+      AND portfolio_activity_refresh_gates.next_allowed_at <= NOW()
+    RETURNING lease_token
+  `;
+  return rows.length ? { origin, token } : null;
+}
+
+export async function reserveActivityCall(gate) {
+  const rows = await sql`
+    UPDATE portfolio_activity_refresh_gates SET
+      call_count = CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count + 1 ELSE 1 END,
+      call_day = (NOW() AT TIME ZONE 'America/New_York')::date
+    WHERE origin = ${gate.origin} AND lease_token = ${gate.token} AND lease_until > NOW()
+      AND (call_day <> (NOW() AT TIME ZONE 'America/New_York')::date OR call_count < ${ACTIVITY_DAILY_CALLS})
+    RETURNING call_count
+  `;
+  return rows.length > 0;
+}
+
+export async function releaseActivityGate(gate, delayMs = 1000) {
+  await sql`
+    UPDATE portfolio_activity_refresh_gates SET lease_token = NULL, lease_until = NULL,
+      next_allowed_at = NOW() + (${delayMs} * INTERVAL '1 millisecond')
+    WHERE origin = ${gate.origin} AND lease_token = ${gate.token}
+  `;
+}
+
+export async function seedActivityQueue(workspaceIds, origin) {
+  await sql`
+    INSERT INTO portfolio_activity_snapshots (workspace_user_id, origin, constituent_id, kind)
+    SELECT DISTINCT u.id, ${origin}, person ->> 'constituentId', kind
+    FROM users u CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'leadSolicitor') = 'array'
+        THEN u.blackbaud_portfolio_cache -> 'leadSolicitor' ELSE '[]'::jsonb END ||
+      CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array'
+        THEN u.blackbaud_portfolio_cache -> 'supportingSolicitor' ELSE '[]'::jsonb END
+    ) person CROSS JOIN (VALUES ('gift'), ('action')) AS kinds(kind)
+    WHERE u.id = ANY(${workspaceIds}::bigint[]) AND u.active = TRUE
+      AND person ->> 'constituentId' ~ '^[0-9]+$'
+    ON CONFLICT (workspace_user_id, origin, constituent_id, kind) DO NOTHING
+  `;
+}
+
+export async function dueActivityRows(workspaceIds, origin) {
+  return sql`
+    SELECT s.* FROM portfolio_activity_snapshots s JOIN users u ON u.id = s.workspace_user_id
+    WHERE s.workspace_user_id = ANY(${workspaceIds}::bigint[]) AND s.origin = ${origin}
+      AND u.active = TRUE AND s.next_check_at <= NOW()
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'leadSolicitor') = 'array'
+            THEN u.blackbaud_portfolio_cache -> 'leadSolicitor' ELSE '[]'::jsonb END ||
+          CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array'
+            THEN u.blackbaud_portfolio_cache -> 'supportingSolicitor' ELSE '[]'::jsonb END
+        ) person WHERE person ->> 'constituentId' = s.constituent_id
+      )
+    ORDER BY (s.checked_at IS NOT NULL), s.next_check_at, s.workspace_user_id, s.constituent_id, s.kind
+    LIMIT 20
+  `;
+}
+
+export async function readActivitySeed(row, authUserId) {
+  const [saved] = await sql`
+    SELECT payload FROM blackbaud_constituent_summary_cache
+    WHERE workspace_user_id = ${row.workspace_user_id} AND auth_user_id = ${authUserId}
+      AND constituent_id = ${row.constituent_id}
+      AND cache_key = ${prospectActivityCacheKey(row.origin, row.constituent_id, row.kind)}
+    LIMIT 1
+  `;
+  return saved?.payload;
+}
+
+export async function markActivitySeeded(row) {
+  await sql`UPDATE portfolio_activity_snapshots SET seed_complete = TRUE
+    WHERE workspace_user_id = ${row.workspace_user_id} AND origin = ${row.origin}
+      AND constituent_id = ${row.constituent_id} AND kind = ${row.kind}`;
+}
+
+export async function saveActivityResult(row, entry, authUserId, gate) {
+  const rows = await sql`
+    UPDATE portfolio_activity_snapshots SET record_id = ${entry.id}, activity_date = ${entry.date},
+      checked_at = ${entry.checkedAt}::timestamptz, checked_by = ${authUserId}, seed_complete = TRUE,
+      next_check_at = CASE WHEN requested_at > ${entry.checkedAt}::timestamptz
+        THEN NOW() ELSE ${entry.checkedAt}::timestamptz + INTERVAL '24 hours' END,
+      scan = NULL, last_error = NULL
+    WHERE workspace_user_id = ${row.workspace_user_id} AND origin = ${row.origin}
+      AND constituent_id = ${row.constituent_id} AND kind = ${row.kind}
+      AND (checked_at IS NULL OR checked_at <= ${entry.checkedAt}::timestamptz)
+      AND EXISTS (SELECT 1 FROM portfolio_activity_refresh_gates
+        WHERE origin = ${gate.origin} AND lease_token = ${gate.token} AND lease_until > NOW())
+    RETURNING checked_at
+  `;
+  return rows.length > 0;
+}
+
+export async function deferActivityRow(row, { scan = null, error = null, delayMs = 1000 }, gate) {
+  await sql`
+    UPDATE portfolio_activity_snapshots SET scan = ${JSON.stringify(scan)}::jsonb,
+      last_error = ${error}, next_check_at = NOW() + (${delayMs} * INTERVAL '1 millisecond')
+    WHERE workspace_user_id = ${row.workspace_user_id} AND origin = ${row.origin}
+      AND constituent_id = ${row.constituent_id} AND kind = ${row.kind}
+      AND EXISTS (SELECT 1 FROM portfolio_activity_refresh_gates
+        WHERE origin = ${gate.origin} AND lease_token = ${gate.token} AND lease_until > NOW())
+  `;
+}
+
+// A confirmed NXT write is a refresh hint, not proof of the latest action.
+export async function requestPortfolioActionRefresh({ origin, constituentId }) {
+  const workspaceIds = activityWorkspaceIds();
+  if (!workspaceIds.length || origin !== activityOrigin() || !/^\d+$/.test(String(constituentId))) return;
+  await sql`
+    UPDATE portfolio_activity_snapshots SET next_check_at = NOW(), requested_at = NOW()
+    WHERE origin = ${origin} AND constituent_id = ${String(constituentId)} AND kind = 'action'
+      AND workspace_user_id = ANY(${workspaceIds}::bigint[])
+  `;
+}

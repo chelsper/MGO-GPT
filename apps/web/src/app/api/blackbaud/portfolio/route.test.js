@@ -287,10 +287,10 @@ describe("Blackbaud portfolio route", () => {
     expect(values).toEqual([44, 2, ["100"], [portfolioContactCacheKey("https://example.com", "100")], 44, ["100"], 44, 2, ["100"], [
       prospectActivityCacheKey("https://example.com", "100", "gift"),
       prospectActivityCacheKey("https://example.com", "100", "action"),
-    ]]);
-    expect(query.match(/workspace_user_id = \?/g)).toHaveLength(3);
+    ], 44, "https://example.com", ["100"]]);
+    expect(query.match(/workspace_user_id = \?/g)).toHaveLength(4);
     expect(query.match(/auth_user_id = \?/g)).toHaveLength(2);
-    expect(query.match(/constituent_id = ANY\(\?\)/g)).toHaveLength(3);
+    expect(query.match(/constituent_id = ANY\(\?\)/g)).toHaveLength(4);
     expect(query).toContain("cache_key = ANY(?)");
     expectNoNxtReads();
   });
@@ -317,6 +317,40 @@ describe("Blackbaud portfolio route", () => {
     expect(payload.portfolioMeta.cachedAt).toBe(cachedAt);
     expect(sqlMock).toHaveBeenCalledTimes(3);
     expectNoNxtReads();
+  });
+
+  it.each([false, true])("shows the shared background dates for MGO and acting Admin views: %s", async isActing => {
+    const { GET } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: isActing ? 2 : 44, role: isActing ? "admin" : "mgo" },
+      workspaceUser: { id: 44, blackbaud_constituent_id: "800" }, isActing });
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: [{
+      ...activityRow("100", "gift"), activity_cache_key: "portfolio-activity-v1|https://example.com|gift|100",
+    }] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].savedActivity.gift.date).toBe("2026-08-01");
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+    expectNoNxtReads();
+  });
+
+  it.each([false, true])("a newer shared empty result suppresses older activity regardless of row order: %s", async reverse => {
+    const { GET } = await import("./route.js");
+    const rows = [activityRow("100", "action"), { ...activityRow("100", "action", {
+      id: null, date: null, checkedAt: "2026-09-15T10:00:00Z",
+    }), activity_cache_key: "portfolio-activity-v1|https://example.com|action|100" }];
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: reverse ? rows.reverse() : rows });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].savedActivity.action).toBeNull();
+    expectNoNxtReads();
+  });
+
+  it("does not accept shared dates for another origin or constituent", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: [
+      { ...activityRow("100", "gift"), activity_cache_key: "portfolio-activity-v1|https://other.example.com|gift|100" },
+      { ...activityRow("100", "action"), activity_cache_key: "portfolio-activity-v1|https://example.com|action|101" },
+    ] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0]).not.toHaveProperty("savedActivity");
   });
 
   it.each([
