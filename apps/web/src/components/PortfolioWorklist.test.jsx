@@ -17,6 +17,28 @@ const people = Array.from({ length: 61 }, (_, index) => ({
 const signals = new Map([
   ["61", { hasOpen: true, openCount: 1, amount: 3000 }],
 ]);
+const prioritySignals = new Map([
+  [
+    "60",
+    {
+      hasOpen: true,
+      openCount: 1,
+      amount: 1000,
+      nextStep: "Later",
+      dueDate: "2026-09-30",
+    },
+  ],
+  [
+    "61",
+    {
+      hasOpen: true,
+      openCount: 1,
+      amount: 9000,
+      nextStep: "Call",
+      dueDate: "2026-09-01",
+    },
+  ],
+]);
 const storageKey = portfolioViewKey(1, 2);
 function View(props) {
   return (
@@ -136,6 +158,91 @@ describe("portfolio worklist", () => {
     expect(firstPerson()).toContain("Person 03");
     expect(fetch).not.toHaveBeenCalled();
   });
+  it.each(["due", "pipeline"])(
+    "applies the %s priority sort before pagination and within groups without fetching",
+    (sort) => {
+      render(<View signals={prioritySignals} />);
+      expect(firstPerson()).toContain("Person 60");
+      fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+      fireEvent.change(screen.getByLabelText("Sort by"), {
+        target: { value: sort },
+      });
+      expect(firstPerson()).toContain("Person 61");
+      expect(topNav().getByText("Page 1 of 3")).toBeVisible();
+      fireEvent.change(screen.getByRole("searchbox"), {
+        target: { value: "Person 6" },
+      });
+      expect(screen.getAllByRole("article")).toHaveLength(2);
+      expect(firstPerson()).toContain("Person 61");
+      fireEvent.change(screen.getByLabelText("Organize by"), {
+        target: { value: "solicitor" },
+      });
+      expect(screen.getByRole("heading", { name: "Supporting" })).toBeVisible();
+      expect(firstPerson()).toContain("Person 61");
+      fireEvent.click(quickView(/Open opportunities/));
+      expect(firstPerson()).toContain("Person 61");
+      expect(screen.getByLabelText("Sort by")).toHaveValue(sort);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Show details for Person 61" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Action for Person 61" }),
+      ).toBeVisible();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["due", "pipeline"])(
+    "keeps %s order stable on background updates until Reapply sort",
+    (sort) => {
+      const { rerender } = render(<View signals={prioritySignals} />);
+      fireEvent.change(screen.getByLabelText("Sort by"), {
+        target: { value: sort },
+      });
+      const changed = new Map(prioritySignals);
+      changed.set("60", {
+        ...changed.get("60"),
+        amount: 100000,
+        dueDate: "2026-08-01",
+      });
+      rerender(<View signals={changed} />);
+      expect(firstPerson()).toContain("Person 61");
+      fireEvent.click(screen.getByRole("button", { name: "Reapply sort" }));
+      expect(firstPerson()).toContain("Person 60");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["due", "pipeline"])(
+    "remembers the %s sort only for its viewer and workspace",
+    (sort) => {
+      const { rerender } = render(
+        <View key="first" signals={prioritySignals} />,
+      );
+      fireEvent.change(screen.getByLabelText("Sort by"), {
+        target: { value: sort },
+      });
+      expect(JSON.parse(localStorage.getItem(storageKey)).sort).toBe(sort);
+      rerender(
+        <View
+          key="other-viewer"
+          storageKey={portfolioViewKey(3, 2)}
+          signals={prioritySignals}
+        />,
+      );
+      expect(screen.getByLabelText("Sort by")).toHaveValue("open");
+      rerender(
+        <View
+          key="other-workspace"
+          storageKey={portfolioViewKey(1, 3)}
+          signals={prioritySignals}
+        />,
+      );
+      expect(screen.getByLabelText("Sort by")).toHaveValue("open");
+      rerender(<View key="return" signals={prioritySignals} />);
+      expect(screen.getByLabelText("Sort by")).toHaveValue(sort);
+      expect(firstPerson()).toContain("Person 61");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
   it("remembers view settings per viewer/workspace but not donor data or searches", () => {
     const { rerender } = render(<View key="first" />);
     fireEvent.change(screen.getByLabelText("Organize by"), {

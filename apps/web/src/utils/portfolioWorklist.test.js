@@ -200,6 +200,98 @@ describe("portfolio quick views", () => {
   });
 });
 
+describe("portfolio priority sorts", () => {
+  const list = Array.from({ length: 9 }, (_, index) => ({
+    constituentId: String(index + 1),
+    name: `Person ${index + 1}`,
+    priority_order: index + 1,
+  }));
+  it("sorts unfinished calendar dates oldest first, with missing/invalid/completed dates last", () => {
+    const signals = buildPortfolioSignals([
+      row("1", 2, {
+        next_action_text: "Future",
+        next_action_due_date: "2026-10-01",
+      }),
+      row("2", 0, {
+        next_action_text: "Due",
+        next_action_due_date: "2026-09-15T00:00:00.000Z",
+      }),
+      row("3", 0, {
+        next_action_text: "Oldest",
+        next_action_due_date: "2025-07-01",
+      }),
+      row("4", 0, { next_action_text: "No date" }),
+      row("5", 0, {
+        next_action_text: "Invalid date",
+        next_action_due_date: "2026-02-30",
+      }),
+      row("6", 0, {
+        next_action_text: "Done",
+        next_action_due_date: "2024-01-01",
+        next_action_completed_at: "2024-01-01",
+      }),
+      row("7", 0, {
+        next_action_text: "Archived",
+        next_action_due_date: "2024-01-01",
+        status: "Archived",
+      }),
+      row("8", 0, {
+        next_action_text: "  ",
+        next_action_due_date: "2024-01-01",
+      }),
+    ]);
+    expect(
+      sortPortfolioPeople(list, signals, "due").map(
+        (person) => person.constituentId,
+      ),
+    ).toEqual(["3", "2", "1", "4", "5", "6", "7", "8", "9"]);
+  });
+  it("sorts numeric open pipeline amounts highest first, retaining zero and putting unknown totals last", () => {
+    const signals = buildPortfolioSignals([
+      row("1", 2, { portfolio_open_pipeline_amount: "9000" }),
+      row("2", 2, { portfolio_open_pipeline_amount: "10000" }),
+      row("3", 0, { portfolio_open_pipeline_amount: "999999" }),
+      row("4", 1, { portfolio_open_pipeline_amount: "0" }),
+      row("5", undefined, { portfolio_open_pipeline_amount: "999999" }),
+      row("6", 1, { portfolio_open_pipeline_amount: "invalid" }),
+      row("7", 1, { portfolio_open_pipeline_amount: "-1" }),
+      row("8", 1, { portfolio_open_pipeline_amount: "500000" }),
+      row("8", 1, { portfolio_open_pipeline_amount: "500000" }),
+    ]);
+    expect(
+      sortPortfolioPeople(list, signals, "pipeline").map(
+        (person) => person.constituentId,
+      ),
+    ).toEqual(["2", "1", "3", "4", "5", "6", "7", "8", "9"]);
+  });
+  it.each(["due", "pipeline"])(
+    "breaks %s ties by name then ID without changing Top Prospects ranks or signals",
+    (sort) => {
+      const source = [
+        { constituentId: "10", name: "Beth", priority_order: 1 },
+        { constituentId: "3", name: "Amy", priority_order: 2 },
+        { constituentId: "2", name: "Beth", priority_order: 3 },
+      ];
+      const signals = buildPortfolioSignals(
+        source.map((person) =>
+          row(person.constituentId, 1, {
+            next_action_text: "Call",
+            next_action_due_date: "2026-09-15",
+          }),
+        ),
+      );
+      const original = structuredClone({ source, signals });
+      expect(
+        sortPortfolioPeople(source, signals, sort).map(
+          (person) => person.constituentId,
+        ),
+      ).toEqual(["3", "2", "10"]);
+      expect(source).toEqual(original.source);
+      expect(signals).toEqual(original.signals);
+    },
+  );
+});
+
 describe("worklist pagination and preferences", () => {
   const all = Array.from({ length: 61 }, (_, id) => ({
     constituentId: String(id),
@@ -265,5 +357,7 @@ describe("worklist pagination and preferences", () => {
       "open",
     );
     expect(normalizePortfolioView({ quickView: "due" }).quickView).toBe("due");
+    expect(normalizePortfolioView({ sort: "due" }).sort).toBe("due");
+    expect(normalizePortfolioView({ sort: "pipeline" }).sort).toBe("pipeline");
   });
 });

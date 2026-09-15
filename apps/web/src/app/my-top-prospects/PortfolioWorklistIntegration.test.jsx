@@ -155,3 +155,25 @@ it("narrows the actual portfolio using saved opportunities and next steps withou
   expect(fetch).not.toHaveBeenCalled();
   expect(state.data.prospects[0].priority_order).toBe(1);
 });
+
+it.each(["due", "pipeline"])(
+  "uses the %s sort on actual portfolio cards without fetching or changing ranks",
+  (sort) => {
+    render(<MyProspects />);
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    fireEvent.change(screen.getByLabelText("Sort by"), {
+      target: { value: "name" },
+    });
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent("Amy Donor");
+    fireEvent.change(screen.getByLabelText("Sort by"), {
+      target: { value: sort },
+    });
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent("Zelda Donor");
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent("$35,000");
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent(
+      "Due Sep 30, 2026",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(state.data.prospects[0].priority_order).toBe(1);
+  },
+);

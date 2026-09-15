@@ -286,17 +286,19 @@ export default function PortfolioWorklist({
             placeholder="Name, email, lookup ID, or assignment"
           />
         </label>
-        <label>
+        <label className="portfolio-worklist__wide-control">
           Sort by
           <select
             value={view.sort}
             onChange={(event) => changeView({ sort: event.target.value })}
           >
             <option value="open">Open first</option>
+            <option value="due">Next step due</option>
+            <option value="pipeline">Largest open pipeline</option>
             <option value="name">Name A-Z</option>
           </select>
         </label>
-        <label>
+        <label className="portfolio-worklist__wide-control">
           Organize by
           <select
             value={view.group}
@@ -360,7 +362,11 @@ export default function PortfolioWorklist({
             Open first puts constituents with saved open opportunities ahead of
             the rest, then sorts by name. Uses saved linked opportunities across
             all fiscal years, not a complete NXT opportunity inventory. Missing
-            data is not a zero.
+            data is not a zero. Next step due sorts unfinished dated steps
+            oldest first. Largest open pipeline sorts saved open opportunity
+            amounts highest first. Missing dates and unavailable amounts sort
+            last; ties sort by name. These sorts do not change Top Prospects
+            ranks.
             {view.group !== "all"
               ? " Sorting applies within each group."
               : ""}{" "}

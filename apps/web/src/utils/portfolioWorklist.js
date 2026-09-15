@@ -17,7 +17,9 @@ export function normalizePortfolioView(value) {
     group: ["all", "solicitor", "category"].includes(value?.group)
       ? value.group
       : "all",
-    sort: value?.sort === "name" ? "name" : "open",
+    sort: ["open", "name", "due", "pipeline"].includes(value?.sort)
+      ? value.sort
+      : "open",
     pageSize: value?.pageSize === 50 ? 50 : 25,
   };
 }
@@ -99,13 +101,37 @@ export function matchesPortfolioQuickView(signal, quickView, today) {
 }
 
 export function sortPortfolioPeople(people, signals, sort) {
-  const priority = (person) => {
-    const signal = signals.get(String(person.constituentId));
-    return signal?.hasOpen ? 2 : signal?.openCount === 0 ? 1 : 0;
-  };
+  // Derive keys once, not during every comparison. Dates are calendar dates;
+  // missing/ambiguous saved values sort last rather than becoming zero.
+  const values = new Map(
+    people.map((person) => {
+      const id = String(person.constituentId);
+      const signal = signals.get(id);
+      let value = null;
+      if (sort === "open") {
+        value = signal?.hasOpen ? 2 : signal?.openCount === 0 ? 1 : 0;
+      } else if (sort === "due" && signal?.nextStep?.trim()) {
+        value = calendarDate(signal.dueDate);
+      } else if (sort === "pipeline") {
+        value =
+          signal?.openCount === 0
+            ? 0
+            : signal?.hasOpen
+              ? nonnegativeNumber(signal.amount)
+              : null;
+      }
+      return [id, value];
+    }),
+  );
+  function compareValue(left, right) {
+    const a = values.get(String(left.constituentId));
+    const b = values.get(String(right.constituentId));
+    if (a == null || b == null) return Number(a == null) - Number(b == null);
+    return sort === "due" ? a.localeCompare(b) : b - a;
+  }
   return [...people].sort(
     (left, right) =>
-      (sort === "open" ? priority(right) - priority(left) : 0) ||
+      compareValue(left, right) ||
       String(left.name || "").localeCompare(
         String(right.name || ""),
         undefined,
