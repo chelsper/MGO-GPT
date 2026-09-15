@@ -6,6 +6,38 @@ role) may read or refresh `/api/pledge-payments`. Authorization uses the actual
 session user, not an acting MGO. Cache and refresh leases are scoped to that user
 and app origin; one user's NXT connection is not used to populate another's cache.
 
+## Prospect indicators
+
+Top Prospects' View Prospect detail and My Portfolio's expanded/Detailed cards
+show **Active pledge** when the constituent has a verified unpaid pledge in the
+saved report. Compact card headers stay unchanged. The indicator shows a pledge
+count and verification date, not gift amounts, schedules, or payment details.
+Retained failed/pending records are labeled as older report data. With multiple
+pledges, the date is the oldest included verification, not a newer date that
+would imply every pledge was just checked.
+
+`GET /api/prospect-pledge-status` is a narrow shared presence projection for
+active workspace users. It selects the most recently started query-12033 job
+owned by an active admin/Advancement Services user on the same app origin.
+It never unions older reports from other users. Discovery must be complete;
+only that manifest's last-good unpaid records can contribute. Settled pledges,
+absent manifest IDs and unverified new rows do not contribute. A pledge appearing
+in both report tabs counts once. Query boundaries stay unchanged.
+
+The server intersects those results with the authenticated selected workspace's
+saved NXT portfolio and local Top Prospects constituent **system IDs**. Caller-
+provided constituent/workspace IDs cannot widen access. Existing authorized
+Admin/Executive delegated read access is preserved. This deliberately shares
+only pledge presence for assigned prospects; the full report endpoint stays
+reviewer-only and no other user's connection or raw cache is returned.
+
+The page makes one independent cached app read per viewer/workspace, not one
+NXT call per person. Card expansion, filtering, grouping and sorting make no
+pledge requests. Loading or failure does not block the existing page, create
+new refresh jobs, or write to NXT. No indicator means only that no positive
+saved-report signal is available; it must never be labeled "no active pledge."
+All notices explicitly identify saved query data rather than a live NXT check.
+
 ## Worklist definitions
 
 - Standard NXT `Pledge` gifts returned by saved Gift query **12033**, "all pledges

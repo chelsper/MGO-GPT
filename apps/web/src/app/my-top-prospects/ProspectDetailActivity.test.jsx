@@ -5,7 +5,7 @@ import { ProspectDetailModal } from "./page";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 const now = new Date().toISOString();
 const clientOptions = { defaultOptions: { queries: { retry: false, staleTime: Infinity } } };
-function renderDetail(readOnly = false) {
+function renderDetail(readOnly = false, pledgeData) {
   const client = new QueryClient(clientOptions);
   client.setQueryData(["prospect", 1], {
     prospect: { id: 1, prospect_name: "Test Prospect", status: "Active", blackbaud_constituent_id: "100" },
@@ -22,9 +22,15 @@ function renderDetail(readOnly = false) {
     linked: true, action: { data: { id: "a", summary: "NXT meeting", date: "2026-09-01" }, fetchedAt: now },
     gift: { data: { id: "g", date: "2026-08-02", amount: 50, type: "Cash", funds: ["Scholarship"] }, fetchedAt: now },
   });
-  return render(<QueryClientProvider client={client}><ProspectDetailModal prospectId={1} readOnly={readOnly} onClose={vi.fn()} /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><ProspectDetailModal prospectId={1} readOnly={readOnly} pledgeData={pledgeData} onClose={vi.fn()} /></QueryClientProvider>);
 }
 afterEach(cleanup);
+it("shows the same saved pledge notice in Top Prospects details by constituent system ID", () => {
+  renderDetail(true, { byConstituentId: { 100: { count: 1, stale: true, verifiedAt: "2026-09-10T13:00:00Z" }, 999: { count: 9 } } });
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Active pledge in older report data");
+  expect(screen.getAllByRole("complementary", { name: "Saved pledge status" })).toHaveLength(1);
+  expect(screen.queryByText("9 pledges")).not.toBeInTheDocument();
+});
 it("renders opportunities once, with recent closed history below real activity", () => {
   renderDetail();
   expect(screen.getAllByText("Active campaign")).toHaveLength(1);

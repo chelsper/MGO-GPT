@@ -4,6 +4,8 @@ import ProspectExportButton from "@/components/ProspectExport";
 import ProspectRanking from "@/components/ProspectRanking";
 import PortfolioRefreshStatus from "@/components/PortfolioRefreshStatus";
 import PortfolioWorklist, { PortfolioCard } from "@/components/PortfolioWorklist";
+import ActivePledgeNotice from "@/components/ActivePledgeNotice";
+import useProspectPledgeStatus from "@/utils/useProspectPledgeStatus";
 import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1666,6 +1668,7 @@ function PortfolioTier({
   movingPortfolioCategoryConstituentId = "",
   density = "detailed",
   signals = new Map(),
+  pledgeData,
   totalCount = items.length,
   emptyMessage = "No current constituents in this tier right now.",
 }) {
@@ -1918,6 +1921,10 @@ function PortfolioTier({
               <CurrentFiscalYearGiving
                 giving={currentFiscalYearGiving}
                 yearLabel={currentFiscalYearLabel}
+              />
+              <ActivePledgeNotice
+                status={pledgeData?.byConstituentId?.[String(person.constituentId)]}
+                incomplete={pledgeData?.incomplete}
               />
               <div
                 style={{
@@ -3073,7 +3080,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false, pledgeData }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -7682,6 +7689,10 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                 </div>
               </div>
 
+              <ActivePledgeNotice
+                status={pledgeData?.byConstituentId?.[String(linkedBlackbaudConstituentId)]}
+                incomplete={pledgeData?.incomplete}
+              />
               {blackbaudSummaryLoading ? (
                 <div style={{ fontSize: "13px", color: "#4B5563" }}>
                   Loading Blackbaud summary...
@@ -8608,6 +8619,10 @@ export default function MyTopProspectsPage() {
   );
 
   const activeWorkspaceUserId = profileStatus?.workspaceUser?.id || null;
+  const { data: pledgeData } = useProspectPledgeStatus(
+    profileStatus?.user?.id,
+    activeWorkspaceUserId,
+  );
   const portfolioCategoryQueryKey = [
     "portfolio-categories",
     activeWorkspaceUserId,
@@ -10458,6 +10473,7 @@ export default function MyTopProspectsPage() {
                     accent={tier.accent}
                     density={density}
                     signals={portfolioSignals}
+                    pledgeData={pledgeData}
                     onAddToTopProspects={openPortfolioAddModal}
                     isAdding={addMutation.isPending}
                     isReadOnly={isExecutiveReadOnly}
@@ -11578,6 +11594,7 @@ export default function MyTopProspectsPage() {
 
       {selectedProspectId && (
         <ProspectDetailModal
+          pledgeData={pledgeData}
           prospectId={selectedProspectId}
           initialPanel={selectedProspectPanel}
           onClose={closeProspectWorkspace}

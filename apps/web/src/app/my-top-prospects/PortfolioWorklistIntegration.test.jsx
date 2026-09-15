@@ -41,6 +41,9 @@ beforeEach(() => {
     actingAsUser: { id: 44, role: "mgo", name: "Selected MGO" },
   };
   state.data = {
+    "prospect-pledge-status": {
+      byConstituentId: { 100: { count: 2, verifiedAt: "2026-09-15T13:00:00Z", stale: false } },
+    },
     prospects: [
       {
         id: 1,
@@ -80,6 +83,19 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("shows saved pledge presence only inside expanded or detailed portfolio cards", () => {
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.queryByRole("complementary", { name: "Saved pledge status" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.getByRole("complementary", { name: "Saved pledge status" })).toHaveTextContent("Active pledge (2 pledges)");
+  fireEvent.click(screen.getByRole("button", { name: "Hide details for Zelda Donor" }));
+  expect(screen.queryByRole("complementary", { name: "Saved pledge status" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: "detailed" } });
+  expect(screen.getAllByRole("complementary", { name: "Saved pledge status" })).toHaveLength(1);
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it("expands the actual portfolio card without fetching; NXT Summary remains explicit", async () => {
