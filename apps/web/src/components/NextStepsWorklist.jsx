@@ -189,12 +189,12 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                     {save.isPending && save.variables?.source.id === item.id ? "Saving..." : "Mark complete"}
                   </button>
                   <button type="button" className={buttonClass} onClick={() => edit(item, "reschedule")} disabled={save.isPending}>Reschedule</button>
-                  {item.source_topic_key !== "general" && <button type="button" className={buttonClass} disabled={save.isPending || Boolean(actionItem)} onClick={() => {
-                    if (discardEditor()) { setNotice(""); setActionItem(item); }
-                  }}>Log NXT action</button>}
                 </> : <button type="button" className={buttonClass} onClick={() => quickAction(item, "reopen")} disabled={save.isPending}>
                   {save.isPending && save.variables?.source.id === item.id ? "Reopening..." : "Reopen"}
                 </button>}
+                {(item.nxt_action_state || status === "Open" && item.source_topic_key !== "general") && <button type="button" className={buttonClass} disabled={save.isPending || Boolean(actionItem)} onClick={() => {
+                  if (discardEditor()) { setNotice(""); setActionItem(item); }
+                }}>{item.nxt_action_state ? "View NXT submission" : "Log NXT action"}</button>}
               </div>}
             </div>
             <details className="mt-3 text-sm text-gray-600">

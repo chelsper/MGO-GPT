@@ -80,14 +80,40 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
       setError(rejectedBeforeWrite ? failure.message : "The save result is unknown. Reload submission status before doing anything else in NXT; do not log the action again.");
     } finally { inFlight.current = false; setBusy(false); }
   }
+  async function verifyExisting() {
+    if (inFlight.current || query.isFetching || receipt?.state !== "review" || !receipt.actionId) return;
+    inFlight.current = true; setBusy(true); setError("");
+    try {
+      const response = await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedWorkspaceId: workspaceId, actionId: receipt.actionId }) });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.receipt?.actionId !== receipt.actionId
+        || payload?.receipt?.constituentId !== receipt.constituentId || payload?.receipt?.state !== "saved") {
+        throw new Error(payload?.error || "Verification could not be confirmed. Reload submission status. No action was sent again.");
+      }
+      setResult(payload.receipt);
+      onSaved(payload.receipt);
+    } catch (failure) { setError(failure.message || "Verification could not finish. No action was sent again."); }
+    finally { inFlight.current = false; setBusy(false); }
+  }
+  async function reloadStatus() {
+    if (inFlight.current || query.isFetching) return;
+    inFlight.current = true; setBusy(true);
+    try {
+      const refreshed = await query.refetch();
+      if (refreshed.isError) { setError(refreshed.error.message); return; }
+      if (refreshed.data?.receipt) { setResult(refreshed.data.receipt); setError(""); onSaved(refreshed.data.receipt); }
+    } finally { inFlight.current = false; setBusy(false); }
+  }
   const task = query.data?.task;
+  const reminderStatus = receipt?.reminderStatus || (receipt?.reminderCompleted ? "Done" : !result ? task?.status : null);
   const constituentId = receipt?.constituentId || task?.constituentId;
   const blocked = task && (!task.constituentId || task.status !== "Open");
   return <dialog ref={dialogRef} aria-labelledby="next-step-action-heading" onCancel={event => { event.preventDefault(); close(); }}
     className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/40">
     <div className="p-4 sm:p-6">
       <div className="flex items-start justify-between gap-3">
-        <div><h2 id="next-step-action-heading" className="text-xl font-bold">Log NXT action</h2>
+        <div><h2 id="next-step-action-heading" className="text-xl font-bold">{receipt ? "NXT action submission" : "Log NXT action"}</h2>
           <p className="mt-1 break-words text-sm text-gray-600">{task?.constituentName || item.constituent_name || item.prospect_name || "Next-step follow-up"}</p></div>
         <button type="button" autoFocus className={buttonClass} onClick={close} disabled={busy}>Close</button>
       </div>
@@ -98,7 +124,8 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
       {receipt ? <div ref={resultRef} tabIndex={-1} role="status" className={`mt-4 rounded-xl border p-4 text-sm ${receipt.state === "saved" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
         <p>{receipt.message}</p>
         {receipt.actionId && <p className="mt-2">NXT action ID: {receipt.actionId}</p>}
-        <p className="mt-2">Only one action can be logged from this reminder. This submission will not be sent again.</p>
+        {reminderStatus && <p className="mt-2 font-semibold">Next step: {reminderStatus === "Done" ? "Completed" : "Open"}.</p>}
+        {reminderStatus === "Open" && receipt.state === "saved" && <p className="mt-2">If this follow-up is finished, close this dialog and use Mark complete.</p>}
       </div> : blocked ? <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
         {task.status !== "Open" ? "This next step is no longer open. Close this dialog and reload the saved list."
           : "This next step does not have a single confirmed NXT constituent link. Review its prospect link before logging an action."}
@@ -131,8 +158,13 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
         </fieldset>
       </form>}
       {error && <p ref={resultRef} tabIndex={-1} role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {receipt?.state === "review" && receipt.actionId && <div className="mt-4">
+        <button type="button" className={`${buttonClass} !border-indigo-600 !bg-indigo-600 !text-white`} disabled={busy || query.isFetching} onClick={verifyExisting}>
+          {busy ? "Checking submission..." : "Verify existing NXT action"}</button>
+        <p className="mt-2 text-xs text-gray-600">Reads this action in NXT and checks it against the original submission. Does not send it again or change the next step.</p>
+      </div>}
       {(query.isError || attempted || receipt) && <button type="button" className={`${buttonClass} mt-4`} disabled={busy || query.isFetching}
-        onClick={async () => { const refreshed = await query.refetch(); if (refreshed.data?.receipt) { setResult(refreshed.data.receipt); setError(""); onSaved(refreshed.data.receipt); } }}>Reload submission status</button>}
+        onClick={reloadStatus}>Reload submission status</button>}
     </div>
   </dialog>;
 }

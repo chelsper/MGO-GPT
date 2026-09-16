@@ -33,6 +33,9 @@ it("returns the complete saved list with constituent names and keeps all joins w
   expect(sql).toContain("c.user_id = pa.owner_user_id");
   expect(sql).toContain("WHERE pa.owner_user_id = ? AND pa.status = ?");
   expect(sql).toContain("discussion_item_participants");
+  expect(sql).toContain("nr.state AS nxt_action_state");
+  expect(sql).toContain("nr.owner_user_id = pa.owner_user_id");
+  expect(sql).not.toContain("request_payload");
   expect(sql).not.toMatch(/p.status|LIMIT|blackbaud_portfolio_cache/);
   expect(values).not.toContain(999);
   expect(values.slice(-2)).toEqual([7, "Open"]);

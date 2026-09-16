@@ -11,7 +11,7 @@ vi.mock("@/app/api/utils/pendingActionNxt", async importOriginal => ({ ...await 
   readNextStepActionReceipt: mocks.receipt, claimNextStepAction: mocks.claim }));
 vi.mock("@/app/api/utils/blackbaud", async importOriginal => ({ ...await importOriginal(),
   getBlackbaudConstituentById: mocks.constituent, createBlackbaudAction: mocks.create, getBlackbaudAction: mocks.get, updateBlackbaudAction: mocks.patch }));
-import { GET, POST } from "./route";
+import { GET, POST, PATCH } from "./route";
 
 const params = { params: { id: "40" } };
 const token = "2026-09-15 12:30:10.123456+00";
@@ -188,4 +188,107 @@ it("does not reveal another owner's reminder", async () => {
   mocks.read.mockResolvedValue(null);
   expect((await call()).status).toBe(404);
   expect(mocks.receipt).not.toHaveBeenCalled();
+});
+
+const reverify = (changes = {}) => PATCH(new Request("https://example.com/api/pending-actions/40/log-action", {
+  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedWorkspaceId: 7, actionId: "500", ...changes }),
+}), params);
+function reviewReceipt(changes = {}) {
+  return { state: "review", blackbaud_action_id: "500", constituent_id: "123", reminder_completed: false,
+    request_payload: { ...body, sourceToken: JSON.stringify([token, 20]),
+      createPayload: { summary: savedAction.summary, description: savedAction.description, category: savedAction.category, date: savedAction.date },
+      metadata: { type: savedAction.type, fundraisers: savedAction.fundraisers, opportunity_id: savedAction.opportunity_id } }, ...changes };
+}
+it.each(["Open", "Done"])("reverifies only the durable action and leaves a %s reminder and discussion unchanged", async status => {
+  mocks.read.mockResolvedValue({ id: 40, status, constituentId: "different-new-link" });
+  const receipt = reviewReceipt();
+  mocks.receipt.mockResolvedValue(receipt);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", message: "Existing NXT action verified." }]);
+  const response = await reverify();
+  expect(response.status).toBe(200);
+  const payload = await response.json();
+  expect(payload.receipt).toMatchObject({ state: "saved", actionId: "500", reminderStatus: status, reminderCompleted: false });
+  expect(payload.receipt).not.toHaveProperty("request_payload");
+  expect(mocks.get).toHaveBeenCalledExactlyOnceWith({ userId: 7, authUserId: 2, origin: "https://example.com", actionId: "500" });
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+  expect(mocks.fundraisers).not.toHaveBeenCalled();
+  const [parts, ...values] = mocks.sql.mock.calls[0];
+  expect(parts.join("?")).toContain("AND state = 'review'");
+  expect(parts.join("?")).toContain("p.user_id = ?");
+  expect(parts.join("?")).not.toMatch(/UPDATE pending_actions|UPDATE discussion_items|blackbaud_portfolio_cache/);
+  expect(values).toContain("20");
+});
+it("accepts harmless provider formatting during recovery", async () => {
+  const receipt = reviewReceipt();
+  receipt.request_payload.createPayload.category = "Phone Call";
+  receipt.request_payload.createPayload.description = "Notes: first\nsecond";
+  mocks.receipt.mockResolvedValue(receipt);
+  mocks.get.mockResolvedValue({ ...savedAction, category: "Phone call", description: "Notes: first\r\nsecond" });
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved" }]);
+  expect((await reverify()).status).toBe(200);
+});
+it.each([{ constituent_id: "other" }, { id: "other" }, { type: "Cultivation" }, { fundraisers: [] }, { description: "Changed notes" }])("keeps a real mismatch blocked without any write: %j", async changes => {
+  mocks.receipt.mockResolvedValue(reviewReceipt());
+  mocks.get.mockResolvedValue({ ...savedAction, ...changes });
+  expect((await reverify()).status).toBe(409);
+  expect(mocks.sql).not.toHaveBeenCalled();
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.patch).not.toHaveBeenCalled();
+});
+it.each([null, reviewReceipt({ blackbaud_action_id: null }), reviewReceipt({ state: "processing" }), reviewReceipt({ request_payload: {} })])("rejects missing, incomplete, or in-progress receipts without NXT reads: %j", async receipt => {
+  mocks.receipt.mockResolvedValue(receipt);
+  expect((await reverify()).status).toBe(409);
+  expect(mocks.get).not.toHaveBeenCalled();
+  expect(mocks.sql).not.toHaveBeenCalled();
+});
+it("returns an already-saved receipt without more NXT reads", async () => {
+  mocks.receipt.mockResolvedValue(reviewReceipt({ state: "saved" }));
+  expect((await reverify()).status).toBe(200);
+  expect(mocks.get).not.toHaveBeenCalled();
+  expect(mocks.sql).not.toHaveBeenCalled();
+});
+it("recovers the winning concurrent verification without a second activity insert", async () => {
+  mocks.receipt.mockResolvedValueOnce(reviewReceipt()).mockResolvedValue(reviewReceipt({ state: "saved" }));
+  expect((await reverify()).status).toBe(200);
+  expect(mocks.sql).toHaveBeenCalledOnce();
+});
+it("fails safely if the receipt changed during verification", async () => {
+  mocks.receipt.mockResolvedValueOnce(reviewReceipt()).mockResolvedValue(null);
+  expect((await reverify()).status).toBe(409);
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it.each(["get", "sql"])("keeps recovery retryable on a %s failure without an NXT write", async dependency => {
+  mocks.receipt.mockResolvedValue(reviewReceipt());
+  mocks[dependency].mockRejectedValue(new Error("private provider detail"));
+  const response = await reverify();
+  expect(response.status).toBe(502);
+  expect((await response.json()).error).not.toContain("private provider detail");
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it.each([{ actionId: "999" }, { expectedWorkspaceId: 99 }])("rejects mismatched recovery identity: %j", async changes => {
+  mocks.receipt.mockResolvedValue(reviewReceipt());
+  expect((await reverify(changes)).status).toBe(409);
+  expect(mocks.get).not.toHaveBeenCalled();
+});
+it.each([{ actionId: null }, { actionId: "../other" }, { summary: "change action" }, { completeReminder: true }])("rejects client changes to the original recovery payload: %j", async changes => {
+  expect((await reverify(changes)).status).toBe(400);
+  expect(mocks.get).not.toHaveBeenCalled();
+});
+it("requires authentication and editing permission for receipt recovery", async () => {
+  mocks.auth.mockResolvedValueOnce(null);
+  expect((await reverify()).status).toBe(401);
+  mocks.context.mockResolvedValue({ sessionUser: { id: 2, role: "executive" }, workspaceUser: { id: 7, role: "mgo" }, isActing: true });
+  expect((await reverify()).status).toBe(403);
+  expect(mocks.get).not.toHaveBeenCalled();
+});
+it("does not recover another workspace's reminder", async () => {
+  mocks.read.mockResolvedValue(null);
+  expect((await reverify()).status).toBe(404);
+  expect(mocks.receipt).not.toHaveBeenCalled();
+  expect(mocks.get).not.toHaveBeenCalled();
 });

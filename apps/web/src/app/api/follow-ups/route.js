@@ -30,12 +30,13 @@ export async function GET(request) {
         p.id AS prospect_id, p.prospect_name,
         c.id AS constituent_id, c.name AS constituent_name,
         c.blackbaud_constituent_id,
-        po.title AS opportunity_title,
+        po.title AS opportunity_title, nr.state AS nxt_action_state,
         di.id AS discussion_item_id, di.status AS discussion_status
       FROM pending_actions pa
       LEFT JOIN prospects p ON p.id = pa.prospect_id AND p.user_id = pa.owner_user_id
       LEFT JOIN constituents c ON c.id = pa.constituent_id AND c.user_id = pa.owner_user_id
       LEFT JOIN prospect_opportunities po ON po.id = pa.prospect_opportunity_id AND po.prospect_id = p.id
+      LEFT JOIN pending_action_nxt_receipts nr ON nr.pending_action_id = pa.id AND nr.owner_user_id = pa.owner_user_id
       LEFT JOIN discussion_items di ON di.id = pa.discussion_item_id AND (
         di.owner_user_id = ${workspaceUser.id} OR di.assigned_user_id = ${workspaceUser.id}
         OR EXISTS (SELECT 1 FROM discussion_item_participants dip

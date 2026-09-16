@@ -173,3 +173,13 @@ it("labels general discussion follow-ups and does not offer an NXT action withou
   expect(screen.queryByRole("button", { name: "Log NXT action" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Mark complete" })).toBeEnabled();
 });
+
+it.each(["Open", "Done"])("offers existing submission access in %s without reading NXT on page load", async status => {
+  items[0] = { ...items[0], status, nxt_action_state: "review" };
+  window.history.replaceState(null, "", `/follow-ups?tab=next-steps&nextStepId=1&status=${status}`);
+  mount();
+  await screen.findByText("Prepare visit");
+  expect(within(row()).getByRole("button", { name: "View NXT submission" })).toBeEnabled();
+  expect(within(row()).queryByRole("button", { name: "Log NXT action" })).not.toBeInTheDocument();
+  expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/follow-ups?"))).toBe(true);
+});

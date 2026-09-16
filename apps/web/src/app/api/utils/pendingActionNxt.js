@@ -36,7 +36,7 @@ export async function readNextStepAction(id, ownerUserId) {
 
 export async function readNextStepActionReceipt(id, ownerUserId) {
   const [receipt] = await sql`
-    SELECT state, blackbaud_action_id, constituent_id, reminder_completed, message
+    SELECT state, blackbaud_action_id, constituent_id, reminder_completed, message, request_payload
     FROM pending_action_nxt_receipts
     WHERE pending_action_id = ${id} AND owner_user_id = ${ownerUserId}
   `;
@@ -78,23 +78,35 @@ export function actionConstituentId(payload) {
 
 export function verifiedNextStepAction(payload, { actionId, constituentId, createPayload, metadata }) {
   const record = actionRecord(payload);
+  if (!actionId || !constituentId || typeof createPayload?.summary !== "string" || !createPayload.summary
+    || typeof createPayload?.category !== "string" || !createPayload.category
+    || typeof createPayload?.date !== "string" || !createPayload.date
+    || typeof metadata?.type !== "string" || !metadata.type
+    || !Array.isArray(metadata?.fundraisers) || !metadata.fundraisers.length
+    || metadata.fundraisers.some(id => !String(id || "").trim())) return false;
   const fundraisers = Array.isArray(record?.fundraisers) ? record.fundraisers.map(item => String(typeof item === "object" ? item?.id : item)) : [];
+  // NXT canonicalizes category casing and converts note line endings to CRLF.
+  // Do not normalize names, IDs, note content/spacing, or other action fields.
+  const notes = value => typeof value === "string" ? value.replace(/\r\n/g, "\n") : value;
   return actionRecordId(payload) === String(actionId)
     && actionConstituentId(payload) === String(constituentId)
     && record?.completed === true
     && record?.summary === createPayload.summary
-    && (!createPayload.description || record?.description === createPayload.description)
-    && record?.category === createPayload.category
+    && (!createPayload.description || notes(record?.description) === notes(createPayload.description))
+    && typeof record?.category === "string" && record.category.toLowerCase() === createPayload.category.toLowerCase()
     && String(record?.date || "").slice(0, 10) === createPayload.date.slice(0, 10)
     && record?.type === metadata.type
     && metadata.fundraisers.every(id => fundraisers.includes(String(id)))
     && (!metadata.opportunity_id || String(record?.opportunity_id || "") === metadata.opportunity_id);
 }
 
-export function publicActionReceipt(receipt) {
+export function publicActionReceipt(receipt, reminderStatus = null) {
   return {
     state: receipt.state, actionId: receipt.blackbaud_action_id || null,
     constituentId: receipt.constituent_id, reminderCompleted: Boolean(receipt.reminder_completed),
-    message: receipt.message || "This action submission is in progress or awaiting verification. It will not be sent again. Reload its status before doing anything else in NXT.",
+    reminderStatus,
+    message: receipt.state === "review"
+      ? "The app has not yet verified this NXT action. Do not log it again. Verification and next-step completion are separate."
+      : receipt.message || "This action submission is in progress or awaiting verification. It will not be sent again. Reload its status before doing anything else in NXT.",
   };
 }

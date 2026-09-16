@@ -127,6 +127,29 @@ NXT action occurred.
   blocking, and before-unload protection keep review deliberate. An uncertain
   response disables resubmission and offers read-only status recovery.
 
+### Verify an Existing Action
+
+- Verification accepts NXT's category capitalization and CRLF/LF note formatting.
+  It still requires the original identity, completion, date, summary, note content,
+  type, fundraiser credit, and opportunity. Missing expectations fail closed.
+- Review receipts with a saved action ID offer Verify existing NXT action.
+  PATCH `/api/pending-actions/:id/log-action` reads that exact action in NXT and
+  compares it with the durable original payload, not an editable client draft.
+  It makes no NXT create/update calls and does not complete or reopen reminders.
+  Processing receipts and missing IDs cannot use recovery; no search guesses an ID.
+- A successful check atomically transitions review to saved and records local
+  activity at most once, retaining the original author. Activity can attach only
+  to the original prospect if it still belongs to that owner and NXT constituent.
+  Repeated/concurrent checks cannot duplicate activity. Provider/portfolio caches
+  and maintenance schedules are unchanged. No new schema migration is required.
+- Current next-step status is displayed separately from whether the original
+  submission completed it. Completed history and open reminders with receipts
+  offer View NXT submission. The list adds only an owner-scoped saved-data join;
+  it never reads NXT automatically. Reload submission status remains local-only.
+- If an action still differs, verification fails without changes. A successful
+  check leaves an open/edited/reopened reminder untouched; use Mark complete only
+  after reviewing whether that follow-up is actually finished.
+
 ## Create a Next Step From Team Discussion
 
 - Each editable discussion offers Create next step. The dialog loads saved local

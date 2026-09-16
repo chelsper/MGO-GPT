@@ -109,3 +109,63 @@ it("does not show another workspace's cached context", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("workspace changed");
   expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
 });
+
+function withReview(status = "Done") {
+  context.task.status = status;
+  context.receipt = { state: "review", actionId: "500", constituentId: "123", reminderCompleted: false,
+    reminderStatus: status, message: "Existing action needs verification." };
+}
+it("can reverify a completed reminder once without resending or completing it", async () => {
+  withReview();
+  let finish;
+  fetch.mockImplementation(async (url, options) => options?.method === "PATCH" ? new Promise(resolve => { finish = resolve; }) : reply(context));
+  mount();
+  const button = await screen.findByRole("button", { name: "Verify existing NXT action" });
+  expect(screen.getByText("Next step: Completed.")).toBeInTheDocument();
+  expect(fetch.mock.calls).toHaveLength(1);
+  fireEvent.click(button); fireEvent.click(button);
+  expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Reload submission status" })).toBeDisabled();
+  expect(fetch.mock.calls.filter(([, options]) => options?.method === "PATCH")).toHaveLength(1);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ expectedWorkspaceId: 7, actionId: "500" });
+  finish(reply({ receipt: { ...context.receipt, state: "saved", message: "Existing NXT action verified." } }));
+  await screen.findByText("Existing NXT action verified.");
+  expect(writes()).toHaveLength(0);
+  expect(onSaved).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("button", { name: "Verify existing NXT action" })).not.toBeInTheDocument();
+});
+it("shows current open status after verification without applying an old completion request", async () => {
+  withReview("Open");
+  fetch.mockImplementation(async (url, options) => options?.method === "PATCH"
+    ? reply({ receipt: { ...context.receipt, state: "saved", message: "Existing NXT action verified." } }) : reply(context));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Verify existing NXT action" }));
+  await screen.findByText(/If this follow-up is finished/);
+  expect(screen.getByText("Next step: Open.")).toBeInTheDocument();
+  expect(writes()).toHaveLength(0);
+});
+it.each(["mismatch", "network", "wrong identity"])("keeps recovery retryable and resending blocked after %s", async problem => {
+  withReview();
+  fetch.mockImplementation(async (url, options) => {
+    if (options?.method !== "PATCH") return reply(context);
+    if (problem === "network") throw new Error("No connection. Retry verification.");
+    if (problem === "wrong identity") return reply({ receipt: { ...context.receipt, state: "saved", actionId: "other" } });
+    return reply({ error: "Required fields do not match. Review NXT." }, 409);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Verify existing NXT action" }));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("button", { name: "Verify existing NXT action" })).toBeEnabled();
+  expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
+  expect(onSaved).not.toHaveBeenCalled();
+  expect(writes()).toHaveLength(0);
+});
+it.each(["processing", "saved", "no action ID"])("does not offer recovery for %s", async state => {
+  withReview();
+  if (state === "no action ID") context.receipt.actionId = null;
+  else context.receipt.state = state;
+  mount();
+  await screen.findByText("Existing action needs verification.");
+  expect(screen.queryByRole("button", { name: "Verify existing NXT action" })).not.toBeInTheDocument();
+  expect(fetch.mock.calls).toHaveLength(1);
+});
