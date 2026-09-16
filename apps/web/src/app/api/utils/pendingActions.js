@@ -236,6 +236,7 @@ export async function syncPendingActionDiscussion({
   needsDiscussion = false,
   discussionNote = null,
   existingDiscussionItemId = null,
+  reopenExisting = true,
 }) {
   await ensureAppSchema();
 
@@ -276,7 +277,7 @@ export async function syncPendingActionDiscussion({
         subject = ${normalizedTitle},
         body = ${normalizedDiscussionNote || "Pending action flagged for discussion."},
         due_date = ${dueDate || null},
-        status = 'Open',
+        status = CASE WHEN ${reopenExisting} THEN 'Open' ELSE status END,
         updated_at = NOW()
       WHERE id = ${existingDiscussionItemId}
         AND owner_user_id = ${ownerUserId}

@@ -7,6 +7,15 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it.each([false, true])("offers one shared follow-up workspace and preserves old discussion navigation (reviewer: %s)", (isReviewer) => {
+    const items = getNavigationItems({ isReviewer, canManageWorkspace: true });
+    expect(items.filter(item => item.href === "/follow-ups")).toHaveLength(1);
+    expect(items.find(item => item.href === "/follow-ups").label).toBe("Follow-ups & Discussion");
+    expect(items.some(item => item.href === "/team-discussion")).toBe(false);
+    expect(isNavigationItemActive("/team-discussion", "/follow-ups")).toBe(true);
+    expect(getBreadcrumbs("/follow-ups").at(-1).label).toBe("Follow-ups & Discussion");
+    expect(getBreadcrumbs("/team-discussion").at(-1).label).toBe("Follow-ups & Discussion");
+  });
   it("adds administration destinations only to managed reviewer workspaces", () => {
     const reviewerItems = getNavigationItems({ isReviewer: true, canManageWorkspace: false });
     const adminItems = getNavigationItems({ isReviewer: true, canManageWorkspace: true });

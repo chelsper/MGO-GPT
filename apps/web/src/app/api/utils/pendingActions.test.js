@@ -111,4 +111,13 @@ describe("pendingActions", () => {
       }),
     ).rejects.toThrow("Selected constituent could not be found.");
   });
+
+  it.each([true, false])("only reopens a linked discussion when requested: %s", async (reopenExisting) => {
+    const { syncPendingActionDiscussion } = await import("./pendingActions.js");
+    queueSqlResult([{ id: 501 }]);
+    await syncPendingActionDiscussion({ ownerUserId: 44, pendingActionId: 901, title: "Call", needsDiscussion: true, existingDiscussionItemId: 501, reopenExisting });
+    const [parts, ...values] = sqlMockImpl.mock.calls[0];
+    expect(parts.join("?")).toContain("status = CASE WHEN ? THEN 'Open' ELSE status END");
+    expect(values).toContain(reopenExisting);
+  });
 });

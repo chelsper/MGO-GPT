@@ -5,7 +5,7 @@ import WorkQueueAlertBadge from "./WorkQueueAlertBadge";
 const icons = {
   "/submissions": ClipboardList,
   "/prospect-pool": Users,
-  "/team-discussion": MessageSquare,
+  "/follow-ups": MessageSquare,
   "/pledge-payments": CalendarDays,
   "/prospect-exports": Download,
   "/report-configurations": SlidersHorizontal,
@@ -34,7 +34,7 @@ function ActionCards({ items, queueCounts, openDiscussionItems, featured }) {
   return <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${items.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
     {items.map((item) => {
       const Icon = icons[item.href] || FileText;
-      const discussionCount = item.href === "/team-discussion" && Number.isSafeInteger(openDiscussionItems) && openDiscussionItems > 0 ? openDiscussionItems : 0;
+      const discussionCount = item.href === "/follow-ups" && Number.isSafeInteger(openDiscussionItems) && openDiscussionItems > 0 ? openDiscussionItems : 0;
       return <a key={item.href} href={item.href}
         className={`group flex min-w-0 flex-col rounded-2xl border p-5 text-gray-900 no-underline transition-colors hover:border-emerald-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700 ${featured ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white" : "border-gray-200 bg-white hover:bg-gray-50"}`}>
         <div className="mb-4 flex min-h-7 items-center justify-between gap-3">

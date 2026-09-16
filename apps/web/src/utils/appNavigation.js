@@ -1,7 +1,7 @@
 export const MGO_NAV_ITEMS = [
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
   { label: "My Reports", href: "/reports", section: "My Work" },
-  { label: "Team Discussion", href: "/team-discussion", section: "My Work" },
+  { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work" },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
@@ -15,7 +15,7 @@ export const MGO_NAV_ITEMS = [
 export const REVIEWER_NAV_ITEMS = [
   { label: "Work Queue", href: "/submissions", section: "Daily Work", description: "Start here for requests and NXT exceptions in one queue." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work", description: "Assign prospects to MGOs and follow up on contact information requests." },
-  { label: "Team Discussion", href: "/team-discussion", section: "Daily Work", description: "Coordinate talking points, handoffs, and follow-up with the team." },
+  { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
   { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", description: "Choose one or more MGOs and download a master workbook with opportunity details." },
   { label: "List Request Queue", href: "/list-requests", section: "Requests", description: "Prioritize list requests and send questions or delivery notes to MGOs." },
@@ -72,7 +72,8 @@ const ROUTE_LABELS = {
   "/request-list": "Request List from DevData",
   "/settings": "My Account & Connections",
   "/submissions": "Work Queue",
-  "/team-discussion": "Team Discussion",
+  "/team-discussion": "Follow-ups & Discussion",
+  "/follow-ups": "Follow-ups & Discussion",
   "/update-opportunity": "Update Opportunity",
 };
 
@@ -98,6 +99,7 @@ export function groupNavigationItems(items) {
 
 export function isNavigationItemActive(pathname, href) {
   if (href === "/") return pathname === "/";
+  if (href === "/follow-ups") return pathname === href || pathname === "/team-discussion";
   if (href === "/reports") {
     return pathname === href || pathname.startsWith("/reports/");
   }

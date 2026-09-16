@@ -21,6 +21,12 @@ export async function PUT(request, { params }) {
     const { workspaceUser: user, sessionUser } = context;
     const body = await request.json();
     const pendingActionId = params.id;
+    if (body.expectedWorkspaceId !== undefined && String(body.expectedWorkspaceId) !== String(user.id)) {
+      return Response.json({ error: "The selected workspace changed. Reload the list before saving." }, { status: 409 });
+    }
+    if (body.expectedUpdatedAt !== undefined && (typeof body.expectedUpdatedAt !== "string" || !body.expectedUpdatedAt || Number.isNaN(new Date(body.expectedUpdatedAt).getTime()))) {
+      return Response.json({ error: "Reload this next step before saving." }, { status: 400 });
+    }
 
     const existing = await sql`
       SELECT *
@@ -54,10 +60,12 @@ export async function PUT(request, { params }) {
         updated_at = NOW()
       WHERE id = ${pendingActionId}
         AND owner_user_id = ${user.id}
+        AND (${body.expectedUpdatedAt ?? null}::timestamptz IS NULL OR updated_at = ${body.expectedUpdatedAt ?? null}::timestamptz)
       RETURNING *
     `;
 
     const updated = rows[0] || null;
+    if (!updated) return Response.json({ error: "This next step changed while you were editing. Your draft has not been saved. Reload the list to review the current version." }, { status: 409 });
 
     if (updated?.prospect_id && updated.is_primary) {
       await sql`
@@ -83,6 +91,7 @@ export async function PUT(request, { params }) {
       needsDiscussion: Boolean(updated?.needs_discussion),
       discussionNote: updated?.discussion_note || null,
       existingDiscussionItemId: updated?.discussion_item_id || existing[0]?.discussion_item_id || null,
+      reopenExisting: Boolean(updated?.needs_discussion) && !existing[0]?.needs_discussion,
     });
 
     await clearUserDashboardDataCaches(user.id);

@@ -43,7 +43,7 @@ const REVIEWER_NOTIFICATIONS = [
 ];
 
 const MGO_NOTIFICATIONS = [
-  { key: "overdueNextSteps", label: "Next steps are overdue", href: "/my-top-prospects" },
+  { key: "overdueNextSteps", label: "Next steps are overdue", href: "/follow-ups" },
   { key: "clarificationRequests", label: "Requests need clarification", href: "/submissions" },
   { key: "openDiscussionItems", label: "Team discussions need attention", href: "/team-discussion" },
 ];
@@ -54,10 +54,10 @@ function safeCount(value) {
 }
 
 function NavigationCount({ item, queueCounts, discussionCount }) {
-  if (item.href === "/team-discussion") {
+  if (item.href === "/follow-ups") {
     const count = safeCount(discussionCount);
     if (!count) return null;
-    return <span className={styles.countBadge}>{count.toLocaleString()}</span>;
+    return <span className={styles.countBadge} aria-label={`${count} open team discussion items`}>{count.toLocaleString()}</span>;
   }
 
   return <WorkQueueAlertBadge href={item.href} counts={queueCounts} compact />;

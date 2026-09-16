@@ -49,3 +49,32 @@ it("keeps read-only workspace permissions", async () => {
   expect(response.status).toBe(403);
   expect(mocks.sql).not.toHaveBeenCalled();
 });
+
+it("rejects a changed workspace before updating any record", async () => {
+  const response = await PUT(request({ title: "Call", expectedWorkspaceId: 99 }), { params: { id: "40" } });
+  expect(response.status).toBe(409);
+  expect(mocks.sql).not.toHaveBeenCalled();
+});
+
+it("rejects stale edits atomically and does not sync a discussion after a conflict", async () => {
+  mocks.sql.mockResolvedValueOnce([{ id: 40, owner_user_id: 7 }]).mockResolvedValueOnce([]);
+  const response = await PUT(request({ title: "Changed", expectedWorkspaceId: 7, expectedUpdatedAt: "2026-09-15T12:00:00.000Z" }), { params: { id: "40" } });
+  expect(response.status).toBe(409);
+  const update = mocks.sql.mock.calls[1];
+  expect(update[0].join("?")).toContain("updated_at = ?::timestamptz");
+  expect(update).toContain("2026-09-15T12:00:00.000Z");
+  expect(mocks.discussion).not.toHaveBeenCalled();
+  expect(mocks.clear).not.toHaveBeenCalled();
+});
+
+it("preserves a linked discussion's resolved status when only editing a task", async () => {
+  mocks.sql.mockResolvedValue([{ id: 40, owner_user_id: 7, title: "Call", needs_discussion: true, discussion_item_id: 50 }]);
+  const response = await PUT(request({ dueDate: null }), { params: { id: "40" } });
+  expect(response.status).toBe(200);
+  expect(mocks.discussion).toHaveBeenCalledWith(expect.objectContaining({ reopenExisting: false, existingDiscussionItemId: 50 }));
+});
+
+it("rejects a missing concurrency timestamp supplied by the worklist", async () => {
+  expect((await PUT(request({ expectedUpdatedAt: null }), { params: { id: "40" } })).status).toBe(400);
+  expect(mocks.sql).not.toHaveBeenCalled();
+});

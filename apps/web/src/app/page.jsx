@@ -26,9 +26,9 @@ const MGO_ACTIONS = [
     section: "myWork",
   },
   {
-    title: "Team Discussion",
-    href: "/team-discussion",
-    description: "Keep internal talking points, handoffs, and meeting prep tied to real work.",
+    title: "Follow-ups & Discussion",
+    href: "/follow-ups",
+    description: "View all saved next steps or switch to team discussions and meeting prep.",
     section: "myWork",
   },
   {
@@ -608,7 +608,7 @@ export default function Page() {
                 </h2>
               </div>
               <a
-                href="/team-discussion"
+                href="/follow-ups"
                 style={{
                   color: "#4F46E5",
                   fontSize: "13px",
@@ -617,7 +617,7 @@ export default function Page() {
                   whiteSpace: "nowrap",
                 }}
               >
-                View all discussions
+                View follow-ups &amp; discussion
               </a>
             </div>
 
@@ -768,7 +768,7 @@ export default function Page() {
                 ...(index === 0 ? primarySectionStyle : secondaryCardStyle),
               }}
             >
-              {action.href === "/team-discussion" ? (
+              {action.href === "/follow-ups" ? (
                 <div style={{ position: "absolute", top: "14px", right: "14px" }}>
                   <DiscussionAlertBadge count={openDiscussionItems} />
                 </div>
@@ -824,7 +824,7 @@ export default function Page() {
                     color: "#111827",
                   }}
                 >
-                  {action.href === "/team-discussion" ? (
+                  {action.href === "/follow-ups" ? (
                     <div style={{ position: "absolute", top: "12px", right: "12px" }}>
                       <DiscussionAlertBadge count={openDiscussionItems} compact />
                     </div>
