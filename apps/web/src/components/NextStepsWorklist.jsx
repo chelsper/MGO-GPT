@@ -15,6 +15,16 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
   const [editor, setEditor] = useState(null);
   const [actionItem, setActionItem] = useState(null);
   const [notice, setNotice] = useState("");
+  const [linkedId, setLinkedId] = useState(null);
+  const [highlightId, setHighlightId] = useState(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("nextStepId");
+    if (/^[1-9]\d*$/.test(id || "")) {
+      setStatus(params.get("status") === "Done" ? "Done" : "Open");
+      setLinkedId(id);
+    }
+  }, []);
   const noticeRef = useRef(null);
   const saveInFlight = useRef(false);
   const query = useQuery({
@@ -64,7 +74,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
         : draft.action === "reopen" ? "Next step reopened as an additional follow-up. Your primary next step and linked discussions are unchanged. No NXT action was created."
         : draft.action === "reschedule" ? "Due date saved. No NXT action was created; linked discussions are unchanged."
         : "Next step saved. No NXT action was created.");
-      for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed", ...(!draft.action ? ["team-discussion"] : [])]) {
+      for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed", "team-discussion"]) {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
     },
@@ -103,6 +113,19 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
   const currentPage = Math.min(page, pages);
   const pageGroups = pageNextStepGroups(groups, currentPage);
   const busy = save.isPending || query.isFetching;
+  useEffect(() => {
+    if (!linkedId || !query.isSuccess || query.isFetching) return;
+    const index = groups.flatMap(group => group.items).findIndex(item => String(item.id) === linkedId);
+    if (index >= 0) { setPage(Math.floor(index / 25) + 1); setHighlightId(linkedId); }
+    else setNotice("This linked next step is not in this workspace's selected list. Check Completed history or select its owner's workspace.");
+    setLinkedId(null);
+  }, [linkedId, query.isSuccess, query.isFetching, groups]);
+  useEffect(() => {
+    if (!highlightId || !active) return;
+    const element = document.getElementById(`next-step-${highlightId}`);
+    element?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    element?.focus({ preventScroll: true });
+  }, [highlightId, currentPage, active]);
 
   return <div className="space-y-5">
     <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5" aria-label="Next-step controls">
@@ -152,7 +175,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
         <h3 id={`next-step-group-${group.key.replaceAll(" ", "-")}`} className={`mb-3 text-base font-bold ${group.key === "Overdue" ? "text-amber-800" : "text-gray-800"}`}>{group.label} <span className="font-normal text-gray-500">({group.total})</span></h3>
         <div className="space-y-3">{group.items.map(item => {
           const isEditing = editor?.source.id === item.id;
-          return <article key={item.id} aria-label={`${nextStepName(item)}: ${item.title}`} className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+          return <article key={item.id} id={`next-step-${item.id}`} tabIndex={-1} aria-label={`${nextStepName(item)}: ${item.title}`} className={`min-w-0 rounded-2xl border bg-white p-4 sm:p-5 ${String(item.id) === highlightId ? "border-indigo-400 ring-2 ring-indigo-100" : "border-gray-200"}`}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1 basis-64 break-words">
                 <p className="text-sm font-semibold text-indigo-700">{nextStepName(item)}</p>
@@ -166,9 +189,9 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                     {save.isPending && save.variables?.source.id === item.id ? "Saving..." : "Mark complete"}
                   </button>
                   <button type="button" className={buttonClass} onClick={() => edit(item, "reschedule")} disabled={save.isPending}>Reschedule</button>
-                  <button type="button" className={buttonClass} disabled={save.isPending || Boolean(actionItem)} onClick={() => {
+                  {item.source_topic_key !== "general" && <button type="button" className={buttonClass} disabled={save.isPending || Boolean(actionItem)} onClick={() => {
                     if (discardEditor()) { setNotice(""); setActionItem(item); }
-                  }}>Log NXT action</button>
+                  }}>Log NXT action</button>}
                 </> : <button type="button" className={buttonClass} onClick={() => quickAction(item, "reopen")} disabled={save.isPending}>
                   {save.isPending && save.variables?.source.id === item.id ? "Reopening..." : "Reopen"}
                 </button>}
@@ -219,7 +242,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
       <NextStepActionDialog key={`${workspaceId}-${actionItem.id}`} item={actionItem} viewerId={viewerId} workspaceId={workspaceId}
         onClose={() => { setActionItem(null); query.refetch(); }} onSaved={receipt => {
           setNotice(receipt.message);
-          for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed"])
+          for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed", "team-discussion"])
             queryClient.invalidateQueries({ queryKey: [key] });
         }} />
     </Suspense>}

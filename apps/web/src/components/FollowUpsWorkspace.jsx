@@ -36,7 +36,7 @@ export default function FollowUpsWorkspace() {
     setVisited(current => new Set([...current, value]));
     const url = new URL(window.location.href);
     url.searchParams.set("tab", value);
-    for (const key of ["discussionId", "edit", "status"]) url.searchParams.delete(key);
+    for (const key of ["discussionId", "nextStepId", "edit", "status"]) url.searchParams.delete(key);
     window.history.replaceState(null, "", `${url.pathname}${url.search}`);
   }
   useEffect(() => {

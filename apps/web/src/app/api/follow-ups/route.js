@@ -26,7 +26,7 @@ export async function GET(request) {
     // when a linked prospect is closed. No NXT enrichment is needed here.
     const items = await sql`
       SELECT pa.id, pa.title, pa.details, pa.due_date, pa.status, pa.category,
-        pa.is_primary, pa.completed_at, pa.updated_at::text AS updated_at,
+        pa.is_primary, pa.completed_at, pa.updated_at::text AS updated_at, pa.source_topic_key,
         p.id AS prospect_id, p.prospect_name,
         c.id AS constituent_id, c.name AS constituent_name,
         c.blackbaud_constituent_id,

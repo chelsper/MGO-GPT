@@ -253,5 +253,19 @@ describe("discussion items route", () => {
       "Rafael Arribas",
     ]);
     expect(payload[0].linked_constituents[0].isPrimaryAnchor).toBe(true);
+    expect(payload[0].can_create_next_step).toBe(true);
+    const listSql = sqlMockImpl.mock.calls[0][0].join("?");
+    expect(listSql).toContain("pa.source_discussion_id = di.id");
+    expect(listSql).toContain("'status', pa.status");
+    expect(listSql).not.toContain("pa.details");
+  });
+
+  it("does not offer creation in a read-only acting workspace", async () => {
+    const { GET } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: 2, role: "executive" }, workspaceUser: { id: 44, role: "mgo" }, isActing: true });
+    queueSqlResult([{ id: 16, subject: "Read-only discussion", next_steps: [] }]);
+    const response = await GET(listRequest());
+    expect(response.status).toBe(200);
+    expect((await response.json())[0].can_create_next_step).toBe(false);
   });
 });

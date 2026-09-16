@@ -78,3 +78,19 @@ it("rejects a missing concurrency timestamp supplied by the worklist", async () 
   expect((await PUT(request({ expectedUpdatedAt: null }), { params: { id: "40" } })).status).toBe(400);
   expect(mocks.sql).not.toHaveBeenCalled();
 });
+
+it("edits discussion-origin tasks without updating or resolving their source discussion", async () => {
+  mocks.sql.mockResolvedValue([{ id: 40, owner_user_id: 7, title: "Call", is_primary: false,
+    source_topic_key: "nxt:123", source_discussion_id: 50, discussion_item_id: 50 }]);
+  const response = await PUT(request({ title: "Updated follow-up", status: "Done" }), { params: { id: "40" } });
+  expect(response.status).toBe(200);
+  expect((await response.json()).discussion_item_id).toBe(50);
+  expect(mocks.discussion).not.toHaveBeenCalled();
+  expect(mocks.sql.mock.calls.some(([parts]) => parts.join("").includes("UPDATE prospects"))).toBe(false);
+});
+it.each([{ isPrimary: true }, { needsDiscussion: true }, { prospectOpportunityId: 90 }])("keeps discussion-origin tasks additional and independently linked: %j", async body => {
+  mocks.sql.mockResolvedValue([{ id: 40, owner_user_id: 7, source_topic_key: "nxt:123" }]);
+  expect((await PUT(request(body), { params: { id: "40" } })).status).toBe(400);
+  expect(mocks.sql).toHaveBeenCalledTimes(1);
+  expect(mocks.discussion).not.toHaveBeenCalled();
+});

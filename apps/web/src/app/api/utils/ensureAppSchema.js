@@ -1186,6 +1186,17 @@ export default async function ensureAppSchema() {
       ALTER TABLE pending_actions
       ADD COLUMN IF NOT EXISTS discussion_item_id BIGINT REFERENCES discussion_items(id) ON DELETE SET NULL
     `;
+    await sql`
+      ALTER TABLE pending_actions
+      ADD COLUMN IF NOT EXISTS source_discussion_id BIGINT REFERENCES discussion_items(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS source_topic_key TEXT,
+      ADD COLUMN IF NOT EXISTS entered_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    `;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_actions_discussion_origin
+      ON pending_actions (source_discussion_id, owner_user_id, source_topic_key)
+      WHERE source_discussion_id IS NOT NULL
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (

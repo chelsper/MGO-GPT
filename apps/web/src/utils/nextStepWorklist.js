@@ -1,5 +1,5 @@
 export function nextStepName(item) {
-  return item.prospect_name || item.constituent_name || "Constituent name unavailable";
+  return item.prospect_name || item.constituent_name || (item.source_topic_key === "general" ? "General follow-up" : "Constituent name unavailable");
 }
 
 export function nextStepDay(value) {

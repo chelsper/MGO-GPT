@@ -2,6 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
+import { canEditWorkspace } from "@/utils/workspaceRoles";
 import {
   groupDiscussionConstituents,
   replaceDiscussionConstituentLinks,
@@ -50,7 +51,8 @@ export async function GET(request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user } = await getWorkspaceUser(session, request);
+    const context = await getWorkspaceUser(session, request);
+    const { workspaceUser: user } = context;
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
@@ -67,13 +69,22 @@ export async function GET(request) {
         c.blackbaud_constituent_id,
         assigned_user.name AS assigned_user_name,
         creator.name AS created_by_name,
-        po.title AS opportunity_title
+        po.title AS opportunity_title,
+        COALESCE(followups.items, '[]'::jsonb) AS next_steps
       FROM discussion_items di
       LEFT JOIN prospects p ON p.id = di.prospect_id
       LEFT JOIN constituents c ON c.id = di.constituent_id
       LEFT JOIN prospect_opportunities po ON po.id = di.prospect_opportunity_id
       LEFT JOIN users assigned_user ON assigned_user.id = di.assigned_user_id
       LEFT JOIN users creator ON creator.id = di.created_by
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', pa.id, 'owner_user_id', pa.owner_user_id, 'owner_name', owner.name,
+          'status', pa.status, 'due_date', pa.due_date, 'source_topic_key', pa.source_topic_key
+        ) ORDER BY pa.id) AS items
+        FROM pending_actions pa JOIN users owner ON owner.id = pa.owner_user_id
+        WHERE pa.source_discussion_id = di.id
+      ) followups ON TRUE
       WHERE (
           di.owner_user_id = ${user.id}
           OR di.assigned_user_id = ${user.id}
@@ -153,6 +164,7 @@ export async function GET(request) {
         const seenConstituentIds = new Set();
         return {
           ...row,
+          can_create_next_step: canEditWorkspace(context),
           tagged_users: participantsByDiscussionId[String(row.id)] || [],
           linked_constituents: combined.filter((constituent) => {
             const key = String(

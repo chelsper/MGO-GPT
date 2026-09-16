@@ -120,6 +120,38 @@ NXT action occurred.
   blocking, and before-unload protection keep review deliberate. An uncertain
   response disables resubmission and offers read-only status recovery.
 
+## Create a Next Step From Team Discussion
+
+- Each editable discussion offers Create next step. The dialog loads saved local
+  context only when opened, prefills subject/notes/date, and requires a topic choice
+  when more than one constituent is linked. General discussions can create a
+  general follow-up without a constituent or NXT action button.
+- Users can create their own follow-ups. Admins can choose another active MGO
+  who already owns, is assigned, or is tagged in the discussion. This does not
+  grant discussion access or widen workspace editing permissions. Executive acting
+  views remain read-only. Local-only constituent links stay with their owner.
+- POST `/api/discussion-items/:id/next-step` creates an additional reminder, never
+  a primary replacement. NXT system IDs map only to the target owner's local
+  constituent/prospect records. If needed, a lightweight local constituent link
+  is saved using the discussion's existing NXT ID; nothing is created in NXT.
+  Opportunity links are retained only through that owner's matching prospect.
+- `source_discussion_id`, `source_topic_key`, and `entered_by_user_id` preserve
+  origin and author. A unique source/owner/topic index and transaction-level source
+  lock prevent repeat submissions, including after completion or a lost response.
+  Reopen or edit the existing task instead of creating another for the same topic
+  and owner. A different topic or responsible owner can have a separate follow-up.
+- Exact discussion versions, current membership, user roles, and the selected
+  constituent identity are checked again at the write boundary. Changed context
+  fails closed. Cache invalidation cannot turn a committed success into failure.
+- The discussion shows the linked owner, due date, and completion status. This
+  limited shared metadata is disclosed before saving; private follow-up notes are
+  not returned on discussion cards. Same-workspace links open the correct status
+  and page in Next Steps and focus the linked item.
+- Origin reminders bypass legacy discussion synchronization on edit. Completing,
+  reopening, and rescheduling do not modify the original discussion, nor does
+  resolving the discussion complete its reminders. Primary prospect plans remain
+  untouched. There are no NXT calls, polling, or maintenance-schedule changes.
+
 ## Verification
 
 Covered by API scope/permission tests, date/group/search/pagination tests, and

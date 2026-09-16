@@ -9,6 +9,7 @@ const token = "2026-09-15 12:30:10.123456+00";
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const writes = () => fetch.mock.calls.filter(([, options]) => options?.method === "POST");
 beforeEach(() => {
+  window.history.replaceState(null, "", "/follow-ups");
   canEdit = true;
   items = [
     { id: 1, title: "Prepare visit", constituent_name: "Person One", details: "Keep these notes", due_date: "2026-09-16", status: "Open", updated_at: token, discussion_item_id: 9, discussion_status: "Resolved" },
@@ -34,7 +35,7 @@ beforeEach(() => {
   }));
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 });
-afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 const mount = () => render(<QueryClientProvider client={client}><NextStepsWorklist viewerId={2} workspaceId={7} /></QueryClientProvider>);
 const row = () => screen.getByRole("article", { name: "Person One: Prepare visit" });
 
@@ -136,4 +137,39 @@ it("hides all quick actions for read-only viewers, including completed history",
   fireEvent.click(screen.getByRole("button", { name: "Completed history" }));
   await screen.findByText("Make call");
   expect(screen.queryByRole("button", { name: "Reopen" })).not.toBeInTheDocument();
+});
+
+it("opens a linked next step on its correct page without any new API enrichment", async () => {
+  items = Array.from({ length: 55 }, (_, index) => ({ id: index + 1, title: `Task ${index + 1}`, constituent_name: `Person ${index + 1}`, status: "Open", due_date: "2026-09-16", updated_at: token }));
+  window.history.replaceState(null, "", "/follow-ups?tab=next-steps&nextStepId=55&status=Open");
+  mount();
+  const linked = await screen.findByRole("article", { name: "Person 55: Task 55" });
+  expect(screen.getByText("Page 3 of 3")).toBeInTheDocument();
+  await waitFor(() => expect(linked).toHaveFocus());
+  expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/follow-ups?"))).toBe(true);
+});
+
+it("opens a completed next step from its discussion link", async () => {
+  items[0].status = "Done";
+  window.history.replaceState(null, "", "/follow-ups?tab=next-steps&nextStepId=1&status=Done");
+  mount();
+  await screen.findByText("Prepare visit");
+  expect(screen.getByRole("button", { name: "Completed history" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Reopen", exact: true })).toBeInTheDocument();
+  await waitFor(() => expect(row()).toHaveFocus());
+});
+
+it("explains a missing linked task without pulling another owner's records", async () => {
+  window.history.replaceState(null, "", "/follow-ups?tab=next-steps&nextStepId=999&status=Open");
+  mount();
+  await screen.findByText(/This linked next step is not in this workspace/);
+  expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/follow-ups?"))).toBe(true);
+});
+
+it("labels general discussion follow-ups and does not offer an NXT action without a constituent", async () => {
+  items = [{ id: 1, title: "Prepare meeting agenda", source_topic_key: "general", status: "Open", updated_at: token }];
+  mount();
+  await screen.findByText("General follow-up");
+  expect(screen.queryByRole("button", { name: "Log NXT action" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Mark complete" })).toBeEnabled();
 });

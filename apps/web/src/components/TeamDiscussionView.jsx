@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
@@ -13,6 +13,8 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import DiscussionConstituentPicker from "@/components/DiscussionConstituentPicker";
 import { formatNextStepDate, nextStepDay } from "@/utils/nextStepWorklist";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+
+const DiscussionNextStepDialog = lazy(() => import("./DiscussionNextStepDialog"));
 
 function formatShortDate(value) {
   if (!value) return "";
@@ -156,6 +158,8 @@ function DiscussionCard({
   editingItem,
   pending,
   recentlySaved,
+  onCreateNextStep,
+  workspaceId,
 }) {
   const anchorLabel = getAnchorLabel(item);
   const isEditing = editingItem?.id === item.id;
@@ -215,6 +219,10 @@ function DiscussionCard({
         </div>
       ) : null}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        {item.can_create_next_step && <button type="button" disabled={pending || isEditing}
+          onClick={() => onCreateNextStep(item)} className="min-h-11 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-800 disabled:opacity-50">
+          Create next step
+        </button>}
         <button
           type="button"
           onClick={() => onToggle(item)}
@@ -286,6 +294,18 @@ function DiscussionCard({
           </span>
         ) : null}
       </div>
+      {item.next_steps?.length > 0 && <div className="mt-3 grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" aria-label="Linked next steps">
+        <p className="font-semibold">Linked next steps</p>
+        {item.next_steps.map(task => {
+          const topic = linkedConstituents.find(value => task.source_topic_key === (value.blackbaudConstituentId ? `nxt:${value.blackbaudConstituentId}` : `local:${value.constituent_id}`));
+          return <div key={task.id} className="flex flex-wrap items-center justify-between gap-2">
+            <span>{task.owner_name}{topic ? ` · ${topic.name}` : ""} · {task.status === "Done" ? "Completed" : "Open"}{task.due_date ? ` · Due ${formatShortDate(task.due_date)}` : ""}</span>
+            {String(task.owner_user_id) === String(workspaceId) && <a className="inline-flex min-h-11 items-center font-semibold underline"
+              href={`/follow-ups?tab=next-steps&nextStepId=${task.id}&status=${task.status}`}>View next step</a>}
+          </div>;
+        })}
+        <p className="text-xs">Follow-up status is separate from this discussion's status.</p>
+      </div>}
       {item.tagged_users?.length ? (
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
           {item.tagged_users.map((taggedUser) => (
@@ -531,6 +551,7 @@ function DiscussionCard({
 }
 
 export default function TeamDiscussionView({ user, workspaceId, active = true }) {
+  const [nextStepItem, setNextStepItem] = useState(null);
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") === "Resolved" ? "Resolved" : "Open");
   const openedLink = useRef(null);
@@ -1216,6 +1237,8 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                 <DiscussionCard
                   key={item.id}
                   item={item}
+                  workspaceId={workspaceId}
+                  onCreateNextStep={setNextStepItem}
                   teammateOptions={teammateOptions}
                   editingItem={editingItem}
                   onEdit={(currentItem, partial = {}) => {
@@ -1287,6 +1310,13 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
           </div>
         ) : null}
       </div>
+      {nextStepItem && <Suspense fallback={<p role="status">Opening next-step form...</p>}>
+        <DiscussionNextStepDialog item={nextStepItem} viewerId={user.id} workspaceId={workspaceId}
+          onClose={() => setNextStepItem(null)} onSaved={() => {
+            for (const key of ["team-discussion", "next-step-worklist", "pending-actions", "worklist"])
+              queryClient.invalidateQueries({ queryKey: [key] });
+          }} />
+      </Suspense>}
     </div>
   );
 }
