@@ -10,7 +10,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.showModal = vi.fn(function () { this.setAttribute("open", ""); });
   HTMLDialogElement.prototype.close = vi.fn(function () { this.removeAttribute("open"); });
   context = { workspace: { id: 7, name: "Selected MGO" }, viewer: { id: 2, name: "Admin Author" }, today: "2026-09-16", receipt: null,
-    task: { id: 40, constituentId: "123", constituentName: "Test Donor", title: "Thank donor", details: "Discuss impact", category: "Stewardship", status: "Open", sourceToken: "source", opportunityTitle: "Gift", willLinkOpportunity: true } };
+    task: { id: 40, constituentId: "123", constituentName: "Test Donor", title: "Thank donor", details: "Discuss impact", category: "Stewardship", status: "Open", dueDate: "2026-09-18", sourceToken: "source", opportunityTitle: "Gift", willLinkOpportunity: true } };
   onSaved = vi.fn(); onClose = vi.fn();
   respond = async () => reply({ receipt: { state: "saved", actionId: "500", constituentId: "123", reminderCompleted: true, message: "NXT action saved and verified. Next step completed." } });
   vi.stubGlobal("fetch", vi.fn(async (url, options) => options?.method === "POST" ? respond(JSON.parse(options.body)) : reply(context)));
@@ -18,16 +18,25 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mount = () => render(<QueryClientProvider client={client}><NextStepActionDialog item={{ id: 40 }} viewerId={2} workspaceId={7} onClose={onClose} onSaved={onSaved} /></QueryClientProvider>);
-const choose = async () => { await screen.findByLabelText("Category"); fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Meeting" } }); };
+const choose = async () => {
+  fireEvent.click(await screen.findByRole("radio", { name: "Log completed action" }));
+  fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Meeting" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+};
 
 it("prefills saved notes and stewardship type, but requires category and does not write on open", async () => {
   mount();
-  expect(await screen.findByLabelText("Summary")).toHaveValue("Thank donor");
+  await screen.findByRole("radio", { name: "Log completed action" });
+  expect(screen.getAllByRole("radio").every(radio => !radio.checked)).toBe(true);
+  expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Log completed action" }));
+  expect(screen.getByLabelText("Summary")).toHaveValue("Thank donor");
   expect(screen.getByLabelText("Action notes")).toHaveValue("Discuss impact");
-  expect(screen.getByLabelText("Action date")).toHaveValue("2026-09-16");
+  expect(screen.getByLabelText("Completed action date")).toHaveValue("2026-09-16");
   expect(screen.getByLabelText("Action type")).toHaveValue("Stewardship");
   expect(screen.getByLabelText("Category")).toHaveValue("");
-  expect(screen.getByRole("button", { name: "Log action and complete next step" })).toBeDisabled();
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Log completed action; keep next step open" })).toBeDisabled();
   expect(screen.getByRole("link", { name: "Open constituent in NXT" })).toHaveAttribute("href", "https://renxt.blackbaud.com/constituents/123");
   expect(screen.getByText(/Entered by Admin Author/)).toBeInTheDocument();
   expect(writes()).toHaveLength(0);
@@ -35,18 +44,18 @@ it("prefills saved notes and stewardship type, but requires category and does no
 });
 it("submits the reviewed action exactly once without legacy next-step or discussion fields", async () => {
   mount(); await choose();
-  const button = screen.getByRole("button", { name: "Log action and complete next step" });
+  const button = screen.getByRole("button", { name: "Log completed action and complete next step" });
   fireEvent.click(button); fireEvent.click(button);
   await screen.findByText("NXT action saved and verified. Next step completed.");
   expect(writes()).toHaveLength(1);
-  expect(JSON.parse(writes()[0][1].body)).toEqual({ actionDate: "2026-09-16", actionCategory: "Meeting", interactionType: "Stewardship", summary: "Thank donor", notes: "Discuss impact", completeReminder: true, sourceToken: "source", expectedWorkspaceId: 7 });
+  expect(JSON.parse(writes()[0][1].body)).toEqual({ actionIntent: "completed", actionDate: "2026-09-16", actionCategory: "Meeting", interactionType: "Stewardship", summary: "Thank donor", notes: "Discuss impact", completeReminder: true, sourceToken: "source", expectedWorkspaceId: 7 });
   expect(onSaved).toHaveBeenCalledOnce();
-  expect(screen.queryByRole("button", { name: "Log action and complete next step" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Log completed action and complete next step" })).not.toBeInTheDocument();
 });
 it("allows leaving the next step open", async () => {
   mount(); await choose();
   fireEvent.click(screen.getByRole("checkbox"));
-  fireEvent.click(screen.getByRole("button", { name: "Log action; keep next step open" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log completed action; keep next step open" }));
   await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
   expect(JSON.parse(writes()[0][1].body).completeReminder).toBe(false);
 });
@@ -54,7 +63,7 @@ it("does not let the dialog close or submit again while a write is pending", asy
   let finish;
   respond = () => new Promise(resolve => { finish = resolve; });
   mount(); await choose();
-  fireEvent.click(screen.getByRole("button", { name: "Log action and complete next step" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log completed action and complete next step" }));
   expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
   fireEvent(screen.getByRole("dialog"), new Event("cancel", { bubbles: true, cancelable: true }));
   expect(onClose).not.toHaveBeenCalled();
@@ -66,18 +75,18 @@ it("retains the draft after a pre-write rejection", async () => {
   respond = () => reply({ error: "No action was sent. Fix fundraiser mapping." }, 502);
   mount(); await choose();
   fireEvent.change(screen.getByLabelText("Action notes"), { target: { value: "Actual outcome" } });
-  fireEvent.click(screen.getByRole("button", { name: "Log action and complete next step" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log completed action and complete next step" }));
   await screen.findByRole("alert");
   expect(screen.getByLabelText("Action notes")).toHaveValue("Actual outcome");
-  expect(screen.getByRole("button", { name: "Log action and complete next step" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Log completed action and complete next step" })).toBeEnabled();
   expect(onSaved).not.toHaveBeenCalled();
 });
 it("blocks a resend after a lost response and can recover the durable receipt by reading status", async () => {
   respond = () => { throw new Error("Network disconnected. Reload submission status."); };
   mount(); await choose();
-  fireEvent.click(screen.getByRole("button", { name: "Log action and complete next step" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log completed action and complete next step" }));
   await screen.findByRole("alert");
-  expect(screen.getByRole("button", { name: "Log action and complete next step" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Log completed action and complete next step" })).toBeDisabled();
   context.receipt = { state: "saved", actionId: "500", message: "Recovered saved action." };
   fireEvent.click(screen.getByRole("button", { name: "Reload submission status" }));
   await screen.findByText("Recovered saved action.");
@@ -168,4 +177,63 @@ it.each(["processing", "saved", "no action ID"])("does not offer recovery for %s
   await screen.findByText("Existing action needs verification.");
   expect(screen.queryByRole("button", { name: "Verify existing NXT action" })).not.toBeInTheDocument();
   expect(fetch.mock.calls).toHaveLength(1);
+});
+
+it("schedules from the saved due date without offering reminder completion", async () => {
+  respond = async action => reply({ receipt: { state: "saved", actionId: "500", constituentId: "123", actionIntent: action.actionIntent,
+    actionDate: action.actionDate, reminderCompleted: false, message: "Planned NXT action saved and verified as incomplete." } });
+  mount();
+  fireEvent.click(await screen.findByRole("radio", { name: "Schedule planned action" }));
+  expect(screen.getByLabelText("Planned action date")).toHaveValue("2026-09-18");
+  expect(screen.getByLabelText("Planned action date")).toHaveAttribute("min", "2026-09-16");
+  expect(screen.getByLabelText("Planned action date")).not.toHaveAttribute("max");
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Phone Call" } });
+  const button = screen.getByRole("button", { name: "Schedule NXT action" });
+  fireEvent.click(button); fireEvent.click(button);
+  await screen.findByText("Planned NXT action saved and verified as incomplete.");
+  expect(JSON.parse(writes()[0][1].body)).toMatchObject({ actionIntent: "planned", completeReminder: false, actionDate: "2026-09-18", actionCategory: "Phone Call" });
+  expect(writes()).toHaveLength(1);
+  expect(screen.getByText(/Submitted as: Planned action for Sep 18, 2026/)).toBeInTheDocument();
+  expect(screen.getByText(/Mark complete in this app only closes the reminder/)).toBeInTheDocument();
+});
+it("keeps separate dates when switching intent and always resets reminder completion consent", async () => {
+  mount(); await choose();
+  fireEvent.change(screen.getByLabelText("Completed action date"), { target: { value: "2026-09-15" } });
+  fireEvent.change(screen.getByLabelText("Action notes"), { target: { value: "Reviewed notes" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Schedule planned action" }));
+  expect(screen.getByLabelText("Planned action date")).toHaveValue("2026-09-18");
+  fireEvent.change(screen.getByLabelText("Planned action date"), { target: { value: "2026-09-20" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Log completed action" }));
+  expect(screen.getByLabelText("Completed action date")).toHaveValue("2026-09-15");
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByLabelText("Action notes")).toHaveValue("Reviewed notes");
+  fireEvent.click(screen.getByRole("radio", { name: "Schedule planned action" }));
+  expect(screen.getByLabelText("Planned action date")).toHaveValue("2026-09-20");
+  expect(writes()).toHaveLength(0);
+});
+it.each([null, "2026-09-01", "invalid"])("uses today, not a past/invalid/missing due date (%s), for a new plan", async dueDate => {
+  context.task.dueDate = dueDate;
+  mount();
+  fireEvent.click(await screen.findByRole("radio", { name: "Schedule planned action" }));
+  expect(screen.getByLabelText("Planned action date")).toHaveValue("2026-09-16");
+});
+it("blocks future completed dates and past planned dates before sending", async () => {
+  mount(); await choose();
+  fireEvent.change(screen.getByLabelText("Completed action date"), { target: { value: "2026-09-18" } });
+  expect(screen.getByRole("button", { name: "Log completed action and complete next step" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("radio", { name: "Schedule planned action" }));
+  fireEvent.change(screen.getByLabelText("Planned action date"), { target: { value: "2026-09-15" } });
+  expect(screen.getByRole("button", { name: "Schedule NXT action" })).toBeDisabled();
+  expect(writes()).toHaveLength(0);
+});
+it("does not expose mode switching after a saved planned submission", async () => {
+  withReview("Open");
+  context.receipt = { ...context.receipt, state: "saved", actionIntent: "planned", actionDate: "2026-09-18" };
+  mount();
+  await screen.findByText(/Submitted as: Planned action/);
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  expect(screen.queryByText(/If this follow-up is finished/)).not.toBeInTheDocument();
+  expect(screen.getByText(/Mark complete in this app only closes the reminder/)).toBeInTheDocument();
+  expect(writes()).toHaveLength(0);
 });

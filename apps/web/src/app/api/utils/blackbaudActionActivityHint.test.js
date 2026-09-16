@@ -25,6 +25,12 @@ it("does not request a check for a failed or unconfirmed creation", async () => 
   await createBlackbaudAction(options);
   expect(hint).not.toHaveBeenCalled();
 });
+it("does not request an extra latest-activity pull for a new planned action", async () => {
+  fetch.mockResolvedValue(Response.json({ id: "planned" }));
+  await createBlackbaudAction({ ...options, payload: { ...options.payload, completed: false } });
+  expect(hint).not.toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 it("never turns a successful NXT write into a user retry because the hint failed", async () => {
   fetch.mockResolvedValue(Response.json({ id: "a" }));
   hint.mockRejectedValue(new Error("temporary database outage"));

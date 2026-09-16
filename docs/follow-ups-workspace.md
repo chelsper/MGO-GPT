@@ -76,21 +76,28 @@ No combined All feed, reassignment, or expansion of the portfolio activity pilot
 is included. Editing a reminder or using Mark complete is still not evidence an
 NXT action occurred.
 
-## Log NXT Action From a Next Step
+## Add an NXT Action From a Next Step
 
-- Open reminders now offer an explicit Log NXT action dialog. It is lazy-loaded
+- Open reminders offer an explicit Add NXT action dialog. It is lazy-loaded
   on click, with a single saved-data context read. Opening, searching, paging,
   or expanding next steps still does not call NXT.
-- The dialog prefills the task title/notes, Eastern today's date, and Stewardship
-  type for stewardship reminders (otherwise Cultivation). Category is deliberately
-  unselected: the user describes what actually happened, not merely the planned
-  activity. Category/type options are shared with the existing action form.
+- The user must choose Schedule planned action or Log completed action; neither
+  is selected by default. The dialog prefills the task title/notes and Stewardship
+  type for stewardship reminders (otherwise Cultivation). Category remains
+  unselected. Category/type options are shared with the existing action form.
+- Planned actions default to the reminder's due date when today or later, otherwise
+  Eastern today. Completed actions default to today. Each mode retains its own
+  date draft. Switching modes clears consent to complete the reminder.
 - Credit goes to the selected MGO; the signed-in Admin remains the author.
   A linked NXT opportunity is retained only through the owned prospect relationship.
   Portfolio-only reminders are supported when their constituent link is unambiguous.
-- Complete this next step after NXT confirms the action is optional. The action
-  date must not be in the future. No new next step, discussion, or opportunity is
-  created. Linked discussions remain unchanged.
+- Completed actions cannot have a future date. Complete this next step after NXT
+  confirms the action is optional and starts unchecked. Planned actions must be
+  today or later, stay incomplete in NXT, and cannot complete the app reminder or
+  change its date. No new reminder, discussion, or opportunity is created.
+- POST requires an explicit `actionIntent` of `planned` or `completed`; missing or
+  unknown intent fails before NXT reads/writes. The server enforces date boundaries
+  and reminder-completion rules independently of the form.
 - GET/POST `/api/pending-actions/:id/log-action` enforce session/workspace ownership
   and editing permissions. The context token includes the exact task version and
   constituent/opportunity links. Conflicting/missing links fail closed, with no
@@ -111,18 +118,26 @@ NXT action occurred.
   payloads. After an ambiguous timeout/crash the receipt remains blocked for review.
   Reload submission status only reads local data. Check NXT before making further
   changes; there is deliberately no force-resend or delete-receipt button.
-- The created action ID is saved before metadata work. The server checks the
-  action's exact identity before patching, then re-reads and verifies constituent,
+- The created action ID is saved before verification. Completed actions retain the
+  identity-check, metadata PATCH, and re-read flow. Planned actions send the type
+  on create with `completed: false`, omit completion date and custom status, and
+  use a single GET verification with no metadata PATCH. A returned completed action
+  is held for review, never reopened automatically. Both modes verify constituent,
   date, summary, notes, category, type, completed flag, fundraiser credit, and linked
-  opportunity. Only then is the existing guarded completion helper called.
+  opportunity. Only a verified completed action can invoke guarded completion.
+- Scheduling consumes the same one-action-per-reminder receipt. Complete or
+  reschedule that same action in NXT rather than creating another. App Mark complete
+  only closes the reminder; it does not complete the NXT action. Receipt text labels
+  the original submitted intent/date, not a live NXT status.
 - A changed reminder/primary plan is not overwritten. A saved NXT action with
   failed local completion is reported separately; reload the list and use the
   existing Mark complete control after review rather than logging again.
-- Successful actions get a single local prospect activity entry when a prospect
+- Successful completed actions get a single local prospect activity entry when a prospect
   exists. No legacy action-save endpoint is used, because that older workflow can
   clear a primary next step independently of NXT success. Existing normal action
-  entry behavior is unchanged. Portfolio caches and refresh schedules are unchanged;
-  the existing successful-create activity refresh hint is retained.
+  entry behavior is unchanged. Planned actions do not add completed local activity
+  or request a completed-activity refresh hint. Portfolio refresh schedules and
+  existing NXT report definitions are unchanged.
 - Native modal focus/keyboard handling, dirty-draft confirmation, in-flight close
   blocking, and before-unload protection keep review deliberate. An uncertain
   response disables resubmission and offers read-only status recovery.
@@ -137,8 +152,10 @@ NXT action occurred.
   compares it with the durable original payload, not an editable client draft.
   It makes no NXT create/update calls and does not complete or reopen reminders.
   Processing receipts and missing IDs cannot use recovery; no search guesses an ID.
-- A successful check atomically transitions review to saved and records local
-  activity at most once, retaining the original author. Activity can attach only
+- A successful check atomically transitions review to saved and records completed
+  local activity at most once, retaining the original author. Planned receipts never
+  add this activity. Legacy receipts without intent are verified as completed.
+  Recovery uses the original date, even when a planned date is now past. Activity can attach only
   to the original prospect if it still belongs to that owner and NXT constituent.
   Repeated/concurrent checks cannot duplicate activity. Provider/portfolio caches
   and maintenance schedules are unchanged. No new schema migration is required.
@@ -196,5 +213,9 @@ tasks, including newer-plan protection and completed-history preservation.
 Action logging tests cover attribution, permissions, stale context, idempotency,
 preflight failures, uncertain writes, metadata verification, partial success,
 saved-data-only dialog loading, draft retention, and duplicate-click protection.
+Planned/completed tests cover explicit intent, per-mode date defaults and boundaries,
+unchecked completion consent, incomplete create payloads without completion metadata,
+no planned-action metadata PATCH, planned receipt recovery, and no completed local
+activity or completion when scheduling.
 Disposable PostgreSQL checks exercise the actual receipt schema, context/claim
 queries, local activity insert, and completion helper with synthetic records.

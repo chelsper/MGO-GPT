@@ -15,7 +15,7 @@ import { GET, POST, PATCH } from "./route";
 
 const params = { params: { id: "40" } };
 const token = "2026-09-15 12:30:10.123456+00";
-const body = { expectedWorkspaceId: 7, sourceToken: "source", actionDate: "2026-09-16", actionCategory: "Meeting",
+const body = { expectedWorkspaceId: 7, sourceToken: "source", actionIntent: "completed", actionDate: "2026-09-16", actionCategory: "Meeting",
   interactionType: "Stewardship", summary: "Thank donor", notes: "Discussed impact", completeReminder: true };
 const call = (extra = {}) => POST(new Request("https://example.com/api/pending-actions/40/log-action", {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, ...extra }),
@@ -26,7 +26,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.auth.mockResolvedValue({ user: { email: "admin@example.com" } });
   mocks.context.mockResolvedValue({ sessionUser: { id: 2, name: "Admin Author", role: "admin" }, workspaceUser: { id: 7, name: "Selected MGO", role: "mgo" }, isActing: true });
-  mocks.read.mockResolvedValue({ id: 40, status: "Open", title: "Thank donor", category: "Stewardship", details: "Discussed impact", source_token: "source", updated_at: token,
+  mocks.read.mockResolvedValue({ id: 40, status: "Open", title: "Thank donor", category: "Stewardship", details: "Discussed impact", due_date: "2026-09-18", source_token: "source", updated_at: token,
     constituentId: "123", constituent_name: "Example Donor", prospect_id: 20, blackbaud_opportunity_id: "333", opportunity_title: "Gift" });
   mocks.receipt.mockResolvedValue(null);
   mocks.claim.mockResolvedValue(true);
@@ -42,7 +42,7 @@ beforeEach(() => {
 it("loads saved context on demand without any NXT calls", async () => {
   const response = await GET(new Request("https://example.com/api/pending-actions/40/log-action?workspaceId=7"), params);
   expect(response.status).toBe(200);
-  expect((await response.json()).task).toMatchObject({ constituentId: "123", sourceToken: "source", willLinkOpportunity: true });
+  expect((await response.json()).task).toMatchObject({ constituentId: "123", sourceToken: "source", willLinkOpportunity: true, dueDate: "2026-09-18" });
   expect(response.headers.get("Cache-Control")).toContain("no-store");
   expect(mocks.constituent).not.toHaveBeenCalled();
   expect(mocks.create).not.toHaveBeenCalled();
@@ -291,4 +291,74 @@ it("does not recover another workspace's reminder", async () => {
   expect((await reverify()).status).toBe(404);
   expect(mocks.receipt).not.toHaveBeenCalled();
   expect(mocks.get).not.toHaveBeenCalled();
+});
+
+it.each(["2026-09-16", "2026-09-18"])("schedules an incomplete action on %s without completing the reminder or logging completed activity", async actionDate => {
+  mocks.get.mockResolvedValue({ ...savedAction, date: `${actionDate}T00:00:00Z`, completed: false });
+  const response = await call({ actionIntent: "planned", actionDate, completeReminder: false });
+  expect(response.status).toBe(200);
+  expect((await response.json()).receipt).toMatchObject({ state: "saved", actionIntent: "planned", actionDate, reminderCompleted: false });
+  const create = mocks.create.mock.calls[0][0].payload;
+  const metadata = mocks.claim.mock.calls[0][0].payload.metadata;
+  for (const payload of [create, metadata]) {
+    expect(payload.completed).toBe(false);
+    expect(payload).not.toHaveProperty("completed_date");
+    expect(payload).not.toHaveProperty("status");
+  }
+  expect(mocks.claim.mock.calls[0][0].payload.actionIntent).toBe("planned");
+  expect(create.type).toBe("Stewardship");
+  expect(mocks.get).toHaveBeenCalledOnce();
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+  const finalize = mocks.sql.mock.calls.find(([parts]) => parts.join("?").includes("INSERT INTO prospect_updates"));
+  expect(finalize[0].join("?")).toContain("WHERE ?::boolean");
+  expect(finalize.slice(1)).toContain(false);
+});
+it.each([
+  { actionIntent: undefined }, { actionIntent: "" }, { actionIntent: "scheduled" },
+  { actionIntent: "planned", completeReminder: true },
+  { actionIntent: "planned", completeReminder: false, actionDate: "2026-09-15" },
+])("rejects ambiguous intent or unsafe planning before reads/writes %j", async change => {
+  expect((await call(change)).status).toBe(400);
+  expect(mocks.read).not.toHaveBeenCalled();
+  expect(mocks.constituent).not.toHaveBeenCalled();
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+it("holds a planned action returned completed without patching or completing the reminder", async () => {
+  const response = await call({ actionIntent: "planned", completeReminder: false });
+  expect((await response.json()).receipt).toMatchObject({ state: "review", actionIntent: "planned", actionId: "500" });
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("keeps an ambiguous planned create blocked even if the user switches intent", async () => {
+  mocks.create.mockRejectedValue(new Error("timeout"));
+  expect((await (await call({ actionIntent: "planned", completeReminder: false })).json()).receipt.state).toBe("review");
+  mocks.receipt.mockResolvedValue(reviewReceipt({ blackbaud_action_id: null, request_payload: { actionIntent: "planned" } }));
+  expect((await (await call()).json()).receipt.actionIntent).toBe("planned");
+  expect(mocks.create).toHaveBeenCalledOnce();
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("reverifies planned actions against the original intent and excludes local completed activity", async () => {
+  const receipt = reviewReceipt();
+  receipt.request_payload.actionIntent = "planned";
+  receipt.request_payload.createPayload.completed = false;
+  receipt.request_payload.metadata.completed = false;
+  mocks.receipt.mockResolvedValue(receipt);
+  mocks.get.mockResolvedValue({ ...savedAction, completed: false });
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved" }]);
+  const response = await reverify();
+  expect(response.status).toBe(200);
+  expect((await response.json()).receipt.actionIntent).toBe("planned");
+  expect(mocks.sql.mock.calls[0][0].join("?")).toContain("AND ? = 'completed'");
+  expect(mocks.sql.mock.calls[0].slice(1)).toContain("planned");
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("still recovers legacy completed receipts with no intent field", async () => {
+  const receipt = reviewReceipt();
+  delete receipt.request_payload.actionIntent;
+  mocks.receipt.mockResolvedValue(receipt);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved" }]);
+  expect((await reverify()).status).toBe(200);
 });

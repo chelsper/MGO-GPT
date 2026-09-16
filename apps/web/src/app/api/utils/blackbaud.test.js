@@ -70,6 +70,19 @@ describe("blackbaud action payload helpers", () => {
     expect(actionPayload.category).toBe("Task/Other");
   });
 
+  it("creates and patches planned actions without completion dates or an invented status", () => {
+    const input = { blackbaudConstituentId: "123", actionDate: "2026-09-18", completedDate: "2026-09-16", completed: false,
+      actionCategory: "Phone Call", summary: "Planned call", actionNotes: "Discuss the event", interactionType: "Cultivation", fundraiserIds: ["99"] };
+    const create = buildBlackbaudActionPayload(input);
+    const patch = buildBlackbaudActionMetadataPayload(input);
+    expect(create).toMatchObject({ completed: false, date: "2026-09-18T00:00:00.000Z", constituent_id: "123", fundraisers: ["99"] });
+    expect(patch).toMatchObject({ completed: false, type: "Cultivation", fundraisers: ["99"] });
+    for (const payload of [create, patch]) {
+      expect(payload).not.toHaveProperty("completed_date");
+      expect(payload).not.toHaveProperty("status");
+    }
+  });
+
   it("maps slash-delimited action types to NXT Actions table spacing", () => {
     const metadataPayload = buildBlackbaudActionMetadataPayload({
       actionDate: "2026-06-16",

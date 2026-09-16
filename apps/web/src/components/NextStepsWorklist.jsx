@@ -194,7 +194,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                 </button>}
                 {(item.nxt_action_state || status === "Open" && item.source_topic_key !== "general") && <button type="button" className={buttonClass} disabled={save.isPending || Boolean(actionItem)} onClick={() => {
                   if (discardEditor()) { setNotice(""); setActionItem(item); }
-                }}>{item.nxt_action_state ? "View NXT submission" : "Log NXT action"}</button>}
+                }}>{item.nxt_action_state ? "View NXT submission" : "Add NXT action"}</button>}
               </div>}
             </div>
             <details className="mt-3 text-sm text-gray-600">

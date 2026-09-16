@@ -3,7 +3,7 @@ import sql from "@/app/api/utils/sql";
 // Shared by the read and claim queries, so changed links or versions cannot be
 // submitted using the previously displayed context. All IDs remain owner-scoped.
 export const nextStepActionSourceSql = `
-  SELECT pa.id, pa.title, pa.details, pa.category, pa.status,
+  SELECT pa.id, pa.title, pa.details, pa.category, pa.status, pa.due_date::text AS due_date,
     pa.updated_at::text AS updated_at, p.id AS prospect_id,
     COALESCE(c.name, p.prospect_name, pc.name) AS constituent_name,
     c.blackbaud_constituent_id AS direct_nxt_id,
@@ -76,21 +76,24 @@ export function actionConstituentId(payload) {
   return String(action?.constituent_id || action?.constituent?.id || "");
 }
 
-export function verifiedNextStepAction(payload, { actionId, constituentId, createPayload, metadata }) {
+export function verifiedNextStepAction(payload, { actionId, constituentId, createPayload, metadata, actionIntent = "completed" }) {
   const record = actionRecord(payload);
-  if (!actionId || !constituentId || typeof createPayload?.summary !== "string" || !createPayload.summary
+  if (!["planned", "completed"].includes(actionIntent)
+    || !actionId || !constituentId || typeof createPayload?.summary !== "string" || !createPayload.summary
     || typeof createPayload?.category !== "string" || !createPayload.category
     || typeof createPayload?.date !== "string" || !createPayload.date
     || typeof metadata?.type !== "string" || !metadata.type
     || !Array.isArray(metadata?.fundraisers) || !metadata.fundraisers.length
     || metadata.fundraisers.some(id => !String(id || "").trim())) return false;
+  if (actionIntent === "planned" && (createPayload.completed !== false || metadata.completed !== false
+    || record?.completed_date || record?.computed_status === "Completed")) return false;
   const fundraisers = Array.isArray(record?.fundraisers) ? record.fundraisers.map(item => String(typeof item === "object" ? item?.id : item)) : [];
   // NXT canonicalizes category casing and converts note line endings to CRLF.
   // Do not normalize names, IDs, note content/spacing, or other action fields.
   const notes = value => typeof value === "string" ? value.replace(/\r\n/g, "\n") : value;
   return actionRecordId(payload) === String(actionId)
     && actionConstituentId(payload) === String(constituentId)
-    && record?.completed === true
+    && record?.completed === (actionIntent === "completed")
     && record?.summary === createPayload.summary
     && (!createPayload.description || notes(record?.description) === notes(createPayload.description))
     && typeof record?.category === "string" && record.category.toLowerCase() === createPayload.category.toLowerCase()
@@ -104,6 +107,8 @@ export function publicActionReceipt(receipt, reminderStatus = null) {
   return {
     state: receipt.state, actionId: receipt.blackbaud_action_id || null,
     constituentId: receipt.constituent_id, reminderCompleted: Boolean(receipt.reminder_completed),
+    actionIntent: receipt.request_payload?.actionIntent || "completed",
+    actionDate: receipt.request_payload?.actionDate || null,
     reminderStatus,
     message: receipt.state === "review"
       ? "The app has not yet verified this NXT action. Do not log it again. Verification and next-step completion are separate."

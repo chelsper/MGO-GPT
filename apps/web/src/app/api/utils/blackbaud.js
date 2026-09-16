@@ -2102,6 +2102,7 @@ export function normalizeBlackbaudActionType(value) {
 export function buildBlackbaudActionPayload({
   blackbaudConstituentId,
   actionDate,
+  completed = true,
   completedDate,
   actionCategory,
   summary,
@@ -2140,9 +2141,8 @@ export function buildBlackbaudActionPayload({
     constituent_id: String(blackbaudConstituentId),
     date: formatBlackbaudActionCreateDateTime(actionDate),
     category: categoryMap[normalizedCategory] || "Task/Other",
-    completed: true,
-    completed_date: formatBlackbaudActionDate(completedDate || actionDate),
-    status: "Completed",
+    completed,
+    ...(completed ? { completed_date: formatBlackbaudActionDate(completedDate || actionDate), status: "Completed" } : {}),
     direction: "Outbound",
     summary: summaryText || "Action update from JUMGOGPT",
     description: descriptionParts.join("\n\n") || undefined,
@@ -2161,7 +2161,7 @@ export async function createBlackbaudAction({ userId, authUserId, origin, payloa
     body: payload,
     ...(maxRetries === undefined ? {} : { maxRetries }),
   });
-  if (result?.id) {
+  if (result?.id && payload?.completed !== false) {
     try {
       const { requestPortfolioActionRefresh } = await import("./portfolioActivityStore");
       await requestPortfolioActionRefresh({ origin, constituentId: payload?.constituent_id });
@@ -2297,6 +2297,7 @@ export async function executeBlackbaudListQuery({
 
 export function buildBlackbaudActionMetadataPayload({
   actionDate,
+  completed = true,
   completedDate,
   interactionType,
   fundraiserIds,
@@ -2306,9 +2307,8 @@ export function buildBlackbaudActionMetadataPayload({
 
   return {
     type: normalizedActionType,
-    completed: true,
-    completed_date: formatBlackbaudActionDate(completedDate || actionDate),
-    status: "Completed",
+    completed,
+    ...(completed ? { completed_date: formatBlackbaudActionDate(completedDate || actionDate), status: "Completed" } : {}),
     opportunity_id: opportunityId ? String(opportunityId) : undefined,
     fundraisers: Array.isArray(fundraiserIds)
       ? fundraiserIds.map((value) => String(value || "").trim()).filter(Boolean)

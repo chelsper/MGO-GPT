@@ -32,3 +32,19 @@ it("reports the current reminder separately and never exposes the stored action 
   expect(receipt.message).not.toContain("was not completed");
   expect(receipt).not.toHaveProperty("request_payload");
 });
+
+const planned = { ...expected, actionIntent: "planned", createPayload: { ...expected.createPayload, completed: false }, metadata: { ...expected.metadata, completed: false } };
+it("verifies the submitted planned intent, not merely an otherwise matching completed action", () => {
+  expect(verifiedNextStepAction({ ...record, completed: false }, planned)).toBe(true);
+  expect(verifiedNextStepAction(record, planned)).toBe(false);
+  expect(verifiedNextStepAction({ ...record, completed: false }, expected)).toBe(false);
+});
+it.each([{ completed: undefined }, { completed: "false" }, { completed_date: "2026-09-16" }, { computed_status: "Completed" }])("rejects inconsistent planned completion state %j", change => {
+  expect(verifiedNextStepAction({ ...record, completed: false, ...change }, planned)).toBe(false);
+});
+it("keeps legacy receipts completed and exposes only safe intent/date fields for planned receipts", () => {
+  expect(publicActionReceipt({ state: "saved" }).actionIntent).toBe("completed");
+  const receipt = publicActionReceipt({ state: "saved", request_payload: { ...planned, actionDate: "2026-09-18" } });
+  expect(receipt).toMatchObject({ actionIntent: "planned", actionDate: "2026-09-18" });
+  expect(receipt).not.toHaveProperty("createPayload");
+});

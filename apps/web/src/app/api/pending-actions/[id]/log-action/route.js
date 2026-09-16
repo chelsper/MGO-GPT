@@ -9,7 +9,7 @@ import { buildBlackbaudActionPayload, buildBlackbaudActionMetadataPayload, creat
   getBlackbaudAction, getBlackbaudConstituentById, updateBlackbaudAction } from "@/app/api/utils/blackbaud";
 import { readNextStepAction, readNextStepActionReceipt, claimNextStepAction, actionRecordId,
   actionConstituentId, verifiedNextStepAction, publicActionReceipt } from "@/app/api/utils/pendingActionNxt";
-import { ACTION_CATEGORIES, INTERACTION_TYPES, validActionDate } from "@/utils/actionEntryOptions";
+import { ACTION_CATEGORIES, INTERACTION_TYPES, validActionDate, validNextStepActionDate } from "@/utils/actionEntryOptions";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 
 const headers = { "Cache-Control": "private, no-store, max-age=0" };
@@ -37,7 +37,7 @@ export async function GET(request, { params }) {
     if (!item) return reply({ error: "Next step not found in this workspace." }, 404);
     const receipt = await readNextStepActionReceipt(params.id, context.workspaceUser.id);
     return reply({
-      task: { id: item.id, title: item.title, details: item.details, category: item.category, status: item.status,
+      task: { id: item.id, title: item.title, details: item.details, category: item.category, status: item.status, dueDate: item.due_date,
         sourceToken: item.source_token, constituentId: item.constituentId, constituentName: item.constituent_name,
         opportunityTitle: item.opportunity_title, willLinkOpportunity: Boolean(item.blackbaud_opportunity_id) },
       workspace: { id: context.workspaceUser.id, name: context.workspaceUser.name },
@@ -57,20 +57,26 @@ export async function POST(request, { params }) {
   let reminderCompleted = false;
   let ownerUserId;
   let constituentId;
+  let actionIntent;
+  let actionDate;
   let stage = "context";
   try {
     const body = await request.json().catch(() => null);
     const context = await authorize(request, params.id, body?.expectedWorkspaceId);
     if (context instanceof Response) return context;
-    const allowed = ["expectedWorkspaceId", "sourceToken", "actionDate", "actionCategory", "interactionType", "summary", "notes", "completeReminder"];
+    const allowed = ["expectedWorkspaceId", "sourceToken", "actionIntent", "actionDate", "actionCategory", "interactionType", "summary", "notes", "completeReminder"];
     if (!body || Object.keys(body).some(key => !allowed.includes(key))
       || typeof body.sourceToken !== "string" || body.sourceToken.length > 4000
-      || !validActionDate(body.actionDate) || body.actionDate > getStandingsPeriods().asOf
+      || !validNextStepActionDate(body.actionIntent, body.actionDate, getStandingsPeriods().asOf)
+      || body.actionIntent === "planned" && body.completeReminder !== false
       || !ACTION_CATEGORIES.includes(body.actionCategory) || !INTERACTION_TYPES.includes(body.interactionType)
       || typeof body.summary !== "string" || !body.summary.trim() || body.summary.length > 255
       || typeof body.notes !== "string" || body.notes.length > 10000 || typeof body.completeReminder !== "boolean") {
-      return reply({ error: "Review the action date, category, type, summary, and notes. Completed actions cannot have a future date." }, 400);
+      return reply({ error: "Choose planned or completed and review the action details. Planned actions must be today or later and keep the reminder open. Completed actions cannot have a future date." }, 400);
     }
+    actionIntent = body.actionIntent;
+    actionDate = body.actionDate;
+    const completed = actionIntent === "completed";
     const { workspaceUser, sessionUser } = context;
     ownerUserId = workspaceUser.id;
     const item = await readNextStepAction(params.id, ownerUserId);
@@ -99,9 +105,12 @@ export async function POST(request, { params }) {
     const createPayload = buildBlackbaudActionPayload({ blackbaudConstituentId: constituentId,
       actionDate: action.actionDate, actionCategory: action.actionCategory, summary: action.summary,
       actionNotes: action.notes, authorName: sessionUser.name || sessionUser.email,
-      opportunityId: item.blackbaud_opportunity_id, fundraiserIds });
+      opportunityId: item.blackbaud_opportunity_id, fundraiserIds, completed });
     const metadata = buildBlackbaudActionMetadataPayload({ actionDate: action.actionDate,
-      interactionType: action.interactionType, opportunityId: item.blackbaud_opportunity_id, fundraiserIds });
+      interactionType: action.interactionType, opportunityId: item.blackbaud_opportunity_id, fundraiserIds, completed });
+    // Planned actions can include their type on create. Avoid a completion
+    // metadata PATCH entirely, including a race that could reopen an NXT action.
+    if (!completed) createPayload.type = metadata.type;
     stage = "claim";
     claimed = await claimNextStepAction({ id: params.id, ownerUserId, enteredByUserId: sessionUser.id,
       sourceToken: body.sourceToken, constituentId, payload: { ...action, createPayload, metadata } });
@@ -122,9 +131,12 @@ export async function POST(request, { params }) {
     stage = "verify";
     const saved = await getBlackbaudAction({ ...api, actionId });
     if (actionRecordId(saved) !== actionId || actionConstituentId(saved) !== constituentId) throw new Error("Action identity unverified");
-    await updateBlackbaudAction({ ...api, actionId, payload: metadata });
-    const confirmed = await getBlackbaudAction({ ...api, actionId });
-    if (!verifiedNextStepAction(confirmed, { actionId, constituentId, createPayload, metadata })) throw new Error("Action fields unverified");
+    let confirmed = saved;
+    if (completed) {
+      await updateBlackbaudAction({ ...api, actionId, payload: metadata });
+      confirmed = await getBlackbaudAction({ ...api, actionId });
+    }
+    if (!verifiedNextStepAction(confirmed, { actionId, constituentId, createPayload, metadata, actionIntent })) throw new Error("Action fields unverified");
     verified = true;
 
     // Finalize the receipt and local activity in one statement, exactly once.
@@ -142,24 +154,27 @@ export async function POST(request, { params }) {
         SELECT p.id, ${action.actionDate}::date, ${action.notes || action.summary}, ${action.summary},
           ${action.actionCategory}, ${metadata.type}, ${actionId}, s.entered_by_user_id
         FROM saved s JOIN prospects p ON p.id = ${item.prospect_id} AND p.user_id = ${ownerUserId}
+        WHERE ${completed}::boolean
         RETURNING id
       )
       UPDATE users SET blackbaud_summary_cache = NULL, blackbaud_summary_cache_key = NULL,
         blackbaud_summary_cached_at = NULL, updated_at = NOW()
       WHERE id = ${ownerUserId} AND EXISTS (SELECT 1 FROM saved)
     `;
-    if (action.completeReminder) {
+    if (completed && action.completeReminder) {
       const completion = await applyPendingActionQuickAction({ id: params.id, ownerUserId, action: "complete", expectedUpdatedAt: item.updated_at });
       reminderCompleted = Boolean(completion?.item);
     }
-    const message = reminderCompleted
+    const message = !completed
+      ? "Planned NXT action saved and verified as incomplete. The app reminder and linked discussions were not changed. Complete or reschedule this same action in NXT; do not log it again."
+      : reminderCompleted
       ? "NXT action saved and verified. Next step completed; linked discussions are unchanged."
       : action.completeReminder
         ? "NXT action saved and verified, but the next step changed and was not completed. Reload the saved list and review it before marking it complete. Do not log this action again."
         : "NXT action saved and verified. Your next step was left open; linked discussions are unchanged.";
     await sql`UPDATE pending_action_nxt_receipts SET reminder_completed = ${reminderCompleted}, message = ${message}, updated_at = NOW()
       WHERE pending_action_id = ${params.id} AND owner_user_id = ${ownerUserId}`;
-    return reply({ receipt: { state: "saved", actionId, constituentId, reminderCompleted, message } });
+    return reply({ receipt: { state: "saved", actionId, constituentId, actionIntent, actionDate, reminderCompleted, message } });
   } catch (error) {
     const mappingError = ["NXT_FUNDRAISER_MAPPING_REQUIRED", "NXT_FUNDRAISER_MAPPING_INVALID"].includes(error?.code);
     const httpStatus = Number.isInteger(error?.httpStatus) ? error.httpStatus : null;
@@ -176,7 +191,9 @@ export async function POST(request, { params }) {
           : "The app could not prepare this action submission. No action was sent to NXT. Reload the saved list before trying again; resetting your NXT connection is not required for this app error.";
       return reply({ error: message }, 502);
     }
-    const message = verified
+    const message = verified && actionIntent === "planned"
+      ? "Planned NXT action was verified as incomplete, but the app could not confirm the saved receipt. Reload submission status. Do not send it again."
+      : verified
       ? "NXT action saved and verified, but the local completion result could not be confirmed. Reload the saved list before marking the next step complete. Do not log this action again."
       : "The app has not yet verified this NXT action. Do not log it again. Verification and next-step completion are separate.";
     try {
@@ -184,7 +201,7 @@ export async function POST(request, { params }) {
         message = ${message}, reminder_completed = ${reminderCompleted}, updated_at = NOW()
         WHERE pending_action_id = ${params.id} AND owner_user_id = ${ownerUserId}`;
     } catch { /* The original durable claim still prevents a duplicate POST. */ }
-    return reply({ receipt: { state: verified ? "saved" : "review", actionId, constituentId, reminderCompleted, message } }, 202);
+    return reply({ receipt: { state: verified ? "saved" : "review", actionId, constituentId, actionIntent, actionDate, reminderCompleted, message } }, 202);
   }
 }
 
@@ -221,7 +238,7 @@ export async function PATCH(request, { params }) {
     const confirmed = await getBlackbaudAction({ userId: ownerUserId, authUserId: context.sessionUser.id,
       origin: new URL(request.url).origin, actionId: receipt.blackbaud_action_id });
     if (!verifiedNextStepAction(confirmed, { actionId: receipt.blackbaud_action_id, constituentId: receipt.constituent_id,
-      createPayload: expected.createPayload, metadata: expected.metadata })) {
+      createPayload: expected.createPayload, metadata: expected.metadata, actionIntent: expected.actionIntent || "completed" })) {
       return reply({ error: "NXT returned the action, but its identity or required fields do not match the original submission. Review it in NXT. Nothing was sent or changed." }, 409);
     }
     const [saved] = await sql`
@@ -240,6 +257,7 @@ export async function PATCH(request, { params }) {
         FROM saved s JOIN prospects p ON p.id = ${originalProspectId} AND p.user_id = ${ownerUserId}
         LEFT JOIN constituents c ON c.id = p.constituent_id AND c.user_id = p.user_id
         WHERE s.constituent_id IN (p.blackbaud_constituent_id, c.blackbaud_constituent_id)
+          AND ${expected.actionIntent || "completed"} = 'completed'
           AND (p.constituent_id IS NULL OR c.id IS NOT NULL)
           AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY[p.blackbaud_constituent_id, c.blackbaud_constituent_id]) link(id)
             WHERE NULLIF(btrim(link.id), '') IS NOT NULL AND btrim(link.id) <> s.constituent_id)

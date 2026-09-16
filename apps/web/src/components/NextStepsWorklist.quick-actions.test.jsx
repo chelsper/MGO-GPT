@@ -170,7 +170,7 @@ it("labels general discussion follow-ups and does not offer an NXT action withou
   items = [{ id: 1, title: "Prepare meeting agenda", source_topic_key: "general", status: "Open", updated_at: token }];
   mount();
   await screen.findByText("General follow-up");
-  expect(screen.queryByRole("button", { name: "Log NXT action" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add NXT action" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Mark complete" })).toBeEnabled();
 });
 
@@ -180,6 +180,6 @@ it.each(["Open", "Done"])("offers existing submission access in %s without readi
   mount();
   await screen.findByText("Prepare visit");
   expect(within(row()).getByRole("button", { name: "View NXT submission" })).toBeEnabled();
-  expect(within(row()).queryByRole("button", { name: "Log NXT action" })).not.toBeInTheDocument();
+  expect(within(row()).queryByRole("button", { name: "Add NXT action" })).not.toBeInTheDocument();
   expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/follow-ups?"))).toBe(true);
 });
