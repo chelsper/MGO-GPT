@@ -1,2 +1,2 @@
-// Keep existing discussion bookmarks and deep links on the shared workspace.
-export { default } from "../follow-ups/page";
+// Import the shared component, not a route page: routes receive their own layout.
+export { default } from "@/components/FollowUpsWorkspace";

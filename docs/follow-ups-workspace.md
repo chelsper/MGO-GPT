@@ -7,6 +7,9 @@ Steps. Team Discussion remains a separate tab with its existing visibility and
 editing rules. Existing `/team-discussion` bookmarks, `discussionId`, `status`,
 and `edit=1` links continue to work. The menu and dashboard point to the new page.
 Notification badges still describe discussion items, not a combined task count.
+Both route files import `FollowUpsWorkspace` from the components directory; do
+not import one route page from another, as the build plugin wraps each page in
+the app layout and that would duplicate the navigation shell.
 
 Next Steps shows every saved `pending_actions` row owned by the selected workspace,
 including portfolio-only constituents, stewardship, and closed prospect work.
