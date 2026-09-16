@@ -6,6 +6,7 @@ import { ArrowLeft, MessageSquare, Mic, Trophy } from "lucide-react";
 import useUser from "@/utils/useUser";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 import { canEditWorkspace, canUseMgoWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
+import { ACTION_CATEGORIES, INTERACTION_TYPES } from "@/utils/actionEntryOptions";
 
 const UPDATE_MODES = [
   {
@@ -25,7 +26,6 @@ const UPDATE_MODES = [
   },
 ];
 
-const ACTION_CATEGORIES = ["Meeting", "Phone Call", "Email", "Task"];
 const SUPPORTED_AUDIO_MIME_TYPES = [
   "audio/webm",
   "audio/webm;codecs=opus",
@@ -34,14 +34,6 @@ const SUPPORTED_AUDIO_MIME_TYPES = [
   "audio/mp3",
   "audio/wav",
   "audio/ogg",
-];
-const INTERACTION_TYPES = [
-  "Cultivation",
-  "Identification / Discovery",
-  "Other",
-  "Qualification / Re-engagement",
-  "Solicitation",
-  "Stewardship",
 ];
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
 const COMMON_NEXT_STEPS = [

@@ -31,3 +31,10 @@ it("never turns a successful NXT write into a user retry because the hint failed
   expect(await createBlackbaudAction(options)).toEqual({ id: "a" });
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+it.each(["timeout", "server error"])("does not retry an ambiguous %s when the caller disables create retries", async kind => {
+  if (kind === "timeout") fetch.mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
+  else fetch.mockResolvedValue(Response.json({ message: "temporary error" }, { status: 503 }));
+  await expect(createBlackbaudAction({ ...options, maxRetries: 0 })).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(hint).not.toHaveBeenCalled();
+});

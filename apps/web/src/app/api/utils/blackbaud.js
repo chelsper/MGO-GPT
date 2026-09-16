@@ -2158,13 +2158,14 @@ export function buildBlackbaudActionPayload({
   };
 }
 
-export async function createBlackbaudAction({ userId, authUserId, origin, payload }) {
+export async function createBlackbaudAction({ userId, authUserId, origin, payload, maxRetries }) {
   const result = await blackbaudApiFetch(BLACKBAUD_CREATE_ACTION_URL, {
     userId,
     authUserId,
     origin,
     method: "POST",
     body: payload,
+    ...(maxRetries === undefined ? {} : { maxRetries }),
   });
   if (result?.id) {
     try {

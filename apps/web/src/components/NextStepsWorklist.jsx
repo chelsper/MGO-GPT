@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import NextStepFields, { nextStepDateChoices } from "./NextStepFields";
 import { buildNextStepGroups, formatNextStepCompletion, formatNextStepDate, nextStepDay, nextStepName, pageNextStepGroups } from "@/utils/nextStepWorklist";
 
 const buttonClass = "inline-flex min-h-11 items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600";
+const NextStepActionDialog = lazy(() => import("./NextStepActionDialog"));
 
 export default function NextStepsWorklist({ viewerId, workspaceId, active = true }) {
   const queryClient = useQueryClient();
@@ -12,6 +13,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState(null);
+  const [actionItem, setActionItem] = useState(null);
   const [notice, setNotice] = useState("");
   const noticeRef = useRef(null);
   const saveInFlight = useRef(false);
@@ -164,6 +166,9 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                     {save.isPending && save.variables?.source.id === item.id ? "Saving..." : "Mark complete"}
                   </button>
                   <button type="button" className={buttonClass} onClick={() => edit(item, "reschedule")} disabled={save.isPending}>Reschedule</button>
+                  <button type="button" className={buttonClass} disabled={save.isPending || Boolean(actionItem)} onClick={() => {
+                    if (discardEditor()) { setNotice(""); setActionItem(item); }
+                  }}>Log NXT action</button>
                 </> : <button type="button" className={buttonClass} onClick={() => quickAction(item, "reopen")} disabled={save.isPending}>
                   {save.isPending && save.variables?.source.id === item.id ? "Reopening..." : "Reopen"}
                 </button>}
@@ -210,5 +215,13 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
         })}</div>
       </section>)}
     </>}
+    {actionItem && <Suspense fallback={<p role="status">Opening action form...</p>}>
+      <NextStepActionDialog key={`${workspaceId}-${actionItem.id}`} item={actionItem} viewerId={viewerId} workspaceId={workspaceId}
+        onClose={() => { setActionItem(null); query.refetch(); }} onSaved={receipt => {
+          setNotice(receipt.message);
+          for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed"])
+            queryClient.invalidateQueries({ queryKey: [key] });
+        }} />
+    </Suspense>}
   </div>;
 }

@@ -72,10 +72,53 @@ are collapsed by default. The homepage remains a short preview, not the full lis
 
 ## Deferred
 
-No combined All feed, action logging controls, reassignment, NXT action
-creation, or expansion of the portfolio activity pilot is included. Editing a
-reminder or marking it complete is not evidence an NXT action occurred. A later
-release can add an explicit Log Action workflow with those distinctions intact.
+No combined All feed, reassignment, or expansion of the portfolio activity pilot
+is included. Editing a reminder or using Mark complete is still not evidence an
+NXT action occurred.
+
+## Log NXT Action From a Next Step
+
+- Open reminders now offer an explicit Log NXT action dialog. It is lazy-loaded
+  on click, with a single saved-data context read. Opening, searching, paging,
+  or expanding next steps still does not call NXT.
+- The dialog prefills the task title/notes, Eastern today's date, and Stewardship
+  type for stewardship reminders (otherwise Cultivation). Category is deliberately
+  unselected: the user describes what actually happened, not merely the planned
+  activity. Category/type options are shared with the existing action form.
+- Credit goes to the selected MGO; the signed-in Admin remains the author.
+  A linked NXT opportunity is retained only through the owned prospect relationship.
+  Portfolio-only reminders are supported when their constituent link is unambiguous.
+- Complete this next step after NXT confirms the action is optional. The action
+  date must not be in the future. No new next step, discussion, or opportunity is
+  created. Linked discussions remain unchanged.
+- GET/POST `/api/pending-actions/:id/log-action` enforce session/workspace ownership
+  and editing permissions. The context token includes the exact task version and
+  constituent/opportunity links. Conflicting/missing links fail closed, with no
+  guessed record search or automatic link repair.
+- Before sending, NXT must confirm the constituent system ID and the primary MGO's
+  fundraiser mapping. Then a durable `pending_action_nxt_receipts` row is claimed
+  atomically before the create call. Only one action submission is allowed per
+  reminder, even after reload or reopening. Duplicate clicks/concurrent requests
+  return the existing receipt, never repeat the create call.
+- This workflow disables Blackbaud POST retries and does not use fallback create
+  payloads. After an ambiguous timeout/crash the receipt remains blocked for review.
+  Reload submission status only reads local data. Check NXT before making further
+  changes; there is deliberately no force-resend or delete-receipt button.
+- The created action ID is saved before metadata work. The server checks the
+  action's exact identity before patching, then re-reads and verifies constituent,
+  date, summary, notes, category, type, completed flag, fundraiser credit, and linked
+  opportunity. Only then is the existing guarded completion helper called.
+- A changed reminder/primary plan is not overwritten. A saved NXT action with
+  failed local completion is reported separately; reload the list and use the
+  existing Mark complete control after review rather than logging again.
+- Successful actions get a single local prospect activity entry when a prospect
+  exists. No legacy action-save endpoint is used, because that older workflow can
+  clear a primary next step independently of NXT success. Existing normal action
+  entry behavior is unchanged. Portfolio caches and refresh schedules are unchanged;
+  the existing successful-create activity refresh hint is retained.
+- Native modal focus/keyboard handling, dirty-draft confirmation, in-flight close
+  blocking, and before-unload protection keep review deliberate. An uncertain
+  response disables resubmission and offers read-only status recovery.
 
 ## Verification
 
@@ -88,3 +131,8 @@ conflicts, acting permissions, date-only saves, completion/history/reopening,
 duplicate-click protection, read-only views, and failed-save retention. Disposable
 PostgreSQL verification exercises real SQL with synthetic primary and portfolio
 tasks, including newer-plan protection and completed-history preservation.
+Action logging tests cover attribution, permissions, stale context, idempotency,
+preflight failures, uncertain writes, metadata verification, partial success,
+saved-data-only dialog loading, draft retention, and duplicate-click protection.
+Disposable PostgreSQL checks exercise the actual receipt schema, context/claim
+queries, local activity insert, and completion helper with synthetic records.

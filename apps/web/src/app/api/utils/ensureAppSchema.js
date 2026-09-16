@@ -1188,6 +1188,22 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS pending_action_nxt_receipts (
+        pending_action_id BIGINT PRIMARY KEY REFERENCES pending_actions(id) ON DELETE CASCADE,
+        owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        entered_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        state TEXT NOT NULL DEFAULT 'processing',
+        constituent_id TEXT NOT NULL,
+        request_payload JSONB NOT NULL,
+        blackbaud_action_id TEXT,
+        reminder_completed BOOLEAN NOT NULL DEFAULT FALSE,
+        message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunities (
         id BIGSERIAL PRIMARY KEY,
         prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,
