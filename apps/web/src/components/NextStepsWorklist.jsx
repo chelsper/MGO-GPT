@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import NextStepFields from "./NextStepFields";
+import NextStepFields, { nextStepDateChoices } from "./NextStepFields";
 import { buildNextStepGroups, formatNextStepCompletion, formatNextStepDate, nextStepDay, nextStepName, pageNextStepGroups } from "@/utils/nextStepWorklist";
 
 const buttonClass = "inline-flex min-h-11 items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600";
@@ -13,6 +13,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState(null);
   const [notice, setNotice] = useState("");
+  const noticeRef = useRef(null);
   const saveInFlight = useRef(false);
   const query = useQuery({
     queryKey: ["next-step-worklist", viewerId, workspaceId, status],
@@ -37,27 +38,37 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
 
   const save = useMutation({
     mutationFn: async draft => {
-      const response = await fetch(`/api/pending-actions/${draft.source.id}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const quick = Boolean(draft.action);
+      const body = quick ? {
+        action: draft.action,
+        ...(draft.action === "reschedule" ? { dueDate: draft.dueDate || null } : {}),
+        expectedWorkspaceId: workspaceId, expectedUpdatedAt: draft.source.updated_at || null,
+      } : {
           title: draft.title.trim(), details: draft.details.trim() || null, dueDate: draft.dueDate || null,
           expectedWorkspaceId: workspaceId, expectedUpdatedAt: draft.source.updated_at || null,
-        }),
+      };
+      const response = await fetch(`/api/pending-actions/${draft.source.id}${quick ? "/quick-action" : ""}`, {
+        method: quick ? "POST" : "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Your next step could not be saved. Your draft is still here.");
       return payload;
     },
-    onSuccess: () => {
+    onSuccess: (_payload, draft) => {
       saveInFlight.current = false;
       setEditor(null);
-      setNotice("Next step saved. No NXT action was created.");
-      for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "team-discussion"]) {
+      setNotice(draft.action === "complete" ? "Next step completed. You can reopen it from Completed history. No NXT action was created; linked discussions are unchanged."
+        : draft.action === "reopen" ? "Next step reopened as an additional follow-up. Your primary next step and linked discussions are unchanged. No NXT action was created."
+        : draft.action === "reschedule" ? "Due date saved. No NXT action was created; linked discussions are unchanged."
+        : "Next step saved. No NXT action was created.");
+      for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed", ...(!draft.action ? ["team-discussion"] : [])]) {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
     },
     onError: () => { saveInFlight.current = false; },
   });
+  useEffect(() => { if (notice) noticeRef.current?.focus(); }, [notice]);
 
   function discardEditor() {
     if (saveInFlight.current || save.isPending) return false;
@@ -66,10 +77,16 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
     save.reset();
     return true;
   }
-  function edit(item) {
+  function edit(item, action = null) {
     if (!discardEditor()) return;
     setNotice("");
-    setEditor({ source: item, title: item.title || "", details: item.details || "", dueDate: nextStepDay(item.due_date) });
+    setEditor({ source: item, action, title: item.title || "", details: item.details || "", dueDate: nextStepDay(item.due_date) });
+  }
+  function quickAction(item, action) {
+    if (!query.data?.workspace?.canEdit || !discardEditor()) return;
+    setNotice("");
+    saveInFlight.current = true;
+    save.mutate({ source: item, action });
   }
   function changeStatus(value) {
     if (value === status || !discardEditor()) return;
@@ -108,14 +125,16 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
       </label>
       {editor && <p className="mt-2 text-xs text-gray-500">Save or cancel your edit to search or change pages. Switching tabs keeps your draft.</p>}
       {workspace && !workspace.canEdit && <p className="mt-3 text-sm font-medium text-gray-600">Next steps are read-only in this selected workspace.</p>}
+      {status === "Done" && workspace?.canEdit && <p className="mt-3 text-sm text-gray-600">Reopen returns an item to Open as an additional follow-up without replacing the current primary next step. Linked discussions stay unchanged.</p>}
     </section>
 
+    {notice && <p ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
+    {save.isError && !editor && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{save.error.message}</p>}
     {query.isLoading || query.isFetching ? <p role="status">Loading saved next steps...</p> : query.isError ? (
       <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-900">
         {query.error.message} <button type="button" className="underline" onClick={() => query.refetch()}>Try again</button>
       </div>
     ) : <>
-      {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
         <p>{total} {status === "Done" ? "completed" : "open"} next {total === 1 ? "step" : "steps"}{search ? ` matching your search (${items.length} total)` : ""}. Grouped as of {formatNextStepDate(query.data?.asOf)} (Eastern).</p>
         {total > 25 && <nav aria-label="Next steps pagination" className="flex items-center gap-3">
@@ -139,31 +158,52 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
                 <p className="mt-2 text-sm text-gray-600">{workspace?.name || "Workspace owner"} · {status === "Done" ? formatNextStepCompletion(item.completed_at) : item.due_date ? `Due ${formatNextStepDate(item.due_date)}` : "No due date"}</p>
                 {item.category === "Stewardship" && <span className="mt-2 inline-block rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">Stewardship</span>}
               </div>
-              {workspace?.canEdit && status === "Open" && !isEditing && <button type="button" className={buttonClass} onClick={() => edit(item)} disabled={save.isPending}>Edit next step</button>}
+              {workspace?.canEdit && !isEditing && <div className="flex flex-wrap gap-2" role="group" aria-label={`Actions for ${item.title}`}>
+                {status === "Open" ? <>
+                  <button type="button" className={`${buttonClass} !border-emerald-200 !bg-emerald-50 !text-emerald-800`} onClick={() => quickAction(item, "complete")} disabled={save.isPending}>
+                    {save.isPending && save.variables?.source.id === item.id ? "Saving..." : "Mark complete"}
+                  </button>
+                  <button type="button" className={buttonClass} onClick={() => edit(item, "reschedule")} disabled={save.isPending}>Reschedule</button>
+                </> : <button type="button" className={buttonClass} onClick={() => quickAction(item, "reopen")} disabled={save.isPending}>
+                  {save.isPending && save.variables?.source.id === item.id ? "Reopening..." : "Reopen"}
+                </button>}
+              </div>}
             </div>
             <details className="mt-3 text-sm text-gray-600">
               <summary className="inline-flex min-h-11 cursor-pointer items-center gap-2 font-semibold text-gray-700">Details <ChevronDown size={15} aria-hidden="true" /></summary>
               <div className="space-y-3 pb-1">
+                {workspace?.canEdit && status === "Open" && !isEditing && <button type="button" className={buttonClass} onClick={() => edit(item)} disabled={save.isPending}>Edit next step</button>}
                 {item.details ? <p className="whitespace-pre-wrap break-words">{item.details}</p> : <p>No additional notes.</p>}
                 {item.opportunity_title && <p>Opportunity: <strong>{item.opportunity_title}</strong></p>}
                 {item.prospect_id && <a className="block font-semibold text-indigo-700 underline" href={`/my-top-prospects?prospectId=${encodeURIComponent(item.prospect_id)}&panel=next-step`}>Open prospect workspace</a>}
                 {item.discussion_item_id && <p><a className="font-semibold text-indigo-700 underline" href={`/team-discussion?discussionId=${encodeURIComponent(item.discussion_item_id)}&status=${encodeURIComponent(item.discussion_status || "Open")}`}>Open linked discussion</a> ({item.discussion_status === "Resolved" ? "Resolved" : "Open"}). Discussion and task completion are separate.</p>}
               </div>
             </details>
-            {isEditing && <form aria-label={`Edit next step for ${nextStepName(item)}`} className="mt-3 grid gap-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4" onSubmit={event => {
+            {isEditing && <form aria-label={`${editor.action === "reschedule" ? "Reschedule" : "Edit next step"} for ${nextStepName(item)}`} className="mt-3 grid gap-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4" onSubmit={event => {
               event.preventDefault();
               if (!editor.title.trim() || !workspace?.canEdit || saveInFlight.current) return;
               saveInFlight.current = true;
               save.mutate(editor);
             }}>
-              <NextStepFields title={editor.title} details={editor.details} dueDate={editor.dueDate} ownerName={workspace?.name}
+              {editor.action === "reschedule" ? <fieldset disabled={save.isPending} className="grid min-w-0 gap-3">
+                <legend className="sr-only">Reschedule next step</legend>
+                <label className="grid gap-2 text-sm font-semibold text-gray-700">New due date (optional)
+                  <input type="date" autoFocus value={editor.dueDate} onChange={event => setEditor(current => ({ ...current, dueDate: event.target.value }))}
+                    className="min-h-11 min-w-0 w-full max-w-sm rounded-xl border border-gray-300 bg-white px-3 text-base" />
+                </label>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Quick due date">
+                  {nextStepDateChoices().map(choice => <button key={choice.label} type="button" className={buttonClass} aria-pressed={editor.dueDate === choice.value}
+                    onClick={() => setEditor(current => ({ ...current, dueDate: choice.value }))}>{choice.label}</button>)}
+                </div>
+                <p className="text-xs text-gray-600">Shortcuts use Eastern time. Only this reminder's date changes, not its linked discussion or NXT.</p>
+              </fieldset> : <NextStepFields title={editor.title} details={editor.details} dueDate={editor.dueDate} ownerName={workspace?.name}
                 onTitleChange={title => setEditor(current => ({ ...current, title }))}
                 onDetailsChange={details => setEditor(current => ({ ...current, details }))}
-                onDueDateChange={dueDate => setEditor(current => ({ ...current, dueDate }))} disabled={save.isPending} autoFocus />
+                onDueDateChange={dueDate => setEditor(current => ({ ...current, dueDate }))} disabled={save.isPending} autoFocus />}
               {save.isError && <p role="alert" className="text-sm text-red-800">{save.error.message}</p>}
               <div className="flex flex-wrap gap-2">
-                <button type="submit" disabled={save.isPending || !editor.title.trim()} className={`${buttonClass} !border-indigo-600 !bg-indigo-600 !text-white`}>{save.isPending ? "Saving..." : "Save next step"}</button>
-                <button type="button" disabled={save.isPending} className={buttonClass} onClick={discardEditor}>Cancel edit</button>
+                <button type="submit" disabled={save.isPending || !editor.title.trim()} className={`${buttonClass} !border-indigo-600 !bg-indigo-600 !text-white`}>{save.isPending ? "Saving..." : editor.action === "reschedule" ? "Save date" : "Save next step"}</button>
+                <button type="button" disabled={save.isPending} className={buttonClass} onClick={discardEditor}>{editor.action === "reschedule" ? "Cancel reschedule" : "Cancel edit"}</button>
               </div>
             </form>}
           </article>;

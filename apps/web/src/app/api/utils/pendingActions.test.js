@@ -63,6 +63,22 @@ describe("pendingActions", () => {
 
     expect(insertCall).toBeTruthy();
     expect(insertCall.slice(1)).toContain(88);
+    const existingQuery = sqlMockImpl.mock.calls.find(([parts]) => parts.join("").includes("FROM pending_actions"));
+    expect(existingQuery[0].join("")).toContain("AND status = 'Open'");
+  });
+
+  it("preserves completed primary rows when adding the next prospect step", async () => {
+    const { syncPrimaryPendingAction } = await import("./pendingActions.js");
+    queueSqlResult([]);
+    queueSqlResult([]);
+    queueSqlResult([{ id: 904, title: "New step", status: "Open" }]);
+    const result = await syncPrimaryPendingAction({ ownerUserId: 44, prospectId: 10, title: "New step" });
+    expect(result.id).toBe(904);
+    const queries = sqlMockImpl.mock.calls.map(([parts]) => parts.join("?"));
+    expect(queries[0]).toContain("AND status = 'Open'");
+    expect(queries[1]).toContain("SET is_primary = FALSE, updated_at = NOW()");
+    expect(queries[1]).not.toContain("status =");
+    expect(queries[2]).toContain("INSERT INTO pending_actions");
   });
 
   it("resolves a Blackbaud constituent id before creating a linked discussion item", async () => {

@@ -77,6 +77,7 @@ export async function syncPrimaryPendingAction({
     throw new Error("A pending action must be connected to a prospect or constituent");
   }
 
+  // A new plan must not overwrite a completed task that can be reopened from history.
   const existingRows = normalizedProspectId
     ? await sql`
         SELECT *
@@ -84,9 +85,8 @@ export async function syncPrimaryPendingAction({
         WHERE owner_user_id = ${ownerUserId}
           AND prospect_id = ${normalizedProspectId}
           AND is_primary = TRUE
-        ORDER BY
-          CASE WHEN status = 'Open' THEN 0 ELSE 1 END,
-          updated_at DESC
+          AND status = 'Open'
+        ORDER BY updated_at DESC
         LIMIT 1
       `
     : await sql`
@@ -96,9 +96,8 @@ export async function syncPrimaryPendingAction({
           AND prospect_id IS NULL
           AND constituent_id = ${normalizedConstituentId}
           AND is_primary = TRUE
-        ORDER BY
-          CASE WHEN status = 'Open' THEN 0 ELSE 1 END,
-          updated_at DESC
+          AND status = 'Open'
+        ORDER BY updated_at DESC
         LIMIT 1
       `;
 
@@ -123,18 +122,20 @@ export async function syncPrimaryPendingAction({
   if (normalizedProspectId) {
     await sql`
       UPDATE pending_actions
-      SET is_primary = FALSE
+      SET is_primary = FALSE, updated_at = NOW()
       WHERE owner_user_id = ${ownerUserId}
         AND prospect_id = ${normalizedProspectId}
+        AND is_primary = TRUE
         AND id <> COALESCE(${existing?.id || null}, 0)
     `;
   } else {
     await sql`
       UPDATE pending_actions
-      SET is_primary = FALSE
+      SET is_primary = FALSE, updated_at = NOW()
       WHERE owner_user_id = ${ownerUserId}
         AND prospect_id IS NULL
         AND constituent_id = ${normalizedConstituentId}
+        AND is_primary = TRUE
         AND id <> COALESCE(${existing?.id || null}, 0)
     `;
   }

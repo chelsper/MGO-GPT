@@ -14,7 +14,7 @@ the app layout and that would duplicate the navigation shell.
 Next Steps shows every saved `pending_actions` row owned by the selected workspace,
 including portfolio-only constituents, stewardship, and closed prospect work.
 Open items group by Overdue, Today, Upcoming, and No date, using an Eastern
-calendar-date boundary. Completed history is a separate read-only view. Search
+calendar-date boundary. Completed history is a separate view with Reopen. Search
 filters the full result before pagination (25 items per page); notes and links
 are collapsed by default. The homepage remains a short preview, not the full list.
 
@@ -43,12 +43,39 @@ are collapsed by default. The homepage remains a short preview, not the full lis
   is explicitly newly requested through the existing workflow. Task completion
   and discussion resolution remain distinct.
 
+## Quick actions
+
+- Open reminders offer Mark complete and Reschedule. The full title/notes editor
+  is under Details so the default card stays compact.
+- Reschedule offers Today, Tomorrow, In 1 week, No date, and a custom calendar
+  date. Shortcuts use Eastern calendar days, including across DST boundaries.
+  Only the reminder's due date changes; notes, title, and discussion date stay put.
+- Mark complete moves an item to Completed history. Reopen restores it to Open
+  as an additional follow-up, not as the primary next step. This deliberately
+  preserves any newer primary plan. Neither action changes a linked discussion.
+- POST `/api/pending-actions/:id/quick-action` accepts only the selected action,
+  an optional date for rescheduling, the expected workspace, and the exact
+  version token. Server ownership and write permissions still apply. State and
+  version conflicts require reloading the saved list; there is no automatic retry.
+- One SQL statement locks the task and its relevant primary prospect, updates
+  the reminder, mirrors a matching primary summary, and invalidates only the
+  local dashboard summary cache. A mismatched primary plan blocks the entire
+  update rather than overwriting it. Provider/portfolio caches remain intact.
+- New primary steps no longer reuse completed rows. Prior completed titles,
+  dates, and completion timestamps remain in history, including after a new
+  primary step is added. Demotion changes the row version for stale-edit checks.
+- The UI waits for success before moving an item, prevents double submissions,
+  preserves failed reschedule drafts, and confirms before discarding changed
+  fields. Success messages explain the app-only result and receive focus.
+- These controls do not create NXT actions, call Blackbaud, resolve discussions,
+  add background polling, or trigger portfolio refreshes.
+
 ## Deferred
 
-No combined All feed, direct completion/logging controls, reassignment, NXT action
+No combined All feed, action logging controls, reassignment, NXT action
 creation, or expansion of the portfolio activity pilot is included. Editing a
-reminder is not evidence an action occurred. A later release can add explicit
-Complete, Reschedule, and Log Action workflows with those distinctions intact.
+reminder or marking it complete is not evidence an NXT action occurred. A later
+release can add an explicit Log Action workflow with those distinctions intact.
 
 ## Verification
 
@@ -56,3 +83,8 @@ Covered by API scope/permission tests, date/group/search/pagination tests, and
 real-component tests for lazy tabs, local search/paging, exact edit payloads,
 conflicts/draft retention, history, keyboard tabs, and legacy links. Desktop and
 390px/320px phone previews use synthetic local data, never production test writes.
+Quick-action coverage includes strict payload/date validation, exact-version
+conflicts, acting permissions, date-only saves, completion/history/reopening,
+duplicate-click protection, read-only views, and failed-save retention. Disposable
+PostgreSQL verification exercises real SQL with synthetic primary and portfolio
+tasks, including newer-plan protection and completed-history preservation.

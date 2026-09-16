@@ -77,6 +77,7 @@ it("preserves a failed edit across tab changes and saves only the intended field
   saveResponse = () => reply({ error: "This next step changed. Your draft was not sent." }, 409);
   mount();
   await screen.findByText("Prepare visit");
+  fireEvent.click(within(firstRow()).getByText("Details", { exact: true }));
   fireEvent.click(within(firstRow()).getByRole("button", { name: "Edit next step" }));
   fireEvent.change(screen.getByLabelText("What should happen next?"), { target: { value: "Call about visit" } });
   fireEvent.click(screen.getByRole("button", { name: "No date", exact: true }));
@@ -102,6 +103,7 @@ it("confirms before discarding an unsaved edit to view history", async () => {
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   mount();
   await screen.findByText("Prepare visit");
+  fireEvent.click(within(firstRow()).getByText("Details", { exact: true }));
   fireEvent.click(within(firstRow()).getByRole("button", { name: "Edit next step" }));
   fireEvent.change(screen.getByLabelText("What should happen next?"), { target: { value: "Unsaved draft" } });
   fireEvent.click(screen.getByRole("button", { name: "Completed history" }));
@@ -110,7 +112,7 @@ it("confirms before discarding an unsaved edit to view history", async () => {
   expect(callsTo("/api/follow-ups")).toHaveLength(1);
 });
 
-it("keeps completed history read-only and links to the matching resolved discussion", async () => {
+it("offers reopen but not field editing in history and links to the matching resolved discussion", async () => {
   mount();
   await screen.findByText("Prepare visit");
   fireEvent.click(within(firstRow()).getByText("Details", { exact: true }));
@@ -118,6 +120,7 @@ it("keeps completed history read-only and links to the matching resolved discuss
   fireEvent.click(screen.getByRole("button", { name: "Completed history" }));
   await screen.findByText("Finished task");
   expect(screen.queryByRole("button", { name: "Edit next step" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Reopen" })).toBeInTheDocument();
   expect(callsTo("/api/pending-actions/")).toHaveLength(0);
 });
 
