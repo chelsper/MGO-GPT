@@ -145,6 +145,32 @@ it("allows a safe retry for pre-write connection or attribution failures", async
   expect(mocks.claim).not.toHaveBeenCalled();
   expect(mocks.create).not.toHaveBeenCalled();
 });
+it.each(["NXT_FUNDRAISER_MAPPING_REQUIRED", "NXT_FUNDRAISER_MAPPING_INVALID"])("identifies a mapping problem separately from connection failure: %s", async code => {
+  mocks.fundraisers.mockRejectedValue(Object.assign(new Error("private provider details"), { code }));
+  const response = await call();
+  expect(response.status).toBe(409);
+  const { error } = await response.json();
+  expect(error).toMatch(/mapping/);
+  expect(error).not.toContain("private provider details");
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
+});
+it.each(["constituent", "fundraisers", "claim"])("identifies the failed pre-write stage without exposing provider data: %s", async stage => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    mocks[stage].mockRejectedValue(Object.assign(new Error("secret-token private notes"), { httpStatus: 403 }));
+    const response = await call();
+    expect(response.status).toBe(502);
+    const { error } = await response.json();
+    expect(error).not.toMatch(/secret-token|private notes/);
+    expect(error).toContain(stage === "claim" ? "app could not prepare" : stage === "constituent" ? "read this constituent" : "read the selected MGO");
+    expect(log).toHaveBeenCalledWith("Next-step NXT action failed", {
+      stage: stage === "fundraisers" ? "fundraiser" : stage, claimed: false, httpStatus: 403, mappingError: false,
+    });
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.complete).not.toHaveBeenCalled();
+  } finally { log.mockRestore(); }
+});
 it.each([{ actionDate: "2026-02-30" }, { actionDate: "2026-09-17" }, { actionCategory: "Other" }, { interactionType: "Invalid" }, { summary: " " }, { summary: "x".repeat(256) }, { notes: null }, { completeReminder: "true" }, { title: "Change reminder" }])("rejects invalid or unapproved fields %j", async changes => {
   expect((await call(changes)).status).toBe(400);
   expect(mocks.read).not.toHaveBeenCalled();

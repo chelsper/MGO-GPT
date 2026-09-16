@@ -100,6 +100,13 @@ NXT action occurred.
   atomically before the create call. Only one action submission is allowed per
   reminder, even after reload or reopening. Duplicate clicks/concurrent requests
   return the existing receipt, never repeat the create call.
+- Fundraiser identity is verified using Constituent GET for the MGO's saved system
+  ID, with an exact returned ID and Active fundraiser status. The Fundraising
+  assignments URL is not a fundraiser identity endpoint. Delegated writes never
+  substitute a name/email search result for a missing or invalid saved mapping.
+  Errors distinguish constituent access, fundraiser access, mapping, and local
+  preparation failures. Diagnostic logs include only stage and transport status,
+  not provider response bodies, credentials, or activity details.
 - This workflow disables Blackbaud POST retries and does not use fallback create
   payloads. After an ambiguous timeout/crash the receipt remains blocked for review.
   Reload submission status only reads local data. Check NXT before making further

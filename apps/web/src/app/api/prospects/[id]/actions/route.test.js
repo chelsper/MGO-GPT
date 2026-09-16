@@ -115,6 +115,7 @@ describe("prospect action route", () => {
     });
     getBlackbaudFundraiserByIdMock.mockResolvedValue({
       fundraiserId: "234684",
+      fundraiserStatus: "Active",
     });
   });
 

@@ -119,6 +119,7 @@ describe("donor update route", () => {
     searchBlackbaudConstituentsMock.mockResolvedValue([]);
     getBlackbaudFundraiserByIdMock.mockImplementation(async ({ fundraiserId }) => ({
       fundraiserId: String(fundraiserId),
+      fundraiserStatus: "Active",
     }));
     updateBlackbaudActionMock.mockResolvedValue({ ok: true });
     sendSubmissionEmailMock.mockResolvedValue();

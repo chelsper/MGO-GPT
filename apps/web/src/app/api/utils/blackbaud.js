@@ -1706,30 +1706,24 @@ export async function getBlackbaudFundraiserById({
     return null;
   }
 
-  const payload = await blackbaudApiFetch(
-    `${BLACKBAUD_FUNDRAISER_ASSIGNMENTS_URL}/${encodeURIComponent(normalizedId)}`,
-    {
-      userId,
-      authUserId,
-      origin,
-    },
-  );
-
-  if (!payload || typeof payload !== "object") {
+  // Fundraiser IDs are constituent system IDs. The Fundraising API exposes
+  // assignments, not a GET /fundraisers/:id identity endpoint.
+  const constituent = await getBlackbaudConstituentById({
+    userId, authUserId, origin, constituentId: normalizedId,
+  });
+  const record = constituent?.raw;
+  const recordId = String(record?.id || record?.constituent_id || "").trim();
+  const fundraiserStatus = String(record?.fundraiser_status || "").trim();
+  if (recordId !== normalizedId || !["Active", "Inactive"].includes(fundraiserStatus)) {
     return null;
   }
 
   return {
-    fundraiserId: payload?.id?.toString() || normalizedId,
-    constituentId: payload?.constituent_id?.toString() || payload?.constituentId?.toString() || null,
-    name:
-      payload?.name ||
-      [payload?.first_name, payload?.middle_name, payload?.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim() ||
-      null,
-    raw: payload,
+    fundraiserId: recordId,
+    constituentId: recordId,
+    name: constituent.name,
+    fundraiserStatus,
+    raw: record,
   };
 }
 

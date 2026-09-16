@@ -95,6 +95,31 @@ async function resolveActionFundraiserId({
 }) {
   const authUserId = currentUser?.id || apiUserId || fundraiserUser?.id;
   const userId = apiUserId || currentUser?.id || fundraiserUser?.id;
+  if (requireVerified) {
+    const identity = fundraiserUser?.blackbaud_constituent_id
+      ? fundraiserUser
+      : await getUserFundraiserIdentity(fundraiserUser?.id);
+    const mappedId = String(identity?.blackbaud_constituent_id || "").trim();
+    if (!mappedId) {
+      throw Object.assign(new Error("The selected MGO needs a saved Blackbaud system ID mapping before an action can be credited."),
+        { code: "NXT_FUNDRAISER_MAPPING_REQUIRED" });
+    }
+    // Verify the saved mapping directly. Name/email search must not silently
+    // substitute another fundraiser, and wastes calls for already-mapped MGOs.
+    let record;
+    try {
+      record = await getBlackbaudFundraiserById({ userId, authUserId, origin, fundraiserId: mappedId });
+    } catch (error) {
+      throw Object.assign(new Error("NXT could not read the selected MGO's fundraiser record. Check NXT access before retrying."), {
+        code: "NXT_FUNDRAISER_ACCESS_UNAVAILABLE", httpStatus: error?.httpStatus, retryAfterMs: error?.retryAfterMs,
+      });
+    }
+    if (String(record?.fundraiserId || "") !== mappedId || record?.fundraiserStatus !== "Active") {
+      throw Object.assign(new Error("The selected MGO's Blackbaud mapping does not resolve to an active NXT fundraiser."),
+        { code: "NXT_FUNDRAISER_MAPPING_INVALID" });
+    }
+    return mappedId;
+  }
   const candidates = await resolveFundraiserCandidates({
     fundraiserUser,
     authUserId,
