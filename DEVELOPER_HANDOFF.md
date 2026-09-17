@@ -85,7 +85,7 @@ Start new development from current `main`, not a historical Codex worktree branc
 | Admin integration-health page (deployed after the baseline) | [integration-health.md](docs/integration-health.md) |
 | Focused UX consistency pass (deployed September 17) | [ux-consistency.md](docs/ux-consistency.md) |
 | Organization configuration, step 5 phase 1 (deployed September 17) | [organization-configuration.md](docs/organization-configuration.md) |
-| My Prospects module extraction, step 6 first pass (release authorized September 17) | [my-prospects-modules.md](docs/my-prospects-modules.md) |
+| My Prospects module extraction, step 6 (phase 1 deployed; phase 2 release authorized September 17) | [my-prospects-modules.md](docs/my-prospects-modules.md) |
 | Portfolio display, contacts, activity pilot | [portfolio-worklist.md](docs/portfolio-worklist.md) |
 | Giving cache and overnight maintenance | [portfolio-giving-cache.md](docs/portfolio-giving-cache.md) |
 | Standard import and duplicate recovery | [quick-constituent-import.md](docs/quick-constituent-import.md) |

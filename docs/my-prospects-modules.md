@@ -1,14 +1,17 @@
 # My Prospects Module Boundaries
 
-Roadmap step 6, first extraction pass, September 17, 2026. Production release
-authorized after local verification. Based on the previously deployed application
-`e2cdacad5968e024d16f35707567fb01f5a7748e`. Confirm production availability by
-matching the release SHA with the version endpoint and a read-only smoke check.
+Roadmap step 6, September 17, 2026. Phase 1 was deployed as
+`9e40b16df48e0f5e4ee9e17f96553b3c10b9cb27`, Vercel deployment
+`dpl_3K49DW9PpUHotvwrvnqSJQVEgqQh`. Exact-SHA/asset checks and a signed-in,
+read-only portfolio smoke check passed. Phase 2 (prospect-detail display) is
+implemented and locally verified; production release was authorized September 17.
+Confirm production availability by matching the release SHA with the version
+endpoint and performing a read-only smoke check.
 
 This is a behavior-preserving refactor, not a new loading strategy, UI redesign,
-performance claim, or rewrite of NXT operations. The route page shrinks from
-11,638 to 9,788 lines. Much of the opportunity/detail and mutation orchestration
-still needs separate, bounded extraction passes.
+performance claim, or rewrite of NXT operations. Phase 1 reduced the route page
+from 11,638 to 9,788 lines; phase 2 reduces it to 8,811. Opportunity forms and
+mutation orchestration still need separate, bounded extraction passes.
 
 ## Ownership Map
 
@@ -24,6 +27,11 @@ Paths below are relative to `apps/web/src`.
 | `app/my-top-prospects/PortfolioFollowUpModal.jsx` | Existing portfolio next-step/discussion drafts and their local API contracts, focus handling, in-flight guard, and draft-preserving errors | NXT action creation, server authorization, or implicit reminder completion |
 | `app/my-top-prospects/ProspectGiving.jsx` | Existing currency display, society badges, and current-FY giving presentation | Credit calculations, metric definitions, or new fetches |
 | `app/my-top-prospects/prospectPresentation.js` | Shared button/link styles and the existing action/opportunity URL builder | Identity resolution or treating a Lookup ID as a system ID |
+| `app/my-top-prospects/ProspectDetailSummary.jsx` | Existing linked/unlinked NXT summary, contact/giving fields, narrative toggle, and exact-system-ID saved pledge notice | Query ownership, fetching, identity matching, or pledge calculations |
+| `app/my-top-prospects/ProspectOpportunityCard.jsx` | Opportunity status/amount/dates, linked gift display, and parent callback controls | Editor drafts, gift mutation/confirmation ownership, or NXT writes |
+| `app/my-top-prospects/ProspectOpportunitySections.jsx` | Active/closed containers, save feedback, and collapsed older history | Repartitioning, reordering, or fetching opportunities |
+| `app/my-top-prospects/ProspectDetailActivity.jsx` | Timeline display, expansion controls, and slots for parent-owned highlights/editors/confirmation | Activity mutations, confirmation decisions, or loading policy |
+| `app/my-top-prospects/prospectDetailPresentation.js` | Existing amount/status/date helpers, section styles, and timeline construction | New metric definitions, provider calls, or write policy |
 | `components/PortfolioWorklist.jsx` (existing) | Local quick views, search/sort/grouping, pagination, density, card expansion, and preferences | Full NXT enrichment or rank writes from display sorting |
 | `components/PortfolioContactDetails.jsx` (existing) | Saved contact display and the scoped, visible-expanded contact-only check | Full summary fetching or merging incomplete reads over saved contacts |
 
@@ -47,10 +55,24 @@ Paths below are relative to `apps/web/src`.
   teammates, using the existing five-minute freshness/no-focus-refetch policy.
 - Admin acting edits and Executive-only read-only views keep their existing
   gating. Rendering a button remains distinct from server permission to write.
+- Prospect detail still owns its original `prospect`, `blackbaud-summary`, and
+  teammate queries. `ProspectActivityHighlights` keeps its existing recent-activity
+  query. Unlike explicit portfolio summary expansion, opening linked prospect
+  details can run these existing reads; this extraction neither adds nor removes
+  them. The new presentation modules contain no queries, effects, or API calls.
+- Opportunity editors, gift unlink confirmation, gift-link modal selection,
+  stewardship forms, activity drafts, delete confirmation, and mutations remain
+  in `ProspectDetailModal`. Render slots preserve the existing editor/display
+  branches. `OpportunityRollover` retains its own explicit confirmation and
+  mutation; its parent cache invalidations are unchanged.
+- Existing opportunity partitioning stays in the parent. Timeline construction
+  retains source dates, IDs, ordering, notes, and reviewer information. Pledge
+  notices still use the linked constituent's system ID and remain visible during
+  NXT summary loading/errors when saved pledge data exists.
 - No API route, schema, NXT write receipt, query boundary, fiscal calculation,
   donor record, or refresh schedule changes in this pass. No dependency added.
 
-## Verification
+## Phase 1 Verification
 
 The original 45 focused tests passed before and after extraction. Added 20 tests
 cover explicit reads, cached reopening, failure retention, blocked reads during
@@ -74,16 +96,43 @@ maintenance collapse, next-step save feedback, and discussion/category dialogs.
 The inspected page/dialogs had no horizontal overflow. This is not a full live
 acceptance test. No production app or NXT records were changed.
 
+## Phase 2 Verification
+
+The 65 existing focused tests passed before and after extraction. Added 29 tests:
+17 direct display tests, 8 actual-modal contract tests, and 4 pure presentation
+helper tests. All 94 focused tests (16 files) and 2,734 total tests (249 files)
+pass, along with typecheck, production build, release worktree and whitespace
+checks. These tests use synthetic data and mocked external services.
+
+Coverage includes exact-ID pledge visibility during loading/errors, controlled
+narrative expansion, gift link amounts and callback identities, read-only and
+busy controls, ordered/collapsed opportunity history, activity editor slots,
+failed draft retention, explicit gift unlink and activity delete confirmations,
+local-only versus NXT deletion routes, and rollover consent/cache invalidation.
+Direct display tests assert zero fetches; actual-modal tests seed its original
+query keys rather than replacing the extracted components with mocks.
+
+A one-time comparison against deployed phase 1 passed 178 AST equivalence checks,
+including 125 retained modal declarations, moved helpers, timeline construction,
+original opportunity/activity editor trees, and activity-delete confirmation.
+New modules have no unbound references. This is evidence for this extraction,
+not a claim that all legacy writes share the newer reminder receipt protocol.
+
+The actual modal with synthetic saved data and built CSS was inspected at 1280px
+and in a 390px frame: summary/pledges, opportunity rollover confirmation, activity
+expansion/editor, and closed history. No production app or NXT writes occurred.
+A pre-existing narrow-screen issue remains: the parent's 320px minimum grid track
+overflows its 302px content area by 18px in the 390px fixture. The deployed-source
+baseline reproduces the same overflow. Keep its responsive layout fix separate
+from this behavior-preserving extraction and test the parent modal and editors.
+
 ## Next Extraction Slices
 
-1. Extract the remaining prospect-detail opportunity/activity presentation with
-   its current props and existing tests. Preserve ordering, FY rollover consent,
-   saved pledge visibility, and read-only behavior.
-2. Isolate opportunity form state and mutation orchestration behind contract
+1. Isolate opportunity form state and mutation orchestration behind contract
    tests for create versus edit, mapped identity, delegated attribution, failed
    drafts, and uncertain outcomes. Do not change UI structure and write semantics
    in the same extraction.
-3. Inventory legacy NXT action/opportunity writes before considering a shared
+2. Inventory legacy NXT action/opportunity writes before considering a shared
    write coordinator. Compare receipt ownership, identity checks, idempotency,
    verification, and recovery per endpoint. Reuse the proven reminder protocol
    only where its semantics fit; never add generic automatic POST retries or

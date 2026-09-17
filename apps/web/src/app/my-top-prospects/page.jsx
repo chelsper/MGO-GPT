@@ -1,17 +1,34 @@
 "use client";
+import ProspectDetailSummary from "./ProspectDetailSummary";
+import ProspectDetailActivity from "./ProspectDetailActivity";
+import ProspectOpportunityCard from "./ProspectOpportunityCard";
+import {
+  ActiveOpportunitySection,
+  ClosedOpportunityHistory,
+} from "./ProspectOpportunitySections";
+import {
+  formatCurrency,
+  getOpportunityDisplayStatus,
+  isFundedOpportunity,
+  formatLongDate,
+  workspaceCardStyle,
+  sectionEyebrowStyle,
+  detailLabelStyle,
+  buildProspectTimeline,
+} from "./prospectDetailPresentation";
 
 import PortfolioTier from "./PortfolioTier";
 import PortfolioRefreshProgress from "./PortfolioRefreshProgress";
 import PortfolioCategoryManagerModal from "./PortfolioCategoryManagerModal";
 import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
-import { AnnualGivingSocietyBadge, formatBlackbaudCurrency } from "./ProspectGiving";
+import { AnnualGivingSocietyBadge } from "./ProspectGiving";
 import { nxtProfileLinkStyle } from "./prospectPresentation";
 
 import ProspectExportButton from "@/components/ProspectExport";
 import ProspectRanking from "@/components/ProspectRanking";
 import PortfolioWorklist from "@/components/PortfolioWorklist";
 import { PortfolioContactRefreshProvider } from "@/components/PortfolioContactDetails";
-import ActivePledgeNotice from "@/components/ActivePledgeNotice";
+
 import NextStepFields from "@/components/NextStepFields";
 import WorkflowNotice from "@/components/WorkflowNotice";
 import useUnsavedChangesWarning from "@/utils/useUnsavedChangesWarning";
@@ -25,8 +42,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Plus,
-  ChevronUp,
-  ChevronDown,
   Target,
   DollarSign,
   Star,
@@ -48,7 +63,7 @@ import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/p
 import ProspectRaisedCard from "./ProspectRaisedCard";
 import OpportunityRollover from "./OpportunityRollover";
 import ProspectActivityHighlights from "./ProspectActivityHighlights";
-import { closedOpportunityKind, formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
+import { formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
 
 const ASK_TYPES = [
   "Major Gift",
@@ -81,8 +96,7 @@ const OPPORTUNITY_STAGE_OPTIONS = [
   "Funded",
   "Declined",
 ];
-const FUNDED_OPPORTUNITY_STATUS = "Closed – Gift Secured";
-const DECLINED_OPPORTUNITY_STATUS = "Closed – Declined";
+
 // The current-FY endpoint intentionally caps each request at 50 NXT records.
 // Keep the portfolio request within that boundary so later assignments are not
 // silently omitted when an MGO has a large portfolio.
@@ -98,20 +112,6 @@ const STATUS_COLORS = {
   },
   "Closed – Declined": { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
   Archived: { bg: "#F3F4F6", text: "#4B5563", border: "#D1D5DB" },
-};
-
-const OPPORTUNITY_STATUS_COLORS = {
-  Active: { bg: "#DCFCE7", text: "#166534", border: "#BBF7D0" },
-  Identification: { bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE" },
-  Qualification: { bg: "#F5F3FF", text: "#5B21B6", border: "#DDD6FE" },
-  Cultivation: { bg: "#ECFDF5", text: "#047857", border: "#A7F3D0" },
-  Solicitation: { bg: "#FEF3C7", text: "#92400E", border: "#FDE68A" },
-  "Solicitation - Verbal": { bg: "#FFEFD5", text: "#9A3412", border: "#FED7AA" },
-  Stewardship: { bg: "#F0FDFA", text: "#0F766E", border: "#99F6E4" },
-  Funded: { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
-  Declined: { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
-  [FUNDED_OPPORTUNITY_STATUS]: { bg: "#DBEAFE", text: "#1D4ED8", border: "#BFDBFE" },
-  [DECLINED_OPPORTUNITY_STATUS]: { bg: "#FEE2E2", text: "#991B1B", border: "#FECACA" },
 };
 
 function StatusBadge({ status }) {
@@ -137,32 +137,6 @@ function StatusBadge({ status }) {
       {status}
     </span>
   );
-}
-
-function OpportunityStatusBadge({ status }) {
-  const colors = OPPORTUNITY_STATUS_COLORS[status] || OPPORTUNITY_STATUS_COLORS.Active;
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "2px 10px",
-        borderRadius: "999px",
-        fontSize: "11px",
-        fontWeight: "600",
-        backgroundColor: colors.bg,
-        color: colors.text,
-        border: `1px solid ${colors.border}`,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {status}
-    </span>
-  );
-}
-
-function formatCurrency(amount) {
-  if (!amount) return "$0";
-  return "$" + Number(amount).toLocaleString();
 }
 
 const ACTION_DICTATION_TARGET_LABELS = {
@@ -251,74 +225,6 @@ function chunkValues(values, size) {
   return chunks;
 }
 
-
-
-
-
-function getOpportunityDisplayStatus(opportunity = {}) {
-  const closedKind = closedOpportunityKind(opportunity);
-  if (closedKind) return closedKind;
-  const stage = opportunity?.current_stage || "";
-  const status = opportunity?.opportunity_status || "Active";
-
-  if (
-    stage === "Funded" ||
-    status === FUNDED_OPPORTUNITY_STATUS ||
-    (Number(opportunity?.closed_amount || 0) > 0 &&
-      status !== DECLINED_OPPORTUNITY_STATUS)
-  ) {
-    return "Funded";
-  }
-
-  if (stage === "Declined" || status === DECLINED_OPPORTUNITY_STATUS) {
-    return "Declined";
-  }
-
-  return stage || "Identification";
-}
-
-function isFundedOpportunity(opportunity = {}) {
-  return getOpportunityDisplayStatus(opportunity) === "Funded";
-}
-
-function isDeclinedOpportunity(opportunity = {}) {
-  return getOpportunityDisplayStatus(opportunity) === "Declined";
-}
-
-function formatLongDate(value) {
-  return formatCalendarDate(value);
-}
-
-function getSubmissionTimelineLabel(submission) {
-  switch (submission.submission_type) {
-    case "donor_update":
-      return "Donor update";
-    case "opportunity_update":
-      return "Opportunity update";
-    case "constituent_suggestion":
-      return "Constituent suggestion";
-    default:
-      return "Submission";
-  }
-}
-
-function getSubmissionTimelineDescription(submission) {
-  switch (submission.submission_type) {
-    case "donor_update":
-      return submission.notes || submission.transcript || "Donor update submitted.";
-    case "opportunity_update":
-      return submission.notes || submission.next_step || "Opportunity update submitted.";
-    case "constituent_suggestion":
-      return (
-        submission.notes ||
-        submission.organization ||
-        "New constituent suggestion submitted."
-      );
-    default:
-      return submission.notes || "Submission updated.";
-  }
-}
-
 function formatShortDate(value) {
   return formatCalendarDate(value, {
     month: "short",
@@ -356,7 +262,6 @@ function getTodayDateOnlyTimestamp() {
   today.setHours(0, 0, 0, 0);
   return today.getTime();
 }
-
 
 function getProspectBlackbaudConstituentId(prospect) {
   return String(
@@ -423,8 +328,6 @@ function matchesPortfolioSearch(person, normalizedSearch) {
   );
 }
 
-
-
 function isNeedsFollowUpProspect(prospect) {
   if (prospect.next_action_text && !prospect.next_action_completed_at) {
     return false;
@@ -442,9 +345,6 @@ function isNeedsFollowUpProspect(prospect) {
   const staleDays = (Date.now() - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24);
   return staleDays >= 21;
 }
-
-
-
 
 function getProspectNextAction(prospect) {
   if (prospect.next_action_text && !prospect.next_action_completed_at) {
@@ -571,43 +471,6 @@ function getDiscussionBadge(prospect) {
     border: "#E5E7EB",
     text: "#4B5563",
   };
-}
-
-function getOpportunityDisplayAmount(opportunity) {
-  if (isFundedOpportunity(opportunity)) {
-    return getOpportunityFundedDisplayAmount(opportunity);
-  }
-
-  if (isDeclinedOpportunity(opportunity)) {
-    return 0;
-  }
-
-  return opportunity.estimated_amount ?? 0;
-}
-
-function getLinkedGiftTotal(opportunity = {}) {
-  if (!Array.isArray(opportunity.linked_gifts) || opportunity.linked_gifts.length === 0) {
-    return null;
-  }
-
-  let hasGiftAmount = false;
-  const total = opportunity.linked_gifts.reduce((sum, giftLink) => {
-    const amount = Number(giftLink?.gift_amount);
-    if (!Number.isFinite(amount)) return sum;
-    hasGiftAmount = true;
-    return sum + amount;
-  }, 0);
-
-  return hasGiftAmount ? total : null;
-}
-
-function hasOpportunityFundedAmount(opportunity = {}) {
-  return getLinkedGiftTotal(opportunity) != null || opportunity.closed_amount != null;
-}
-
-function getOpportunityFundedDisplayAmount(opportunity = {}) {
-  const linkedGiftTotal = getLinkedGiftTotal(opportunity);
-  return linkedGiftTotal ?? opportunity.closed_amount ?? opportunity.estimated_amount ?? 0;
 }
 
 function getProspectFundedDisplayAmount(prospect = {}) {
@@ -1893,16 +1756,10 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
       .map((item) => [String(item.prospect_opportunity_id), item]),
   );
   const blackbaudConstituent = blackbaudSummary?.mapped?.constituent || null;
-  const blackbaudLifetimeGiving =
-    blackbaudSummary?.mapped?.lifetimeGiving || null;
+
   const blackbaudAssignments =
     blackbaudSummary?.mapped?.fundraiserAssignments || [];
-  const annualGivingSocieties =
-    blackbaudSummary?.mapped?.annualGivingSocieties || null;
-  const blackbaudNarrativeSummary =
-    blackbaudSummary?.mapped?.prospectSummaryNarrative || "";
-  const blackbaudProposalSummary =
-    blackbaudSummary?.mapped?.proposalSummary || [];
+
   const actionPrimaryFundraiserName =
     mgoUsers.find((option) => String(option.id) === String(prospect?.user_id || ""))?.name ||
     blackbaudAssignments[0]?.fundraiserName ||
@@ -2419,83 +2276,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
     }
     deleteMutation.mutate();
   };
-  const timelineEvents = [
-    ...updates.map((update) => ({
-      id: `progress-${update.id}`,
-      occurredAt: update.update_date || update.created_at,
-      kind: "progress",
-      title: update.update_title || "Progress update",
-      description: update.update_notes,
-      meta: [
-        update.action_category || null,
-        update.action_type || null,
-        formatLongDate(update.update_date || update.created_at),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      accent: "#6A5BFF",
-      border: "#DDD6FE",
-      background: "#F5F3FF",
-      raw: update,
-    })),
-    ...linkedSubmissions.map((submission) => ({
-      id: `submission-${submission.id}`,
-      occurredAt:
-        submission.reviewed_at ||
-        submission.updated_at ||
-        submission.date_submitted,
-      kind: "submission",
-      title: getSubmissionTimelineLabel(submission),
-      description: getSubmissionTimelineDescription(submission),
-      meta: [
-        submission.status,
-        submission.reviewer_notes
-          ? `Reviewer note from ${submission.reviewer_name || "reviewer"}`
-          : null,
-        formatLongDate(
-          submission.reviewed_at ||
-            submission.updated_at ||
-            submission.date_submitted,
-        ),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      accent:
-        submission.status === "Needs Clarification" ? "#B45309" : "#065F46",
-      border:
-        submission.status === "Needs Clarification" ? "#FCD34D" : "#A7F3D0",
-      background:
-        submission.status === "Needs Clarification" ? "#FFFBEB" : "#ECFDF5",
-      reviewerNotes: submission.reviewer_notes,
-      raw: submission,
-    })),
-  ]
-    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
-
-  const workspaceCardStyle = {
-    backgroundColor: "white",
-    borderRadius: "16px",
-    border: "1px solid #E5E7EB",
-    padding: "18px",
-  };
-
-  const sectionEyebrowStyle = {
-    fontSize: "12px",
-    fontWeight: "700",
-    color: "#6B7280",
-    margin: "0 0 6px 0",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-  };
-
-  const detailLabelStyle = {
-    fontSize: "12px",
-    fontWeight: "600",
-    color: "#6B7280",
-    marginBottom: "2px",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
-  };
+  const timelineEvents = buildProspectTimeline(updates, linkedSubmissions);
 
   const nextStepSummary = primaryPendingAction
     ? primaryPendingAction.status === "Done"
@@ -2888,132 +2669,58 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
     );
   };
 
+  const unlinkOpportunityGift = (opportunity, giftLink) => {
+    const giftLinkKey = giftLink.id || giftLink.blackbaud_gift_id;
+    const confirmed = window.confirm(
+      "Unlink this gift from the opportunity in JUMGOGPT? This will not delete the gift record in NXT.",
+    );
+    if (!confirmed) return;
+    setUnlinkingGiftLinkId(String(giftLinkKey));
+    unlinkOpportunityGiftMutation.mutate({
+      opportunityId: opportunity.id,
+      giftLinkId: giftLink.id,
+      blackbaudGiftId: giftLink.blackbaud_gift_id,
+    });
+  };
+
+  const openOpportunityGiftLink = (opportunity) =>
+    setGiftLinkPrompt({
+      opportunityId: opportunity.id,
+      constituentId: getProspectBlackbaudConstituentId(),
+      opportunityTitle: opportunity.title || "this funded opportunity",
+    });
+
   const renderOpportunityCard = (opportunity) => (
-    <div
+    <ProspectOpportunityCard
       key={opportunity.id}
-      style={{
-        padding: "14px",
-        backgroundColor: "#EFF6FF",
-        borderRadius: "10px",
-        border: "1px solid #BFDBFE",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: "12px",
-          marginBottom: "6px",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: "14px",
-              fontWeight: "700",
-              color: "#1E3A8A",
-              marginBottom: "2px",
-            }}
-          >
-            {opportunity.title}
-          </div>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-            <OpportunityStatusBadge status={getOpportunityDisplayStatus(opportunity)} />
-          </div>
-        </div>
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: "700",
-            color: "#111827",
+      opportunity={opportunity}
+      readOnly={readOnly}
+      canLinkGift={Boolean(getProspectBlackbaudConstituentId())}
+      unlinkingGiftLinkId={unlinkingGiftLinkId}
+      onEdit={startEditingOpportunity}
+      onUnlinkGift={unlinkOpportunityGift}
+      onLinkGift={openOpportunityGiftLink}
+      renderRollover={(opportunity) => (
+        <OpportunityRollover
+          opportunity={opportunity}
+          readOnly={readOnly}
+          onUpdated={() => {
+            queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
+            queryClient.invalidateQueries({ queryKey: ["prospects"] });
+            queryClient.invalidateQueries({
+              queryKey: ["blackbaud-summary", linkedBlackbaudConstituentId],
+            });
+            setOpportunityEditFeedback(
+              "Expected date updated and verified in JUMGOGPT and NXT.",
+            );
           }}
-        >
-          {formatCurrency(getOpportunityDisplayAmount(opportunity))}
-        </div>
-      </div>
-      {editingOpportunityId === opportunity.id ? (
-        <div style={{ marginTop: "10px" }}>
-          <div style={{ marginBottom: "10px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "12px",
-                fontWeight: "600",
-                color: "#1D4ED8",
-                marginBottom: "4px",
-              }}
-            >
-              Opportunity title
-            </label>
-            <input
-              type="text"
-              value={opportunityEditData.title || ""}
-              onChange={(e) =>
-                setOpportunityEditData((prev) => ({
-                  ...prev,
-                  title: e.target.value,
-                }))
-              }
-              style={{
-                width: "100%",
-                padding: "8px 12px",
-                border: "1px solid #93C5FD",
-                borderRadius: "8px",
-                fontSize: "14px",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "10px",
-              marginBottom: "10px",
-            }}
-          >
-            <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "12px",
-                fontWeight: "600",
-                color: "#1D4ED8",
-                marginBottom: "4px",
-              }}
-            >
-                Status
-            </label>
-            <select
-              value={opportunityEditData.currentStage || "Identification"}
-                onChange={(e) =>
-                  setOpportunityEditData((prev) => ({
-                    ...prev,
-                    currentStage: e.target.value,
-                  }))
-                }
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  border: "1px solid #93C5FD",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                  backgroundColor: "white",
-                }}
-              >
-                {OPPORTUNITY_STAGE_OPTIONS.map(
-                  (stage) => (
-                    <option key={stage} value={stage}>
-                      {stage}
-                    </option>
-                  ),
-                )}
-              </select>
-            </div>
-            <div>
+        />
+      )}
+      renderStewardshipOpportunitySection={renderStewardshipOpportunitySection}
+      editor={
+        editingOpportunityId === opportunity.id ? (
+          <div style={{ marginTop: "10px" }}>
+            <div style={{ marginBottom: "10px" }}>
               <label
                 style={{
                   display: "block",
@@ -3023,15 +2730,15 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                   marginBottom: "4px",
                 }}
               >
-                Amount
+                Opportunity title
               </label>
               <input
-                type="number"
-                value={opportunityEditData.estimatedAmount || ""}
+                type="text"
+                value={opportunityEditData.title || ""}
                 onChange={(e) =>
                   setOpportunityEditData((prev) => ({
                     ...prev,
-                    estimatedAmount: e.target.value,
+                    title: e.target.value,
                   }))
                 }
                 style={{
@@ -3044,79 +2751,6 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                 }}
               />
             </div>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "10px",
-              marginBottom: "10px",
-            }}
-          >
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "12px",
-                  fontWeight: "600",
-                  color: "#1D4ED8",
-                  marginBottom: "4px",
-                }}
-              >
-                Ask Date
-              </label>
-              <input
-                type="date"
-                value={opportunityEditData.askDate || ""}
-                onChange={(e) =>
-                  setOpportunityEditData((prev) => ({
-                    ...prev,
-                    askDate: e.target.value,
-                  }))
-                }
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  border: "1px solid #93C5FD",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "12px",
-                  fontWeight: "600",
-                  color: "#1D4ED8",
-                  marginBottom: "4px",
-                }}
-              >
-                Date Expected
-              </label>
-              <input
-                type="date"
-                value={opportunityEditData.expectedDate || ""}
-                onChange={(e) =>
-                  setOpportunityEditData((prev) => ({
-                    ...prev,
-                    expectedDate: e.target.value,
-                  }))
-                }
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  border: "1px solid #93C5FD",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-          </div>
-          {opportunityEditData.currentStage === "Funded" ? (
             <div
               style={{
                 display: "grid",
@@ -3135,15 +2769,92 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                     marginBottom: "4px",
                   }}
                 >
-                  Amount Funded
+                  Status
                 </label>
-                <input
-                  type="number"
-                  value={opportunityEditData.closedAmount || ""}
+                <select
+                  value={opportunityEditData.currentStage || "Identification"}
                   onChange={(e) =>
                     setOpportunityEditData((prev) => ({
                       ...prev,
-                      closedAmount: e.target.value,
+                      currentStage: e.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #93C5FD",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    backgroundColor: "white",
+                  }}
+                >
+                  {OPPORTUNITY_STAGE_OPTIONS.map((stage) => (
+                    <option key={stage} value={stage}>
+                      {stage}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#1D4ED8",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  value={opportunityEditData.estimatedAmount || ""}
+                  onChange={(e) =>
+                    setOpportunityEditData((prev) => ({
+                      ...prev,
+                      estimatedAmount: e.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #93C5FD",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "10px",
+                marginBottom: "10px",
+              }}
+            >
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#1D4ED8",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Ask Date
+                </label>
+                <input
+                  type="date"
+                  value={opportunityEditData.askDate || ""}
+                  onChange={(e) =>
+                    setOpportunityEditData((prev) => ({
+                      ...prev,
+                      askDate: e.target.value,
                     }))
                   }
                   style={{
@@ -3166,15 +2877,15 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                     marginBottom: "4px",
                   }}
                 >
-                  Date Funded
+                  Date Expected
                 </label>
                 <input
                   type="date"
-                  value={opportunityEditData.closeDate || ""}
+                  value={opportunityEditData.expectedDate || ""}
                   onChange={(e) =>
                     setOpportunityEditData((prev) => ({
                       ...prev,
-                      closeDate: e.target.value,
+                      expectedDate: e.target.value,
                     }))
                   }
                   style={{
@@ -3188,8 +2899,114 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                 />
               </div>
             </div>
-          ) : null}
-          {opportunityEditData.currentStage === "Declined" ? (
+            {opportunityEditData.currentStage === "Funded" ? (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                  marginBottom: "10px",
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#1D4ED8",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Amount Funded
+                  </label>
+                  <input
+                    type="number"
+                    value={opportunityEditData.closedAmount || ""}
+                    onChange={(e) =>
+                      setOpportunityEditData((prev) => ({
+                        ...prev,
+                        closedAmount: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #93C5FD",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "#1D4ED8",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Date Funded
+                  </label>
+                  <input
+                    type="date"
+                    value={opportunityEditData.closeDate || ""}
+                    onChange={(e) =>
+                      setOpportunityEditData((prev) => ({
+                        ...prev,
+                        closeDate: e.target.value,
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "1px solid #93C5FD",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {opportunityEditData.currentStage === "Declined" ? (
+              <div style={{ marginBottom: "10px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "#1D4ED8",
+                    marginBottom: "4px",
+                  }}
+                >
+                  Decline reason
+                </label>
+                <textarea
+                  value={opportunityEditData.declineReason || ""}
+                  onChange={(e) =>
+                    setOpportunityEditData((prev) => ({
+                      ...prev,
+                      declineReason: e.target.value,
+                    }))
+                  }
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #93C5FD",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+            ) : null}
             <div style={{ marginBottom: "10px" }}>
               <label
                 style={{
@@ -3200,17 +3017,17 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                   marginBottom: "4px",
                 }}
               >
-                Decline reason
+                Notes
               </label>
               <textarea
-                value={opportunityEditData.declineReason || ""}
+                value={opportunityEditData.latestNotes || ""}
                 onChange={(e) =>
                   setOpportunityEditData((prev) => ({
                     ...prev,
-                    declineReason: e.target.value,
+                    latestNotes: e.target.value,
                   }))
                 }
-                rows={2}
+                rows={3}
                 style={{
                   width: "100%",
                   padding: "8px 12px",
@@ -3223,335 +3040,84 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                 }}
               />
             </div>
-          ) : null}
-          <div style={{ marginBottom: "10px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "12px",
-                fontWeight: "600",
-                color: "#1D4ED8",
-                marginBottom: "4px",
-              }}
-            >
-              Notes
-            </label>
-            <textarea
-              value={opportunityEditData.latestNotes || ""}
-              onChange={(e) =>
-                setOpportunityEditData((prev) => ({
-                  ...prev,
-                  latestNotes: e.target.value,
-                }))
-              }
-              rows={3}
-              style={{
-                width: "100%",
-                padding: "8px 12px",
-                border: "1px solid #93C5FD",
-                borderRadius: "8px",
-                fontSize: "14px",
-                boxSizing: "border-box",
-                fontFamily: "inherit",
-                resize: "vertical",
-              }}
-            />
-          </div>
-          {opportunityEditError ? (
-            <div
-              style={{
-                marginBottom: "10px",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                backgroundColor: "#FEF2F2",
-                border: "1px solid #FECACA",
-                color: "#991B1B",
-                fontSize: "13px",
-                lineHeight: 1.5,
-              }}
-            >
-              {opportunityEditError}
-            </div>
-          ) : null}
-          {opportunityEditFeedback ? (
-            <div
-              style={{
-                marginBottom: "10px",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                backgroundColor: "#ECFDF5",
-                border: "1px solid #A7F3D0",
-                color: "#166534",
-                fontSize: "13px",
-                lineHeight: 1.5,
-              }}
-            >
-              {opportunityEditFeedback}
-            </div>
-          ) : null}
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={saveOpportunityEdit}
-              disabled={updateOpportunityMutation.isPending}
-              style={{
-                padding: "8px 14px",
-                borderRadius: "8px",
-                border: "none",
-                backgroundColor: "#1D4ED8",
-                color: "white",
-                fontWeight: "600",
-                cursor: updateOpportunityMutation.isPending ? "not-allowed" : "pointer",
-              }}
-            >
-              {updateOpportunityMutation.isPending ? "Saving..." : "Save Opportunity"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingOpportunityId(null);
-                setOpportunityEditData({});
-                setOpportunityEditError("");
-                setOpportunityEditFeedback("");
-              }}
-              style={{
-                padding: "8px 14px",
-                borderRadius: "8px",
-                border: "1px solid #BFDBFE",
-                backgroundColor: "white",
-                color: "#1D4ED8",
-                fontWeight: "600",
-                cursor: "pointer",
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {opportunity.latest_notes ? (
-            <p
-              style={{
-                fontSize: "13px",
-                color: "#374151",
-                lineHeight: 1.5,
-                margin: "0 0 6px 0",
-              }}
-            >
-              {opportunity.latest_notes}
-            </p>
-          ) : null}
-          {isFundedOpportunity(opportunity) &&
-          (hasOpportunityFundedAmount(opportunity) || opportunity.close_date) ? (
-            <div
-              style={{
-                fontSize: "12px",
-                color: "#166534",
-                marginBottom: "6px",
-                lineHeight: 1.5,
-              }}
-            >
-              {hasOpportunityFundedAmount(opportunity)
-                ? `Amount Funded ${formatCurrency(getOpportunityFundedDisplayAmount(opportunity))}`
-                : null}
-              {hasOpportunityFundedAmount(opportunity) && opportunity.close_date ? " · " : ""}
-              {opportunity.close_date
-                ? `Funded ${formatLongDate(opportunity.close_date)}`
-                : null}
-            </div>
-          ) : null}
-          {Array.isArray(opportunity.linked_gifts) &&
-          opportunity.linked_gifts.length > 0 ? (
-            <div
-              style={{
-                margin: "8px 0",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid #A7F3D0",
-                backgroundColor: "#F0FDF4",
-                color: "#166534",
-                fontSize: "12px",
-                lineHeight: 1.5,
-              }}
-            >
-              <div style={{ fontWeight: "800", marginBottom: "4px" }}>
-                Linked gifts in JUMGOGPT
+            {opportunityEditError ? (
+              <div
+                style={{
+                  marginBottom: "10px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  backgroundColor: "#FEF2F2",
+                  border: "1px solid #FECACA",
+                  color: "#991B1B",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {opportunityEditError}
               </div>
-              {opportunity.linked_gifts.map((giftLink) => {
-                const giftLinkKey =
-                  giftLink.id || giftLink.blackbaud_gift_id;
-                const isUnlinking =
-                  String(unlinkingGiftLinkId) === String(giftLinkKey);
-
-                return (
-                  <div
-                    key={giftLinkKey}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "10px",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span>
-                      {formatLongDate(giftLink.gift_date) ||
-                        "Gift date unavailable"}
-                      {" · "}
-                      {formatCurrency(giftLink.gift_amount)}
-                      {giftLink.gift_type ? ` · ${giftLink.gift_type}` : ""}
-                      {giftLink.gift_fund ? ` · ${giftLink.gift_fund}` : ""}
-                      {giftLink.nxt_sync_state === "manual_required"
-                        ? " · NXT link needs manual review"
-                        : ""}
-                    </span>
-                    {!readOnly ? (
-                      <button
-                        type="button"
-                        disabled={isUnlinking}
-                        onClick={() => {
-                          const confirmed = window.confirm(
-                            "Unlink this gift from the opportunity in JUMGOGPT? This will not delete the gift record in NXT.",
-                          );
-                          if (!confirmed) return;
-                          setUnlinkingGiftLinkId(String(giftLinkKey));
-                          unlinkOpportunityGiftMutation.mutate({
-                            opportunityId: opportunity.id,
-                            giftLinkId: giftLink.id,
-                            blackbaudGiftId: giftLink.blackbaud_gift_id,
-                          });
-                        }}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: "999px",
-                          border: "1px solid #BBF7D0",
-                          backgroundColor: "white",
-                          color: "#166534",
-                          fontSize: "11px",
-                          fontWeight: "800",
-                          cursor: isUnlinking ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        {isUnlinking ? "Unlinking..." : "Unlink gift"}
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-          {isFundedOpportunity(opportunity) &&
-          !readOnly &&
-          getProspectBlackbaudConstituentId() ? (
-            <button
-              type="button"
-              onClick={() =>
-                setGiftLinkPrompt({
-                  opportunityId: opportunity.id,
-                  constituentId: getProspectBlackbaudConstituentId(),
-                  opportunityTitle:
-                    opportunity.title || "this funded opportunity",
-                })
-              }
-              style={{
-                marginBottom: "8px",
-                padding: "7px 12px",
-                borderRadius: "999px",
-                border: "1px solid #86EFAC",
-                backgroundColor: "white",
-                color: "#166534",
-                fontSize: "12px",
-                fontWeight: "800",
-                cursor: "pointer",
-              }}
-            >
-              Link recent gift
-            </button>
-          ) : null}
-          {isDeclinedOpportunity(opportunity) &&
-          (opportunity.decline_reason || opportunity.close_date) ? (
-            <div
-              style={{
-                fontSize: "12px",
-                color: "#991B1B",
-                marginBottom: "6px",
-                lineHeight: 1.5,
-              }}
-            >
-              {opportunity.decline_reason || "Opportunity declined"}
-              {opportunity.close_date
-                ? ` · Closed ${formatLongDate(opportunity.close_date)}`
-              : ""}
-            </div>
-          ) : null}
-          <OpportunityRollover opportunity={opportunity} readOnly={readOnly} onUpdated={() => {
-            queryClient.invalidateQueries({ queryKey: ["prospect", prospectId] });
-            queryClient.invalidateQueries({ queryKey: ["prospects"] });
-            queryClient.invalidateQueries({ queryKey: ["blackbaud-summary", linkedBlackbaudConstituentId] });
-            setOpportunityEditFeedback("Expected date updated and verified in JUMGOGPT and NXT.");
-          }} />
-          {renderStewardshipOpportunitySection(opportunity)}
-          {(opportunity.ask_date || opportunity.expected_date) ? (
-            <div
-              style={{
-                fontSize: "12px",
-                color: "#6B7280",
-                marginBottom: "6px",
-                lineHeight: 1.5,
-              }}
-            >
-              {opportunity.ask_date
-                ? `Ask date ${formatLongDate(opportunity.ask_date)}`
-                : null}
-              {opportunity.ask_date && opportunity.expected_date ? " · " : ""}
-              {opportunity.expected_date
-                ? `Expected ${formatLongDate(opportunity.expected_date)}`
-                : null}
-            </div>
-          ) : null}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ fontSize: "12px", color: "#6B7280" }}>
-              Last updated{" "}
-              {new Date(opportunity.updated_at).toLocaleDateString("en-US", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
-              {opportunity.close_date
-                ? ` · Closed ${formatLongDate(opportunity.close_date)}`
-                : ""}
-            </div>
-            {!readOnly ? (
-            <button
-              type="button"
-              onClick={() => startEditingOpportunity(opportunity)}
-              style={{
-                padding: "7px 12px",
-                borderRadius: "999px",
-                border: "1px solid #93C5FD",
-                backgroundColor: "white",
-                color: "#1D4ED8",
-                fontSize: "12px",
-                fontWeight: "700",
-                cursor: "pointer",
-              }}
-            >
-              Edit Opportunity
-            </button>
             ) : null}
+            {opportunityEditFeedback ? (
+              <div
+                style={{
+                  marginBottom: "10px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  backgroundColor: "#ECFDF5",
+                  border: "1px solid #A7F3D0",
+                  color: "#166534",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {opportunityEditFeedback}
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={saveOpportunityEdit}
+                disabled={updateOpportunityMutation.isPending}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#1D4ED8",
+                  color: "white",
+                  fontWeight: "600",
+                  cursor: updateOpportunityMutation.isPending
+                    ? "not-allowed"
+                    : "pointer",
+                }}
+              >
+                {updateOpportunityMutation.isPending
+                  ? "Saving..."
+                  : "Save Opportunity"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingOpportunityId(null);
+                  setOpportunityEditData({});
+                  setOpportunityEditError("");
+                  setOpportunityEditFeedback("");
+                }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "8px",
+                  border: "1px solid #BFDBFE",
+                  backgroundColor: "white",
+                  color: "#1D4ED8",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        </>
-      )}
-    </div>
+        ) : null
+      }
+    />
   );
 
   return (
@@ -5764,262 +5330,18 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
               marginBottom: "24px",
             }}
           >
-          {linkedBlackbaudConstituentId ? (
-            <div
-              style={{
-                ...workspaceCardStyle,
-                borderColor: "#BFDBFE",
-                backgroundColor: "#EFF6FF",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  alignItems: "flex-start",
-                  marginBottom: "10px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: "700",
-                      color: "#1D4ED8",
-                    }}
-                  >
-                    Blackbaud Summary
-                  </div>
-                  {blackbaudConstituent?.lookupId ? (
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#4B5563" }}>
-                      Lookup ID: {blackbaudConstituent.lookupId}
-                    </div>
-                  ) : null}
-                </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    <div
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      color: "#1D4ED8",
-                      backgroundColor: "#DBEAFE",
-                      border: "1px solid #93C5FD",
-                      borderRadius: "999px",
-                      padding: "4px 10px",
-                    }}
-                    >
-                      Read-only NXT data
-                    </div>
-                    <AnnualGivingSocietyBadge annualGivingSocieties={annualGivingSocieties} />
-                    {linkedBlackbaudConstituentProfileUrl ? (
-                      <a
-                      href={linkedBlackbaudConstituentProfileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={nxtProfileLinkStyle}
-                    >
-                      Open NXT profile
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-
-              <ActivePledgeNotice
-                status={pledgeData?.byConstituentId?.[String(linkedBlackbaudConstituentId)]}
-                incomplete={pledgeData?.incomplete}
-              />
-              {blackbaudSummaryLoading ? (
-                <div style={{ fontSize: "13px", color: "#4B5563" }}>
-                  Loading Blackbaud summary...
-                </div>
-              ) : blackbaudSummaryError ? (
-                <div
-                  style={{
-                    fontSize: "13px",
-                    color: "#991B1B",
-                    backgroundColor: "#FEF2F2",
-                    border: "1px solid #FECACA",
-                    borderRadius: "8px",
-                    padding: "10px 12px",
-                  }}
-                >
-                  Linked Blackbaud data could not be loaded right now.
-                </div>
-              ) : (
-                <>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: "12px",
-                      backgroundColor: "#DBEAFE",
-                      border: "1px solid #BFDBFE",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setShowBlackbaudNarrativeSummary((current) => !current)
-                      }
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: "12px",
-                        border: "none",
-                        backgroundColor: "transparent",
-                        padding: 0,
-                        cursor: "pointer",
-                        color: "#1D4ED8",
-                        fontSize: "13px",
-                        fontWeight: "700",
-                      }}
-                    >
-                      <span>NXT Summary</span>
-                      {showBlackbaudNarrativeSummary ? (
-                        <ChevronUp size={16} />
-                      ) : (
-                        <ChevronDown size={16} />
-                      )}
-                    </button>
-                    {showBlackbaudNarrativeSummary ? (
-                      <div style={{ marginTop: "10px" }}>
-                        {blackbaudNarrativeSummary ? (
-                          <div
-                            style={{
-                              padding: "14px 16px",
-                              borderRadius: "12px",
-                              backgroundColor: "white",
-                              border: "1px solid #BFDBFE",
-                              fontSize: "14px",
-                              lineHeight: 1.7,
-                              color: "#1F2937",
-                            }}
-                          >
-                            {blackbaudNarrativeSummary}
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              padding: "12px 14px",
-                              borderRadius: "10px",
-                              backgroundColor: "white",
-                              border: "1px solid #DBEAFE",
-                              fontSize: "13px",
-                              color: "#4B5563",
-                            }}
-                          >
-                            No concise NXT summary is available for this constituent yet.
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                      gap: "12px",
-                      marginTop: "14px",
-                    }}
-                  >
-                    {blackbaudConstituent?.preferredName ? (
-                      <div>
-                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          Preferred Name
-                        </p>
-                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
-                          {blackbaudConstituent.preferredName}
-                        </p>
-                      </div>
-                    ) : null}
-                    {blackbaudConstituent?.email ? (
-                      <div>
-                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          Email
-                        </p>
-                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
-                          {blackbaudConstituent.email}
-                        </p>
-                      </div>
-                    ) : null}
-                    {blackbaudConstituent?.phone ? (
-                      <div>
-                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          Phone
-                        </p>
-                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
-                          {blackbaudConstituent.phone}
-                        </p>
-                      </div>
-                    ) : null}
-                    {blackbaudLifetimeGiving?.totalGiving ? (
-                      <div>
-                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          Lifetime Giving
-                        </p>
-                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
-                          {formatBlackbaudCurrency(blackbaudLifetimeGiving.totalGiving)}
-                        </p>
-                      </div>
-                    ) : null}
-                    {blackbaudProposalSummary.length ? (
-                      <div>
-                        <p style={{ fontSize: "11px", fontWeight: "700", color: "#6B7280", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          Open Proposals
-                        </p>
-                        <p style={{ fontSize: "14px", color: "#111827", margin: 0 }}>
-                          {blackbaudProposalSummary.length}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                  {blackbaudConstituent?.address ? (
-                    <div style={{ marginTop: "14px" }}>
-                      <p
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: "700",
-                          color: "#6B7280",
-                          marginBottom: "2px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Preferred Address
-                      </p>
-                      <p
-                        style={{
-                          fontSize: "14px",
-                          color: "#374151",
-                          margin: 0,
-                          whiteSpace: "pre-line",
-                        }}
-                      >
-                        {blackbaudConstituent.address}
-                      </p>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-          ) : (
-            <div style={{ ...workspaceCardStyle, backgroundColor: "#F9FAFB" }}>
-              <p style={sectionEyebrowStyle}>Blackbaud</p>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "14px",
-                  color: "#4B5563",
-                  lineHeight: 1.6,
-                }}
-              >
-                This prospect is not linked to a Blackbaud constituent yet. Actions and opportunities will stay in the app only until the record is linked.
-              </p>
-            </div>
-          )}
+          <ProspectDetailSummary
+            linkedBlackbaudConstituentId={linkedBlackbaudConstituentId}
+            linkedBlackbaudConstituentProfileUrl={linkedBlackbaudConstituentProfileUrl}
+            blackbaudSummary={blackbaudSummary}
+            blackbaudSummaryLoading={blackbaudSummaryLoading}
+            blackbaudSummaryError={blackbaudSummaryError}
+            pledgeData={pledgeData}
+            showBlackbaudNarrativeSummary={showBlackbaudNarrativeSummary}
+            onToggleNarrative={() =>
+              setShowBlackbaudNarrativeSummary((current) => !current)
+            }
+          />
 
           <div style={{ ...workspaceCardStyle, backgroundColor: "#FCFCFD" }}>
             <div
@@ -6133,528 +5455,230 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             )}
           </div>
 
-          <div style={{ ...workspaceCardStyle, marginBottom: 0 }}>
-            <h3
-              style={{
-                fontSize: "16px",
-                fontWeight: "700",
-                color: "#111827",
-                margin: "0 0 12px 0",
-              }}
-            >
-              Active Opportunities ({opportunityGroups.active.length})
-            </h3>
-            {!editingOpportunityId && opportunityEditFeedback ? <p role="status" className="mb-3 text-sm text-green-800">{opportunityEditFeedback}</p> : null}
-            {opportunityGroups.active.length === 0 ? (
-              <p
-                style={{
-                  fontSize: "14px",
-                  color: "#9CA3AF",
-                  fontStyle: "italic",
-                }}
-              >
-                No active linked opportunities. Closed opportunities are available in the history below.
-              </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {opportunityGroups.active.map(renderOpportunityCard)}
-              </div>
-            )}
-          </div>
+          <ActiveOpportunitySection
+            opportunityGroups={opportunityGroups}
+            editingOpportunityId={editingOpportunityId}
+            opportunityEditFeedback={opportunityEditFeedback}
+            renderOpportunityCard={renderOpportunityCard}
+          />
           </div>
 
-          <div style={workspaceCardStyle}>
-            <h3
-              style={{
-                fontSize: "16px",
-                fontWeight: "700",
-                color: "#111827",
-                margin: "0 0 12px 0",
-              }}
-            >
-              Recent Actions & Activity
-            </h3>
-            <ProspectActivityHighlights prospectId={prospectId} linked={Boolean(linkedBlackbaudConstituentId)} updates={updates} />
-            <details open={Boolean(expandedTimelineId || editingUpdateId)}>
-            <summary className="mb-3 cursor-pointer text-sm font-semibold text-gray-700">Activity log ({timelineEvents.length})</summary>
-            {timelineEvents.length === 0 ? (
-              <p
-                style={{
-                  fontSize: "14px",
-                  color: "#9CA3AF",
-                  fontStyle: "italic",
-                }}
-              >
-                No activity yet for this prospect.
-              </p>
-            ) : (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-              >
-                {timelineEvents.map((event) => (
+          <ProspectDetailActivity
+            timelineEvents={timelineEvents}
+            highlights={
+              <ProspectActivityHighlights
+                prospectId={prospectId}
+                linked={Boolean(linkedBlackbaudConstituentId)}
+                updates={updates}
+              />
+            }
+            expandedTimelineId={expandedTimelineId}
+            editingUpdateId={editingUpdateId}
+            readOnly={readOnly}
+            isDeleting={deleteTimelineEntryMutation.isPending}
+            onToggleEvent={(id) =>
+              setExpandedTimelineId((current) => (current === id ? null : id))
+            }
+            onEdit={startEditingTimelineUpdate}
+            onDelete={deleteTimelineUpdate}
+            renderDeleteConfirmation={(event) =>
+              pendingDeleteEvent?.id === event.id ? (
+                <div
+                  style={{
+                    margin: "10px 0",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #FCA5A5",
+                    backgroundColor: "#FEF2F2",
+                    color: "#7F1D1D",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <p style={{ margin: "0 0 10px 0", fontWeight: "700" }}>
+                    {event.raw?.blackbaud_action_id
+                      ? "Caution: this will delete this activity from Raiser's Edge NXT and may break any associated opportunity links."
+                      : "Delete this activity from the app?"}
+                  </p>
                   <div
-                    key={event.id}
                     style={{
-                      padding: "12px",
-                      backgroundColor: event.background,
-                      borderRadius: "8px",
-                      border: `1px solid ${event.border}`,
+                      display: "flex",
+                      gap: "8px",
+                      flexWrap: "wrap",
                     }}
                   >
-                    <div
+                    <button
+                      type="button"
+                      onClick={confirmDeleteTimelineUpdate}
+                      disabled={deleteTimelineEntryMutation.isPending}
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        alignItems: "flex-start",
-                        marginBottom: "4px",
-                        flexWrap: "wrap",
+                        padding: "7px 11px",
+                        borderRadius: "8px",
+                        border: "1px solid #B91C1C",
+                        backgroundColor: "#B91C1C",
+                        color: "white",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: deleteTimelineEntryMutation.isPending
+                          ? "not-allowed"
+                          : "pointer",
+                        opacity: deleteTimelineEntryMutation.isPending ? 0.7 : 1,
                       }}
                     >
-                      <div style={{ flex: 1, minWidth: "220px" }}>
-                        <p
-                          style={{
-                            fontSize: "13px",
-                            fontWeight: "700",
-                            color: event.accent,
-                            margin: "0 0 2px 0",
-                          }}
-                        >
-                          {event.title}
-                        </p>
-                        <p
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: "600",
-                            color: "#6B7280",
-                            margin: 0,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatLongDate(event.occurredAt)}
-                        </p>
-                      </div>
-                      <div
+                      {deleteTimelineEntryMutation.isPending
+                        ? "Deleting..."
+                        : event.raw?.blackbaud_action_id
+                          ? "Delete from NXT and app"
+                          : "Delete activity"}
+                    </button>
+                    {event.raw?.blackbaud_action_id ? (
+                      <button
+                        type="button"
+                        onClick={() => confirmDeleteTimelineUpdate({ localOnly: true })}
+                        disabled={deleteTimelineEntryMutation.isPending}
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {event.kind === "progress" || event.kind === "submission" ? (
-                          <>
-                            {!readOnly && event.kind === "progress" ? (
-                              <button
-                                type="button"
-                                onClick={() => startEditingTimelineUpdate(event)}
-                                style={{
-                                  padding: "6px 10px",
-                                  borderRadius: "999px",
-                                  border: "1px solid #C4B5FD",
-                                  backgroundColor: "white",
-                                  color: "#5B21B6",
-                                  fontSize: "12px",
-                                  fontWeight: "700",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Edit
-                              </button>
-                            ) : null}
-                            {!readOnly ? (
-                              <button
-                                type="button"
-                                onClick={() => deleteTimelineUpdate(event)}
-                                disabled={deleteTimelineEntryMutation.isPending}
-                                style={{
-                                  padding: "6px 10px",
-                                  borderRadius: "999px",
-                                  border: "1px solid #FECACA",
-                                  backgroundColor: "white",
-                                  color: "#B91C1C",
-                                  fontSize: "12px",
-                                  fontWeight: "700",
-                                  cursor: deleteTimelineEntryMutation.isPending
-                                    ? "not-allowed"
-                                    : "pointer",
-                                  opacity: deleteTimelineEntryMutation.isPending ? 0.7 : 1,
-                                }}
-                              >
-                                Delete
-                              </button>
-                            ) : null}
-                          </>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedTimelineId((current) =>
-                              current === event.id ? null : event.id,
-                            )
-                          }
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "6px 10px",
-                            borderRadius: "999px",
-                            border: `1px solid ${event.border}`,
-                            backgroundColor: "white",
-                            color: event.accent,
-                            fontSize: "12px",
-                            fontWeight: "700",
-                            cursor: "pointer",
-                          }}
-                        >
-                          {expandedTimelineId === event.id ? "Hide details" : "See details"}
-                          {expandedTimelineId === event.id ? (
-                            <ChevronUp size={14} />
-                          ) : (
-                            <ChevronDown size={14} />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {pendingDeleteEvent?.id === event.id ? (
-                      <div
-                        style={{
-                          margin: "10px 0",
-                          padding: "10px 12px",
+                          padding: "7px 11px",
                           borderRadius: "8px",
                           border: "1px solid #FCA5A5",
-                          backgroundColor: "#FEF2F2",
-                          color: "#7F1D1D",
+                          backgroundColor: "white",
+                          color: "#991B1B",
                           fontSize: "12px",
-                          lineHeight: 1.5,
+                          fontWeight: "700",
+                          cursor: deleteTimelineEntryMutation.isPending
+                            ? "not-allowed"
+                            : "pointer",
                         }}
                       >
-                        <p style={{ margin: "0 0 10px 0", fontWeight: "700" }}>
-                          {event.raw?.blackbaud_action_id
-                            ? "Caution: this will delete this activity from Raiser's Edge NXT and may break any associated opportunity links."
-                            : "Delete this activity from the app?"}
-                        </p>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "8px",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            onClick={confirmDeleteTimelineUpdate}
-                            disabled={deleteTimelineEntryMutation.isPending}
-                            style={{
-                              padding: "7px 11px",
-                              borderRadius: "8px",
-                              border: "1px solid #B91C1C",
-                              backgroundColor: "#B91C1C",
-                              color: "white",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              cursor: deleteTimelineEntryMutation.isPending
-                                ? "not-allowed"
-                                : "pointer",
-                              opacity: deleteTimelineEntryMutation.isPending ? 0.7 : 1,
-                            }}
-                          >
-                            {deleteTimelineEntryMutation.isPending
-                              ? "Deleting..."
-                              : event.raw?.blackbaud_action_id
-                                ? "Delete from NXT and app"
-                                : "Delete activity"}
-                          </button>
-                          {event.raw?.blackbaud_action_id ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                confirmDeleteTimelineUpdate({ localOnly: true })
-                              }
-                              disabled={deleteTimelineEntryMutation.isPending}
-                              style={{
-                                padding: "7px 11px",
-                                borderRadius: "8px",
-                                border: "1px solid #FCA5A5",
-                                backgroundColor: "white",
-                                color: "#991B1B",
-                                fontSize: "12px",
-                                fontWeight: "700",
-                                cursor: deleteTimelineEntryMutation.isPending
-                                  ? "not-allowed"
-                                  : "pointer",
-                              }}
-                            >
-                              Remove from app only
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => setPendingDeleteEvent(null)}
-                            disabled={deleteTimelineEntryMutation.isPending}
-                            style={{
-                              padding: "7px 11px",
-                              borderRadius: "8px",
-                              border: "1px solid #FCA5A5",
-                              backgroundColor: "white",
-                              color: "#991B1B",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              cursor: deleteTimelineEntryMutation.isPending
-                                ? "not-allowed"
-                                : "pointer",
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
+                        Remove from app only
+                      </button>
                     ) : null}
-                    <p
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteEvent(null)}
+                      disabled={deleteTimelineEntryMutation.isPending}
                       style={{
-                        fontSize: "14px",
-                        color: "#374151",
-                        margin: "0 0 4px 0",
-                        lineHeight: "1.5",
-                      }}
-                    >
-                      {event.description}
-                    </p>
-                    {event.reviewerNotes ? (
-                      <p
-                        style={{
-                          fontSize: "13px",
-                          color: "#6B7280",
-                          margin: "0 0 4px 0",
-                          lineHeight: "1.5",
-                        }}
-                      >
-                        Reviewer note: {event.reviewerNotes}
-                      </p>
-                    ) : null}
-                    <p
-                      style={{
+                        padding: "7px 11px",
+                        borderRadius: "8px",
+                        border: "1px solid #FCA5A5",
+                        backgroundColor: "white",
+                        color: "#991B1B",
                         fontSize: "12px",
-                        color: "#6B7280",
-                        margin: 0,
-                        lineHeight: "1.5",
+                        fontWeight: "700",
+                        cursor: deleteTimelineEntryMutation.isPending
+                          ? "not-allowed"
+                          : "pointer",
                       }}
                     >
-                      {event.meta}
-                    </p>
-                    {expandedTimelineId === event.id ? (
-                      <div
-                        style={{
-                          marginTop: "12px",
-                          paddingTop: "12px",
-                          borderTop: `1px solid ${event.border}`,
-                        }}
-                      >
-                        {event.kind === "progress" &&
-                        editingUpdateId === event.raw?.id ? (
-                          <div>
-                            <div style={{ marginBottom: "10px" }}>
-                              <label
-                                style={{
-                                  display: "block",
-                                  fontSize: "12px",
-                                  fontWeight: "600",
-                                  color: event.accent,
-                                  marginBottom: "4px",
-                                }}
-                              >
-                                Update date
-                              </label>
-                              <input
-                                type="date"
-                                value={editingUpdateDate}
-                                onChange={(e) => setEditingUpdateDate(e.target.value)}
-                                style={{
-                                  width: "100%",
-                                  padding: "8px 12px",
-                                  border: `1px solid ${event.border}`,
-                                  borderRadius: "8px",
-                                  fontSize: "14px",
-                                  boxSizing: "border-box",
-                                  backgroundColor: "white",
-                                }}
-                              />
-                            </div>
-                            <div style={{ marginBottom: "10px" }}>
-                              <label
-                                style={{
-                                  display: "block",
-                                  fontSize: "12px",
-                                  fontWeight: "600",
-                                  color: event.accent,
-                                  marginBottom: "4px",
-                                }}
-                              >
-                                Update notes
-                              </label>
-                              <textarea
-                                value={editingUpdateNotes}
-                                onChange={(e) => setEditingUpdateNotes(e.target.value)}
-                                rows={4}
-                                style={{
-                                  width: "100%",
-                                  padding: "8px 12px",
-                                  border: `1px solid ${event.border}`,
-                                  borderRadius: "8px",
-                                  fontSize: "14px",
-                                  boxSizing: "border-box",
-                                  fontFamily: "inherit",
-                                  resize: "vertical",
-                                  backgroundColor: "white",
-                                }}
-                              />
-                            </div>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                              <button
-                                type="button"
-                                onClick={saveTimelineUpdate}
-                                disabled={updateTimelineEntryMutation.isPending}
-                                style={{
-                                  padding: "8px 14px",
-                                  borderRadius: "8px",
-                                  border: "none",
-                                  backgroundColor: "#6A5BFF",
-                                  color: "white",
-                                  fontWeight: "700",
-                                  cursor: updateTimelineEntryMutation.isPending
-                                    ? "not-allowed"
-                                    : "pointer",
-                                }}
-                              >
-                                {updateTimelineEntryMutation.isPending
-                                  ? "Saving..."
-                                  : "Save update"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingUpdateId(null);
-                                  setEditingUpdateNotes("");
-                                  setEditingUpdateDate("");
-                                }}
-                                style={{
-                                  padding: "8px 14px",
-                                  borderRadius: "8px",
-                                  border: `1px solid ${event.border}`,
-                                  backgroundColor: "white",
-                                  color: event.accent,
-                                  fontWeight: "700",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                              gap: "12px",
-                            }}
-                          >
-                            {event.kind === "progress" ? (
-                              <>
-                                <div>
-                                  <p style={detailLabelStyle}>Recorded update</p>
-                                  <p
-                                    style={{
-                                      fontSize: "14px",
-                                      color: "#374151",
-                                      margin: 0,
-                                      whiteSpace: "pre-line",
-                                      lineHeight: 1.6,
-                                    }}
-                                  >
-                                    {event.raw?.update_notes || "No details recorded."}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p style={detailLabelStyle}>Source</p>
-                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    Saved in the app
-                                  </p>
-                                </div>
-                              </>
-                            ) : null}
-                            {event.kind === "submission" ? (
-                              <>
-                                <div>
-                                  <p style={detailLabelStyle}>Submission status</p>
-                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    {event.raw?.status || "Unknown"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p style={detailLabelStyle}>Submitted</p>
-                                  <p style={{ fontSize: "14px", color: "#374151", margin: 0 }}>
-                                    {formatLongDate(
-                                      event.raw?.date_submitted ||
-                                        event.raw?.updated_at ||
-                                        event.raw?.reviewed_at,
-                                    )}
-                                  </p>
-                                </div>
-                                <div style={{ gridColumn: "1 / -1" }}>
-                                  <p style={detailLabelStyle}>Submission details</p>
-                                  <p
-                                    style={{
-                                      fontSize: "14px",
-                                      color: "#374151",
-                                      margin: 0,
-                                      whiteSpace: "pre-line",
-                                      lineHeight: 1.6,
-                                    }}
-                                  >
-                                    {getSubmissionTimelineDescription(event.raw) ||
-                                      "No additional submission details."}
-                                  </p>
-                                </div>
-                                {event.raw?.reviewer_notes ? (
-                                  <div style={{ gridColumn: "1 / -1" }}>
-                                    <p style={detailLabelStyle}>Reviewer notes</p>
-                                    <p
-                                      style={{
-                                        fontSize: "14px",
-                                        color: "#374151",
-                                        margin: 0,
-                                        whiteSpace: "pre-line",
-                                        lineHeight: 1.6,
-                                      }}
-                                    >
-                                      {event.raw.reviewer_notes}
-                                    </p>
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : null}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
+                      Cancel
+                    </button>
                   </div>
-                ))}
+                </div>
+              ) : null
+            }
+            renderEditor={(event) => (
+              <div>
+                <div style={{ marginBottom: "10px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: event.accent,
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Update date
+                  </label>
+                  <input
+                    type="date"
+                    value={editingUpdateDate}
+                    onChange={(e) => setEditingUpdateDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: `1px solid ${event.border}`,
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      backgroundColor: "white",
+                    }}
+                  />
+                </div>
+                <div style={{ marginBottom: "10px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: event.accent,
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Update notes
+                  </label>
+                  <textarea
+                    value={editingUpdateNotes}
+                    onChange={(e) => setEditingUpdateNotes(e.target.value)}
+                    rows={4}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: `1px solid ${event.border}`,
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                      backgroundColor: "white",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={saveTimelineUpdate}
+                    disabled={updateTimelineEntryMutation.isPending}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "8px",
+                      border: "none",
+                      backgroundColor: "#6A5BFF",
+                      color: "white",
+                      fontWeight: "700",
+                      cursor: updateTimelineEntryMutation.isPending
+                        ? "not-allowed"
+                        : "pointer",
+                    }}
+                  >
+                    {updateTimelineEntryMutation.isPending ? "Saving..." : "Save update"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingUpdateId(null);
+                      setEditingUpdateNotes("");
+                      setEditingUpdateDate("");
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "8px",
+                      border: `1px solid ${event.border}`,
+                      backgroundColor: "white",
+                      color: event.accent,
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
-            </details>
-          </div>
-          {opportunityGroups.recentClosed.length || opportunityGroups.olderClosed.length ? (
-            <section style={workspaceCardStyle} aria-label="Closed opportunity history">
-              <h3 className="mb-2 font-bold text-gray-900">Closed Opportunities ({opportunityGroups.recentClosed.length})</h3>
-              <p className="mb-3 text-sm text-gray-500">Funded, withdrawn, and declined opportunities closed in the last two years. Stewardship stays with its opportunity.</p>
-              <div className="flex flex-col gap-3">{opportunityGroups.recentClosed.map(renderOpportunityCard)}</div>
-              {opportunityGroups.olderClosed.length ? <details className="mt-4">
-                <summary className="mb-3 cursor-pointer text-sm font-semibold text-gray-700">Older or undated closed history ({opportunityGroups.olderClosed.length})</summary>
-                <div className="flex flex-col gap-3">{opportunityGroups.olderClosed.map(renderOpportunityCard)}</div>
-              </details> : null}
-            </section>
-          ) : null}
+          />
+          <ClosedOpportunityHistory
+            opportunityGroups={opportunityGroups}
+            renderOpportunityCard={renderOpportunityCard}
+          />
         </div>
       </div>
     </div>
@@ -8478,7 +7502,6 @@ export default function MyTopProspectsPage() {
                 }
               />
             ) : null}
-
 
             {portfolioSyncMessage ? (
               <div

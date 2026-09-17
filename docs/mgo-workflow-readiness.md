@@ -34,13 +34,27 @@ disposable-Postgres audit transaction checks are not evidence of live settings
 changes or NXT writes.
 
 [My Prospects module extraction](my-prospects-modules.md), step 6 first pass, was
-authorized for release September 17. Its 65 focused tests cover the unchanged
+deployed September 17 as `9e40b16df48e0f5e4ee9e17f96553b3c10b9cb27`, Vercel
+deployment `dpl_3K49DW9PpUHotvwrvnqSJQVEgqQh`, with exact-SHA/asset verification
+and a signed-in read-only portfolio smoke check. Its 65 focused tests cover the unchanged
 route integration and extracted modules, including workspace summary isolation.
 September 17 local verification passed: 2,705 tests in 246 files, typecheck,
 production build, release worktree guard, and whitespace checks.
 Synthetic desktop/mobile inspection covers the extracted portfolio and editors;
 it does not replace signed-in live acceptance. No server/NXT write path, schema,
 refresh policy, or production record changed in this pass.
+
+Step 6 phase 2 extracts prospect-detail summary, opportunity, and activity
+presentation. Production release was authorized September 17 after local
+verification; verify the release SHA and signed-in display after publishing.
+All 2,734 tests in 249
+files passed, including 29 new regression tests; typecheck, build, release and
+whitespace checks passed. The original forms, query/mutation declarations,
+confirmation trees, and helper semantics passed structural comparison. Synthetic
+desktop/mobile inspection used the actual detail modal; no live donor writes
+were performed. A small existing narrow-screen grid overflow was reproduced in
+both this build and the deployed-source baseline and is recorded in the module
+map for a separate layout fix.
 
 ## Acceptance Matrix
 
