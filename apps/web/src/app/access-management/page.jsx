@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import useSetupAnchor from "@/utils/useSetupAnchor";
 import { ArrowLeft } from "lucide-react";
 import useUser from "@/utils/useUser";
 import {
@@ -256,6 +257,7 @@ export default function AccessManagementPage() {
     DEFAULT_ORGANIZATION_SETTINGS,
   );
   const [profileLoading, setProfileLoading] = useState(true);
+  useSetupAnchor(!loading && !profileLoading && Boolean(sessionUser));
   const [users, setUsers] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState("");
@@ -1617,7 +1619,7 @@ export default function AccessManagementPage() {
           </div>
         </form>
 
-        <div style={cardStyle}>
+        <div id="workspace-users" className="scroll-mt-24" style={cardStyle}>
           <div
             style={{
               display: "flex",

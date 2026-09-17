@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import useSetupAnchor from "@/utils/useSetupAnchor";
 import { ArrowLeft, RefreshCw, ShieldCheck } from "lucide-react";
 import useUser from "@/utils/useUser";
 import { canManageWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
@@ -82,6 +83,7 @@ export default function SettingsPage() {
   const [portfolioSyncEligible, setPortfolioSyncEligible] = useState(false);
   const [blackbaudStatus, setBlackbaudStatus] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  useSetupAnchor(!loading && !profileLoading && Boolean(sessionUser));
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -306,7 +308,7 @@ export default function SettingsPage() {
           ) : null}
         </section>
 
-        <section style={cardStyle}>
+        <section id="blackbaud-connection" className="scroll-mt-24" style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", alignItems: "start" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: "19px", color: "#111827" }}>Blackbaud NXT connection</h2>

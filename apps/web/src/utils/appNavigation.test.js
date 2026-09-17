@@ -7,6 +7,11 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it.each([false, true])("shows Setup Hub only to workspace managers in either view (reviewer: %s)", isReviewer => {
+    expect(getNavigationItems({ isReviewer, canManageWorkspace: false }).some(item => item.href === "/setup")).toBe(false);
+    expect(getNavigationItems({ isReviewer, canManageWorkspace: true }).filter(item => item.href === "/setup")).toHaveLength(1);
+    expect(getBreadcrumbs("/setup").at(-1).label).toBe("Setup Hub");
+  });
   it.each([false, true])("shows Integration Health only to actual Admins in either view (reviewer: %s)", isReviewer => {
     expect(getNavigationItems({ isReviewer, canManageWorkspace: true, isAdmin: false }).some(item => item.href === "/integration-health")).toBe(false);
     const items = getNavigationItems({ isReviewer, canManageWorkspace: true, isAdmin: true });
@@ -60,7 +65,7 @@ describe("app navigation", () => {
   });
 
   it("keeps the MGO menu unchanged and does not surface reviewer-only tools there", () => {
-    const items = getNavigationItems({ isReviewer: false, canManageWorkspace: true });
+    const items = getNavigationItems({ isReviewer: false, canManageWorkspace: false });
     expect(groupNavigationItems(items).map((group) => group.section)).toEqual(["My Work", "Team & Support", "Requests & Review"]);
     expect(items.some((item) => ["/pledge-payments", "/prospect-exports", "/import-history"].includes(item.href))).toBe(false);
   });

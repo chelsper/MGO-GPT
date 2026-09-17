@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import useSetupAnchor from "@/utils/useSetupAnchor";
 import { ArrowLeft, GripVertical, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import OrganizationConfigurationStatus from "@/components/OrganizationConfigurationStatus";
@@ -182,6 +183,7 @@ export default function OrganizationConfigurationsPage() {
   const [societies, setSocieties] = useState([]);
   const [countSourceOptions, setCountSourceOptions] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
+  useSetupAnchor(!loading && !pageLoading && Boolean(profile));
   const [saving, setSaving] = useState(false);
   const [institutionSettingsSaving, setInstitutionSettingsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -676,6 +678,8 @@ export default function OrganizationConfigurationsPage() {
         </section>
 
         <section
+          id="institution-profile"
+          className="scroll-mt-24"
           style={{
             ...cardStyle,
             padding: "28px",
@@ -707,6 +711,8 @@ export default function OrganizationConfigurationsPage() {
           <OrganizationConfigurationStatus policy={reportingPolicy} history={settingsHistory} />
           <fieldset disabled={institutionSettingsSaving || !institutionSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <div
+            id="notification-delivery"
+            className="scroll-mt-24"
             style={{
               marginTop: "20px",
               border: "1px solid #C7D2FE",
@@ -903,6 +909,8 @@ export default function OrganizationConfigurationsPage() {
             </label>
 
             <div
+              id="workspace-terminology"
+              className="scroll-mt-24"
               style={{
                 border: "1px solid #C7D2FE",
                 borderRadius: "16px",
@@ -997,7 +1005,7 @@ export default function OrganizationConfigurationsPage() {
           <button type="button" disabled={institutionSettingsSaving} onClick={reloadInstitutionSettings} className="mt-4 min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">Reload saved profile</button>
         </section>
 
-        <section style={{ ...cardStyle, padding: "28px" }}>
+        <section id="giving-societies" className="scroll-mt-24" style={{ ...cardStyle, padding: "28px" }}>
           <div
             style={{
               display: "flex",

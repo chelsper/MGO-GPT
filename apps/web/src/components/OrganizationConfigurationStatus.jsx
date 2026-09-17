@@ -6,7 +6,7 @@ const fieldLabels = {
 
 export default function OrganizationConfigurationStatus({ policy, history = [] }) {
   return <div className="my-5 space-y-4 text-sm">
-    <section aria-label="Active reporting rules" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+    <section id="reporting-rules" aria-label="Active reporting rules" className="scroll-mt-24 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
       <h3 className="font-bold">Reporting rules are release-managed</h3>
       {policy ? <p className="mt-2 break-words">Fiscal year begins {new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, policy.fiscalYearStartMonth - 1, 1)))} 1.
         {" "}Reporting timezone: {policy.timeZone}. Currency: {policy.currencyCode}.

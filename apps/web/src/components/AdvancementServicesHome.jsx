@@ -3,6 +3,7 @@ import { getNavigationItems, groupNavigationItems } from "@/utils/appNavigation"
 import WorkQueueAlertBadge from "./WorkQueueAlertBadge";
 
 const icons = {
+  "/setup": Settings,
   "/submissions": ClipboardList,
   "/prospect-pool": Users,
   "/follow-ups": MessageSquare,

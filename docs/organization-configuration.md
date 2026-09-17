@@ -114,3 +114,7 @@ App rollback leaves the audit table and saved settings in place. An older app
 version does not enforce this revision/audit protocol, so suspend settings edits
 during a rollback or mixed-version release. Do not drop audit history as part of
 an app rollback. No reporting data migration is part of this phase.
+
+## Setup Entry Point
+
+Use **Setup Hub** (`/setup`) to find the existing configuration editors and review saved setup status. See [Setup Hub](setup-hub.md) for status definitions, permissions and read-only behavior. This does not enable protected reporting preferences or portable report templates.
