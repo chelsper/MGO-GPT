@@ -88,6 +88,13 @@ const REPORT_ROUTE_LABELS = {
   "/reports/executive-team-standings": "Team Standings",
 };
 
+const SETUP_EDITOR_ROUTES = new Set([
+  "/report-configurations",
+  "/organization-configurations",
+  "/access-management",
+  "/blackbaud-mapping",
+]);
+
 export function getNavigationItems({ isReviewer, canManageWorkspace, isAdmin = false }) {
   const items = !isReviewer ? MGO_NAV_ITEMS : canManageWorkspace
     ? [...REVIEWER_NAV_ITEMS, ...ADMIN_WORKSPACE_ITEMS]
@@ -112,13 +119,15 @@ export function isNavigationItemActive(pathname, href) {
   return pathname === href;
 }
 
-export function getBreadcrumbs(pathname) {
+export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
 
   const exactLabel = ROUTE_LABELS[pathname];
   if (exactLabel) {
     return [
       { label: "Home", href: "/" },
+      ...(canManageWorkspace && SETUP_EDITOR_ROUTES.has(pathname)
+        ? [{ label: "Setup Hub", href: "/setup" }] : []),
       { label: exactLabel },
     ];
   }

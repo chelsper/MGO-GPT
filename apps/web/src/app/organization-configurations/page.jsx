@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSetupAnchor from "@/utils/useSetupAnchor";
-import { ArrowLeft, GripVertical, Plus } from "lucide-react";
+import SetupReturnLink from "@/components/SetupReturnLink";
+import { GripVertical, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import OrganizationConfigurationStatus from "@/components/OrganizationConfigurationStatus";
 import useUser from "@/utils/useUser";
@@ -593,31 +594,10 @@ export default function OrganizationConfigurationsPage() {
       <div style={shellStyle}>
         <header
           style={{
-            display: "flex",
-            gap: "18px",
-            alignItems: "center",
             marginBottom: "28px",
           }}
         >
-          <button
-            type="button"
-            onClick={() => (window.location.href = "/")}
-            aria-label="Return to home"
-            style={{
-              width: "54px",
-              flexShrink: 0,
-              height: "54px",
-              borderRadius: "14px",
-              border: "1px solid #E5E7EB",
-              background: "white",
-              color: "#374151",
-              display: "inline-grid",
-              placeItems: "center",
-              cursor: "pointer",
-            }}
-          >
-            <ArrowLeft size={24} />
-          </button>
+          <SetupReturnLink canManageWorkspace={canManageWorkspaceRole(profile?.role)} className="mb-4" />
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: "clamp(24px, 4vw, 40px)", lineHeight: 1.1, overflowWrap: "anywhere" }}>
               Organization Configurations

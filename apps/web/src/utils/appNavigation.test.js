@@ -7,6 +7,26 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it.each([
+    ["/report-configurations", "Report Access & Configurations"],
+    ["/organization-configurations", "Organization Settings"],
+    ["/access-management", "Security & Access"],
+    ["/blackbaud-mapping", "Field Settings"],
+  ])("uses Setup Hub as the parent of %s for workspace managers only", (path, label) => {
+    expect(getBreadcrumbs(path, { canManageWorkspace: true })).toEqual([
+      { label: "Home", href: "/" }, { label: "Setup Hub", href: "/setup" }, { label },
+    ]);
+    expect(getBreadcrumbs(path, { canManageWorkspace: false })).toEqual([
+      { label: "Home", href: "/" }, { label },
+    ]);
+  });
+
+  it("does not change report viewing, personal account, or Setup Hub's own parent", () => {
+    for (const path of ["/setup", "/settings", "/reports", "/reports/executive-team-standings", "/my-top-prospects"]) {
+      expect(getBreadcrumbs(path, { canManageWorkspace: true })).toEqual(getBreadcrumbs(path));
+    }
+  });
+
   it.each([false, true])("shows Setup Hub only to workspace managers in either view (reviewer: %s)", isReviewer => {
     expect(getNavigationItems({ isReviewer, canManageWorkspace: false }).some(item => item.href === "/setup")).toBe(false);
     expect(getNavigationItems({ isReviewer, canManageWorkspace: true }).filter(item => item.href === "/setup")).toHaveLength(1);

@@ -7,6 +7,7 @@ import AppShell from "./AppShell";
 
 const state = vi.hoisted(() => ({
   organization: null,
+  profileRole: "admin",
   worklist: {
     queueCounts: {
       submissions: 2,
@@ -39,7 +40,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ setQueryData: vi.fn() }),
   useQuery: (options) => {
     if (options.queryKey[0] === "app-shell-profile") {
-      return { data: { user: { id: 7, name: "Chelsea Santoro", email: "csantor@ju.edu", role: "admin" } } };
+      return { data: { user: { id: 7, name: "Chelsea Santoro", email: "csantor@ju.edu", role: state.profileRole } } };
     }
     if (options.queryKey[0] === "organization-settings") return { data: state.organization ? { settings: state.organization } : undefined };
     if (options.queryKey[0] === "app-shell-worklist") return { data: state.worklist, isError: false };
@@ -59,6 +60,7 @@ let root;
 
 beforeEach(() => {
   state.organization = null;
+  state.profileRole = "admin";
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -71,10 +73,10 @@ afterEach(() => {
   delete globalThis.IS_REACT_ACT_ENVIRONMENT;
 });
 
-async function renderShell() {
+async function renderShell(pathname = "/submissions") {
   await act(async () => {
     root.render(
-      <MemoryRouter initialEntries={["/submissions"]}>
+      <MemoryRouter initialEntries={[pathname]}>
         <AppShell>
           <main>Queue content</main>
           <LocationProbe />
@@ -85,6 +87,21 @@ async function renderShell() {
 }
 
 describe("AppShell", () => {
+  it.each(["admin", "advancement_services", "mgo,admin"])("offers Home and Setup Hub in editor breadcrumbs for %s", async role => {
+    state.profileRole = role;
+    await renderShell("/report-configurations");
+    const crumbs = container.querySelector('[aria-label="Breadcrumb"]');
+    expect(crumbs).toHaveTextContent("HomeSetup HubReport Access & Configurations");
+    expect(crumbs.querySelector('a[href="/setup"]')).toHaveTextContent("Setup Hub");
+    expect(crumbs.querySelector('a[href="/"]')).toHaveTextContent("Home");
+  });
+
+  it.each(["mgo", "executive"])("does not add a setup breadcrumb for an actual %s account", async role => {
+    state.profileRole = role;
+    await renderShell("/report-configurations");
+    expect(container.querySelector('[aria-label="Breadcrumb"] a[href="/setup"]')).toBeNull();
+  });
+
   it("uses configured branding and labels without changing navigation permissions", async () => {
     state.organization = { institutionName:'Example College', applicationName:'Advancement Hub', shortName:'EC', terminology:{mgo:'Gift Officer', advancementServices:'Data Services', executive:'Leadership'} };
     await renderShell();

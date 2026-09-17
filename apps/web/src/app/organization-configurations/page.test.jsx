@@ -21,6 +21,13 @@ beforeEach(() => {
 afterEach(()=>{cleanup();client.clear();vi.restoreAllMocks();vi.unstubAllGlobals();});
 const mount = async () => {render(<QueryClientProvider client={client}><Page/></QueryClientProvider>);await screen.findByRole('heading',{name:'Institution Profile'});};
 
+it('returns workspace administrators to Setup Hub rather than home', async () => {
+  await mount();
+  expect(screen.getByRole('link', { name: 'Back to Setup Hub' })).toHaveAttribute('href', '/setup');
+  expect(screen.queryByRole('button', { name: 'Return to home' })).not.toBeInTheDocument();
+  expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true);
+});
+
 it('shows active reporting rules separately and keeps protected fields disabled', async()=>{
   await mount();
   expect(screen.getByRole('region',{name:'Active reporting rules'})).toHaveTextContent('query 12033, Gift records, QRECID');

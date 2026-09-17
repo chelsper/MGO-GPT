@@ -33,6 +33,32 @@ describe("report configuration save contracts", () => {
 });
 
 describe("single-report editor", () => {
+  it("returns to Setup Hub and retains the unsaved-change warning without autosaving", () => {
+    const report = dashboard();
+    const { unmount } = render(<ReportConfigurationEditor initialConfigurations={[report]} users={users} />);
+    expect(screen.getByRole("link", { name: "Back to Setup Hub" })).toHaveAttribute("href", "/setup");
+    expect(screen.queryByRole("link", { name: /Back to dashboard/ })).not.toBeInTheDocument();
+    const clean = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    fireEvent.change(screen.getByLabelText("Report title"), { target: { value: "Unsaved report title" } });
+    const dirty = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+    expect(screen.getByLabelText("Report title")).toHaveValue("Unsaved report title");
+    expect(fetch).not.toHaveBeenCalled();
+    unmount();
+    const afterLeaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(afterLeaving);
+    expect(afterLeaving.defaultPrevented).toBe(false);
+  });
+
+  it("provides the same return destination when no reports exist yet", () => {
+    render(<ReportConfigurationEditor initialConfigurations={[]} users={users} />);
+    expect(screen.getByRole("link", { name: "Back to Setup Hub" })).toHaveAttribute("href", "/setup");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("shows one report and retains drafts across report and tab changes without fetching", () => {
     const first = builtin("future-made-phase-ii");
     const second = builtin("executive-team-standings");

@@ -64,8 +64,8 @@ function NavigationCount({ item, queueCounts, discussionCount }) {
   return <WorkQueueAlertBadge href={item.href} counts={queueCounts} compact />;
 }
 
-function Breadcrumbs({ pathname }) {
-  const breadcrumbs = getBreadcrumbs(pathname);
+function Breadcrumbs({ pathname, canManageWorkspace }) {
+  const breadcrumbs = getBreadcrumbs(pathname, { canManageWorkspace });
   if (!breadcrumbs.length) return null;
 
   return (
@@ -513,7 +513,7 @@ export default function AppShell({ children }) {
         </div>
       ) : null}
 
-      <Breadcrumbs pathname={pathname} />
+      <Breadcrumbs pathname={pathname} canManageWorkspace={canManageWorkspace} />
       <div className={styles.pageContent}>{children}</div>
     </div>
   );

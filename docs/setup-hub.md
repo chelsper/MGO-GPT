@@ -12,6 +12,8 @@ The `/setup` page is the starting point for workspace administration. It is avai
 
 Advanced field settings, giving societies and reporting rules are collapsed. Integration Health is offered only to actual Admins. Direct section links scroll and focus their destination after an asynchronous editor loads.
 
+Report Configurations, Organization Settings, Security & Access and Field Settings return to Setup Hub using an explicit, keyboard-accessible link. For workspace managers their breadcrumb path is Home / Setup Hub / current editor, so Home remains directly accessible. Personal account settings and report-viewing pages retain their original navigation. Return links do not save drafts or trigger any data refresh; the report editor's existing unsaved-change warning remains in place.
+
 ## Status meaning
 
 - **Ready:** the relevant saved setup values are present. This does not establish correct identities, current NXT authorization, query validity, audience correctness or sandbox isolation.

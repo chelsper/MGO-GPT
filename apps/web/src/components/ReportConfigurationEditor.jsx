@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import { getReportHref, getReportTypeDefinitions, getDashboardReportMetadata } from "@/app/api/utils/reportRegistry";
 import { validateAlumniFamilyEngagementDashboard } from "@/app/api/utils/alumniDonorConfiguration";
 import { validateDashboardConfiguration } from "@/app/api/utils/dashboardConfiguration";
@@ -8,6 +8,7 @@ import ReportDashboardBuilder from "./ReportDashboardBuilder";
 import ReportDashboardPanels from "./ReportDashboardPanels";
 import AlumniReportConfiguration, { AlumniReportPreview } from "./AlumniReportConfiguration";
 import styles from "./reportConfigurationEditor.module.css";
+import SetupReturnLink from "./SetupReturnLink";
 
 const NEW_REPORT_KEY = "__new-report-draft__";
 const TABS = ["Configure", "Access", "Preview"];
@@ -260,7 +261,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   }
 
   return <main className={styles.page}><div className={styles.container}>
-    <header className={styles.header}><div><a href="/"><ArrowLeft size={16} style={{ verticalAlign: "middle" }} /> Back to dashboard</a><h1>Report Access &amp; Configurations</h1><p className={styles.muted}>Choose a report, build its content, then decide who can see it.</p></div></header>
+    <header className={styles.header}><div><SetupReturnLink /><h1>Report Access &amp; Configurations</h1><p className={styles.muted}>Choose a report, build its content, then decide who can see it.</p></div></header>
     <section className={`${styles.card} ${styles.toolbar}`} aria-label="Choose a report">
       <label className={`${styles.field} ${styles.search}`}>Find a report<input type="search" placeholder="Search reports" value={search} disabled={saving} onChange={(event) => setSearch(event.target.value)} /></label>
       <label className={`${styles.field} ${styles.picker}`}>Selected report<select value={selectedKey} disabled={saving} onChange={(event) => setSelectedKey(event.target.value)}>

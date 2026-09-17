@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import SetupReturnLink from "@/components/SetupReturnLink";
 import useUser from "@/utils/useUser";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
@@ -418,22 +419,7 @@ export default function BlackbaudMappingPage() {
     <div style={{ minHeight: "100vh", backgroundColor: "#F9FAFB", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <FloatingFeedback error={error} statusMessage={statusMessage} />
       <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 48px" }}>
-        <a
-          href="/"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            color: "#6A5BFF",
-            textDecoration: "none",
-            fontSize: "14px",
-            fontWeight: 600,
-            marginBottom: "18px",
-          }}
-        >
-          <ArrowLeft size={16} />
-          Back to dashboard
-        </a>
+        <SetupReturnLink className="mb-4" />
 
         <div style={cardStyle}>
           <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>
