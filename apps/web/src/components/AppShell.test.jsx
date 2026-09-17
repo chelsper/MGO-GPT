@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AppShell from "./AppShell";
 
 const state = vi.hoisted(() => ({
+  organization: null,
   worklist: {
     queueCounts: {
       submissions: 2,
@@ -40,6 +41,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (options.queryKey[0] === "app-shell-profile") {
       return { data: { user: { id: 7, name: "Chelsea Santoro", email: "csantor@ju.edu", role: "admin" } } };
     }
+    if (options.queryKey[0] === "organization-settings") return { data: state.organization ? { settings: state.organization } : undefined };
     if (options.queryKey[0] === "app-shell-worklist") return { data: state.worklist, isError: false };
     if (options.queryKey[0] === "workspace-mgo-users") return { data: [] };
     if (options.queryKey[0] === "acting-workspace-status") return { data: { actingUser: null } };
@@ -56,6 +58,7 @@ let container;
 let root;
 
 beforeEach(() => {
+  state.organization = null;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -82,6 +85,15 @@ async function renderShell() {
 }
 
 describe("AppShell", () => {
+  it("uses configured branding and labels without changing navigation permissions", async () => {
+    state.organization = { institutionName:'Example College', applicationName:'Advancement Hub', shortName:'EC', terminology:{mgo:'Gift Officer', advancementServices:'Data Services', executive:'Leadership'} };
+    await renderShell();
+    expect(container.querySelector('a[aria-label="Advancement Hub home"]')).toHaveAttribute('title','Example College');
+    expect(container.textContent).toContain('ECAdvancement HubData Services');
+    await act(async () => { fireEvent.click(container.querySelector('[aria-label="Open account menu"]')); });
+    expect(container.querySelector('[aria-label="Account menu"]')).toHaveTextContent('Admin · Data Services view');
+    expect(container.querySelector('[aria-label="Account menu"]')).toHaveTextContent('Gift Officer');
+  });
   it("provides persistent breadcrumbs, role-aware navigation, and queue badges", async () => {
     await renderShell();
 

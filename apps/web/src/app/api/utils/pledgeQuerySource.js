@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import { blackbaudApiFetch, downloadBlackbaudQueryResultWithMetadata } from "./blackbaud";
 import { OPEN_PLEDGE_QUERY_ID, pledgeDataError } from "@/utils/pledgePayments";
+import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy";
 
 export const PLEDGE_QUERY_MAX_BYTES = 10 * 1024 * 1024;
 export const isPledgeQueryJob = (job) => job?.source === "saved_query" && job.queryId === OPEN_PLEDGE_QUERY_ID;
@@ -54,7 +55,7 @@ export function parsePledgeQueryManifest(file, rowCount) {
   if (new Set(normalizedHeaders).size !== headers.length || normalizedHeaders.some(header => !header)) throw pledgeDataError("query_ambiguous_headers");
   // QRECID was verified against Gift Get for this Gift query. Gift ID is a
   // lookup ID; constituent and installment IDs must never select the pledge.
-  const idColumn = normalizedHeaders.indexOf("QRECID");
+  const idColumn = normalizedHeaders.indexOf(ORGANIZATION_REPORTING_POLICY.pledgeQuery.systemIdHeader);
   if (idColumn < 0) throw pledgeDataError("query_missing_gift_system_id");
   const expected = typeof rowCount === "number" ? rowCount : /^\d+$/.test(rowCount ?? "") ? Number(rowCount) : NaN;
   if (!Number.isSafeInteger(expected) || expected < 0 || rows.length !== expected) throw pledgeDataError("query_row_count_mismatch");
@@ -69,7 +70,7 @@ export async function advancePledgeDiscovery(job, store, query, now) {
   const stage = job.queryStage;
   if (stage === "metadata") {
     const metadata = await query.metadata();
-    if (String(metadata?.id) !== OPEN_PLEDGE_QUERY_ID || metadata.type !== "Gift" || metadata.can_execute === false || metadata.has_ask_fields) {
+    if (String(metadata?.id) !== OPEN_PLEDGE_QUERY_ID || metadata.type !== ORGANIZATION_REPORTING_POLICY.pledgeQuery.type || metadata.can_execute === false || metadata.has_ask_fields) {
       throw pledgeDataError("query_not_executable_gift_query");
     }
     return { ...job, queryStage: "create" };

@@ -1,3 +1,5 @@
+import { ORGANIZATION_REPORTING_POLICY } from "./organizationRuntimePolicy";
+
 export const SUPPORTED_DATE_FORMATS = [
   "MM/DD/YYYY",
   "DD/MM/YYYY",
@@ -10,10 +12,10 @@ export const DEFAULT_ORGANIZATION_SETTINGS = Object.freeze({
   applicationName: "JUMGOGPT",
   advancementServicesNotificationEmail: "devdata@ju.edu",
   notificationSenderName: "JUMGOGPT",
-  timeZone: "America/New_York",
-  currencyCode: "USD",
+  timeZone: ORGANIZATION_REPORTING_POLICY.timeZone,
+  currencyCode: ORGANIZATION_REPORTING_POLICY.currencyCode,
   dateFormat: "MM/DD/YYYY",
-  fiscalYearStartMonth: 7,
+  fiscalYearStartMonth: ORGANIZATION_REPORTING_POLICY.fiscalYearStartMonth,
   allowedEmailDomains: ["ju.edu"],
   terminology: {
     mgo: "MGO",
@@ -165,6 +167,19 @@ export function normalizeOrganizationSettings(value = {}) {
 
 export function validateOrganizationSettings(value = {}) {
   const source = asObject(value);
+  if (Object.keys(source).some(key => !Object.hasOwn(DEFAULT_ORGANIZATION_SETTINGS, key))) {
+    return "Unsupported institution setting. Query and field mappings cannot be changed through this form.";
+  }
+  const textLimits = { institutionName: 120, shortName: 12, applicationName: 80, notificationSenderName: 80, advancementServicesNotificationEmail: 254 };
+  for (const [key, limit] of Object.entries(textLimits)) {
+    if (typeof source[key] !== "string" || source[key].trim().length > limit || /[\r\n\u0000-\u001f]/.test(source[key])) {
+      return `${key} must be single-line text of at most ${limit} characters`;
+    }
+  }
+  if (source.terminology !== undefined && (typeof source.terminology !== "object" || source.terminology === null || Array.isArray(source.terminology) ||
+    Object.entries(source.terminology).some(([key, label]) => !Object.hasOwn(DEFAULT_ORGANIZATION_SETTINGS.terminology, key) || typeof label !== "string" || !label.trim() || label.length > 60 || /[\r\n\u0000-\u001f]/.test(label)))) {
+    return "Workspace labels must be non-empty, single-line text of at most 60 characters";
+  }
   const requiredFields = [
     ["institutionName", "Institution name"],
     ["shortName", "Short name"],

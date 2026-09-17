@@ -23,8 +23,14 @@ browser E2E runner or CI workflow. Do not describe all of production as certifie
 Later work on September 17: [Integration Health](integration-health.md) was
 deployed as `d9532d4fd94568c3777f1e666445037f0f2b9c49` with exact-SHA/asset
 verification and a signed-in, read-only Admin smoke check. The subsequent
-[UX consistency pass](ux-consistency.md) is local and not yet deployed; its
-validation does not replace the production baseline evidence above.
+[UX consistency pass](ux-consistency.md) was deployed as
+`9b7b9af62170d996eac88220a3d3e7ecdff04ca9`, with exact-SHA/asset verification,
+2,663 passing tests, and a signed-in read-only Next Steps smoke check.
+[Organization configuration phase 1](organization-configuration.md) was approved
+for release September 17 after 2,685 tests, typecheck, build, and release checks
+passed. Its synthetic tests and disposable-Postgres audit transaction checks
+are not evidence of live settings changes or NXT writes. Confirm production
+availability with the deployed SHA and a read-only settings-page smoke check.
 
 ## Acceptance Matrix
 
@@ -36,6 +42,7 @@ evidence. Each row is a criterion to verify, not a claim of a new live test.
 | --- | --- | --- |
 | Sign-in / all roles | Approved active account enters the correct workspace | Inactive/uninvited users and invalid acting context do not acquire write access |
 | Integration Health / Admin | Saved connections, cooldowns, refresh backlog, and reminder receipts show accurate guidance | Actual Admin required; no NXT calls, token renewal, job restarts, resends, or approvals; partial read failures stay unknown |
+| Organization profile / Admin or Advancement Services | Loaded revision required; editable branding updates the shared shell; audit records authenticated actor and normalized before/after values | Stale save rejected; audit failure rolls back change; protected reporting changes rejected; reload failure keeps draft; no NXT call or snapshot recalculation |
 | Portfolio / MGO | Saved list appears without one full NXT fetch per card; search, grouping, paging, and detail expansion preserve scope | Unknown contacts/activity do not become false no-contact/no-gift claims; refresh failure retains saved data |
 | Top Prospects / MGO | Drag, keyboard/fallback reorder, and rank persistence agree after reload | Inactive records do not corrupt active ordering; stale/concurrent edits are handled |
 | Prospect detail / MGO | Correct constituent, opportunities, contact data, and saved pledge evidence appear | Opening a record does not create activity or a full-report refresh |

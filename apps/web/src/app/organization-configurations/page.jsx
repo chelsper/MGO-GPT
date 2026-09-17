@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, GripVertical, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import OrganizationConfigurationStatus from "@/components/OrganizationConfigurationStatus";
 import useUser from "@/utils/useUser";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
@@ -169,9 +171,14 @@ function SaveFeedback({ error, statusMessage }) {
 }
 
 export default function OrganizationConfigurationsPage() {
+  const queryClient = useQueryClient();
   const { data: sessionUser, loading } = useUser();
   const [profile, setProfile] = useState(null);
   const [institutionSettings, setInstitutionSettings] = useState(null);
+  const [institutionRevision, setInstitutionRevision] = useState(null);
+  const [reportingPolicy, setReportingPolicy] = useState(null);
+  const [settingsHistory, setSettingsHistory] = useState([]);
+  const [settingsReloadNeeded, setSettingsReloadNeeded] = useState(false);
   const [societies, setSocieties] = useState([]);
   const [countSourceOptions, setCountSourceOptions] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
@@ -212,6 +219,9 @@ export default function OrganizationConfigurationsPage() {
         institutionSettingsData?.error || "Failed to load institution profile",
       );
     }
+    if (!institutionSettingsData?.settings || !institutionSettingsData?.revision) {
+      throw new Error("The institution profile response is incomplete. Reload this page before editing.");
+    }
 
     setProfile(profileData.user || null);
     setSocieties((configData.societies || []).map(normalizeSocietyForForm));
@@ -219,6 +229,9 @@ export default function OrganizationConfigurationsPage() {
     setInstitutionSettings(
       normalizeInstitutionSettingsForForm(institutionSettingsData?.settings),
     );
+    setInstitutionRevision(institutionSettingsData?.revision || null);
+    setReportingPolicy(institutionSettingsData?.reportingPolicy || null);
+    setSettingsHistory(institutionSettingsData?.history || []);
   }
 
   useEffect(() => {
@@ -506,28 +519,36 @@ export default function OrganizationConfigurationsPage() {
   }
 
   async function saveInstitutionSettings() {
-    if (!institutionSettings) return;
+    if (!institutionSettings || !institutionRevision || institutionSettingsSaving || settingsReloadNeeded) return;
 
     setInstitutionSettingsSaving(true);
     setInstitutionSettingsError("");
     setInstitutionSettingsStatus("");
 
+    let rejectedWithoutSaving = false;
     try {
       const response = await fetch("/api/admin/organization-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: institutionSettings }),
+        body: JSON.stringify({ settings: institutionSettings, expectedRevision: institutionRevision }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
+        rejectedWithoutSaving = response.status === 400;
+        if (response.status === 409 || response.status >= 500) setSettingsReloadNeeded(true);
         throw new Error(data?.error || "Failed to save institution profile");
       }
+      if (!data?.settings || !data?.revision) throw new Error("The save response could not be verified. Reload the saved profile before retrying.");
 
       setInstitutionSettings(
         normalizeInstitutionSettingsForForm(data?.settings),
       );
-      setInstitutionSettingsStatus("Institution profile saved.");
+      setInstitutionRevision(data.revision);
+      if (data.change) setSettingsHistory(current => [{ ...data.change, actor_name: profile?.name }, ...current].slice(0, 10));
+      queryClient.setQueryData(["organization-settings", sessionUser.email], { settings: data.settings });
+      setInstitutionSettingsStatus("Institution profile saved in app. Shared navigation labels are updated; reports and NXT are unchanged.");
     } catch (err) {
+      if (!rejectedWithoutSaving) setSettingsReloadNeeded(true);
       console.error(err);
       setInstitutionSettingsError(
         err instanceof Error ? err.message : "Failed to save institution profile",
@@ -535,6 +556,26 @@ export default function OrganizationConfigurationsPage() {
     } finally {
       setInstitutionSettingsSaving(false);
     }
+  }
+
+  async function reloadInstitutionSettings() {
+    if (institutionSettingsSaving || !window.confirm("Reload the saved institution profile and discard unsaved profile edits? Giving society edits are kept.")) return;
+    setInstitutionSettingsSaving(true);
+    try {
+      const response = await fetch("/api/admin/organization-settings", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Could not reload the saved profile");
+      if (!data?.settings || !data?.revision) throw new Error("The saved profile response is incomplete. Your draft is unchanged; try reloading again.");
+      setInstitutionSettings(normalizeInstitutionSettingsForForm(data.settings));
+      setInstitutionRevision(data.revision);
+      setReportingPolicy(data.reportingPolicy);
+      setSettingsHistory(data.history || []);
+      setSettingsReloadNeeded(false);
+      setInstitutionSettingsError("");
+      setInstitutionSettingsStatus("");
+      queryClient.setQueryData(["organization-settings", sessionUser.email], { settings: data.settings });
+    } catch (err) { setInstitutionSettingsError(err.message); }
+    finally { setInstitutionSettingsSaving(false); }
   }
 
   if (loading || pageLoading) {
@@ -562,6 +603,7 @@ export default function OrganizationConfigurationsPage() {
             aria-label="Return to home"
             style={{
               width: "54px",
+              flexShrink: 0,
               height: "54px",
               borderRadius: "14px",
               border: "1px solid #E5E7EB",
@@ -574,8 +616,8 @@ export default function OrganizationConfigurationsPage() {
           >
             <ArrowLeft size={24} />
           </button>
-          <div>
-            <h1 style={{ margin: 0, fontSize: "40px", lineHeight: 1 }}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: "clamp(24px, 4vw, 40px)", lineHeight: 1.1, overflowWrap: "anywhere" }}>
               Organization Configurations
             </h1>
             <p style={{ margin: "10px 0 0", color: "#6B7280", fontSize: "18px" }}>
@@ -656,11 +698,14 @@ export default function OrganizationConfigurationsPage() {
                 fontWeight: 750,
               }}
             >
-              These settings do not change sign-in rules, fiscal-year calculations,
-              or direct NXT write behavior.
+              Application name, short name, and workspace terminology control the
+              shared header and account menus. Labels do not change permissions,
+              sign-in rules, fiscal calculations, or direct NXT writes.
             </p>
           </div>
 
+          <OrganizationConfigurationStatus policy={reportingPolicy} history={settingsHistory} />
+          <fieldset disabled={institutionSettingsSaving || !institutionSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <div
             style={{
               marginTop: "20px",
@@ -672,14 +717,14 @@ export default function OrganizationConfigurationsPage() {
           >
             <h3 style={{ margin: 0, fontSize: "19px" }}>Notification Delivery</h3>
             <p style={{ margin: "8px 0 16px", color: "#4B5563", lineHeight: 1.45 }}>
-              JUMGOGPT sends this inbox an email whenever a user submits a request
+              The app sends this inbox an email whenever a user submits a request
               or update for Advancement Services. Successful direct NXT writes do
               not send a notification.
             </p>
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
                 gap: "16px",
               }}
             >
@@ -716,7 +761,7 @@ export default function OrganizationConfigurationsPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
               gap: "16px",
             }}
           >
@@ -753,6 +798,7 @@ export default function OrganizationConfigurationsPage() {
             <label>
               <span style={labelStyle}>Time Zone</span>
               <select
+                disabled title="Stored preference; reporting timezone is release-managed"
                 value={institutionSettings?.timeZone || "America/New_York"}
                 onChange={(event) =>
                   updateInstitutionSettings({ timeZone: event.target.value })
@@ -769,6 +815,7 @@ export default function OrganizationConfigurationsPage() {
             <label>
               <span style={labelStyle}>Currency Code</span>
               <input
+                disabled title="Stored preference; reporting currency is release-managed"
                 value={institutionSettings?.currencyCode || "USD"}
                 maxLength={3}
                 onChange={(event) =>
@@ -782,6 +829,7 @@ export default function OrganizationConfigurationsPage() {
             <label>
               <span style={labelStyle}>Date Format</span>
               <select
+                disabled title="Stored preference; report formats require a reviewed migration"
                 value={institutionSettings?.dateFormat || "MM/DD/YYYY"}
                 onChange={(event) =>
                   updateInstitutionSettings({ dateFormat: event.target.value })
@@ -798,6 +846,7 @@ export default function OrganizationConfigurationsPage() {
             <label>
               <span style={labelStyle}>Fiscal Year Starts</span>
               <select
+                disabled title="Stored preference; fiscal calculations are release-managed"
                 value={String(institutionSettings?.fiscalYearStartMonth || 7)}
                 onChange={(event) =>
                   updateInstitutionSettings({
@@ -818,7 +867,7 @@ export default function OrganizationConfigurationsPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
               gap: "16px",
               marginTop: "18px",
             }}
@@ -926,7 +975,7 @@ export default function OrganizationConfigurationsPage() {
             <button
               type="button"
               onClick={saveInstitutionSettings}
-              disabled={institutionSettingsSaving || !institutionSettings}
+              disabled={institutionSettingsSaving || !institutionSettings || !institutionRevision || settingsReloadNeeded}
               style={{
                 border: 0,
                 borderRadius: "999px",
@@ -944,6 +993,8 @@ export default function OrganizationConfigurationsPage() {
                 : "Save Organization Settings"}
             </button>
           </div>
+          </fieldset>
+          <button type="button" disabled={institutionSettingsSaving} onClick={reloadInstitutionSettings} className="mt-4 min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">Reload saved profile</button>
         </section>
 
         <section style={{ ...cardStyle, padding: "28px" }}>

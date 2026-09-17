@@ -2478,6 +2478,21 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      DO $organization_audit_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 3);
+        CREATE TABLE IF NOT EXISTS organization_settings_audits (
+          id BIGSERIAL PRIMARY KEY,
+          actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+          previous_settings JSONB NOT NULL,
+          settings JSONB NOT NULL,
+          changed_fields JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      END $organization_audit_schema$
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS report_configurations (
         id BIGSERIAL PRIMARY KEY,
         report_key TEXT NOT NULL UNIQUE,

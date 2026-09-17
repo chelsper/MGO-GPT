@@ -1,7 +1,8 @@
 # Workflow UX Consistency
 
-Roadmap step 4, September 17, 2026. Implemented locally after Integration Health
-deployment `d9532d4fd94568c3777f1e666445037f0f2b9c49`; this pass is not yet deployed.
+Roadmap step 4, deployed September 17, 2026 as
+`9b7b9af62170d996eac88220a3d3e7ecdff04ca9`, Vercel deployment
+`dpl_EVfY1ECnqQaDQ6RG2fm2T2Z5tMGG`. Production SHA and assets were verified.
 This is a bounded presentation and draft-safety pass, not a complete accessibility
 audit or a redesign of all legacy forms.
 
@@ -68,7 +69,9 @@ Local verification: 2,663 tests in 237 files, typecheck, and production build pa
 Actual components were exercised with synthetic responses and the built stylesheet
 at desktop and 390px widths. The composer and action dialog had no horizontal
 overflow; keyboard activation opened technical details and Escape closed the
-native dialog. No live import or NXT mutation was made. Signed-in production
-acceptance of these changes remains a separate post-deployment step.
+native dialog. A signed-in, read-only production smoke check verified the
+Next Steps page and Clear search behavior after deployment. No live import,
+settings mutation, or NXT mutation was made; this was not full live acceptance
+of every workflow.
 
 See [workflow acceptance](mgo-workflow-readiness.md) for the broader release checks.

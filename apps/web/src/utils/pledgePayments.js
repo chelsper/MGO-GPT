@@ -1,7 +1,8 @@
 import { calendarDate } from "./prospectActivity";
 import { getStandingsPeriods } from "./standingsPeriods";
+import { ORGANIZATION_REPORTING_POLICY } from "./organizationRuntimePolicy";
 
-export const OPEN_PLEDGE_QUERY_ID = "12033";
+export const OPEN_PLEDGE_QUERY_ID = ORGANIZATION_REPORTING_POLICY.pledgeQuery.id;
 
 export function pledgeDataError(code = "invalid_response") {
   const error = new Error("Pledge data could not be verified.");

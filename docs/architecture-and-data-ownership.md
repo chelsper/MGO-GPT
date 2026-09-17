@@ -137,6 +137,14 @@ years, Eastern time, specific query IDs, and some report definitions remain in c
 The authentication domain policy also uses environment configuration. A setting's
 presence does not prove every consumer uses it.
 
+Step 5 phase 1 connects profile branding and terminology to the shared AppShell,
+adds revision-checked profile saves and atomic audit rows, and centralizes the
+existing standings calendar and pledge query contract. Protected reporting
+preferences cannot be changed through profile saves. Other consumers still have
+institution-specific rules; the policy constant is not a supported customization
+switch. See [organization configuration](organization-configuration.md) for the
+coverage map, rollout limits, and deployment status.
+
 Schema setup is runtime `ensureAppSchema()` DDL and compatibility logic, not a
 versioned migration/rollback system. Establish migration and restore discipline
 before broad schema refactors.

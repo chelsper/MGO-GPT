@@ -1,8 +1,9 @@
 import { calendarDate, formatCalendarDate } from "@/utils/prospectActivity";
+import { ORGANIZATION_REPORTING_POLICY } from "@/utils/organizationRuntimePolicy";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
-  currency: "USD",
+  currency: ORGANIZATION_REPORTING_POLICY.currencyCode,
 });
 const validCents = (value) => Number.isSafeInteger(value) && value >= 0;
 const amount = (value) =>
@@ -13,7 +14,7 @@ export default function ActivePledgeNotice({ status, incomplete = false }) {
   const verifiedAt = Date.parse(status.verifiedAt);
   const verifiedDate = Number.isFinite(verifiedAt)
     ? new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
+        timeZone: ORGANIZATION_REPORTING_POLICY.timeZone,
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -90,7 +91,7 @@ export default function ActivePledgeNotice({ status, incomplete = false }) {
         </p>
       )}
       <p className="mt-1 text-xs leading-relaxed">
-        Listed in the saved Pledge Payments report (query 12033).
+        Listed in the saved Pledge Payments report (query {ORGANIZATION_REPORTING_POLICY.pledgeQuery.id}).
         {verifiedDate ? ` Verified ${verifiedDate} (Eastern).` : ""}
         {status.stale || incomplete
           ? " The report is incomplete or refreshing; confirm current status before outreach."

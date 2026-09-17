@@ -17,6 +17,7 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import { normalizeOrganizationSettings } from "@/utils/organizationSettings";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
@@ -115,6 +116,20 @@ export default function AppShell({ children }) {
     staleTime: 5 * 60 * 1000,
   });
   const profile = profilePayload?.user || null;
+  const { data: organizationPayload } = useQuery({
+    queryKey: ["organization-settings", user?.email || "anonymous"],
+    queryFn: async () => {
+      const response = await fetch("/api/organization-settings", { cache: "no-store" });
+      if (!response.ok) throw new Error("Institution branding could not be loaded");
+      return response.json();
+    },
+    enabled: Boolean(user && !isPublicRoute),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const organization = normalizeOrganizationSettings(organizationPayload?.settings);
+  const labels = organization.terminology;
   const {
     isAdmin,
     adminViewMode,
@@ -270,10 +285,10 @@ export default function AppShell({ children }) {
 
   if (isPublicRoute || userLoading || !user) return children;
 
-  const workspaceLabel = isReviewerView ? "Advancement Services" : "MGO Workspace";
+  const workspaceLabel = isReviewerView ? labels.advancementServices : `${labels.mgo} Workspace`;
   const roleLabel = isAdmin
-    ? `Admin · ${isReviewerView ? "Advancement Services view" : "MGO view"}`
-    : getWorkspaceRoleLabel(profile?.role) || workspaceLabel;
+    ? `Admin · ${isReviewerView ? labels.advancementServices : labels.mgo} view`
+    : getWorkspaceRoleLabel(profile?.role, labels) || workspaceLabel;
 
   return (
     <div className={styles.shell}>
@@ -289,9 +304,9 @@ export default function AppShell({ children }) {
             >
               <Menu aria-hidden="true" size={20} />
             </button>
-            <a className={styles.brand} href="/" aria-label="JUMGOGPT home">
-              <span className={styles.brandMark} aria-hidden="true">JU</span>
-              <span className={styles.brandName}>JUMGOGPT</span>
+            <a className={styles.brand} href="/" aria-label={`${organization.applicationName} home`} title={organization.institutionName}>
+              <span className={styles.brandMark} aria-hidden="true">{organization.shortName}</span>
+              <span className={styles.brandName}>{organization.applicationName}</span>
             </a>
             <span className={styles.workspaceLabel}>{workspaceLabel}</span>
           </div>
@@ -374,7 +389,7 @@ export default function AppShell({ children }) {
               {accountOpen ? (
                 <div className={`${styles.popover} ${styles.accountPopover}`} role="menu" aria-label="Account menu">
                   <div className={styles.accountIdentity}>
-                    <strong>{profile?.name || user?.name || "JUMGOGPT User"}</strong>
+                    <strong>{profile?.name || user?.name || `${organization.applicationName} User`}</strong>
                     <span>{profile?.email || user?.email || ""}</span>
                     <small>{roleLabel}</small>
                   </div>
@@ -388,14 +403,14 @@ export default function AppShell({ children }) {
                           className={adminViewMode === "reviewer" ? styles.segmentActive : ""}
                           onClick={() => handleViewModeChange("reviewer")}
                         >
-                          Advancement Services
+                          {labels.advancementServices}
                         </button>
                         <button
                           type="button"
                           className={adminViewMode === "mgo" ? styles.segmentActive : ""}
                           onClick={() => handleViewModeChange("mgo")}
                         >
-                          MGO
+                          {labels.mgo}
                         </button>
                       </div>
                     </div>
@@ -450,9 +465,9 @@ export default function AppShell({ children }) {
           />
           <aside className={styles.drawer} role="dialog" aria-modal="true" aria-label="Primary navigation">
             <div className={styles.drawerHeader}>
-              <a className={styles.brand} href="/">
-                <span className={styles.brandMark} aria-hidden="true">JU</span>
-                <span className={styles.brandName}>JUMGOGPT</span>
+              <a className={styles.brand} href="/" aria-label={`${organization.applicationName} home`} title={organization.institutionName}>
+                <span className={styles.brandMark} aria-hidden="true">{organization.shortName}</span>
+                <span className={styles.brandName}>{organization.applicationName}</span>
               </a>
               <button type="button" className={styles.iconButton} aria-label="Close navigation menu" onClick={() => setDrawerOpen(false)}>
                 <X aria-hidden="true" size={20} />

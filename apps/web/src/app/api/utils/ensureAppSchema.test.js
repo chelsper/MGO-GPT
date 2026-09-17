@@ -57,3 +57,11 @@ it("shares one initialization across concurrent requests on a worker", async () 
   const queries = sqlMock.mock.calls.map(([strings]) => strings.join(" "));
   expect(queries.filter(query => query.includes("CREATE TABLE IF NOT EXISTS users ("))).toHaveLength(1);
 });
+
+it("adds an append-only organization settings audit without changing existing profiles or report snapshots", async () => {
+  await ensureAppSchema();
+  const query = sqlMock.mock.calls.map(([strings]) => strings.join(" ")).find(text => text.includes("DO $organization_audit_schema$"));
+  expect(query).toContain("pg_advisory_xact_lock(734019, 3)");
+  expect(query).toContain("CREATE TABLE IF NOT EXISTS organization_settings_audits");
+  expect(query).not.toMatch(/UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|report_snapshots_cache/);
+});

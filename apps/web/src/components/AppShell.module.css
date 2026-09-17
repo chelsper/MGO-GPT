@@ -47,14 +47,19 @@
 }
 
 .brand {
-  flex-shrink: 0;
+  min-width: 0;
+  flex-shrink: 1;
   gap: 8px;
   color: var(--shell-ink);
   text-decoration: none;
 }
 
 .brandMark {
-  width: 30px;
+  min-width: 30px;
+  max-width: 72px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  overflow: hidden;
   height: 30px;
   display: grid;
   place-items: center;
@@ -68,6 +73,10 @@
 }
 
 .brandName {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 15px;
   font-weight: 850;
   letter-spacing: 0.02em;
