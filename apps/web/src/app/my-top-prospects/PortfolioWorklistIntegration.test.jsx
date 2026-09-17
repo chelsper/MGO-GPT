@@ -308,6 +308,29 @@ it("preserves loaded summaries and existing actions when Focus switches cards", 
   expect(state.data.prospects[0].priority_order).toBe(1);
 });
 
+it("does not carry a loaded tier summary into another workspace", async () => {
+  const { rerender } = render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  await screen.findByText("Saved summary narrative");
+  state.profile = {
+    ...state.profile,
+    workspaceUser: { ...state.profile.workspaceUser, id: 45, name: "Another MGO" },
+    actingAsUser: { ...state.profile.actingAsUser, id: 45, name: "Another MGO" },
+  };
+  rerender(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.queryByText("Saved summary narrative")).not.toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({
+    mapped: { prospectSummaryNarrative: "Summary in the new workspace" },
+  }) });
+  fireEvent.click(screen.getByRole("button", { name: "NXT Summary" }));
+  await screen.findByText("Summary in the new workspace");
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
 it("filters actual category and solicitor groups without writes, fetching or rank changes", () => {
   state.data["portfolio-categories"] = {
     categories: [{ id: 9, name: "Planned giving", sort_order: 0 }],

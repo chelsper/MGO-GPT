@@ -26,11 +26,21 @@ verification and a signed-in, read-only Admin smoke check. The subsequent
 [UX consistency pass](ux-consistency.md) was deployed as
 `9b7b9af62170d996eac88220a3d3e7ecdff04ca9`, with exact-SHA/asset verification,
 2,663 passing tests, and a signed-in read-only Next Steps smoke check.
-[Organization configuration phase 1](organization-configuration.md) was approved
-for release September 17 after 2,685 tests, typecheck, build, and release checks
-passed. Its synthetic tests and disposable-Postgres audit transaction checks
-are not evidence of live settings changes or NXT writes. Confirm production
-availability with the deployed SHA and a read-only settings-page smoke check.
+[Organization configuration phase 1](organization-configuration.md) was deployed
+September 17 as `e2cdacad5968e024d16f35707567fb01f5a7748e` after 2,685 tests,
+typecheck, build, and release checks passed. Exact-SHA/asset verification and a
+signed-in read-only settings-page smoke check passed. Synthetic tests and
+disposable-Postgres audit transaction checks are not evidence of live settings
+changes or NXT writes.
+
+[My Prospects module extraction](my-prospects-modules.md), step 6 first pass, was
+authorized for release September 17. Its 65 focused tests cover the unchanged
+route integration and extracted modules, including workspace summary isolation.
+September 17 local verification passed: 2,705 tests in 246 files, typecheck,
+production build, release worktree guard, and whitespace checks.
+Synthetic desktop/mobile inspection covers the extracted portfolio and editors;
+it does not replace signed-in live acceptance. No server/NXT write path, schema,
+refresh policy, or production record changed in this pass.
 
 ## Acceptance Matrix
 

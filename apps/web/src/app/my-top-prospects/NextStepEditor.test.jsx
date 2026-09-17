@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { PortfolioFollowUpModal, ProspectDetailModal } from "./page";
+import { ProspectDetailModal } from "./page";
+import PortfolioFollowUpModal from "./PortfolioFollowUpModal";
 
 const clients = [];
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });

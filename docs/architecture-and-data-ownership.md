@@ -38,12 +38,19 @@ Paths below are relative to the repository, not a developer's machine.
 | Database initialization | [ensureAppSchema.js](../apps/web/src/app/api/utils/ensureAppSchema.js) |
 | NXT transport and pagination | [blackbaud.js](../apps/web/src/app/api/utils/blackbaud.js) |
 | Main prospect UI | [My Prospects](../apps/web/src/app/my-top-prospects/page.jsx) |
+| Portfolio presentation and explicit summary reads | [PortfolioTier.jsx](../apps/web/src/app/my-top-prospects/PortfolioTier.jsx), [usePortfolioSummary.js](../apps/web/src/app/my-top-prospects/usePortfolioSummary.js) |
+| Portfolio refresh/category controls and local follow-up composer | [Module ownership map](my-prospects-modules.md) |
 | Reminder-linked NXT action state | [pendingActionNxt.js](../apps/web/src/app/api/utils/pendingActionNxt.js) |
 | Report audience checks | [reportAccess.js](../apps/web/src/app/api/utils/reportAccess.js) |
 | Organization settings | [organizationSettings.js](../apps/web/src/app/api/utils/organizationSettings.js) |
 
-Large UI and integration files are candidates for incremental extraction behind
-tests, not a prerequisite rewrite. Route authorization must remain server-side.
+The step 6 first pass extracts portfolio presentation, refresh/category controls,
+the local follow-up composer, and giving helpers from My Prospects behind existing
+and direct behavior tests. It leaves workspace/query/mutation orchestration and
+legacy NXT write routes unchanged. See the [module map](my-prospects-modules.md)
+for local versus deployed status and the next bounded slices. Large UI and
+integration files still need incremental extraction, not a prerequisite rewrite.
+Route authorization must remain server-side.
 
 ## Permissions
 

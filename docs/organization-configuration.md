@@ -1,9 +1,11 @@
 # Organization Configuration
 
-Roadmap step 5, phase 1, September 17, 2026. Production release approved after
-UX release `9b7b9af62170d996eac88220a3d3e7ecdff04ca9`. Confirm the deployed SHA
-using the release checklist. This is the safe configuration foundation, not completion of all
-fiscal-year, timezone, currency, or query customization work.
+Roadmap step 5, phase 1, deployed September 17, 2026 as
+`e2cdacad5968e024d16f35707567fb01f5a7748e` (Vercel
+`dpl_CtcteCcWrrs5zh4ZkX4WxEPgKacZ`). Exact-SHA/asset verification and a signed-in,
+read-only Organization Settings smoke check passed. This is the safe configuration
+foundation, not completion of all fiscal-year, timezone, currency, or query
+customization work.
 
 ## Connected Behavior
 
@@ -101,7 +103,7 @@ injected audit-failure rollback. Actual UI components with synthetic responses
 and built CSS were checked at 1280px and 390px, with no horizontal overflow and
 keyboard-operable audit details. No production settings or NXT records were changed.
 
-Before deployment, rerun the full suite, typecheck, build, and release checks.
+For future deployments, rerun the full suite, typecheck, build, and release checks.
 The additive table follows the existing serialized `ensureAppSchema()` path.
 Verify it can be provisioned under the deployment's DB role, then use the normal
 exact-SHA deployment verification. A read-only smoke check should show the active
