@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-const state = vi.hoisted(() => ({ profile: null, data: {} }));
+const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {} }));
 vi.mock("@/components/ProspectExport", () => ({ default: () => null }));
 vi.mock("@/utils/useUser", () => ({
   default: () => ({ data: { id: 2 }, loading: false }),
@@ -21,6 +21,7 @@ vi.mock("@tanstack/react-query", () => ({
         : state.data[queryKey[0]],
     isLoading: false,
     isFetching: false,
+    error: state.queryErrors[queryKey[0]],
     refetch: vi.fn(),
   }),
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
@@ -30,6 +31,7 @@ import MyProspects from "./page";
 
 beforeEach(() => {
   localStorage.clear();
+  state.queryErrors = {};
   state.profile = {
     user: { id: 2, role: "admin", name: "Admin Author" },
     workspaceUser: {
@@ -86,6 +88,25 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("keeps healthy background progress compact on the page but exposes status-query failures", () => {
+  state.data["portfolio-refresh-job"] = {
+    inventory: { total: 2, current: 2, stale: 0, failed: 0 },
+    job: { jobId: "40", workspaceUserId: 44, mode: "nightly", status: "queued",
+      totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
+      updatedAt: new Date().toISOString() },
+  };
+  const { rerender } = render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByText("Saved summaries ready")).toBeVisible();
+  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  state.queryErrors["portfolio-refresh-job"] = new Error("Failed to load portfolio refresh progress");
+  rerender(<MyProspects />);
+  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
+  expect(screen.getByText("Failed to load portfolio refresh progress")).toBeVisible();
+  expect(screen.getAllByRole("article")).toHaveLength(2);
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it("shows saved contacts and their checked date immediately without requests", () => {

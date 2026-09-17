@@ -80,6 +80,22 @@ executive fundraiser-credit calculations do not use this cache.
   separate giving/narrative timestamps, and allow stale-giving refresh without
   an administrator full rebuild.
 
+## Quiet Background Status
+
+- A nightly-mode job with current saved summaries, zero failures, valid progress
+  counts and a saved progress update within 15 minutes appears as a compact
+  disclosure. It shows giving-check progress separately from summary freshness;
+  current summaries do not imply that giving checks are complete.
+- Expanding details is local UI only. Automatic batch requests do not reopen the
+  disclosure. Completion collapses it again; pauses, failures, stale/unknown
+  summaries, missing/old progress and status-request errors remain visible.
+  Old progress is a reason to check, not proof of failure or a worker heartbeat.
+- Manual stale-summary/full-rebuild jobs retain expanded progress. This change
+  adds no NXT requests and does not alter job creation, processing, retries,
+  refresh deadlines, browser assistance, scheduling, batch size or concurrency.
+  The overnight capacity limit above still applies; this is a presentation fix,
+  not a guarantee that every workspace finishes overnight.
+
 ## Saved Portfolio Contacts
 
 - My Portfolio merges saved contact details into both fresh and stale assignment

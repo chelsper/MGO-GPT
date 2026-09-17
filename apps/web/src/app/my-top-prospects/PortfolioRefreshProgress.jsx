@@ -35,17 +35,18 @@ export default function PortfolioRefreshProgress({
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <div style={{ color: "#1E3A8A", fontSize: "14px", fontWeight: 800 }}>
-            {job?.mode === "nightly" ? "Nightly portfolio maintenance" : "Cached intelligence refresh"}
+            {job?.mode === "nightly" ? "Background portfolio maintenance" : "Cached intelligence refresh"}
           </div>
           <div style={{ marginTop: "3px", color: "#475569", fontSize: "12px" }}>
             {inventory
-              ? `${inventory.total} prospects · ${inventory.current} current · ${inventory.stale} stale · ${inventory.failed} failed`
+              ? `Saved summaries: ${inventory.current} of ${inventory.total} current · ${inventory.stale} due for refresh`
               : "Checking cached portfolio summaries..."}
           </div>
           <div style={{ marginTop: "5px", color: "#475569", fontSize: "12px" }}>
-            Assignments and giving refresh overnight. Full summaries refresh every seven days,
+            Giving checks and full summaries have separate schedules. Full summaries refresh every seven days,
             sooner for detected giving or local proposal changes, or when you refresh one manually.
-            Saved data stays visible while updates run.
+            Giving checks start overnight and may continue later. Current summaries can still have a giving check due.
+            Saved data stays visible while updates run; these are saved progress counts, not a live NXT check.
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>

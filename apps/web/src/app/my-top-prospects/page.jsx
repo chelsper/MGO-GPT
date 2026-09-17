@@ -5955,7 +5955,7 @@ export default function MyTopProspectsPage() {
     "portfolio-refresh-job",
     activeWorkspaceUserId,
   ];
-  const { data: portfolioRefreshState } = useQuery({
+  const { data: portfolioRefreshState, error: portfolioRefreshQueryError } = useQuery({
     queryKey: portfolioRefreshQueryKey,
     queryFn: async () => {
       const response = await fetch("/api/blackbaud/portfolio-refresh", {
@@ -7477,7 +7477,7 @@ export default function MyTopProspectsPage() {
               <PortfolioRefreshProgress
                 state={portfolioRefreshState}
                 isPending={portfolioRefreshMutation.isPending}
-                error={portfolioRefreshMutation.error}
+                error={portfolioRefreshMutation.error || portfolioRefreshQueryError}
                 isAdmin={isAdmin}
                 onStart={(mode) =>
                   portfolioRefreshMutation.mutate({ action: "start", mode })

@@ -22,6 +22,43 @@ it("collapses healthy maintenance without starting a request or refresh", () => 
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("keeps the reported 302-current nightly run compact through batches without changing its controls", () => {
+  const props = controls({ state: {
+    inventory: { total: 302, current: 302, stale: 0, failed: 0 },
+    job: { jobId: "40", workspaceUserId: 9, mode: "nightly", status: "queued",
+      totalCount: 302, processedCount: 170, successCount: 170, failedCount: 0,
+      updatedAt: new Date().toISOString() },
+  } });
+  const { rerender } = render(<PortfolioRefreshProgress {...props} />);
+  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  expect(screen.getByText(/Background giving check: 170 of 302/)).toBeVisible();
+  rerender(<PortfolioRefreshProgress {...props} isPending />);
+  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  fireEvent.click(screen.getByText("Refresh details"));
+  expect(screen.getByText("Saved summaries: 302 of 302 current · 0 due for refresh")).toBeVisible();
+  expect(screen.getByText(/Current summaries can still have a giving check due/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  rerender(<PortfolioRefreshProgress {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(props.onCancel).toHaveBeenCalledOnce();
+  expect(props.onStart).not.toHaveBeenCalled();
+  expect(props.onResume).not.toHaveBeenCalled();
+  expect(props.onRetryFailures).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("exposes status-read errors instead of presenting cached progress as healthy", () => {
+  const props = controls({ state: {
+    inventory: { total: 10, current: 10, stale: 0, failed: 0 },
+    job: { mode: "nightly", status: "queued", totalCount: 10, processedCount: 2,
+      successCount: 2, failedCount: 0, updatedAt: new Date().toISOString() },
+  }, error: new Error("Failed to load portfolio refresh progress") });
+  render(<PortfolioRefreshProgress {...props} />);
+  expect(screen.getByText("Failed to load portfolio refresh progress")).toBeVisible();
+  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("honors the cooldown and delegates explicit resume and cancellation to the parent", () => {
   let now = Date.parse("2026-09-17T12:00:00Z");
   vi.spyOn(Date, "now").mockImplementation(() => now);
