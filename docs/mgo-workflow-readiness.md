@@ -20,6 +20,12 @@ external services are mocked. The optional disposable-Postgres check exercises
 specific activity-worker SQL, not every transaction. There is no checked-in general
 browser E2E runner or CI workflow. Do not describe all of production as certified.
 
+Later work on September 17: [Integration Health](integration-health.md) was
+deployed as `d9532d4fd94568c3777f1e666445037f0f2b9c49` with exact-SHA/asset
+verification and a signed-in, read-only Admin smoke check. The subsequent
+[UX consistency pass](ux-consistency.md) is local and not yet deployed; its
+validation does not replace the production baseline evidence above.
+
 ## Acceptance Matrix
 
 Run the relevant rows for each change in a safe environment. Record date, build SHA,

@@ -6,6 +6,8 @@ import { getImportWriteResults, hasImportRetryHold, importWriteCanRetry } from "
 import { ArrowLeft, Check, Copy, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
+import useUnsavedChangesWarning from "@/utils/useUnsavedChangesWarning";
+import WorkflowNotice from "@/components/WorkflowNotice";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { addressesEquivalent } from "@/utils/contactMatching";
 import { isReviewerRole } from "@/utils/workspaceRoles";
@@ -3504,6 +3506,8 @@ export default function ConstituencyImportPage() {
   const fileInputRef = useRef(null);
   const fileReadVersionRef = useRef(0);
   const lastReadFileRef = useRef(null);
+  const fileSelectionHandlerRef = useRef(null);
+  fileSelectionHandlerRef.current = readSelectedFile;
   const previewRequestVersionRef = useRef(0);
   const previewAbortControllerRef = useRef(null);
   const hydratedDetailRowsRef = useRef(new Set());
@@ -3557,6 +3561,21 @@ export default function ConstituencyImportPage() {
   const [manualMatchErrorByRowId, setManualMatchErrorByRowId] = useState({});
   const [searchingManualMatchRowId, setSearchingManualMatchRowId] = useState("");
   const [selectingManualMatchRowId, setSelectingManualMatchRowId] = useState("");
+
+  const hasDirtyReviewChoices = contactDecisionsDirty || fieldDecisionsDirty;
+  const unsavedImportDraft = Boolean(hasDirtyReviewChoices || editingSavedRowId ||
+    editingPreviewRowNumber !== null || (rows.length && !preview?.savedRun));
+  const importBusy = Boolean(previewing || savingRun || loadingRunId || applyingRun || directSendingRowNumber ||
+    creatingRowId || retryingRowId || reconcilingRun || quickCreating || savingSavedRowCorrectionId || savingCombinedReviewRowId);
+  useUnsavedChangesWarning(unsavedImportDraft || importBusy);
+  function canReplaceImportDraft() {
+    if (importBusy) { setError("Wait for the current import operation to finish before changing files or runs."); return false; }
+    return !unsavedImportDraft || window.confirm("Discard unsaved import edits and continue? Saved runs and NXT records will not be changed.");
+  }
+  function openSavedRun(runId) {
+    if (!canReplaceImportDraft()) return;
+    return loadSavedRun(runId);
+  }
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
   const { effectiveRole } = useWorkspaceView(profileRole);
@@ -3952,7 +3971,7 @@ export default function ConstituencyImportPage() {
 
     // Native events remain reliable when the page has recovered from a React hydration error.
     const handleNativeFileSelection = (event) => {
-      readSelectedFile(event.currentTarget?.files?.[0]);
+      fileSelectionHandlerRef.current?.(event.currentTarget?.files?.[0]);
     };
 
     input.addEventListener("change", handleNativeFileSelection);
@@ -4165,6 +4184,10 @@ export default function ConstituencyImportPage() {
     if (!file) return;
     if (lastReadFileRef.current === file) return;
     lastReadFileRef.current = file;
+    if (!canReplaceImportDraft()) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     const fileReadVersion = fileReadVersionRef.current + 1;
     fileReadVersionRef.current = fileReadVersion;
     setError("");
@@ -4287,6 +4310,7 @@ export default function ConstituencyImportPage() {
   }
 
   function clearUploadedCsv() {
+    if (!canReplaceImportDraft()) return;
     resetImportWorkspace();
   }
 
@@ -6276,7 +6300,7 @@ export default function ConstituencyImportPage() {
           </Pill>
         </header>
 
-        <QueueImportLink onOpen={loadSavedRun} loadedRunId={preview?.savedRun?.id} loading={Boolean(loadingRunId)} />
+        <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loading={Boolean(loadingRunId)} />
 
         <section
           style={{
@@ -6342,6 +6366,7 @@ export default function ConstituencyImportPage() {
               accept=".csv,text/csv"
               onInput={handleFileUpload}
               onChange={handleFileUpload}
+              disabled={importBusy}
               style={{
                 position: "absolute",
                 width: "1px",
@@ -7489,7 +7514,7 @@ export default function ConstituencyImportPage() {
                     <button
                       key={run.id}
                       type="button"
-                      onClick={() => loadSavedRun(run.id)}
+                      onClick={() => openSavedRun(run.id)}
                       disabled={loadingRunId === run.id}
                       style={{
                         border: "1px solid #E5E7EB",
@@ -8027,19 +8052,9 @@ export default function ConstituencyImportPage() {
           ) : null}
 
           {saveMessage ? (
-            <div
-              style={{
-                border: "1px solid #A7F3D0",
-                borderRadius: "14px",
-                backgroundColor: "#ECFDF5",
-                color: "#065F46",
-                padding: "12px",
-                fontWeight: 800,
-                lineHeight: 1.4,
-              }}
-            >
+            <WorkflowNotice kind="info">
               {saveMessage}
-            </div>
+            </WorkflowNotice>
           ) : null}
 
           {preview?.warnings?.length ? (
@@ -9497,7 +9512,7 @@ export default function ConstituencyImportPage() {
                     ) : null}
                     {Array.isArray(row.blackbaudResult?.results) &&
                       row.blackbaudResult.results.length ? (
-                      <div
+                      <details
                         style={{
                           border: "1px solid #BAE6FD",
                           borderRadius: "12px",
@@ -9507,8 +9522,11 @@ export default function ConstituencyImportPage() {
                           gap: "6px",
                         }}
                       >
-                        <div
+                        <summary
                           style={{
+                            cursor: "pointer",
+                            minHeight: "44px",
+                            alignContent: "center",
                             color: "#075985",
                             fontSize: "12px",
                             fontWeight: 900,
@@ -9517,7 +9535,7 @@ export default function ConstituencyImportPage() {
                           }}
                         >
                           {hasAttemptedWrites ? "Original send results (history)" : "Apply result"}
-                        </div>
+                        </summary>
                         {row.blackbaudResult.results.map((result, resultIndex) => (
                           <div
                             key={`${result.type || "result"}-${resultIndex}`}
@@ -9543,11 +9561,11 @@ export default function ConstituencyImportPage() {
                             ) : null}
                           </div>
                         ))}
-                      </div>
+                      </details>
                     ) : null}
                     {Array.isArray(row.blackbaudResult?.reconciliation?.results) &&
                     row.blackbaudResult.reconciliation.results.length ? (
-                      <div
+                      <details
                         style={{
                           border: "1px solid #7DD3FC",
                           borderRadius: "12px",
@@ -9557,8 +9575,11 @@ export default function ConstituencyImportPage() {
                           gap: "6px",
                         }}
                       >
-                        <div
+                        <summary
                           style={{
+                            cursor: "pointer",
+                            minHeight: "44px",
+                            alignContent: "center",
                             color: "#075985",
                             fontSize: "12px",
                             fontWeight: 900,
@@ -9567,7 +9588,7 @@ export default function ConstituencyImportPage() {
                           }}
                         >
                           NXT verification{row.blackbaudResult.reconciliation.verifiedAt ? ` · ${formatDateTime(row.blackbaudResult.reconciliation.verifiedAt)}` : ""}
-                        </div>
+                        </summary>
                         {row.blackbaudResult.reconciliation.results.map((result, resultIndex) => (
                           <div
                             key={`${result.type || "verification"}-${resultIndex}`}
@@ -9580,7 +9601,7 @@ export default function ConstituencyImportPage() {
                             {result.status === "confirmed" ? "Confirmed" : "Needs review"}: {result.message}
                           </div>
                         ))}
-                      </div>
+                      </details>
                     ) : null}
                     {row.status === "Failed" ? (
                       <div

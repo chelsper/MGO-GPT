@@ -13,6 +13,8 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import DiscussionConstituentPicker from "@/components/DiscussionConstituentPicker";
 import { formatNextStepDate, nextStepDay } from "@/utils/nextStepWorklist";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import useUnsavedChangesWarning from "@/utils/useUnsavedChangesWarning";
+import WorkflowNotice from "./WorkflowNotice";
 
 const DiscussionNextStepDialog = lazy(() => import("./DiscussionNextStepDialog"));
 
@@ -290,7 +292,7 @@ function DiscussionCard({
               fontWeight: 700,
             }}
           >
-            Saved
+            Saved in app
           </span>
         ) : null}
       </div>
@@ -381,7 +383,7 @@ function DiscussionCard({
         </div>
       ) : null}
       {isEditing ? (
-        <div
+        <fieldset disabled={pending} className="min-w-0"
           style={{
             marginTop: "14px",
             paddingTop: "14px",
@@ -431,7 +433,7 @@ function DiscussionCard({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))",
               gap: "12px",
             }}
           >
@@ -544,7 +546,7 @@ function DiscussionCard({
               Cancel
             </button>
           </div>
-        </div>
+        </fieldset>
       ) : null}
     </div>
   );
@@ -566,6 +568,18 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
   const [createLinkedConstituents, setCreateLinkedConstituents] = useState([]);
   const [createError, setCreateError] = useState("");
   const [recentlySavedId, setRecentlySavedId] = useState(null);
+  const [saveNotice, setSaveNotice] = useState("");
+  const editingBaseline = useRef(null);
+  const editingDirty = Boolean(editingItem && JSON.stringify(editingItem) !== JSON.stringify(editingBaseline.current));
+  const createDirty = Boolean(createSubject || createBody || createDueDate || createAssignedUserId || createTaggedUserIds.length || createLinkedConstituents.length);
+  useUnsavedChangesWarning(editingDirty || createDirty);
+  function discardEdit() {
+    if (updateMutation.isPending) return false;
+    if (editingDirty && !window.confirm("Discard your unsaved discussion changes?")) return false;
+    setEditingItem(null);
+    editingBaseline.current = null;
+    return true;
+  }
 
   const { data: discussionItems = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["team-discussion", user.id, workspaceId, statusFilter],
@@ -589,6 +603,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
   });
 
   const updateMutation = useMutation({
+    onMutate: () => setSaveNotice(""),
     mutationFn: async ({ id, body }) => {
       const response = await fetch(`/api/discussion-items/${id}`, {
         method: "PATCH",
@@ -603,11 +618,14 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
     },
     onSuccess: (_payload, variables) => {
       setRecentlySavedId(String(variables.id));
+      setSaveNotice("Team discussion updated. No NXT action was created.");
       setEditingItem(null);
+      editingBaseline.current = null;
       queryClient.invalidateQueries({ queryKey: ["team-discussion"] });
     },
   });
   const createMutation = useMutation({
+    onMutate: () => setSaveNotice(""),
     mutationFn: async (body) => {
       const response = await fetch("/api/discussion-items", {
         method: "POST",
@@ -621,6 +639,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
       return payload;
     },
     onSuccess: () => {
+      setSaveNotice("Team discussion created. No NXT action was created.");
       setShowCreateForm(false);
       setCreateSubject("");
       setCreateBody("");
@@ -639,10 +658,10 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
   useEffect(() => {
     if (!editingItem) return;
     const freshItem = discussionItems.find((item) => item.id === editingItem.id);
-    if (!freshItem) {
+    if (!freshItem && !editingDirty) {
       setEditingItem(null);
     }
-  }, [discussionItems, editingItem]);
+  }, [discussionItems, editingItem, editingDirty]);
 
   useEffect(() => {
     if (!recentlySavedId) return undefined;
@@ -666,7 +685,8 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
     if (!matchedItem) return;
     openedLink.current = discussionId;
 
-    if (shouldEdit) setEditingItem({
+    if (shouldEdit) {
+      const draft = {
       id: matchedItem.id,
       subject: matchedItem.subject || "",
       body: matchedItem.body || "",
@@ -678,7 +698,10 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
         String(taggedUser.user_id),
       ),
       linkedConstituents: getLinkedConstituents(matchedItem),
-    });
+      };
+      editingBaseline.current = draft;
+      setEditingItem(draft);
+    }
     setViewMode("date");
     setStatusFilter(matchedItem.status || "Open");
 
@@ -819,6 +842,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
   if (isLoading) {
     return (
       <div
+        role="status"
         style={{
           minHeight: "140px",
           display: "grid",
@@ -933,7 +957,9 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setStatusFilter(option.value)}
+                    disabled={updateMutation.isPending}
+                    aria-pressed={selected}
+                    onClick={() => { if (option.value !== statusFilter && discardEdit()) setStatusFilter(option.value); }}
                     style={{
                       border: "none",
                       borderRadius: "999px",
@@ -969,7 +995,15 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                   <button
                     key={tab.value}
                     type="button"
-                    onClick={() => setViewMode(tab.value)}
+                    disabled={updateMutation.isPending}
+                    aria-pressed={selected}
+                    onClick={() => {
+                      const editedRecord = discussionItems.find(item => item.id === editingItem?.id);
+                      const willHideEditor = tab.value === "assignedToMe" && editingItem &&
+                        Number(editedRecord?.assigned_user_id || 0) !== Number(workspaceId || 0);
+                      if (willHideEditor && !discardEdit()) return;
+                      setViewMode(tab.value);
+                    }}
                     style={{
                       border: "none",
                       borderRadius: "999px",
@@ -1019,6 +1053,9 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
               <button
                 type="button"
                 onClick={() => setShowCreateForm((current) => !current)}
+                disabled={createMutation.isPending}
+                aria-expanded={showCreateForm}
+                aria-controls="discussion-composer"
                 style={{
                   border: "1px solid #D1D5DB",
                   backgroundColor: showCreateForm ? "#111827" : "white",
@@ -1035,7 +1072,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
             </div>
 
             {showCreateForm ? (
-              <div
+              <fieldset id="discussion-composer" disabled={createMutation.isPending} className="min-w-0"
                 style={{
                   display: "grid",
                   gap: "12px",
@@ -1089,7 +1126,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))",
                     gap: "12px",
                   }}
                 >
@@ -1163,7 +1200,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                 </div>
 
                 {createError ? (
-                  <div style={{ fontSize: "12px", color: "#991B1B" }}>{createError}</div>
+                  <div role="alert" style={{ fontSize: "12px", color: "#991B1B" }}>{createError}</div>
                 ) : null}
 
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -1202,14 +1239,18 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                       cursor: "pointer",
                     }}
                   >
-                    Cancel
+                    Hide and keep draft
                   </button>
                 </div>
-              </div>
+              </fieldset>
             ) : null}
+            {!showCreateForm && createDirty && <p role="status" className="mt-3 text-sm text-amber-900">Your unsaved discussion draft is kept on this page. Use Add discussion item to continue.</p>}
           </div>
         </div>
 
+        {saveNotice && <WorkflowNotice kind="app" className="mb-4"><p>{saveNotice}</p></WorkflowNotice>}
+        {updateMutation.isError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{updateMutation.error.message} Your discussion draft is still here.</div>}
+        {editingDirty && <p role="status" className="mb-4 text-sm text-amber-900">You have unsaved discussion changes. Save or cancel the edit before switching between Open and Resolved.</p>}
         {groupedItems.map((group) => (
           <section key={group.key} style={{ marginBottom: "18px" }}>
             <div
@@ -1242,9 +1283,10 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                   teammateOptions={teammateOptions}
                   editingItem={editingItem}
                   onEdit={(currentItem, partial = {}) => {
+                    if (editingItem?.id !== currentItem.id && !discardEdit()) return;
                     setEditingItem((previous) => {
                       if (!previous || previous.id !== currentItem.id) {
-                        return {
+                        const draft = {
                           id: currentItem.id,
                           subject: currentItem.subject || "",
                           body: currentItem.body || "",
@@ -1258,6 +1300,8 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                           linkedConstituents: getLinkedConstituents(currentItem),
                           ...partial,
                         };
+                        editingBaseline.current = draft;
+                        return draft;
                       }
                       return { ...previous, ...partial };
                     });
@@ -1276,15 +1320,16 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
                       },
                     });
                   }}
-                  onCancelEdit={() => setEditingItem(null)}
-                  onToggle={(currentItem) =>
+                  onCancelEdit={discardEdit}
+                  onToggle={(currentItem) => {
+                    if (!discardEdit()) return;
                     updateMutation.mutate({
                       id: currentItem.id,
                       body: {
                         status: currentItem.status === "Open" ? "Resolved" : "Open",
                       },
-                    })
-                  }
+                    });
+                  }}
                   pending={updateMutation.isPending}
                   recentlySaved={recentlySavedId === String(item.id)}
                 />
@@ -1306,7 +1351,7 @@ export default function TeamDiscussionView({ user, workspaceId, active = true })
           >
             {statusFilter === "Resolved"
               ? "No resolved discussion items in this view yet."
-              : "No discussion items match this view yet. Add one from a prospect workspace when you need to capture a talking point, teammate handoff, or internal reminder."}
+              : "No discussion items match this view yet. Use Add discussion item above to capture a talking point, teammate handoff, or internal reminder."}
           </div>
         ) : null}
       </div>

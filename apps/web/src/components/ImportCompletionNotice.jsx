@@ -1,11 +1,12 @@
 import { canFinishImportWithoutSending, isImportVerificationComplete } from "@/utils/importCompletion";
+import WorkflowNotice from "./WorkflowNotice";
 
 export default function ImportCompletionNotice({ row, busy, reviewer, onVerify }) {
   const complete = row.status === "Applied";
   const verified = isImportVerificationComplete(row);
   const canVerify = canFinishImportWithoutSending(row);
   return (
-    <section className="grid gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4" aria-label="Finish import without resending">
+    <WorkflowNotice kind={row.status === "Applying" ? "processing" : complete ? verified ? "verified" : "imported" : "verification"} className="grid gap-3" aria-label="Finish import without resending">
       <h3 className="font-bold text-sky-900">
         {complete ? "Import complete" : "Already sent to NXT? Verify without resending"}
       </h3>
@@ -18,11 +19,11 @@ export default function ImportCompletionNotice({ row, busy, reviewer, onVerify }
       {reviewer && canVerify ? (
         <div>
           <button type="button" disabled={busy} onClick={onVerify}
-            className="rounded-full bg-sky-800 px-4 py-2 font-bold text-white disabled:cursor-wait disabled:opacity-60">
+            className="min-h-11 rounded-full bg-sky-800 px-4 py-2 font-bold text-white disabled:cursor-wait disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-800">
             {busy ? "Checking NXT..." : complete ? "Check NXT again (read-only)" : "Verify in NXT and finish"}
           </button>
         </div>
       ) : !complete ? <p className="text-sm text-sky-900">Verification-only completion is unavailable while a send is active or its target is unresolved. Reload the saved run when it finishes.</p> : null}
-    </section>
+    </WorkflowNotice>
   );
 }

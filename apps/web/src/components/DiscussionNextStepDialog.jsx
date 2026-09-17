@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import NextStepFields from "./NextStepFields";
+import WorkflowNotice from "./WorkflowNotice";
 import { nextStepDay, formatNextStepDate } from "@/utils/nextStepWorklist";
 
 const buttonClass = "min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50";
@@ -100,13 +101,14 @@ export default function DiscussionNextStepDialog({ item, viewerId, workspaceId, 
             </select></label>
           {unavailableTopic && <p role="alert" className="text-sm text-amber-900">This local-only constituent belongs to another workspace. Choose its owner or add a confirmed NXT constituent to the discussion first.</p>}
         </fieldset>
-        {savedTask ? <div ref={resultRef} tabIndex={-1} role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+        {savedTask ? <WorkflowNotice ref={resultRef} tabIndex={-1} kind="app">
           <p>{result?.message || "A next step already exists for this owner and topic. Edit or reopen it instead of creating a duplicate."}</p>
           <p className="mt-2">{savedTask.owner_name || owner?.name} · {savedTask.status === "Done" ? "Completed" : "Open"}{savedTask.due_date ? ` · Due ${formatNextStepDate(savedTask.due_date)}` : ""}</p>
           {String(savedTask.owner_user_id) === String(workspaceId) ? <a className="mt-2 inline-flex min-h-11 items-center font-semibold underline"
             href={`/follow-ups?tab=next-steps&nextStepId=${savedTask.id}&status=${savedTask.status}`}>View next step</a>
             : <p className="mt-2">This follow-up is in {savedTask.owner_name || owner?.name}'s workspace.</p>}
-        </div> : <>
+          <p className="mt-2">This is an app follow-up. No NXT action was created.</p>
+        </WorkflowNotice> : <>
           <NextStepFields title={draft.title} details={draft.details} dueDate={draft.dueDate} ownerName={owner?.name} disabled={busy}
             onTitleChange={value => change("title", value)} onDetailsChange={value => change("details", value)} onDueDateChange={value => change("dueDate", value)} />
           <p className="text-xs text-gray-600">The owner, due date, and completion status will be visible to everyone in this discussion. Follow-up notes stay in the owner's workspace. No NXT records or actions will be created.</p>

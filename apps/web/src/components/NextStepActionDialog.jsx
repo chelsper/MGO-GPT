@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ACTION_CATEGORIES, INTERACTION_TYPES, validActionDate, validNextStepActionDate } from "@/utils/actionEntryOptions";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { formatNextStepDate } from "@/utils/nextStepWorklist";
+import WorkflowNotice, { actionNoticeKind } from "./WorkflowNotice";
 
 const fieldClass = "min-h-11 min-w-0 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-base font-normal text-gray-900";
 const buttonClass = "min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50";
@@ -136,15 +137,15 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
       {query.isError && <p role="alert" className="mt-4 text-sm text-red-800">{query.error.message}</p>}
       {constituentId && <a className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-indigo-700 underline"
         href={buildBlackbaudConstituentProfileUrl(constituentId)} target="_blank" rel="noopener noreferrer">Open constituent in NXT</a>}
-      {receipt ? <div ref={resultRef} tabIndex={-1} role="status" className={`mt-4 rounded-xl border p-4 text-sm ${receipt.state === "saved" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+      {receipt ? <WorkflowNotice ref={resultRef} tabIndex={-1} kind={actionNoticeKind(receipt)} className="mt-4">
         <p>{receipt.message}</p>
         {receipt.actionIntent && <p className="mt-2">Submitted as: {receipt.actionIntent === "planned" ? "Planned action" : "Completed action"}{receipt.actionDate ? ` for ${formatNextStepDate(receipt.actionDate)}` : ""}.</p>}
-        {receipt.actionId && <p className="mt-2">NXT action ID: {receipt.actionId}</p>}
+        {receipt.actionId && <details className="mt-2"><summary className="min-h-11 cursor-pointer content-center font-semibold">Technical details</summary><p className="break-all">NXT action ID: {receipt.actionId}</p></details>}
         {reminderStatus && <p className="mt-2 font-semibold">Next step: {reminderStatus === "Done" ? "Completed" : "Open"}.</p>}
         {receipt.actionIntent === "planned" && receipt.state === "saved"
           ? <p className="mt-2">Complete or reschedule this same action in NXT. Mark complete in this app only closes the reminder; it does not complete the NXT action.</p>
           : reminderStatus === "Open" && receipt.state === "saved" && <p className="mt-2">If this follow-up is finished, close this dialog and use Mark complete.</p>}
-      </div> : blocked ? <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+      </WorkflowNotice> : blocked ? <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
         {task.status !== "Open" ? "This next step is no longer open. Close this dialog and reload the saved list."
           : "This next step does not have a single confirmed NXT constituent link. Review its prospect link before logging an action."}
       </p> : draft && !query.isError && <form onSubmit={submit} className="mt-4 grid gap-4">

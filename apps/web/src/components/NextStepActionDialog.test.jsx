@@ -47,6 +47,10 @@ it("submits the reviewed action exactly once without legacy next-step or discuss
   const button = screen.getByRole("button", { name: "Log completed action and complete next step" });
   fireEvent.click(button); fireEvent.click(button);
   await screen.findByText("NXT action saved and verified. Next step completed.");
+  expect(screen.getByText("Verified in NXT")).toBeInTheDocument();
+  expect(screen.getByText("NXT action ID: 500")).not.toBeVisible();
+  fireEvent.click(screen.getByText("Technical details"));
+  expect(screen.getByText("NXT action ID: 500")).toBeVisible();
   expect(writes()).toHaveLength(1);
   expect(JSON.parse(writes()[0][1].body)).toEqual({ actionIntent: "completed", actionDate: "2026-09-16", actionCategory: "Meeting", interactionType: "Stewardship", summary: "Thank donor", notes: "Discuss impact", completeReminder: true, sourceToken: "source", expectedWorkspaceId: 7 });
   expect(onSaved).toHaveBeenCalledOnce();
@@ -69,6 +73,9 @@ it("does not let the dialog close or submit again while a write is pending", asy
   expect(onClose).not.toHaveBeenCalled();
   finish(reply({ receipt: { state: "review", message: "Check NXT before continuing." } }, 202));
   await screen.findByText("Check NXT before continuing.");
+  expect(screen.getByText("Needs verification")).toBeInTheDocument();
+  expect(screen.getByText("Needs verification").closest('[role="status"]')).toHaveClass("bg-amber-50");
+  expect(screen.queryByText("Verified in NXT")).not.toBeInTheDocument();
   expect(writes()).toHaveLength(1);
 });
 it("retains the draft after a pre-write rejection", async () => {

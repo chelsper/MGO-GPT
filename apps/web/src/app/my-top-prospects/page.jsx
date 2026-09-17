@@ -7,6 +7,8 @@ import PortfolioWorklist, { PortfolioCard } from "@/components/PortfolioWorklist
 import PortfolioContactDetails, { PortfolioContactRefreshProvider } from "@/components/PortfolioContactDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import NextStepFields from "@/components/NextStepFields";
+import WorkflowNotice from "@/components/WorkflowNotice";
+import useUnsavedChangesWarning from "@/utils/useUnsavedChangesWarning";
 import useProspectPledgeStatus from "@/utils/useProspectPledgeStatus";
 import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
@@ -603,6 +605,7 @@ export function PortfolioFollowUpModal({ kind, person, ownerName, onClose }) {
   const [assignedUserId, setAssignedUserId] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  useUnsavedChangesWarning(!successMessage && Boolean(title || details || dueDate || assignedUserId));
   const saveInFlight = useRef(false);
   const dialogRef = useRef(null);
   const previousFocus = useRef(typeof document === "undefined" ? null : document.activeElement);
@@ -772,6 +775,8 @@ export function PortfolioFollowUpModal({ kind, person, ownerName, onClose }) {
             disabled={saveMutation.isPending}
             aria-label="Close"
             style={{
+              minWidth: "44px",
+              minHeight: "44px",
               border: "none",
               backgroundColor: "transparent",
               color: "#6B7280",
@@ -801,19 +806,7 @@ export function PortfolioFollowUpModal({ kind, person, ownerName, onClose }) {
 
           {successMessage ? (
             <>
-              <div role="status"
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: "9px",
-                  border: "1px solid #A7F3D0",
-                  backgroundColor: "#ECFDF5",
-                  color: "#065F46",
-                  fontSize: "14px",
-                  lineHeight: 1.5,
-                }}
-              >
-                {successMessage}
-              </div>
+              <WorkflowNotice kind="app"><p>{successMessage}</p><p className="mt-2">No NXT action was created.</p></WorkflowNotice>
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "20px" }}>
                 <button
                   type="button"
@@ -3098,7 +3091,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnly = false, pledgeData, ownerName }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -3150,6 +3143,13 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
   const [nextStepDiscussionNoteDraft, setNextStepDiscussionNoteDraft] = useState("");
   const nextStepDraftDirty = useRef(false);
   const nextStepSource = useRef(null);
+  const [nextStepFeedback, setNextStepFeedback] = useState("");
+  useUnsavedChangesWarning(nextStepDraftDirty.current);
+  function onClose() {
+    if (savePendingActionMutation.isPending) return;
+    if (nextStepDraftDirty.current && !window.confirm("Discard your unsaved next-step changes?")) return;
+    onRequestClose();
+  }
   const [newOpportunityData, setNewOpportunityData] = useState({
     title: "",
     currentStage: "Identification",
@@ -3713,6 +3713,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
       queryClient.invalidateQueries({ queryKey: ["stewardship-actions"] });
       nextStepDraftDirty.current = false;
       setShowNextStepForm(false);
+      setNextStepFeedback("Next step saved. No NXT action was created.");
       setActionError("");
     },
     onError: (mutationError) => {
@@ -3794,8 +3795,10 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
 
   useEffect(() => {
     // A saved-data refresh must not replace an in-progress draft or its target.
-    if (showNextStepForm && nextStepDraftDirty.current) return;
-    if (!showNextStepForm) nextStepDraftDirty.current = false;
+    // A hidden editor is still a draft. Switching panels must not replace it
+    // with a background refresh; explicit Cancel is the discard boundary.
+    if (nextStepDraftDirty.current) return;
+    if (showNextStepForm) setNextStepFeedback("");
     const source = primaryPendingAction;
     nextStepSource.current = source;
     setNextStepTextDraft(source?.title || prospect?.next_action_text || "");
@@ -6385,6 +6388,10 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
             </div>
           ) : null}
 
+          {nextStepFeedback && <WorkflowNotice kind="app" className="mb-4"><p>{nextStepFeedback}</p></WorkflowNotice>}
+          {nextStepDraftDirty.current && !showNextStepForm && <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Your unsaved next-step draft is kept while you use another panel. Return to Set Next Step to save or cancel it.
+          </div>}
           {showNextStepForm ? (
             <div
               style={{
@@ -6624,6 +6631,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose, readOnl
                   <button
                     type="button"
                     onClick={() => {
+                      if (nextStepDraftDirty.current && !window.confirm("Discard your unsaved next-step changes?")) return;
                       nextStepDraftDirty.current = false;
                       setShowNextStepForm(false);
                       setNextStepTextDraft(primaryPendingAction?.title || prospect.next_action_text || "");

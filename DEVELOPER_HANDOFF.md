@@ -82,7 +82,8 @@ Start new development from current `main`, not a historical Codex worktree branc
 | Area | Detailed contract |
 | --- | --- |
 | Follow-ups and NXT action receipts | [follow-ups-workspace.md](docs/follow-ups-workspace.md) |
-| Admin integration-health page (prepared after the baseline; not yet deployed) | [integration-health.md](docs/integration-health.md) |
+| Admin integration-health page (deployed after the baseline) | [integration-health.md](docs/integration-health.md) |
+| Focused UX consistency pass (local, awaiting deployment) | [ux-consistency.md](docs/ux-consistency.md) |
 | Portfolio display, contacts, activity pilot | [portfolio-worklist.md](docs/portfolio-worklist.md) |
 | Giving cache and overnight maintenance | [portfolio-giving-cache.md](docs/portfolio-giving-cache.md) |
 | Standard import and duplicate recovery | [quick-constituent-import.md](docs/quick-constituent-import.md) |

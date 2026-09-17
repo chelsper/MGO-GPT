@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import NextStepFields, { nextStepDateChoices } from "./NextStepFields";
+import WorkflowNotice, { actionNoticeKind } from "./WorkflowNotice";
 import { buildNextStepGroups, formatNextStepCompletion, formatNextStepDate, nextStepDay, nextStepName, pageNextStepGroups } from "@/utils/nextStepWorklist";
 
 const buttonClass = "inline-flex min-h-11 items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600";
@@ -15,6 +16,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
   const [editor, setEditor] = useState(null);
   const [actionItem, setActionItem] = useState(null);
   const [notice, setNotice] = useState("");
+  const [noticeKind, setNoticeKind] = useState("app");
   const [linkedId, setLinkedId] = useState(null);
   const [highlightId, setHighlightId] = useState(null);
   useEffect(() => {
@@ -70,6 +72,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
     onSuccess: (_payload, draft) => {
       saveInFlight.current = false;
       setEditor(null);
+      setNoticeKind("app");
       setNotice(draft.action === "complete" ? "Next step completed. You can reopen it from Completed history. No NXT action was created; linked discussions are unchanged."
         : draft.action === "reopen" ? "Next step reopened as an additional follow-up. Your primary next step and linked discussions are unchanged. No NXT action was created."
         : draft.action === "reschedule" ? "Due date saved. No NXT action was created; linked discussions are unchanged."
@@ -117,7 +120,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
     if (!linkedId || !query.isSuccess || query.isFetching) return;
     const index = groups.flatMap(group => group.items).findIndex(item => String(item.id) === linkedId);
     if (index >= 0) { setPage(Math.floor(index / 25) + 1); setHighlightId(linkedId); }
-    else setNotice("This linked next step is not in this workspace's selected list. Check Completed history or select its owner's workspace.");
+    else { setNoticeKind("info"); setNotice("This linked next step is not in this workspace's selected list. Check Completed history or select its owner's workspace."); }
     setLinkedId(null);
   }, [linkedId, query.isSuccess, query.isFetching, groups]);
   useEffect(() => {
@@ -153,7 +156,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
       {status === "Done" && workspace?.canEdit && <p className="mt-3 text-sm text-gray-600">Reopen returns an item to Open as an additional follow-up without replacing the current primary next step. Linked discussions stay unchanged.</p>}
     </section>
 
-    {notice && <p ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
+    {notice && <WorkflowNotice ref={noticeRef} tabIndex={-1} kind={noticeKind}><p>{notice}</p></WorkflowNotice>}
     {save.isError && !editor && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{save.error.message}</p>}
     {query.isLoading || query.isFetching ? <p role="status">Loading saved next steps...</p> : query.isError ? (
       <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-900">
@@ -170,6 +173,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
       </div>
       {!total && <div className="rounded-xl border border-gray-200 bg-white p-5 text-gray-600">
         {search ? "No next steps match your search." : status === "Done" ? "No completed next steps yet." : "No open next steps. Add one from My Prospects when you have a follow-up to track."}
+        {search && <button type="button" className={`${buttonClass} ml-2`} onClick={() => { setSearch(""); setPage(1); }}>Clear search</button>}
       </div>}
       {pageGroups.map(group => <section key={group.key} aria-labelledby={`next-step-group-${group.key.replaceAll(" ", "-")}`}>
         <h3 id={`next-step-group-${group.key.replaceAll(" ", "-")}`} className={`mb-3 text-base font-bold ${group.key === "Overdue" ? "text-amber-800" : "text-gray-800"}`}>{group.label} <span className="font-normal text-gray-500">({group.total})</span></h3>
@@ -241,6 +245,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
     {actionItem && <Suspense fallback={<p role="status">Opening action form...</p>}>
       <NextStepActionDialog key={`${workspaceId}-${actionItem.id}`} item={actionItem} viewerId={viewerId} workspaceId={workspaceId}
         onClose={() => { setActionItem(null); query.refetch(); }} onSaved={receipt => {
+          setNoticeKind(actionNoticeKind(receipt));
           setNotice(receipt.message);
           for (const key of ["next-step-worklist", "pending-actions", "stewardship-actions", "worklist", "prospect", "prospects", "prospect-summary-base", "prospect-summary-closed", "team-discussion"])
             queryClient.invalidateQueries({ queryKey: [key] });

@@ -65,14 +65,15 @@ it("asks before discarding a draft", () => {
 });
 
 function detail(readOnly = false) {
+  const onClose = vi.fn();
   const client = clientForTest();
   const data = { prospect: { id: 1, user_id: 7, prospect_name: "Test Donor", status: "Active" },
     pendingActions: [{ id: 40, title: "Original step", details: "Existing notes", due_date: "2026-09-30", status: "Open", is_primary: true, category: "General" }] };
   client.setQueryData(["prospect", 1], data);
   client.setQueryData(["mgo-users-for-discussion"], []);
   render(<QueryClientProvider client={client}><ProspectDetailModal prospectId={1} initialPanel="next-step"
-    ownerName="Selected MGO" readOnly={readOnly} onClose={vi.fn()} /></QueryClientProvider>);
-  return { client, data };
+    ownerName="Selected MGO" readOnly={readOnly} onClose={onClose} /></QueryClientProvider>);
+  return { client, data, onClose };
 }
 
 it("keeps the Top Prospects draft when background data changes", async () => {
@@ -121,4 +122,32 @@ it("does not open the editor for a read-only viewer", () => {
   detail(true);
   expect(screen.queryByRole("form", { name: "Edit next step" })).not.toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("keeps a Top Prospects next-step draft across panel changes and cancelled dismissal", () => {
+  const { onClose } = detail();
+  vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.change(screen.getByLabelText("What should happen next?"), { target: { value: "Keep my draft" } });
+  fireEvent.click(screen.getByRole("button", { name: "Team Discussion", exact: true }));
+  expect(screen.getByText(/Your unsaved next-step draft is kept/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Set Next Step", exact: true }));
+  expect(screen.getByLabelText("What should happen next?")).toHaveValue("Keep my draft");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+  expect(screen.getByLabelText("What should happen next?")).toHaveValue("Keep my draft");
+  expect(onClose).not.toHaveBeenCalled();
+  const unload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+});
+
+it("warns before unloading an unsaved portfolio follow-up and clears the warning after save", async () => {
+  portfolio();
+  fireEvent.change(screen.getByLabelText("What should happen next?"), { target: { value: "Call" } });
+  const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  fetch.mockResolvedValue({ ok: true, json: async () => ({ id: 1 }) });
+  fireEvent.click(screen.getByRole("button", { name: "Save next step" }));
+  await screen.findByText("Saved in app");
+  const savedUnload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(savedUnload);
+  expect(savedUnload.defaultPrevented).toBe(false);
 });

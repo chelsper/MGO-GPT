@@ -1,8 +1,8 @@
 # Admin Integration Health
 
 Added September 17, 2026, after the application baseline in
-[Developer Handoff](../DEVELOPER_HANDOFF.md). This feature is prepared locally;
-deployment and production acceptance are separate steps.
+[Developer Handoff](../DEVELOPER_HANDOFF.md). Deployed September 17, 2026 in
+`d9532d4fd94568c3777f1e666445037f0f2b9c49`.
 
 ## Entry And Access
 
@@ -94,5 +94,10 @@ deduplication, removed/inactive/origin isolation, missing snapshots, daily reset
 renewable connection status, and receipt filtering passed. The actual page was
 also rendered with synthetic responses and the built stylesheet at desktop and
 390px mobile widths, with no horizontal overflow or browser errors. No production
-DB or NXT writes were used. Production access/appearance acceptance remains for
-release.
+DB or NXT writes were used.
+
+Production deployment `dpl_BwTLJAyCPwPHcxt8Ti5igRz28yBU` reached Ready and
+`verify:prod` matched the full SHA and referenced assets on www.jumgogpt.app.
+A signed-in Admin opened the production page successfully; all sections rendered
+from saved data. This was a read-only smoke check, not a live NXT authorization
+test, job retry, or certification that every backlog has finished.

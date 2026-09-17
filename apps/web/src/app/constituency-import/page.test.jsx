@@ -44,6 +44,8 @@ describe("standard import completion flow", () => {
     await openRun();
     expect(screen.getByText("Original import plan (history)")).toBeInTheDocument();
     expect(screen.getByText("Original send results (history)")).toBeInTheDocument();
+    expect(screen.getByText("Original send results (history)").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Needs verification")).toBeVisible();
     expect(screen.queryByText("Current NXT constituencies")).not.toBeInTheDocument();
     expect(screen.queryByText("Contact change review")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open required review" })).not.toBeInTheDocument();
@@ -73,4 +75,38 @@ describe("standard import completion flow", () => {
     await screen.findByRole("heading", { name: "Import complete" });
     expect(screen.getByText("The requested details were verified in NXT. Nothing more needs to be sent for this row.")).toBeInTheDocument();
   });
+});
+
+it("warns before replacing, clearing, or leaving an unsaved CSV, including native input events", async () => {
+  render(<ConstituencyImportPage />);
+  await screen.findByRole("button", { name: /Run #42/ });
+  const input = document.getElementById("constituency-import-file");
+  const file = { name: "first.csv", text: async () => "First Name,Last Name\nTest,Person" };
+  fireEvent.change(input, { target: { files: [file] } });
+  await screen.findByText("Loaded first.csv.");
+  window.confirm.mockReturnValue(false);
+  const before = fetch.mock.calls.length;
+  fireEvent.input(input, { target: { files: [{ name: "second.csv", text: async () => "First Name,Last Name\nOther,Person" }] } });
+  expect(screen.getByText("first.csv")).toBeInTheDocument();
+  expect(screen.queryByText("second.csv")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear file" }));
+  expect(screen.getByText("first.csv")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Run #42/ }));
+  expect(fetch).toHaveBeenCalledTimes(before);
+  const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  expect(window.confirm).toHaveBeenCalledTimes(3);
+  window.confirm.mockReturnValue(true);
+  fireEvent.click(screen.getByRole("button", { name: "Clear file" }));
+  expect(screen.getByText("No CSV selected")).toBeInTheDocument();
+  const clearUnload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(clearUnload);
+  expect(clearUnload.defaultPrevented).toBe(false);
+});
+
+it("renders quick creation controls for a potential new row without an undefined review flag", async () => {
+  rows = [{ id: "9", rowNumber: 1, status: "Needs Review", confidence: 0, input: { firstName: "New", lastName: "Person" },
+    intentDisposition: { key: "potential_new" }, importIntent: "new", writePlan: [], reasons: [], match: null }];
+  render(<ConstituencyImportPage />);
+  fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
+  await screen.findByText(/Create clear nonmatches/);
 });

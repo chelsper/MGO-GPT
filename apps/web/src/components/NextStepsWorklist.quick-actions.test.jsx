@@ -46,7 +46,8 @@ it("completes once, moves to history, and reopens without changing a discussion 
   await screen.findByText(/Next step completed/);
   await waitFor(() => expect(screen.queryByText("Prepare visit")).not.toBeInTheDocument());
   expect(JSON.parse(writes()[0][1].body)).toEqual({ action: "complete", expectedWorkspaceId: 7, expectedUpdatedAt: token });
-  expect(screen.getByText(/Next step completed/)).toHaveFocus();
+  expect(screen.getByText(/Next step completed/).closest('[role="status"]')).toHaveFocus();
+  expect(screen.getByText("Saved in app")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Completed history" }));
   await screen.findByText("Prepare visit");
   fireEvent.click(within(row()).getByText("Details", { exact: true }));
@@ -182,4 +183,14 @@ it.each(["Open", "Done"])("offers existing submission access in %s without readi
   expect(within(row()).getByRole("button", { name: "View NXT submission" })).toBeEnabled();
   expect(within(row()).queryByRole("button", { name: "Add NXT action" })).not.toBeInTheDocument();
   expect(fetch.mock.calls.every(([url]) => url.startsWith("/api/follow-ups?"))).toBe(true);
+});
+
+it("clears an empty search without another request", async () => {
+  mount(); await screen.findByText("Prepare visit");
+  const calls = fetch.mock.calls.length;
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "unmatched text" } });
+  expect(screen.getByText("No next steps match your search.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  expect(screen.getByText("Prepare visit")).toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(calls);
 });
