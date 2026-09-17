@@ -47,6 +47,8 @@ export const ADMIN_WORKSPACE_ITEMS = [
 
 const SECTION_ORDER = ["Daily Work", "Reports & Exports", "Requests", "Imports", "Tools & Guidance", "My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
 
+const INTEGRATION_HEALTH_ITEM = { label: "Integration Health", href: "/integration-health", section: "Admin & Workspace", description: "Read saved connection, refresh, cooldown, and NXT verification status. No approvals or automatic retries." };
+
 const ROUTE_LABELS = {
   "/": "Home",
   "/access-management": "Security & Access",
@@ -57,6 +59,7 @@ const ROUTE_LABELS = {
   "/data-requests": "Data Requests",
   "/family-import": "Family Import",
   "/import-history": "Import History",
+  "/integration-health": "Integration Health",
   "/knowledge-base": "Knowledge Base",
   "/knowledge-base/manage": "Edit Knowledge Base",
   "/list-requests": "List Request Queue",
@@ -83,11 +86,11 @@ const REPORT_ROUTE_LABELS = {
   "/reports/executive-team-standings": "Team Standings",
 };
 
-export function getNavigationItems({ isReviewer, canManageWorkspace }) {
-  if (!isReviewer) return MGO_NAV_ITEMS;
-  return canManageWorkspace
+export function getNavigationItems({ isReviewer, canManageWorkspace, isAdmin = false }) {
+  const items = !isReviewer ? MGO_NAV_ITEMS : canManageWorkspace
     ? [...REVIEWER_NAV_ITEMS, ...ADMIN_WORKSPACE_ITEMS]
     : REVIEWER_NAV_ITEMS;
+  return isAdmin ? [...items, INTEGRATION_HEALTH_ITEM] : items;
 }
 
 export function groupNavigationItems(items) {

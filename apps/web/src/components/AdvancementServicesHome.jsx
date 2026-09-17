@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, CalendarDays, ChevronDown, ClipboardList, Download, FileText, MessageSquare, Search, Settings, ShieldCheck, SlidersHorizontal, Upload, Users } from "lucide-react";
+import { Activity, ArrowRight, BookOpen, CalendarDays, ChevronDown, ClipboardList, Download, FileText, MessageSquare, Search, Settings, ShieldCheck, SlidersHorizontal, Upload, Users } from "lucide-react";
 import { getNavigationItems, groupNavigationItems } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "./WorkQueueAlertBadge";
 
@@ -20,6 +20,7 @@ const icons = {
   "/blackbaud-mapping": SlidersHorizontal,
   "/access-management": ShieldCheck,
   "/organization-configurations": Settings,
+  "/integration-health": Activity,
 };
 
 const sectionDescriptions = {
@@ -55,9 +56,9 @@ function ActionCards({ items, queueCounts, openDiscussionItems, featured }) {
   </div>;
 }
 
-export default function AdvancementServicesHome({ canManageWorkspace, queueCounts, openDiscussionItems = 0, worklistFailed = false }) {
+export default function AdvancementServicesHome({ canManageWorkspace, isAdmin = false, queueCounts, openDiscussionItems = 0, worklistFailed = false }) {
   // The home page and persistent menu share destinations, grouping, and permissions.
-  const groups = groupNavigationItems(getNavigationItems({ isReviewer: true, canManageWorkspace }));
+  const groups = groupNavigationItems(getNavigationItems({ isReviewer: true, canManageWorkspace, isAdmin }));
   return <div className="space-y-7">
     <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
       {worklistFailed && <p role="status" className="mb-2 font-medium text-amber-800">Queue alerts could not refresh. Any displayed counts are from the last successful check; open a queue to verify its current work.</p>}
@@ -69,7 +70,7 @@ export default function AdvancementServicesHome({ canManageWorkspace, queueCount
     {groups.map(({ section, items }) => {
       if (section === "Admin & Workspace") return <details key={section} className="group rounded-2xl border border-gray-200 bg-gray-50 p-5">
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 rounded-md focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
-          <span><span className="block text-lg font-bold text-gray-900">Admin & Workspace</span><span className="mt-1 block text-sm text-gray-600">Occasional setup: access, field mapping, and organization settings.</span></span>
+          <span><span className="block text-lg font-bold text-gray-900">Admin & Workspace</span><span className="mt-1 block text-sm text-gray-600">Access, field mapping, organization settings{isAdmin ? ", and integration health" : ""}.</span></span>
           <ChevronDown aria-hidden="true" size={20} className="shrink-0 text-gray-500 group-open:rotate-180" />
         </summary>
         <div className="mt-4"><ActionCards items={items} /></div>

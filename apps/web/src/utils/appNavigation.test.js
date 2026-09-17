@@ -7,6 +7,12 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it.each([false, true])("shows Integration Health only to actual Admins in either view (reviewer: %s)", isReviewer => {
+    expect(getNavigationItems({ isReviewer, canManageWorkspace: true, isAdmin: false }).some(item => item.href === "/integration-health")).toBe(false);
+    const items = getNavigationItems({ isReviewer, canManageWorkspace: true, isAdmin: true });
+    expect(items.filter(item => item.href === "/integration-health")).toHaveLength(1);
+    expect(getBreadcrumbs("/integration-health").at(-1).label).toBe("Integration Health");
+  });
   it.each([false, true])("offers one shared follow-up workspace and preserves old discussion navigation (reviewer: %s)", (isReviewer) => {
     const items = getNavigationItems({ isReviewer, canManageWorkspace: true });
     expect(items.filter(item => item.href === "/follow-ups")).toHaveLength(1);

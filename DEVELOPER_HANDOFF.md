@@ -1,144 +1,149 @@
 # Developer Handoff
 
-This repo is being handed off while the app is active in production. Treat changes as production-sensitive, especially anything touching auth, Blackbaud sync, prospect data, or deployment config.
+Reviewed September 17, 2026 against application commit
+`7b8ebc6c0dc14edffccfb6a7199a00416065f64c`. This replaces the July handoff.
+The application is in active production and handles sensitive donor data.
+This records current behavior, not certification of every external configuration.
 
-## Current Production Shape
+## Start Here
 
-- Production URL: `https://www.jumgogpt.app`
-- Production branch: `main`
-- Latest verified production commit at handoff: `954e499`
-- Production host: Vercel
-- Production app directory: `apps/web`
-- Database: Neon/Postgres via `DATABASE_URL`
-- Auth: Okta/Auth.js
-- External CRM: Blackbaud SKY API / Raiser's Edge NXT
+| Read | Purpose |
+| --- | --- |
+| [Developer setup](docs/developer-setup.md) | Toolchain, secrets, database initialization, and safe test boundaries |
+| [Architecture and ownership](docs/architecture-and-data-ownership.md) | Code map, tables, permissions, and source of truth |
+| [Metric definitions](docs/metrics-and-reporting.md) | Fundraising credit, high-value actions, coverage, snapshots, and pledges |
+| [Acceptance and known gaps](docs/mgo-workflow-readiness.md) | Role-based acceptance checks and deferred work |
+| [Release checklist](docs/production-deploy-checklist.md) | Publish and verify the intended commit safely |
+| [Security notes](SECURITY.md) | Credentials, donor data, access, and incident handling |
 
-Develop from `main`. The `codex/auth-cookie-fix` branch is a working branch used by Codex, not the branch a new developer should treat as the source of production truth.
+## Verified Release Baseline
 
-## Access Needed
+| Item | Baseline |
+| --- | --- |
+| Production | <https://www.jumgogpt.app> |
+| Git repository / release branch | `chelsper/MGO-GPT`, `main` |
+| Application source | `apps/web` |
+| Hosting / project | Vercel, `chelspers-projects/mgo-gpt` |
+| Database | Neon/Postgres through `DATABASE_URL` |
+| Authentication | Auth.js/Okta plus separately configurable credentials sign-in |
+| CRM | Blackbaud SKY API / Raiser's Edge NXT |
+| Email | Resend |
+| Deployed application SHA | `7b8ebc6c0dc14edffccfb6a7199a00416065f64c` |
+| Deployment ID | `dpl_AjddVaohdqg9rAs3AVfDUuAdQWRN` |
+| Release verification | `verify:prod` matched the SHA and assets on September 17, 2026 |
+| Automated baseline | 2,614 tests in 232 files passed on September 17, 2026 |
+| Other release checks | Typecheck, build, and release checks passed for this application release on September 16, 2026 |
 
-A productive developer will need:
+These are dated observations. Re-run checks; do not assume this table always
+describes production. This documentation update does not deploy application code.
+Start new development from current `main`, not a historical Codex worktree branch.
+`apps/mobile` and the root generated/mobile scaffold are not the production web app.
 
-- GitHub collaborator access
-- Vercel project access for deploy logs and environment variables
-- A safe way to receive local development secrets
-- Okta app configuration visibility for redirect URI and user access debugging
-- Blackbaud developer app visibility for scopes and callback configuration
-- Test user accounts covering MGO, Advancement Services, executive admin, and full admin roles
+## What Is Working Now
 
-Do not grant broad admin access unless it is needed. Start with collaborator/developer access and elevate intentionally.
+- My Prospects supports Top Prospects ranking, drag/reorder controls, exports,
+  and saved-data portfolio views with compact, detailed, and focus modes.
+- Portfolio contacts appear from saved data; expanded on-screen details can run
+  a bounded contact-only check. Giving, full summaries, and latest activity have
+  distinct caches and refresh policies. Missing data is not evidence of no activity.
+- Follow-ups & Discussion combines navigation while keeping reminders and team
+  discussions separate. Discussion items can create additional next steps.
+- Admins can edit selected MGO workspaces. The MGO receives fundraiser credit and
+  the signed-in Admin remains the author. Executive-only acting views are read-only.
+- Next Steps offers explicit planned versus completed NXT actions, durable
+  one-submission-per-reminder receipts, and read-only recovery for known action IDs.
+  Planned actions stay incomplete; complete/reschedule that same action in NXT.
+- Standard constituency import uses live identity checks, explicit match decisions,
+  duplicate checks, durable creation/write checkpoints, and verify-without-resend
+  recovery. Clear new records can use the approved safe-additions workflow.
+- Import outcomes have their own history, not Work Queue approvals. Ambiguous
+  identity/write outcomes still require resolution inside the import workflow.
+- Team Standings, configurable dashboards, pledge payments, and multi-MGO Top
+  Prospect exports use their documented scopes and saved-data boundaries.
 
-## Local Development
+## Non-Negotiable Safety Rules
 
-The web app runs from `apps/web`.
+1. An NXT system record ID is not a Lookup ID. Never guess one from the other.
+2. A timeout after a create request does not prove nothing was saved. Preserve
+   receipts/checkpoints and verify the existing record before any retry.
+3. Do not automatically retry non-idempotent CRM creates or clear their receipts.
+4. Resolve permissions from the authenticated user and server-side workspace.
+   A supplied workspace ID, report link, or visible button is not authorization.
+5. Preserve the last good snapshot on refresh failure. Unknown is not zero.
+6. Opening/sorting reports must not become an implicit full NXT refresh. Preserve
+   request budgets, leases, cooldowns, and connection/workspace cache isolation.
+7. Completing an app reminder is not evidence that an NXT action happened;
+   resolving a discussion is also a separate operation.
+8. Do not use production donor writes, imports, deletes, or forced failures as
+   routine tests. Agree on the exact record and operation before a live write.
 
-```bash
-cd apps/web
-npm install
-cp .env.example .env
-npm run dev
-```
+## Workflow Documentation
 
-Useful checks:
+| Area | Detailed contract |
+| --- | --- |
+| Follow-ups and NXT action receipts | [follow-ups-workspace.md](docs/follow-ups-workspace.md) |
+| Admin integration-health page (prepared after the baseline; not yet deployed) | [integration-health.md](docs/integration-health.md) |
+| Portfolio display, contacts, activity pilot | [portfolio-worklist.md](docs/portfolio-worklist.md) |
+| Giving cache and overnight maintenance | [portfolio-giving-cache.md](docs/portfolio-giving-cache.md) |
+| Standard import and duplicate recovery | [quick-constituent-import.md](docs/quick-constituent-import.md) |
+| App/NXT fields and identity rules | [blackbaud-field-mapping.md](docs/blackbaud-field-mapping.md) |
+| Pledge query 12033 | [pledge-payments.md](docs/pledge-payments.md) |
+| Report builder and shared audiences | [report-dashboard-builder.md](docs/report-dashboard-builder.md) |
+| Top Prospect exports | [top-prospect-exports.md](docs/top-prospect-exports.md) |
+| Ranking | [prospect-ranking.md](docs/prospect-ranking.md) |
+| Work Queue versus history | [submission-review-policy.md](docs/submission-review-policy.md) |
 
-```bash
-npm run build
-npm run test
-npm run typecheck
-```
+## Access And Ownership Transfer
 
-## Release Flow
+The product owner and institutional IT should record primary and backup owners
+in an approved access register. Do not put secrets here.
 
-Use the checklist in `docs/production-deploy-checklist.md`.
+- GitHub: development access, release approvers, and branch controls.
+- Vercel: project root, domains/DNS, deployments, logs, environment scopes,
+  cron configuration, billing, and rollback authority.
+- Neon: database roles, development database, backup retention, restore authority,
+  and a witnessed restore test.
+- Okta: approved callbacks, app assignments, test users, and domain policy.
+- Blackbaud: developer application, tenant authorization, API access, callback,
+  saved query owners, fundraiser mappings, and scheduled-refresh connection owner.
+- Resend: sending domain, verified sender, intended recipients, and billing.
+- Named product owner for metric definitions and authorized live acceptance tests.
 
-Minimum release flow:
+Access transfer, external branch protections, staging availability, and restoration
+have NOT been verified by this documentation pass. Confirm them with the owners;
+do not infer ownership or adequate recovery from a successful deployment.
 
-```bash
-cd apps/web
-npm run check:release
-npm run build
-```
+## Suggested First Developer Work
 
-Push to `main`, wait for Vercel, then verify:
+1. Reproduce setup and tests without production data; record missing provisioning
+   steps. A complete synthetic sandbox/seed is not yet checked in.
+2. Run the acceptance matrix with MGO, Admin-acting-as-MGO, Executive, and Advancement
+   Services test accounts. Record expected and observed results, not just a pass.
+3. Agree on unresolved definitions before changing calculations, especially
+   completed-only high-value actions and multi-fundraiser credit aggregation.
+4. Add staging, CI, and recovery work as an explicit project. They are not delivered
+   by this handoff package.
+5. Refactor incrementally behind tests, starting with My Prospects and shared NXT
+   write boundaries. Avoid a rewrite or broad schema cleanup.
 
-```bash
-npm run verify:prod -- <expected-commit-sha>
-```
+## Known Limits
 
-## Current Feature Priorities
+- Family Import remains deferred even though scaffold/routes exist.
+- No universal NXT change feed or webhook-based contact invalidation is implemented.
+- Latest-activity enrichment is opt-in and budgeted, not an all-workspace real-time
+  guarantee. A backlog can take multiple nights.
+- Standard import and pledge refresh continuation still depends on explicit browser
+  workflow actions; saved checkpoints survive leaving the page.
+- Organization settings are a singleton, not multi-tenant isolation. Some fiscal
+  dates, queries, labels, and formatting remain institution-specific.
+- Schema initialization uses `ensureAppSchema()`, not a versioned migration runner.
+- There is no checked-in `.github` CI workflow or general browser end-to-end runner.
+  Existing tests mock external services; they do not certify a live tenant's
+  permissions, indexing, custom table values, or all production paths.
+- Root and web Vercel manifests differ. Verify the effective project root and
+  deployed cron list before changing schedules; do not merge them blindly.
+- Detailed limitations and acceptance evidence are in
+  [mgo-workflow-readiness.md](docs/mgo-workflow-readiness.md).
 
-The highest-value workflow is a stable daily MGO workflow:
-
-- My Prospects dashboard
-- Top Prospects ranking
-- Portfolio import/view
-- Prospect detail workspace
-- Next steps
-- Action logging
-- Opportunity create/edit
-- Team discussion
-- Prospect Pool
-- Data Request & Update Queue
-
-See `docs/mgo-workflow-readiness.md` for acceptance criteria.
-
-## Recent Production Updates
-
-Snapshot date: July 24, 2026.
-
-- Advancement Services queue was refocused around manual backend work: bio/demo updates, research/data requests, list requests, clarification, and completion. Automated solicitor/action/opportunity sync noise should not drive that queue.
-- List requests now use `Pending`, `Needs Clarification`, and `Complete`. Advancement Services can ask a clarification question, and the MGO can answer from their submission tracker.
-- List request UX now keeps validation and success messages visible near the bottom of the form, returns users to the prior screen after submit, and only enables radius filtering after a location is selected.
-- Prospect Pool solicitor assignment is treated as an automated MGO workflow. Assigning as solicitor no longer requires an amount, requires an MGOGPT outcome before submit, writes the selected MGOGPT outcome, and removes the entry from the MGO pool after successful solicitor sync.
-- Prospect Pool contact request defaults were tightened so MGO users are not pushed into an Advancement Services queue unless they explicitly request help.
-- Action logging was hardened for NXT: the logged-in app user is included as the action fundraiser, optional additional fundraisers are included, action type labels were adjusted to match NXT spacing, actions are marked complete with today's date, and MGOs write their own action summary.
-- Combined action/opportunity/next-step/team-discussion saves were made more resilient so one failed NXT write should not erase local app progress without a useful error.
-- Action/opportunity form navigation now returns the user to the screen they started from after save.
-- Portfolio usability was improved with search, NXT profile links, top-prospect indicators, and the ability for an MGO to end their own solicitor assignment by changing it to `Former Solicitor` in NXT.
-- Blackbaud summaries were adjusted to load more defensively, including retry-oriented behavior for slower NXT summary responses.
-- Dictation was moved toward live browser speech recognition for action fields. Floating "ready" notices were removed because they created misleading UI feedback.
-
-## Known Next Work
-
-- Run a full manual UAT pass with at least one normal MGO, one Advancement Services reviewer, and one executive admin. Use real but low-risk NXT records.
-- Verify Blackbaud per-user access for each MGO. App login through Okta is not enough; each MGO still needs a valid Blackbaud connection and sufficient NXT rights for the operations they perform.
-- Confirm NXT opportunity/action linking behavior from the combined form. The app can save both locally, but the exact NXT-side relationship should be tested against Blackbaud's current accepted payload shape.
-- Add or strengthen tests for list request status changes and Advancement Services/MGO tracker display behavior. The list-request clarification response API now has route tests.
-- Consider formal database migrations instead of relying only on `ensureAppSchema()` as the app stabilizes.
-- Keep improving NXT data loading performance. The summaries are external-API heavy and may benefit from better queueing, caching, and one-at-a-time lazy loading.
-- Do a dependency/security cleanup in a dedicated branch. Do not run `npm audit fix --force` directly on `main`; several warnings are transitive or could introduce breaking upgrades.
-
-## Fragile Areas
-
-- Blackbaud/NXT writes are sensitive to scopes, table values, fundraiser identity resolution, and linked constituent IDs.
-- Okta redirect URI and domain restrictions can make preview deployments unusable unless the callback URL is approved.
-- Executive dashboard switching must remain read-only when viewing another MGO.
-- Prospect Pool has separate Advancement Services and MGO behavior; do not collapse those paths casually.
-- The dashboard Closed FY metric depends on Blackbaud gift credit data and can be slow without cache.
-- Build sourcemap warnings have been non-fatal; build exit code is the source of truth.
-
-## Testing Notes
-
-Route-level tests live under `apps/web/src/app/api/**/*.test.js`.
-
-Current route-level coverage at handoff:
-
-- 17 Vitest files
-- 74 passing tests
-- Recent coverage includes prospect pool solicitor assignment, action logging, opportunity create/edit, prospect reorder, Blackbaud summary language, portfolio solicitor removal, data requests, and list-request clarification responses.
-
-High-risk manual smoke test after deploy:
-
-- Sign in through Okta.
-- Open My Prospects.
-- Switch Top Prospects / Portfolio / Prospect Pool tabs.
-- Open a prospect detail record.
-- Add/update a next step.
-- Log an action.
-- Add/edit an opportunity.
-- Create a data request.
-- If release touched Blackbaud sync, verify one real NXT sync path.
-
-## Secrets
-
-Real env files are intentionally not tracked. If a secret was ever committed, rotate it before relying on the repository as clean.
+When changing behavior, update its source-linked contract, tests, and relevant
+handoff section in the same change. Keep runtime facts distinct from proposals.

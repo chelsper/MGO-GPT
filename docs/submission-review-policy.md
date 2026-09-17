@@ -16,8 +16,11 @@ Services approval. A legacy `Pending` or `Ready for CRM` value alone is not work
   can answer them, and the reviewer receives the response notification.
 - Constituent suggestions and legacy donor updates marked Data update,
   Assignment request, or Add to top prospects keep their review workflow.
-- Separate data requests, list requests, import reviews, and assignments retain
-  their existing workflows.
+- Separate data requests, list requests, and assignments retain their workflows.
+- Import outcomes have their own Successfully Imported Records / Failed Imports
+  history, not Work Queue approvals. Unresolved identity, duplicate, or write
+  decisions remain inside the current import workflow; historical outcomes do not
+  create a new approval task.
 
 The shared client policy is `apps/web/src/utils/submissionReview.js`. Database
 counts and clarification previews use its SQL counterpart in

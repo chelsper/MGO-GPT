@@ -4,6 +4,16 @@ import AdvancementServicesHome from "./AdvancementServicesHome";
 import { getNavigationItems } from "@/utils/appNavigation";
 
 describe("Advancement Services workspace shortcuts", () => {
+  it("adds the health shortcut only for Admins without fetching its status", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const { rerender, container } = render(<AdvancementServicesHome canManageWorkspace />);
+      expect(container.querySelector('a[href="/integration-health"]')).toBeNull();
+      rerender(<AdvancementServicesHome canManageWorkspace isAdmin />);
+      expect(container.querySelector('a[href="/integration-health"]')).toHaveTextContent("Integration Health");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
   it.each([false, true])("renders the same destinations as the menu exactly once (manage: %s)", (canManageWorkspace) => {
     const { container } = render(<AdvancementServicesHome canManageWorkspace={canManageWorkspace} />);
     const links = [...container.querySelectorAll("a")].map((node) => node.getAttribute("href"));

@@ -1,113 +1,67 @@
 # MGO-GPT
 
-MGO-GPT is a custom advancement workflow application for Jacksonville University. The production web app lives in `apps/web` and is deployed to Vercel at `https://www.jumgogpt.app`.
+An advancement workflow application for Jacksonville University. The production
+web app is in `apps/web`, deployed from `main` to <https://www.jumgogpt.app>.
 
-The app supports MGO portfolio management, prospect pool workflows, data request queues, team discussion items, action/opportunity logging, and Blackbaud Raiser's Edge NXT synchronization.
+It supports MGO prospects and portfolios, follow-ups and team discussion, delegated
+Admin work, NXT actions/opportunities, guarded constituency imports, saved reports,
+pledge payment worklists, and prospect exports.
 
-## Stack
+## Start Here
 
-- React Router / Vite frontend and server route modules
-- Vercel hosting and deployment
-- Neon/Postgres database through `@neondatabase/serverless`
-- Okta SSO through Auth.js
-- Blackbaud SKY API / Raiser's Edge NXT integration
-- Resend email notifications
-- Vitest route-level tests
+- [Developer handoff](DEVELOPER_HANDOFF.md): current baseline, safety rules, access
+  transfer, feature map, and known limitations.
+- [Developer setup](docs/developer-setup.md): toolchain, safe environment setup,
+  commands, and external-service requirements.
+- [Architecture and ownership](docs/architecture-and-data-ownership.md): code map,
+  data ownership, permissions, and refresh boundaries.
+- [Metric definitions](docs/metrics-and-reporting.md): what reports actually count.
+- [Acceptance checklist](docs/mgo-workflow-readiness.md): validation and remaining work.
+- [Release checklist](docs/production-deploy-checklist.md) and [security notes](SECURITY.md).
 
 ## Repository Layout
 
-- `apps/web`: production web application
-- `apps/mobile`: generated/mobile app files; not part of the current production Vercel deploy
-- `docs`: release, workflow, and Blackbaud mapping notes
-- `README.md`: developer setup and orientation
-- `DEVELOPER_HANDOFF.md`: current state, known risks, and recommended next work
-- `SECURITY.md`: credential and access-handling expectations
+| Location | Purpose |
+| --- | --- |
+| `apps/web` | Production React Router/Vite web app and Hono server/API routes |
+| `apps/web/src/app/api` | Authenticated API handlers and server-side utilities |
+| `apps/web/src/components`, `apps/web/src/utils` | UI and shared client/domain helpers |
+| `apps/web/__create`, `apps/web/plugins` | Generated/runtime integration and build plumbing; do not remove casually |
+| `apps/mobile`, root application scaffold | Separate generated/mobile code, not the production web release |
+| `docs` | Workflow contracts and handoff guides |
 
-## Local Setup
+The web stack uses React 18, React Router/Vite, Vercel, Neon/Postgres, Auth.js/Okta,
+Blackbaud SKY API, Resend, and Vitest. Exact dependencies are in the web lockfile.
 
-Use Node 20 or newer.
+## Local Commands
+
+Read [developer setup](docs/developer-setup.md) before configuring credentials or a
+database. Use the web lockfile, not the root mobile/scaffold package:
 
 ```bash
 cd apps/web
-npm install
-cp .env.example .env
-npm run dev
-```
-
-Local development requires real secrets for database, Okta, and Blackbaud integration. Do not request or share those through GitHub, email, or chat; use Vercel project access or a password manager.
-
-## Useful Commands
-
-Run these from `apps/web`.
-
-```bash
-npm run dev
-npm run build
-npm run test
+npm ci
+npm test
 npm run typecheck
-npm run check:release
-npm run verify:prod -- <expected-commit-sha>
-```
-
-Notes:
-
-- `npm run build` is the same core build Vercel runs.
-- `npm run test` runs Vitest route and utility tests.
-- `npm run verify:prod` checks that `jumgogpt.app` is serving the expected commit and assets.
-- The recurring sourcemap warnings during the React Router build have been non-fatal historically; treat a non-zero build exit as blocking.
-
-## Deployment
-
-Production deploys from `main` through Vercel.
-
-Before pushing to `main`:
-
-```bash
-cd apps/web
-npm run check:release
 npm run build
+npm run check:release
 ```
 
-After Vercel deploys:
+`npm run dev` serves port 4000 once an isolated environment is configured. There is
+not yet a turnkey synthetic database/NXT sandbox. Do not point a local server at
+production to work around missing setup.
+
+## Releases
+
+Production deploys through Vercel after an authorized push to `main`. Use the
+[release checklist](docs/production-deploy-checklist.md); confirm the exact deployed
+commit with:
 
 ```bash
 cd apps/web
 npm run verify:prod -- <expected-commit-sha>
 ```
 
-See `docs/production-deploy-checklist.md` for the release checklist.
-
-## Primary Workflows
-
-The app is currently optimized around these workflows:
-
-- MGO dashboard and Top Prospects
-- Portfolio view from Blackbaud fundraiser assignments
-- Prospect detail workspace
-- Action and opportunity create/edit/delete with NXT sync where supported
-- Prospect Pool assignment and solicitor/disposition follow-up
-- Data Request & Update Queue
-- Team Discussion handoffs
-- Executive admin read-only dashboard switching
-- Advancement Services queues and admin access management
-
-See `docs/mgo-workflow-readiness.md` for workflow acceptance criteria and known coverage gaps.
-
-## Environment Variables
-
-Safe examples live in:
-
-- `apps/web/.env.example`
-- `apps/mobile/.env.example`
-
-Real `.env` files are intentionally ignored and must not be committed.
-
-## Handoff Notes
-
-Read these before making changes:
-
-- `DEVELOPER_HANDOFF.md`
-- `SECURITY.md`
-- `docs/production-deploy-checklist.md`
-- `docs/mgo-workflow-readiness.md`
-- `docs/blackbaud-field-mapping.md`
+Real `.env` files and donor exports must remain outside version control. Transfer
+credentials through approved institutional secret management, never this README,
+pull requests, or chat.

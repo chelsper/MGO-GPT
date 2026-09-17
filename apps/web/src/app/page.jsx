@@ -734,6 +734,7 @@ export default function Page() {
 
         {isReviewer ? <AdvancementServicesHome
           canManageWorkspace={canManageWorkspace}
+          isAdmin={isAdmin}
           queueCounts={queueCounts}
           openDiscussionItems={openDiscussionItems}
           worklistFailed={worklistFailed}
