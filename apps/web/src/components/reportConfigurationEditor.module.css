@@ -60,6 +60,30 @@
 .rowPreview { background: white; border: 1px solid var(--editor-line); padding: 16px; border-radius: 10px; }
 .rowPreview strong { color: #166534; }
 .preview { padding-top: 8px; }
+.transfer { margin-bottom: 20px; }
+.transfer summary, .sourceList summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; font-weight: 700; }
+.transfer p { margin: 12px 0; }
+.transfer .stack { align-content: start; gap: 10px; }
+.transfer .stack p { margin: 0; }
+.transfer, .guide { overflow-wrap: anywhere; }
+.guide { margin-top: 20px; border: 1px solid var(--editor-line); border-radius: 12px; padding: 18px; background: linear-gradient(115deg, #f8fafc, #f0fdfa); }
+.guide h3 { margin: 0; font-size: 16px; }
+.guide .muted { font-size: 13px; }
+.steps { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding: 0; margin: 10px 0 0; }
+.steps li { min-width: 0; }
+.steps p { margin: 6px 0 0; color: #475569; font-size: 13px; }
+.stepButton { display: flex; align-items: center; gap: 8px; min-height: 44px; border: 0; background: transparent; padding: 0; text-align: left; color: #134e4a; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.stepButton span { display: inline-grid; place-items: center; flex: 0 0 26px; height: 26px; border-radius: 50%; background: #ccfbf1; }
+.sourceList { margin-top: 12px; font-size: 13px; }
+.sourceList ul { padding-left: 20px; }
+.sourceList li { margin: 8px 0; }
+.sourceList li span { display: block; margin-top: 3px; color: #475569; }
+.starters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.starter { display: grid; gap: 8px; text-align: left; border: 1px solid #cbd5e1; border-radius: 10px; background: white; padding: 16px; font: inherit; font-size: 14px; cursor: pointer; color: var(--editor-ink); }
+.starter span { color: #475569; font-size: 13px; line-height: 1.5; }
+.starter:hover { border-color: #0f766e; }
+.page summary:focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+@media (max-width: 1000px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) {
   .page { padding: 20px 12px 40px; }
   .card { padding: 16px; }
@@ -69,4 +93,7 @@
   .footer { gap: 12px; }
   .tab { padding: 10px 12px; }
   .panel { padding: 12px; }
+  .steps, .starters { grid-template-columns: minmax(0, 1fr); }
+  .guide { padding: 12px; }
+  .footer { position: static; }
 }

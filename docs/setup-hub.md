@@ -8,7 +8,7 @@ The `/setup` page is the starting point for workspace administration. It is avai
 2. NXT Connection: saved scheduled-account connection metadata, with links to personal connection settings and account administration.
 3. Fundraiser Mapping: counts of active MGO-role workspaces with a saved primary NXT system ID, regardless of displayed job title.
 4. Data Sources: links to custom dashboard queries and an explanation of release-managed built-in query and fiscal rules.
-5. Reports: saved dashboard and built-in report configuration counts, plus the existing report editor.
+5. Reports: saved dashboard and built-in report configuration counts, plus guided custom-dashboard setup and layout-only import/export in the report editor.
 
 Advanced field settings, giving societies and reporting rules are collapsed. Integration Health is offered only to actual Admins. Direct section links scroll and focus their destination after an asynchronous editor loads.
 
@@ -29,4 +29,4 @@ The NXT card describes the account selected by the existing scheduled-report res
 
 This is a navigation and saved-readiness foundation, not a new universal configuration engine. Built-in report calculations, query boundaries, fiscal policies, protected settings, access controls and refresh behavior are unchanged. Terminology still has the scope documented in `organization-configuration.md`; this step does not relabel every screen or export.
 
-Before duplicating the app, provision a separate database and sandbox authorization. Do not transfer production tokens, constituent snapshots, scheduled jobs or viewer access lists. The hub does not certify isolation or provide report-template import/export. Those are separate follow-up phases.
+Before duplicating the app, provision a separate database and sandbox authorization. Do not transfer production tokens, constituent snapshots, scheduled jobs or viewer access lists. The hub does not certify isolation. The report editor supports custom-dashboard layout-only import/export, described in [Report Dashboard Builder](report-dashboard-builder.md#reusing-layouts); it does not transfer specialized built-in reports, reporting policies, connections, or access.

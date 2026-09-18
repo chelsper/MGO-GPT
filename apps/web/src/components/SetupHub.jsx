@@ -71,7 +71,7 @@ const steps = [
     title: "Reports",
     icon: LayoutDashboard,
     description:
-      "Create or edit a dashboard, preview its layout, and choose who can see it.",
+      "Use guided dashboard setup, reuse a layout without data or connections, and choose who can see each report.",
     href: "/report-configurations",
     action: "Set up reports",
     additional: [{ href: "/reports", label: "Open my reports" }],

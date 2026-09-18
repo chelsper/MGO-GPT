@@ -9,6 +9,8 @@ import ReportDashboardPanels from "./ReportDashboardPanels";
 import AlumniReportConfiguration, { AlumniReportPreview } from "./AlumniReportConfiguration";
 import styles from "./reportConfigurationEditor.module.css";
 import SetupReturnLink from "./SetupReturnLink";
+import ReportSetupGuide from "./ReportSetupGuide";
+import ReportLayoutTransfer from "./ReportLayoutTransfer";
 
 const NEW_REPORT_KEY = "__new-report-draft__";
 const TABS = ["Configure", "Access", "Preview"];
@@ -152,6 +154,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const [feedback, setFeedback] = useState({});
   const [pageFeedback, setPageFeedback] = useState(null);
   const [newReport, setNewReport] = useState(null);
+  const [importFocus, setImportFocus] = useState(0);
   const allReports = newReport ? [...configurations, newReport] : configurations;
   const configuration = allReports.find((report) => report.key === selectedKey);
   const draft = drafts[selectedKey];
@@ -161,6 +164,10 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const hasUnsavedChanges = dirtyKeys.length > 0;
   const currentDirty = Boolean(configuration && draft && (isNew || isDirty(draft, configuration, tab === "Configure" ? BUILD_FIELDS : tab === "Access" ? ACCESS_FIELDS : undefined)));
   const matchingReports = allReports.filter((report) => report.key === selectedKey || `${drafts[report.key]?.title || report.title} ${report.reportTypeLabel || ""}`.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    if (importFocus) document.getElementById("report-title")?.focus();
+  }, [importFocus]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -183,6 +190,25 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
     setSelectedKey(NEW_REPORT_KEY);
     setSearch("");
     setTab("Configure");
+  }
+
+  function importLayout(values) {
+    if (saving) return false;
+    if (newReport && !window.confirm("Replace the unsaved new-report draft with this layout? Saved reports and their drafts will not change.")) return false;
+    const report = { ...getDashboardReportMetadata(NEW_REPORT_KEY), ...values, key: NEW_REPORT_KEY, active: false, visibility: "specific_users", specificUserIds: [] };
+    setNewReport(report);
+    setDrafts((current) => ({ ...current, [NEW_REPORT_KEY]: createReportDraft(report) }));
+    setFeedback((current) => ({ ...current, [NEW_REPORT_KEY]: null }));
+    setSelectedKey(NEW_REPORT_KEY);
+    setSearch("");
+    setTab("Configure");
+    setImportFocus((current) => current + 1);
+    return true;
+  }
+
+  function goToTab(nextTab) {
+    setTab(nextTab);
+    document.getElementById(`report-tab-${nextTab}`)?.focus();
   }
 
   async function removeReport() {
@@ -270,9 +296,11 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       </select></label>
       <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport ? "Continue new report" : "Add report"}</button>
     </section>
+    <ReportLayoutTransfer draft={generic ? draft : null} disabled={saving} onImport={importLayout} />
     {pageFeedback && <div className={styles.successNotice} role="status">{pageFeedback.message}</div>}
     {configuration && draft && <section className={styles.card} aria-label="Selected report editor">
       <div className={styles.sectionHeading}><div><h2 style={{ margin: 0 }}>{draft.title || "New report"}</h2><p className={styles.muted} style={{ margin: "6px 0 0" }}>{generic ? "Query results, counts, and static values" : configuration.reportTypeLabel}</p></div><span className={styles.tag}>{isNew ? "Unsaved draft" : generic ? configuration.active ? "Enabled" : "Disabled draft" : "Built-in report"}</span></div>
+      {generic ? <ReportSetupGuide draft={draft} configuration={configuration} isNew={isNew} disabled={saving} onTab={goToTab} onStarter={(dataConfiguration) => { updateDraft({ dataConfiguration }); goToTab("Configure"); }} /> : <p className={styles.notice}>Built-in report: presentation and access can be edited where supported below. Its specialized calculations, source boundaries, and reporting rules are not changed by a layout. Use Add report for a guided custom dashboard.</p>}
       <div className={styles.tabs} role="tablist" aria-label="Report settings">
         {TABS.map((name, index) => <button key={name} id={`report-tab-${name}`} className={styles.tab} role="tab" aria-selected={tab === name} aria-controls={`report-panel-${name}`} tabIndex={tab === name ? 0 : -1} disabled={saving} onClick={() => setTab(name)} onKeyDown={(event) => {
           const next = event.key === "ArrowRight" ? (index + 1) % TABS.length : event.key === "ArrowLeft" ? (index + TABS.length - 1) % TABS.length : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : null;
@@ -282,7 +310,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       <div role="tabpanel" id={`report-panel-${tab}`} aria-labelledby={`report-tab-${tab}`} tabIndex={0}>
         <fieldset disabled={saving} className={styles.editorFields}>
           {tab === "Configure" && <div className={styles.stack}>
-            <div className={styles.grid}><label className={styles.field}>Report title<input maxLength={120} value={draft.title} disabled={configuration.configurationCapabilities?.canEditTitle === false} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="Example: Alumni engagement" /></label></div>
+            <div className={styles.grid}><label className={styles.field}>Report title<input id="report-title" maxLength={120} value={draft.title} disabled={configuration.configurationCapabilities?.canEditTitle === false} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="Example: Alumni engagement" /></label></div>
             <label className={styles.field}>Report description<textarea maxLength={1000} value={draft.description} disabled={configuration.configurationCapabilities?.canEditDescription === false} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="Explain what this report measures." /></label>
             {generic ? <ReportDashboardBuilder value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} disabled={saving} /> : configuration.key === "alumni-family-engagement" ? <AlumniReportConfiguration value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} /> : <p className={styles.notice}>{configuration.presentationNote || "This built-in report keeps its existing calculations and specialized layout. Use Add report to build a new query-count or static-value dashboard."}</p>}
           </div>}

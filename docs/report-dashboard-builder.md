@@ -13,7 +13,50 @@ Open Report Access & Configurations. Search/select one report, or choose Add rep
 
 ## New Dashboards
 
+The editor includes a four-part setup guide: define the report, connect data,
+review its layout, and choose viewers. An empty dashboard offers three optional
+starters: query results list, a query row-count metric (not a gift total), or a
+manual period comparison. Starters only modify the in-memory draft. Query IDs
+are counted as entered, not verified; the guide performs no network requests.
+Manual blanks remain unknown rather than becoming zero. The guide's access
+summary describes saved settings, not unsaved access edits.
+
 New reports use the general dashboard builder and start disabled with no viewers. Create the report, select active viewers in Access, then enable it and save access. Administrators have no published-dashboard bypass; managers may use the configuration Preview while the draft is disabled.
+
+## Reusing Layouts
+
+**Reuse a report layout** exports the currently selected custom dashboard's draft
+as a `fundraising-report-layout` version 1 JSON file. It contains only the title,
+description, panel order/layout/width, row and column labels, structural keys,
+and value source kinds. Review free-text labels for private information before
+sharing. This is a layout template, not a data backup or NXT query export.
+
+Query IDs, query column display mappings, values, notes, snapshots, provenance,
+report identity, credentials, viewer IDs and activation are excluded by an
+allowlist. Imports reject unknown fields at every level, unsupported versions,
+invalid references/keys, schema limits, and files over 128 KiB (UTF-8 bytes).
+Parsing does not execute file contents. The temporary query ID used internally
+for structural validation is never returned in the imported draft.
+
+The file is read locally and shown for review first. **Open as new draft** creates
+only an in-memory editor draft, never overwrites a saved report, and confirms
+before replacing another unsaved new-report draft. Other report drafts remain
+intact. Query IDs are blank; static values are unknown; notes and query column
+mappings are empty. Refresh policies reset to refreshable because no historical
+values are transferred. Fill in destination queries and manual values, use
+explicit query test/preview controls to validate output, and reconfigure column
+display against the destination query. Save a disabled report using the existing
+POST route, then separately select viewers and enable it. Incomplete query IDs
+cannot be saved under the existing client and server schema validation.
+
+No new API, schema, scheduler, network request on import/export, or refresh
+behavior is introduced. Existing report access rules apply. Built-in reports
+(including Alumni, Team Standings and pledge-source rules) are deliberately
+excluded; fully transferable specialized reports need a separate validated
+source/policy migration. A layout does not certify sandbox isolation. Keep a
+separate database and sandbox authorization when duplicating the app.
+
+## Panels And Values
 
 Each panel has a title, half/full width, and a layout:
 
