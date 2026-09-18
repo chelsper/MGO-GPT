@@ -8,7 +8,7 @@ import {
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import { hasSavedPortfolioContacts, mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
-import { savedPortfolioActivityDate } from "@/utils/portfolioActivity";
+import { savedPortfolioActivity } from "@/utils/portfolioActivity";
 import { savedActivityEntry } from "@/app/api/utils/portfolioActivityData";
 import { prospectActivityCacheKey } from "@/app/api/utils/prospectActivityCacheKey";
 import { portfolioContactCacheKey } from "@/app/api/utils/portfolioContactCacheKey";
@@ -323,7 +323,7 @@ async function getCachedNxtPortfolioDetails({
   }
 
   // Filter before choosing the newest row: giving-only caches share this table
-  // but have no contacts. Project only identity, contacts and saved activity dates.
+  // but have no contacts. Project only contacts and bounded saved activity details.
   // Workspace snapshots are already shared by the authorized summary endpoint;
   // raw summary caches retain their separate authorizing-connection boundary.
   const activityKeys = new Map(constituentIds.flatMap((id) =>
@@ -384,7 +384,10 @@ async function getCachedNxtPortfolioDetails({
         'version', payload -> 'version',
         'id', payload #> '{data,id}',
         'date', payload #> '{data,date}',
-        'checkedAt', payload -> 'fetchedAt'
+        'checkedAt', payload -> 'fetchedAt',
+        'amount', payload #> '{data,amount}',
+        'summary', CASE WHEN jsonb_typeof(payload #> '{data,summary}') = 'string'
+          THEN LEFT(payload #>> '{data,summary}', 2000) ELSE NULL END
       ) AS activity
     FROM blackbaud_constituent_summary_cache
     WHERE workspace_user_id = ${workspaceUserId}
@@ -396,7 +399,8 @@ async function getCachedNxtPortfolioDetails({
 
     SELECT constituent_id, NULL::jsonb, NULL::jsonb, NULL::timestamptz, NULL::text,
       'portfolio-activity-v1|' || origin || '|' || kind || '|' || constituent_id,
-      jsonb_build_object('version', 1, 'id', record_id, 'date', activity_date, 'checkedAt', checked_at)
+      jsonb_build_object('version', 1, 'id', record_id, 'date', activity_date, 'checkedAt', checked_at,
+        'details', activity_details)
     FROM portfolio_activity_snapshots
     WHERE workspace_user_id = ${workspaceUserId} AND origin = ${origin}
       AND constituent_id = ANY(${constituentIds}) AND checked_at IS NOT NULL
@@ -415,7 +419,7 @@ async function getCachedNxtPortfolioDetails({
       const empty = expected?.shared && activity?.version === 1 && activity.id === null && activity.date === null
         ? savedActivityEntry({ version: 1, data: null, fetchedAt: activity.checkedAt }, now) : null;
       const saved = activity?.version === 1 && typeof activity.id === "string" && activity.id.trim()
-        ? savedPortfolioActivityDate(activity, now) : null;
+        ? savedPortfolioActivity(activity, expected?.kind, { now, requireBoundDetails: expected?.shared }) : null;
       if (expected?.id !== id || (!saved && !empty)) continue;
       const freshnessKey = `${id}|${expected.kind}`;
       const checkedAt = Date.parse((saved || empty).checkedAt);

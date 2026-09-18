@@ -49,6 +49,24 @@ it("enforces the eight-request batch limit", async () => {
   expect(mocks.fetch).toHaveBeenCalledTimes(8);
   expect(mocks.reserve).toHaveBeenCalledTimes(8);
 });
+it("saves gift amount and action summary using only the existing two requests", async () => {
+  mocks.due.mockResolvedValue([row(), row("action")]);
+  mocks.fetch.mockResolvedValueOnce({ id: "g", date: "2026-09-14", amount: { value: 250.75 } })
+    .mockResolvedValueOnce({ value: [{ id: "a", date: "2026-09-14", summary: "Called about proposal", notes: "omit" }], count: 1 });
+  expect(await run()).toMatchObject({ updated: 2, calls: 2 });
+  expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  expect(mocks.save.mock.calls.map(call => call[1])).toEqual([
+    { id: "g", date: "2026-09-14", amount: 250.75, checkedAt: "2026-09-15T12:00:00.000Z" },
+    { id: "a", date: "2026-09-14", summary: "Called about proposal", checkedAt: "2026-09-15T12:00:00.500Z" },
+  ]);
+});
+it("can seed richer saved details without any NXT calls", async () => {
+  mocks.due.mockResolvedValue([row("action", { seed_complete: false })]);
+  mocks.read.mockResolvedValue({ version: 1, fetchedAt: "2026-09-15T10:00:00Z", data: { id: "a", date: "2020-01-01", summary: "Saved call" } });
+  expect(await run()).toMatchObject({ reused: 1, calls: 0 });
+  expect(mocks.save.mock.calls[0][1]).toMatchObject({ summary: "Saved call", checkedAt: "2026-09-15T10:00:00.000Z" });
+  expect(mocks.fetch).not.toHaveBeenCalled();
+});
 it("stops before a request when the shared daily budget is exhausted", async () => {
   mocks.reserve.mockResolvedValue(false);
   expect((await run()).reason).toBe("budget_or_lease");

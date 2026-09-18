@@ -25,6 +25,28 @@ describe("portfolio activity data", () => {
     expect(latestGiftDate({}, now)).toBeNull();
     for (const value of [null, [], { error: "bad" }, { id: true, date: "2020-01-01" }, { id: "g", date: "2099-01-01" }]) expect(() => latestGiftDate(value, now)).toThrow();
   });
+  it("retains a gift amount from the same response and only the relevant seed details", () => {
+    expect(latestGiftDate({ id: "g", date: "2020-01-01", amount: { value: 0 }, notes: "omit" }, now))
+      .toEqual({ id: "g", date: "2020-01-01", amount: 0 });
+    for (const amount of [undefined, null, {}, { value: "20" }, { value: Infinity }]) {
+      expect(latestGiftDate({ id: "g", date: "2020-01-01", amount }, now)).not.toHaveProperty("amount");
+    }
+    const payload = { version: 1, fetchedAt: now.toISOString(), data: { id: "a", date: "2020-01-01", summary: "Call donor", notes: "omit", amount: 100 } };
+    expect(savedActivityEntry(payload, now, "action")).toEqual({ id: "a", date: "2020-01-01", checkedAt: now.toISOString(), summary: "Call donor" });
+    expect(savedActivityEntry(payload, now, "gift")).toEqual({ id: "a", date: "2020-01-01", checkedAt: now.toISOString(), amount: 100 });
+  });
+  it("keeps only the latest candidate's bounded summary across pages, never borrowing an older one", () => {
+    const first = actionDatePage({ count: 3, value: [
+      { ...action("a", "2020-01-01"), summary: "Old action" },
+      { ...action("b"), summary: "x".repeat(5000), notes: "never store notes" },
+    ], next_link: "/constituent/v1/constituents/100/actions?offset=2" }, "100", null, now);
+    expect(first.scan.latest.summary).toHaveLength(2000);
+    expect(JSON.stringify(first.scan)).not.toMatch(/Old action|never store notes/);
+    const last = actionDatePage({ count: 3, value: [{ ...action("c", "2026-09-15") }] }, "100", first.scan, now);
+    expect(last.data).toEqual({ id: "c", date: "2026-09-15" });
+    const future = actionDatePage({ count: 3, value: [{ ...action("c", "2026-09-16"), summary: "Future" }] }, "100", first.scan, now);
+    expect(future.data).toEqual({ id: "b", date: "2026-09-14", summary: "x".repeat(2000) });
+  });
   it("resumes action pages and publishes only after the complete result", () => {
     const first = actionDatePage({ count: 3, value: [action("a", "2020-01-01")], next_link: "/constituent/v1/constituents/100/actions?offset=1" }, "100", null, now);
     expect(first.scan.nextPath).toContain("offset=1");

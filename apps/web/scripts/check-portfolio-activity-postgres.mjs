@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { createServer } from "vite";
 
 const host = process.env.ACTIVITY_TEST_PGHOST;
 if (!host?.startsWith("/private/tmp/") && !host?.startsWith("/tmp/")) throw new Error("Use an explicit disposable local PostgreSQL socket under /tmp.");
@@ -31,9 +32,12 @@ const sql = async (parts, ...values) => {
   return [];
 };
 const activityKey = (origin, id, kind) => `prospect-activity-v1|${kind}|${createHash("sha256").update(JSON.stringify([origin, id])).digest("hex")}`;
+const loader = await createServer({ configFile: false, server: { middlewareMode: true, ws: false }, appType: "custom", optimizeDeps: { noDiscovery: true, include: [] } });
+const { portfolioActivityDetailsEnvelope, savedPortfolioActivity } = await loader.ssrLoadModule(`${root}utils/portfolioActivity.js`);
+await loader.close();
 const source = readFileSync(`${root}app/api/utils/portfolioActivityStore.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function");
-const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "activityWorkspaceIds", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
-  sql, randomUUID, activityKey, 360, () => "https://example.com", () => ["7"],
+const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "activityWorkspaceIds", "portfolioActivityDetailsEnvelope", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
+  sql, randomUUID, activityKey, 360, () => "https://example.com", () => ["7"], portfolioActivityDetailsEnvelope,
 );
 const ddl = readFileSync(`${root}app/api/utils/ensureAppSchema.js`, "utf8").match(/DO \$activity_schema\$[\s\S]*?\$activity_schema\$/)[0];
 const origin = "https://example.com";
@@ -44,8 +48,15 @@ try {
     CREATE TABLE portfolio_constituent_snapshots(workspace_user_id bigint, constituent_id text, summary_payload jsonb, last_refreshed_at timestamptz);
     INSERT INTO users VALUES (7,TRUE,'{"leadSolicitor":[{"constituentId":"100"},{"constituentId":"100"},{"constituentId":"101"}]}'),
       (8,TRUE,'{"leadSolicitor":[{"constituentId":"800"}]}'), (9,FALSE,'{"leadSolicitor":[{"constituentId":"900"}]}'), (99,TRUE,NULL);`);
+  await run(ddl.replace("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS activity_details JSONB;", ""));
+  await run("INSERT INTO portfolio_activity_snapshots(workspace_user_id,origin,constituent_id,kind,record_id,activity_date,checked_at) VALUES (7,'https://example.com','100','gift','legacy','2020-01-01',NOW())");
   await Promise.all(Array.from({ length: 12 }, () => run(ddl)));
-  console.log("PASS: 12 concurrent first-time schema initializations.");
+  const migrated = JSON.parse(await run("SELECT row_to_json(t) FROM portfolio_activity_snapshots t"));
+  assert.equal(migrated.record_id, "legacy");
+  assert.equal(migrated.activity_date, "2020-01-01");
+  assert.equal(migrated.activity_details, null);
+  await run("UPDATE portfolio_activity_snapshots SET checked_at=NULL");
+  console.log("PASS: 12 concurrent additive schema migrations preserve a legacy date-only row.");
   await store.seedActivityQueue(["7", "9"], origin);
   let rows = await store.dueActivityRows(["7", "9"], origin);
   assert.equal(rows.length, 4);
@@ -66,7 +77,7 @@ try {
   const row = rows.find(row => row.kind === "gift" && row.constituent_id === "100");
   const old = new Date(Date.now() - 3600000).toISOString();
   const recent = new Date(Date.now() - 1000).toISOString();
-  const entry = { id: "g", date: "2020-01-01", checkedAt: recent };
+  const entry = { id: "g", date: "2020-01-01", checkedAt: recent, amount: 1250.75 };
   assert.equal(await store.saveActivityResult(row, entry, 99, gate), true);
   assert.equal(await store.saveActivityResult(row, { ...entry, checkedAt: old }, 99, gate), false);
   assert.equal(await store.saveActivityResult(row, entry, 99, { ...gate, token: "lost" }), false);
@@ -74,9 +85,10 @@ try {
   const preserved = JSON.parse(await run("SELECT row_to_json(t) FROM portfolio_activity_snapshots t WHERE constituent_id='100' AND kind='gift'"));
   assert.equal(preserved.activity_date, "2020-01-01");
   assert.equal(Date.parse(preserved.checked_at), Date.parse(recent));
+  assert.deepEqual(preserved.activity_details, portfolioActivityDetailsEnvelope(entry, "gift"));
   const actionRow = rows.find(row => row.kind === "action" && row.constituent_id === "100");
   await store.requestPortfolioActionRefresh({ origin, constituentId: "100" });
-  await store.saveActivityResult(actionRow, { id: "a", date: "2020-01-01", checkedAt: old }, 99, gate);
+  await store.saveActivityResult(actionRow, { id: "a", date: "2020-01-01", checkedAt: old, summary: "Saved call" }, 99, gate);
   assert((await store.dueActivityRows(["7"], origin)).some(row => row.constituent_id === "100" && row.kind === "action"));
   console.log("PASS: out-of-order and lost-lease saves rejected, last-good dates survive failures, concurrent write hints stay due.");
   await run(`INSERT INTO blackbaud_constituent_summary_cache VALUES
@@ -93,7 +105,18 @@ try {
   assert.equal(projected.length, 2);
   assert(projected.every(row => row.activity_cache_key.startsWith("portfolio-activity-v1|https://example.com|")));
   assert.equal(projected.find(row => row.activity_cache_key.includes("|gift|")).activity.date, "2020-01-01");
+  const gift = projected.find(row => row.activity_cache_key.includes("|gift|")).activity;
+  const action = projected.find(row => row.activity_cache_key.includes("|action|")).activity;
+  assert.equal(savedPortfolioActivity(gift, "gift", { requireBoundDetails: true }).amount, 1250.75);
+  assert.equal(savedPortfolioActivity(action, "action", { requireBoundDetails: true }).summary, "Saved call");
   assert(!JSON.stringify(projected).includes("wrong connection"));
+  // Simulate an older worker updating only the date/ID after a code rollback.
+  await run("UPDATE portfolio_activity_snapshots SET record_id='new-gift',activity_date='2021-01-01',checked_at=NOW() WHERE kind='gift' AND constituent_id='100'");
+  const rollback = JSON.parse(await run(`SELECT json_agg(t) FROM (${query}) t`)).find(row => row.activity_cache_key.includes("|gift|")).activity;
+  assert.equal(savedPortfolioActivity(rollback, "gift", { requireBoundDetails: true }).amount, undefined);
+  await store.saveActivityResult(row, { id: null, date: null, checkedAt: new Date().toISOString() }, 99, gate);
+  assert.equal(await run("SELECT activity_details FROM portfolio_activity_snapshots WHERE kind='gift' AND constituent_id='100'"), "null");
+  console.log("PASS: real SQL preserves bound details on failure and hides mismatches after rollback; empty results clear details.");
   await run("UPDATE users SET blackbaud_portfolio_cache='{}' WHERE id=7");
   assert.equal((await store.dueActivityRows(["7"], origin)).length, 0);
   console.log("PASS: exact-connection seed, authorized shared-date projection using real portfolio SQL, removed assignments excluded.");

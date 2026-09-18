@@ -27,7 +27,7 @@ export async function refreshPortfolioActivity({ workspaceIds, origin, refreshUs
         break;
       }
       if (!row.seed_complete) {
-        const saved = savedActivityEntry(await readActivitySeed(row, refreshUser.id));
+        const saved = savedActivityEntry(await readActivitySeed(row, refreshUser.id), new Date(), row.kind);
         if (saved && (!row.checked_at || Date.parse(row.checked_at) <= Date.parse(saved.checkedAt))) {
           if (!await saveActivityResult(row, saved, refreshUser.id, gate)) return { ...progress, status: "paused", reason: "lease_lost" };
           if (Date.now() - Date.parse(saved.checkedAt) < ACTIVITY_FRESH_MS &&
@@ -52,7 +52,7 @@ export async function refreshPortfolioActivity({ workspaceIds, origin, refreshUs
           await deferActivityRow(row, { scan: result.scan }, gate);
           progress.deferred += 1;
         } else {
-          const entry = { id: result.data?.id || null, date: result.data?.date || null, checkedAt: result.checkedAt };
+          const entry = { ...(result.data || { id: null, date: null }), checkedAt: result.checkedAt };
           if (!await saveActivityResult(row, entry, refreshUser.id, gate)) return { ...progress, status: "paused", reason: "lease_lost" };
           progress.updated += 1;
         }

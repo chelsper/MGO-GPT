@@ -38,6 +38,17 @@ it("preserves successful dates and timestamps on failures or incomplete pages", 
   await deferActivityRow(row, { error: "unverified_response", delayMs: 3600000 }, gate);
   expect(query()).not.toContain("checked_at =");
   expect(query()).not.toContain("activity_date =");
+  expect(query()).not.toContain("activity_details =");
+});
+it("atomically saves bound details and clears them for empty or date-only results", async () => {
+  const entry = { id: "a", date: "2020-01-01", checkedAt: "2026-09-15T12:00:00Z", summary: "Call donor", notes: "omit" };
+  await saveActivityResult(row, entry, 99, gate);
+  expect(query()).toContain("activity_details = ?::jsonb");
+  expect(JSON.parse(sql.mock.calls.at(-1)[3])).toEqual({ version: 1, kind: "action", id: "a", date: "2020-01-01", checkedAt: "2026-09-15T12:00:00.000Z", summary: "Call donor" });
+  for (const next of [{ id: "new", date: "2026-09-14" }, { id: null, date: null }]) {
+    await saveActivityResult(row, { ...next, checkedAt: entry.checkedAt }, 99, gate);
+    expect(sql.mock.calls.at(-1)[3]).toBe("null");
+  }
 });
 it("selects only allowlisted, active, currently assigned constituents, missing first", async () => {
   await seedActivityQueue(["7"], row.origin);

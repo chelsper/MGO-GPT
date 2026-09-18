@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronUp, Star } from "lucide-react";
 import { PortfolioCard } from "@/components/PortfolioWorklist";
 import PortfolioContactDetails from "@/components/PortfolioContactDetails";
+import PortfolioActivityDetails from "@/components/PortfolioActivityDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
@@ -215,6 +216,7 @@ export default function PortfolioTier({
                 ) : null}
               </div>
               <PortfolioContactDetails person={contactPerson} />
+              <PortfolioActivityDetails activity={person.savedActivity} />
               <CurrentFiscalYearGiving
                 giving={currentFiscalYearGiving}
                 yearLabel={currentFiscalYearLabel}

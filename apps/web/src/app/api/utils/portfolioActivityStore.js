@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
 import { ACTIVITY_DAILY_CALLS, activityOrigin, activityWorkspaceIds } from "./portfolioActivityData";
+import { portfolioActivityDetailsEnvelope } from "@/utils/portfolioActivity";
 
 export async function claimActivityGate(origin) {
   const token = randomUUID();
@@ -90,6 +91,7 @@ export async function markActivitySeeded(row) {
 export async function saveActivityResult(row, entry, authUserId, gate) {
   const rows = await sql`
     UPDATE portfolio_activity_snapshots SET record_id = ${entry.id}, activity_date = ${entry.date},
+      activity_details = ${JSON.stringify(portfolioActivityDetailsEnvelope(entry, row.kind))}::jsonb,
       checked_at = ${entry.checkedAt}::timestamptz, checked_by = ${authUserId}, seed_complete = TRUE,
       next_check_at = CASE WHEN requested_at > ${entry.checkedAt}::timestamptz
         THEN NOW() ELSE ${entry.checkedAt}::timestamptz + INTERVAL '24 hours' END,

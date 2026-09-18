@@ -332,6 +332,48 @@ describe("Blackbaud portfolio route", () => {
     expectNoNxtReads();
   });
 
+  it("projects scoped cached amounts and bounded summaries without notes or extra reads", async () => {
+    const { GET } = await import("./route.js");
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: [
+      activityRow("100", "gift", { amount: 0, summary: "omit", notes: "private" }),
+      activityRow("100", "action", { summary: "x".repeat(4000), amount: 100, notes: "private" }),
+    ] });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].savedActivity).toEqual({
+      gift: { date: "2026-08-01", checkedAt: "2026-09-14T12:00:00.000Z", amount: 0 },
+      action: { date: "2026-08-01", checkedAt: "2026-09-14T12:00:00.000Z", summary: "x".repeat(2000) },
+    });
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+    expectNoNxtReads();
+  });
+
+  it.each([false, true])("newer shared snapshots win as a whole without borrowing old details: %s", async reverse => {
+    const { GET } = await import("./route.js");
+    const shared = activityRow("100", "gift", { id: "new-gift", date: "2026-09-01", checkedAt: "2026-09-15T10:00:00Z",
+      details: { version: 1, kind: "gift", id: "gift-1", date: "2026-08-01", checkedAt: "2026-09-14T12:00:00Z", amount: 500 } });
+    shared.activity_cache_key = "portfolio-activity-v1|https://example.com|gift|100";
+    const rows = [activityRow("100", "gift", { amount: 500 }), shared];
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: reverse ? rows.reverse() : rows });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].savedActivity.gift).toEqual({ date: "2026-09-01", checkedAt: "2026-09-15T10:00:00.000Z" });
+    expectNoNxtReads();
+  });
+
+  it("accepts bound shared details and never trusts unbound top-level metadata", async () => {
+    const { GET } = await import("./route.js");
+    const rows = ["gift", "action"].map(kind => ({
+      ...activityRow("100", kind, { amount: 999, summary: "unbound", details: {
+        version: 1, kind, id: `${kind}-1`, date: "2026-08-01", checkedAt: "2026-09-14T12:00:00Z",
+        ...(kind === "gift" ? { amount: 15.25 } : { summary: "Saved call" }),
+      } }), activity_cache_key: `portfolio-activity-v1|https://example.com|${kind}|100`,
+    }));
+    mockSavedPortfolio({ people: [{ constituentId: "100", name: "Donor" }], contacts: rows });
+    const payload = await (await GET(new Request("https://example.com/api/blackbaud/portfolio"))).json();
+    expect(payload.leadSolicitor[0].savedActivity.gift.amount).toBe(15.25);
+    expect(payload.leadSolicitor[0].savedActivity.action.summary).toBe("Saved call");
+    expectNoNxtReads();
+  });
+
   it.each([false, true])("a newer shared empty result suppresses older activity regardless of row order: %s", async reverse => {
     const { GET } = await import("./route.js");
     const rows = [activityRow("100", "action"), { ...activityRow("100", "action", {

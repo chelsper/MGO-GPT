@@ -1,5 +1,6 @@
 import { calendarDate, latestDatedAction } from "@/utils/prospectActivity";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { portfolioActivityFields } from "@/utils/portfolioActivity";
 
 export const ACTIVITY_BATCH_CALLS = 8;
 export const ACTIVITY_DAILY_CALLS = 360;
@@ -21,14 +22,14 @@ export function activityOrigin(value = process.env.PORTFOLIO_ACTIVITY_ORIGIN || 
   } catch { return null; }
 }
 
-export function savedActivityEntry(payload, now = new Date()) {
+export function savedActivityEntry(payload, now = new Date(), kind) {
   const checkedAt = Date.parse(payload?.fetchedAt);
   if (payload?.version !== 1 || !Number.isFinite(checkedAt) || checkedAt > now.getTime()) return null;
   if (payload.data === null) return { id: null, date: null, checkedAt: new Date(checkedAt).toISOString() };
   const date = calendarDate(payload.data?.date);
   if (typeof payload.data?.id !== "string" || !payload.data.id.trim() || !date ||
       date > getStandingsPeriods(new Date(checkedAt)).asOf) return null;
-  return { id: payload.data.id, date, checkedAt: new Date(checkedAt).toISOString() };
+  return { id: payload.data.id, date, checkedAt: new Date(checkedAt).toISOString(), ...portfolioActivityFields(payload.data, kind) };
 }
 
 export function activityPath(constituentId, kind) {
@@ -60,10 +61,10 @@ export function latestGiftDate(response, now = new Date()) {
   const date = calendarDate(response?.date);
   const id = recordId(response?.id);
   if (!id || !date || date > getStandingsPeriods(now).asOf) throw new Error("invalid_gift");
-  return { id, date };
+  return { id, date, ...portfolioActivityFields({ amount: response?.amount?.value }, "gift") };
 }
 
-// Persist only IDs/dates and a validated cursor, never action descriptions.
+// Keep only the latest candidate's bounded summary, not full action notes/history.
 export function actionDatePage(response, constituentId, previous, now = new Date()) {
   if (!Array.isArray(response?.value)) throw new Error("invalid_actions");
   const scan = previous || { startedAt: now.toISOString(), ids: [], paths: [], latest: null, count: null };
@@ -77,7 +78,7 @@ export function actionDatePage(response, constituentId, previous, now = new Date
       throw new Error("invalid_actions");
     }
     ids.add(id);
-    dates.push({ id, date });
+    dates.push({ id, date, ...portfolioActivityFields(item, "action") });
   }
   const count = response.count == null ? scan.count : Number(response.count);
   if (count != null && (!Number.isSafeInteger(count) || count < ids.size ||
@@ -90,7 +91,10 @@ export function actionDatePage(response, constituentId, previous, now = new Date
   if (ids.size > 10000 || scan.paths.length >= 100 || (!nextPath && count != null && ids.size !== count)) {
     throw new Error("incomplete_actions");
   }
-  const latest = latestDatedAction([scan.latest, ...dates].filter(Boolean), new Date(scan.startedAt));
+  const previousLatest = scan.latest ? {
+    id: scan.latest.id, date: scan.latest.date, ...portfolioActivityFields(scan.latest, "action"),
+  } : null;
+  const latest = latestDatedAction([previousLatest, ...dates].filter(Boolean), new Date(scan.startedAt));
   return {
     data: latest,
     checkedAt: scan.startedAt,

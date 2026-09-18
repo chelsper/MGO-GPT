@@ -171,8 +171,8 @@ it("checks only visible expanded contacts on the actual page without loading sum
 
 it("uses saved activity dates in collapsed rows without additional fetches or changing order", () => {
   state.data["blackbaud-portfolio"].leadSolicitor[0].savedActivity = {
-    gift: { date: "2026-08-31", checkedAt: "2026-09-14T12:00:00Z" },
-    action: { date: "2026-09-10", checkedAt: "2026-09-14T12:00:00Z" },
+    gift: { date: "2026-08-31", checkedAt: "2026-09-14T12:00:00Z", amount: 1250.75 },
+    action: { date: "2026-09-10", checkedAt: "2026-09-14T12:00:00Z", summary: "Called about scholarship" },
   };
   render(<MyProspects />);
   fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
@@ -180,9 +180,20 @@ it("uses saved activity dates in collapsed rows without additional fetches or ch
   expect(screen.getByText("Aug 31, 2026")).toBeVisible();
   expect(screen.getByText("Last action (saved)")).toBeVisible();
   expect(screen.getByText("Sep 10, 2026")).toBeVisible();
+  expect(screen.queryByText("$1,250.75")).not.toBeInTheDocument();
+  expect(screen.queryByText("Called about scholarship")).not.toBeInTheDocument();
   const amy = within(screen.getAllByRole("article")[1]);
   expect(amy.queryByText(/Opportunity data unavailable|No saved next step|Last gift|Last action/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  expect(screen.getByText("$1,250.75")).toBeVisible();
+  expect(screen.getByText("Called about scholarship")).toBeVisible();
+  fireEvent.change(screen.getByLabelText("View"), { target: { value: "detailed" } });
+  expect(screen.getByText("Last gift (saved)")).toBeVisible();
+  expect(screen.getByText("Aug 31, 2026")).toBeVisible();
+  expect(screen.getByText("Last action (saved)")).toBeVisible();
+  expect(screen.getByText("Sep 10, 2026")).toBeVisible();
+  expect(screen.getByText("$1,250.75")).toBeVisible();
+  expect(screen.getByText("Called about scholarship")).toBeVisible();
   fireEvent.change(screen.getByLabelText("View"), { target: { value: "focus" } });
   fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "name" } });
   expect(screen.getAllByRole("article")[0]).toHaveTextContent("Amy Donor");

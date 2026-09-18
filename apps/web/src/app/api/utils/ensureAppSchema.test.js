@@ -50,6 +50,8 @@ it("serializes the activity snapshots, queue and gate schema in one transaction"
   expect(activity[0]).toContain("pg_advisory_xact_lock(734019, 2)");
   expect(activity[0]).toContain("CREATE TABLE IF NOT EXISTS portfolio_activity_refresh_gates");
   expect(activity[0]).toContain("PRIMARY KEY (workspace_user_id, origin, constituent_id, kind)");
+  expect(activity[0]).toContain("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS activity_details JSONB");
+  expect(activity[0]).not.toContain("UPDATE portfolio_activity_snapshots");
 });
 
 it("shares one initialization across concurrent requests on a worker", async () => {
