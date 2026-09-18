@@ -3,6 +3,7 @@ import sql from "./sql";
 import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
 import { ACTIVITY_DAILY_CALLS, activityOrigin, activityWorkspaceIds } from "./portfolioActivityData";
 import { portfolioActivityDetailsEnvelope } from "@/utils/portfolioActivity";
+import { ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows } from "./portfolioActivitySchedule";
 
 export async function claimActivityGate(origin) {
   const token = randomUUID();
@@ -54,21 +55,45 @@ export async function seedActivityQueue(workspaceIds, origin) {
 }
 
 export async function dueActivityRows(workspaceIds, origin) {
-  return sql`
-    SELECT s.* FROM portfolio_activity_snapshots s JOIN users u ON u.id = s.workspace_user_id
-    WHERE s.workspace_user_id = ANY(${workspaceIds}::bigint[]) AND s.origin = ${origin}
-      AND u.active = TRUE AND s.next_check_at <= NOW()
-      AND EXISTS (
-        SELECT 1 FROM jsonb_array_elements(
-          CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'leadSolicitor') = 'array'
-            THEN u.blackbaud_portfolio_cache -> 'leadSolicitor' ELSE '[]'::jsonb END ||
-          CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array'
-            THEN u.blackbaud_portfolio_cache -> 'supportingSolicitor' ELSE '[]'::jsonb END
-        ) person WHERE person ->> 'constituentId' = s.constituent_id
-      )
-    ORDER BY (s.checked_at IS NOT NULL), s.next_check_at, s.workspace_user_id, s.constituent_id, s.kind
-    LIMIT 20
+  const candidates = await sql`
+    WITH eligible AS (
+      SELECT s.*, CASE WHEN s.last_error IS NOT NULL THEN 'retry'
+        WHEN s.checked_at IS NULL OR s.requested_at > s.checked_at OR jsonb_typeof(s.scan) = 'object'
+          THEN 'priority' ELSE 'routine' END AS queue_lane
+      FROM portfolio_activity_snapshots s JOIN users u ON u.id = s.workspace_user_id
+      WHERE s.workspace_user_id = ANY(${workspaceIds}::bigint[]) AND s.origin = ${origin}
+        AND u.active = TRUE AND s.next_check_at <= NOW()
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(
+            CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'leadSolicitor') = 'array'
+              THEN u.blackbaud_portfolio_cache -> 'leadSolicitor' ELSE '[]'::jsonb END ||
+            CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array'
+              THEN u.blackbaud_portfolio_cache -> 'supportingSolicitor' ELSE '[]'::jsonb END
+          ) person WHERE person ->> 'constituentId' = s.constituent_id
+        )
+    ), workspace_service AS (
+      SELECT workspace_user_id, MAX(last_attempt_at) AS last_served
+      FROM portfolio_activity_snapshots
+      WHERE origin = ${origin} AND workspace_user_id = ANY(${workspaceIds}::bigint[])
+      GROUP BY workspace_user_id
+    ), workspace_rounds AS (
+      SELECT e.*, w.last_served, ROW_NUMBER() OVER (
+        PARTITION BY e.queue_lane, e.workspace_user_id
+        ORDER BY CASE WHEN jsonb_typeof(e.scan) = 'object' THEN 0
+          WHEN e.requested_at > e.checked_at THEN 1 ELSE 2 END,
+          e.next_check_at, e.constituent_id, e.kind
+      ) AS workspace_round
+      FROM eligible e JOIN workspace_service w ON w.workspace_user_id = e.workspace_user_id
+    ), lanes AS (
+      SELECT r.*, ROW_NUMBER() OVER (
+        PARTITION BY queue_lane ORDER BY workspace_round, last_served NULLS FIRST,
+          next_check_at, workspace_user_id, constituent_id, kind
+      ) AS lane_rank FROM workspace_rounds r
+    )
+    SELECT * FROM lanes WHERE lane_rank <= ${ACTIVITY_QUEUE_LIMIT}
+    ORDER BY lane_rank, queue_lane
   `;
+  return selectActivityRows(candidates);
 }
 
 export async function readActivitySeed(row, authUserId) {
@@ -93,8 +118,9 @@ export async function saveActivityResult(row, entry, authUserId, gate) {
     UPDATE portfolio_activity_snapshots SET record_id = ${entry.id}, activity_date = ${entry.date},
       activity_details = ${JSON.stringify(portfolioActivityDetailsEnvelope(entry, row.kind))}::jsonb,
       checked_at = ${entry.checkedAt}::timestamptz, checked_by = ${authUserId}, seed_complete = TRUE,
+      last_attempt_at = NOW(),
       next_check_at = CASE WHEN requested_at > ${entry.checkedAt}::timestamptz
-        THEN NOW() ELSE ${entry.checkedAt}::timestamptz + INTERVAL '24 hours' END,
+        THEN NOW() ELSE ${activityNextCheckAt(row, entry.checkedAt)}::timestamptz END,
       scan = NULL, last_error = NULL
     WHERE workspace_user_id = ${row.workspace_user_id} AND origin = ${row.origin}
       AND constituent_id = ${row.constituent_id} AND kind = ${row.kind}
@@ -109,7 +135,7 @@ export async function saveActivityResult(row, entry, authUserId, gate) {
 export async function deferActivityRow(row, { scan = null, error = null, delayMs = 1000 }, gate) {
   await sql`
     UPDATE portfolio_activity_snapshots SET scan = ${JSON.stringify(scan)}::jsonb,
-      last_error = ${error}, next_check_at = NOW() + (${delayMs} * INTERVAL '1 millisecond')
+      last_error = ${error}, last_attempt_at = NOW(), next_check_at = NOW() + (${delayMs} * INTERVAL '1 millisecond')
     WHERE workspace_user_id = ${row.workspace_user_id} AND origin = ${row.origin}
       AND constituent_id = ${row.constituent_id} AND kind = ${row.kind}
       AND EXISTS (SELECT 1 FROM portfolio_activity_refresh_gates

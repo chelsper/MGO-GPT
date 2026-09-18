@@ -4,6 +4,7 @@ vi.mock("./sql", () => ({ default: sql }));
 import { claimActivityGate, deferActivityRow, dueActivityRows, readActivitySeed, releaseActivityGate, requestPortfolioActionRefresh,
   reserveActivityCall, saveActivityResult, seedActivityQueue } from "./portfolioActivityStore";
 import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
+import { activityNextCheckAt } from "./portfolioActivitySchedule";
 
 const row = { workspace_user_id: 7, origin: "https://example.com", constituent_id: "100", kind: "action" };
 const gate = { origin: row.origin, token: "lease" };
@@ -39,6 +40,7 @@ it("preserves successful dates and timestamps on failures or incomplete pages", 
   expect(query()).not.toContain("checked_at =");
   expect(query()).not.toContain("activity_date =");
   expect(query()).not.toContain("activity_details =");
+  expect(query()).toContain("last_attempt_at = NOW()");
 });
 it("atomically saves bound details and clears them for empty or date-only results", async () => {
   const entry = { id: "a", date: "2020-01-01", checkedAt: "2026-09-15T12:00:00Z", summary: "Call donor", notes: "omit" };
@@ -50,14 +52,26 @@ it("atomically saves bound details and clears them for empty or date-only result
     expect(sql.mock.calls.at(-1)[3]).toBe("null");
   }
 });
-it("selects only allowlisted, active, currently assigned constituents, missing first", async () => {
+it("selects only allowlisted, active, currently assigned constituents using bounded fair queues", async () => {
   await seedActivityQueue(["7"], row.origin);
   expect(query()).toContain("u.active = TRUE");
   expect(query()).toContain("ON CONFLICT");
   await dueActivityRows(["7"], row.origin);
   expect(query()).toContain("person ->> 'constituentId' = s.constituent_id");
-  expect(query()).toContain("ORDER BY (s.checked_at IS NOT NULL)");
-  expect(query()).toContain("LIMIT 20");
+  expect(query()).toContain("s.checked_at IS NULL OR s.requested_at > s.checked_at");
+  expect(query()).toContain("PARTITION BY e.queue_lane, e.workspace_user_id");
+  expect(query()).toContain("MAX(last_attempt_at)");
+  expect(query()).toContain("last_served NULLS FIRST");
+  expect(query()).toContain("lane_rank <= ?");
+  expect(sql.mock.calls.at(-1).at(-1)).toBe(20);
+});
+it("staggering does not postpone a write hint newer than the successful read", async () => {
+  const entry = { id: "a", date: "2020-01-01", checkedAt: "2026-09-18T10:00:00Z" };
+  await saveActivityResult(row, entry, 99, gate);
+  expect(query()).toContain("last_attempt_at = NOW()");
+  expect(query()).toContain("CASE WHEN requested_at > ?::timestamptz");
+  expect(query()).toContain("THEN NOW() ELSE ?::timestamptz END");
+  expect(sql.mock.calls.at(-1)).toContain(activityNextCheckAt(row, entry.checkedAt));
 });
 it("never reuses another connection's raw activity cache", async () => {
   await readActivitySeed(row, 99);

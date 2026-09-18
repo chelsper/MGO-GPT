@@ -164,6 +164,7 @@ export default async function ensureAppSchema() {
           PRIMARY KEY (workspace_user_id, origin, constituent_id, kind)
         );
         ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS activity_details JSONB;
+        ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
         CREATE INDEX IF NOT EXISTS idx_portfolio_activity_due
           ON portfolio_activity_snapshots (origin, next_check_at);
         CREATE TABLE IF NOT EXISTS portfolio_activity_refresh_gates (

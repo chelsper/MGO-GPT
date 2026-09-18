@@ -83,7 +83,7 @@ describe("import match comparison", () => {
     const props = { row: { ...row, match: null }, saved: true, reviewer: true, runId: "42", autoLoad: true };
     const view = render(<ImportMatchReview {...props} />);
     await screen.findByText("NXT Person");
-    expect(screen.getByRole("button", { name: "Not a match" })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Not a match" })).toBeEnabled());
     expect(fetch).toHaveBeenCalledWith("/api/constituency-import/runs/42/rows/9/match", expect.objectContaining({ body: JSON.stringify({ action: "suggestions" }) }));
     view.rerender(<ImportMatchReview {...props} busy />);
     view.rerender(<ImportMatchReview {...props} />);
