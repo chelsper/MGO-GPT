@@ -12,6 +12,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
 }));
 import MyProspects from "./page";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 beforeEach(() => {
   state.profile = {
@@ -29,7 +30,7 @@ it.each(["admin", "mgo,admin"])("enables Admin editing and action entry for %s",
   expect(screen.getByRole("button", { name: "Add Prospect" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Reorder prospects" })).toBeEnabled();
   expect(screen.getByText("Editing Selected MGO's workspace")).toBeInTheDocument();
-  expect(screen.getByText(/Actions credit this MGO/)).toBeInTheDocument();
+  expect(screen.getByText(/MGO workspace as Admin. Actions credit the workspace owner/)).toBeInTheDocument();
 });
 it("keeps Executive viewers read-only", () => {
   state.profile.user.role = "executive";
@@ -43,5 +44,15 @@ it("does not flash editing controls before permissions load", () => {
   state.profile = undefined;
   render(<MyProspects />);
   expect(screen.queryByRole("link", { name: "Log Update" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add Prospect" })).not.toBeInTheDocument();
+});
+
+it("changes display terminology without granting editing rights to an Executive", () => {
+  const view = render(<WorkspaceTerminologyProvider terminology={{ mgo: "Gift Officer" }}><MyProspects /></WorkspaceTerminologyProvider>);
+  expect(screen.getByText(/Gift Officer workspace as Admin. Actions credit the workspace owner/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Add Prospect" })).toBeEnabled();
+  state.profile.user.role = "executive";
+  view.rerender(<WorkspaceTerminologyProvider terminology={{ mgo: "Admin" }}><MyProspects /></WorkspaceTerminologyProvider>);
+  expect(screen.getByText(/workspace in read-only mode/)).toBeVisible();
   expect(screen.queryByRole("button", { name: "Add Prospect" })).not.toBeInTheDocument();
 });

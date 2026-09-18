@@ -31,6 +31,7 @@ import { PortfolioContactRefreshProvider } from "@/components/PortfolioContactDe
 
 import NextStepFields from "@/components/NextStepFields";
 import WorkflowNotice from "@/components/WorkflowNotice";
+import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import useUnsavedChangesWarning from "@/utils/useUnsavedChangesWarning";
 import useProspectPledgeStatus from "@/utils/useProspectPledgeStatus";
 import { buildPortfolioSignals, portfolioViewKey } from "@/utils/portfolioWorklist";
@@ -1105,6 +1106,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
 }
 
 export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName, returnLabel = "Back to Top Prospects" }) {
+  const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -1305,7 +1307,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
       const response = await fetch("/api/users/mgos");
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load MGO users");
+        throw new Error(payload?.error || "Failed to load workspace users");
       }
       return payload;
     },
@@ -3610,7 +3612,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                       lineHeight: 1.6,
                     }}
                   >
-                    This prospect is open in read-only mode while you are viewing another MGO's dashboard.
+                    This prospect is open in read-only mode while you are viewing another {fundraiserLabel}'s dashboard.
                   </p>
                 </div>
               )}
@@ -4519,7 +4521,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
                   gap: "12px",
                   marginBottom: "12px",
                 }}
@@ -4651,7 +4653,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
                   gap: "12px",
                   marginBottom: "12px",
                 }}
@@ -4772,7 +4774,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                       marginBottom: "4px",
                     }}
                   >
-                    Primary fundraiser
+                    Primary {fundraiserLabel}
                   </label>
                   <div
                     style={{
@@ -4791,6 +4793,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                 </div>
                 <div>
                   <label
+                    htmlFor="prospect-additional-fundraiser"
                     style={{
                       display: "block",
                       fontSize: "13px",
@@ -4799,9 +4802,10 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                       marginBottom: "4px",
                     }}
                   >
-                    Additional fundraiser
+                    Additional {fundraiserLabel}
                   </label>
                   <select
+                    id="prospect-additional-fundraiser"
                     value={actionAdditionalFundraiserUserId}
                     onChange={(e) => setActionAdditionalFundraiserUserId(e.target.value)}
                     style={{
@@ -4814,7 +4818,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                       backgroundColor: "white",
                     }}
                   >
-                    <option value="">No additional fundraiser</option>
+                    <option value="">No additional {fundraiserLabel}</option>
                     {mgoUsers
                       .filter((option) => String(option.id) !== String(prospect.user_id))
                       .map((option) => (
@@ -4840,7 +4844,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
                 }}
               >
                 {linkedBlackbaudConstituentId
-                  ? "This action will be logged in the app, sent to NXT, marked completed, and assigned to the current dashboard owner. You can add one additional fundraiser if another MGO was involved."
+                  ? `This action will be logged in the app, sent to NXT, marked completed, and assigned to the current dashboard owner. You can add one additional ${fundraiserLabel} if someone else was involved.`
                   : "This action will be saved in the app only because this prospect is not linked to Blackbaud."}
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
@@ -5686,6 +5690,8 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
 }
 
 export default function MyTopProspectsPage() {
+  const labels = useWorkspaceLabels();
+  const fundraiserLabel = labels.mgo;
   const { data: user, loading } = useUser();
   const queryClient = useQueryClient();
   const [workspaceSwitchMessage, setWorkspaceSwitchMessage] = useState("");
@@ -5749,7 +5755,7 @@ export default function MyTopProspectsPage() {
       const response = await fetch("/api/users/mgos");
       const payload = await response.json().catch(() => []);
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load MGO users");
+        throw new Error(payload?.error || "Failed to load workspace users");
       }
       return Array.isArray(payload) ? payload : [];
     },
@@ -6382,7 +6388,7 @@ export default function MyTopProspectsPage() {
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(
-          data?.error || "Failed to remove your solicitor assignment in NXT.",
+          data?.error || "Failed to remove your assignment in NXT.",
         );
       }
 
@@ -6391,7 +6397,7 @@ export default function MyTopProspectsPage() {
     onSuccess: async ({ data, person }) => {
       setPortfolioSyncMessage(
         data?.message ||
-          `${person?.name || "This constituent"} was removed from your active solicitor assignments in NXT.`,
+          `${person?.name || "This constituent"} was removed from your active assignments in NXT.`,
       );
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ["blackbaud-portfolio"] }),
@@ -6405,7 +6411,7 @@ export default function MyTopProspectsPage() {
       setPortfolioSyncError(
         error instanceof Error
           ? error.message
-          : "Failed to remove your solicitor assignment in NXT.",
+          : "Failed to remove your assignment in NXT.",
       );
     },
     onSettled: () => {
@@ -6766,7 +6772,7 @@ export default function MyTopProspectsPage() {
 
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
-        `Remove yourself as solicitor for ${person.name || "this constituent"}? This will change your active NXT solicitor assignment to Former Solicitor and set today's date as the end date.`,
+        `Remove yourself as ${fundraiserLabel} for ${person.name || "this constituent"}? This will change your active NXT assignment to Former Solicitor and set today's date as the end date.`,
       );
       if (!confirmed) return;
     }
@@ -7092,7 +7098,7 @@ export default function MyTopProspectsPage() {
               flexWrap: "wrap",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", minWidth: 0 }}>
               <a
                 href="/"
                 aria-label="Return to home"
@@ -7116,7 +7122,7 @@ export default function MyTopProspectsPage() {
                 <ArrowLeft size={18} color="#374151" />
                 Return to home
               </a>
-              <div>
+              <div style={{ minWidth: 0, maxWidth: "100%", overflowWrap: "anywhere" }}>
                 <h1
                   style={{
                     fontSize: "18px",
@@ -7138,6 +7144,9 @@ export default function MyTopProspectsPage() {
                       style={{
                         display: "flex",
                         alignItems: "center",
+                        flexWrap: "wrap",
+                        minWidth: 0,
+                        maxWidth: "100%",
                         gap: "8px",
                         fontSize: "12px",
                         color: "#4B5563",
@@ -7150,6 +7159,8 @@ export default function MyTopProspectsPage() {
                         onChange={(event) => handleActingWorkspaceChange(event.target.value)}
                         style={{
                           padding: "8px 10px",
+                          minWidth: 0,
+                          maxWidth: "100%",
                           borderRadius: "8px",
                           border: "1px solid #D1D5DB",
                           backgroundColor: "white",
@@ -7169,7 +7180,7 @@ export default function MyTopProspectsPage() {
                             <option key={mgo.id} value={mgo.id}>
                               {mgo.name}
                               {getWorkspaceRoleLabel(mgo.role) === "Executive"
-                                ? " (Executive)"
+                                ? ` (${labels.executive})`
                                 : ""}
                             </option>
                           ))}
@@ -7241,11 +7252,11 @@ export default function MyTopProspectsPage() {
                 alignItems: "center",
               }}
             >
-              <div style={{ fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
+              <div style={{ minWidth: 0, overflowWrap: "anywhere", fontSize: "14px", color: "#155E75", lineHeight: 1.5 }}>
                 {isExecutiveReadOnly ? (
                   <>You are viewing <strong>{profileStatus.actingAsUser.name}'s</strong> workspace in read-only mode.</>
                 ) : (
-                  <>Editing <strong>{profileStatus.actingAsUser.name}'s</strong> MGO workspace as Admin. Actions credit this MGO and record you as the person who entered them.</>
+                  <>Editing <strong>{profileStatus.actingAsUser.name}'s</strong> {fundraiserLabel} workspace as Admin. Actions credit the workspace owner and record you as the person who entered them.</>
                 )}
               </div>
               <button
@@ -7388,12 +7399,12 @@ export default function MyTopProspectsPage() {
                 <div style={{ fontSize: "18px", fontWeight: "700", color: "#111827" }}>
                   {isLocalPortfolioFallback
                     ? "Last locally synced Top Prospects"
-                    : "Current NXT fundraiser assignments"}
+                    : `Current NXT ${fundraiserLabel} assignments`}
                 </div>
                 <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
                   {isLocalPortfolioFallback
-                    ? "A live NXT assignment refresh is temporarily unavailable. This safe fallback uses your locally saved Top Prospects and does not confirm current NXT solicitor roles."
-                    : "Pulled from Raiser's Edge NXT by your fundraiser assignment role. Browse one list, or organize by solicitor role or your categories."}
+                    ? "A live NXT assignment refresh is temporarily unavailable. This safe fallback uses your locally saved Top Prospects and does not confirm current NXT assignment roles."
+                    : `Pulled from Raiser's Edge NXT by your ${fundraiserLabel} assignment role. Browse one list, or organize by NXT assignment role or your categories.`}
                 </div>
               </div>
               <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>

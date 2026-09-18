@@ -4,6 +4,7 @@ import { fireEvent } from "@testing-library/dom";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AppShell from "./AppShell";
+import { useWorkspaceLabels } from "./WorkspaceTerminology";
 
 const state = vi.hoisted(() => ({
   organization: null,
@@ -55,6 +56,10 @@ function LocationProbe() {
   return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
+function PageLabelProbe() {
+  return <output data-testid="page-label">{useWorkspaceLabels().mgo}</output>;
+}
+
 let container;
 let root;
 
@@ -80,6 +85,7 @@ async function renderShell(pathname = "/submissions") {
         <AppShell>
           <main>Queue content</main>
           <LocationProbe />
+          <PageLabelProbe />
         </AppShell>
       </MemoryRouter>,
     );
@@ -107,9 +113,17 @@ describe("AppShell", () => {
     await renderShell();
     expect(container.querySelector('a[aria-label="Advancement Hub home"]')).toHaveAttribute('title','Example College');
     expect(container.textContent).toContain('ECAdvancement HubData Services');
+    expect(container.querySelector('[data-testid="page-label"]')).toHaveTextContent('Gift Officer');
     await act(async () => { fireEvent.click(container.querySelector('[aria-label="Open account menu"]')); });
     expect(container.querySelector('[aria-label="Account menu"]')).toHaveTextContent('Admin · Data Services view');
     expect(container.querySelector('[aria-label="Account menu"]')).toHaveTextContent('Gift Officer');
+  });
+  it("keeps page labels and shell labels in sync when saved settings change", async () => {
+    await renderShell();
+    expect(container.querySelector('[data-testid="page-label"]')).toHaveTextContent('MGO');
+    state.organization = { terminology: { mgo: 'Fundraiser' } };
+    await renderShell();
+    expect(container.querySelector('[data-testid="page-label"]')).toHaveTextContent('Fundraiser');
   });
   it("provides persistent breadcrumbs, role-aware navigation, and queue badges", async () => {
     await renderShell();

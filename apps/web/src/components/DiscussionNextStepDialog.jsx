@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import NextStepFields from "./NextStepFields";
 import WorkflowNotice from "./WorkflowNotice";
+import { useWorkspaceLabels } from "./WorkspaceTerminology";
 import { nextStepDay, formatNextStepDate } from "@/utils/nextStepWorklist";
 
 const buttonClass = "min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50";
 const fieldClass = "min-h-11 min-w-0 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-base font-normal";
 
 export default function DiscussionNextStepDialog({ item, viewerId, workspaceId, onClose, onSaved }) {
+  const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const dialogRef = useRef(null);
   const inFlight = useRef(false);
   const initialDraft = useRef(null);
@@ -93,7 +95,7 @@ export default function DiscussionNextStepDialog({ item, viewerId, workspaceId, 
               {!query.data.owners.length && <option value="">No eligible owners</option>}
               {query.data.owners.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}
             </select></label>
-          <p className="text-xs text-gray-600">Only owners whose workspace you may edit and who already have access to this discussion are listed. Admins can assign to participating MGOs; other users create their own follow-ups.</p>
+          <p className="break-words text-xs text-gray-600">Only owners whose workspace you may edit and who already have access to this discussion are listed. Admins can assign a participating {fundraiserLabel} as the owner; other users create their own follow-ups.</p>
           <label className="grid min-w-0 gap-2 text-sm font-semibold">Constituent topic
             <select className={fieldClass} required value={draft.topicKey} onChange={event => change("topicKey", event.target.value)}>
               <option value="">Choose one topic</option>

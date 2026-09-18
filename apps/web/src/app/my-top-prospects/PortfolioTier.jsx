@@ -5,6 +5,7 @@ import { PortfolioCard } from "@/components/PortfolioWorklist";
 import PortfolioContactDetails from "@/components/PortfolioContactDetails";
 import PortfolioActivityDetails from "@/components/PortfolioActivityDetails";
 import ActivePledgeNotice from "@/components/ActivePledgeNotice";
+import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import { mergeSavedPortfolioContacts } from "@/utils/portfolioContacts";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { AnnualGivingSocietyBadge, CurrentFiscalYearGiving, formatBlackbaudCurrency } from "./ProspectGiving";
@@ -43,6 +44,7 @@ export default function PortfolioTier({
   totalCount = items.length,
   emptyMessage = "No current constituents in this tier right now.",
 }) {
+  const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const { expandedSummaries, summaryStates, loadSummary, toggleSummary } = usePortfolioSummary({ allowNxtSummary });
   const hasLifetimeGiving = (person) =>
     person?.lifetimeGiving?.totalGiving !== null &&
@@ -182,7 +184,7 @@ export default function PortfolioTier({
                   ) : null}
                   {portfolioCategory ? (
                     <span
-                      title="MGO portfolio category"
+                      title={`${fundraiserLabel} portfolio category`}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -511,7 +513,7 @@ export default function PortfolioTier({
                         >
                           {isRemovingThisSolicitorAssignment
                             ? "Removing..."
-                            : "Remove me as solicitor"}
+                            : `Remove me as ${fundraiserLabel}`}
                         </button>
                       ) : null}
                     </>

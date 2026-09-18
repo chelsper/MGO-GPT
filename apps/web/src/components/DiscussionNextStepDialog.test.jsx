@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DiscussionNextStepDialog from "./DiscussionNextStepDialog";
+import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
 
 let client, context, respond, onSaved, onClose;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -21,6 +22,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mount = () => render(<QueryClientProvider client={client}><DiscussionNextStepDialog item={{ id: 9 }} viewerId={2} workspaceId={7} onClose={onClose} onSaved={onSaved} /></QueryClientProvider>);
 const ready = () => screen.findByLabelText("What should happen next?");
+
+it("uses configured guidance without changing owner identity, eligibility, or request count", async () => {
+  render(<QueryClientProvider client={client}><WorkspaceTerminologyProvider terminology={{ mgo: "Relationship Manager" }}>
+    <DiscussionNextStepDialog item={{ id: 9 }} viewerId={2} workspaceId={7} onClose={onClose} onSaved={onSaved} />
+  </WorkspaceTerminologyProvider></QueryClientProvider>);
+  await ready();
+  expect(screen.getByText(/Admins can assign a participating Relationship Manager as the owner/)).toBeVisible();
+  expect(screen.getByLabelText("Responsible owner")).toHaveValue("7");
+  expect(screen.getByRole("option", { name: "Selected MGO" })).toHaveValue("7");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Create additional next step" }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+  expect(JSON.parse(writes()[0][1].body).ownerId).toBe("7");
+});
 
 it("prefills saved discussion data without writing or fetching NXT", async () => {
   mount();

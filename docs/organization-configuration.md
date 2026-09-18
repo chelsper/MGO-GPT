@@ -11,7 +11,7 @@ customization work.
 
 | Source | Active consumers and boundaries |
 | --- | --- |
-| Institution profile application name, short name, terminology | Shared AppShell header, navigation drawer, account role labels, and view-switch labels. Permission role keys stay unchanged. Other page copy, document titles, exports, and legacy forms are not universally relabeled. |
+| Institution profile application name, short name, terminology | Shared AppShell header, navigation drawer, account role labels, and view-switch labels. My Prospects and Follow-ups also reuse configured fundraiser terminology as described below. Permission role keys stay unchanged. Other page copy, document titles, exports, and legacy forms are not universally relabeled. |
 | Notification inbox and sender display name | Existing email consumers are preserved. Verified sender address and authentication policy remain environment-controlled. Documented email domains do not change sign-in access. |
 | Release-managed reporting policy | Shared default profile values, standings period construction, pledge query ID/type/system-ID header validation, and saved active-pledge display constants. July 1, Eastern time, USD, Gift query 12033, QRECID remain unchanged. |
 | Stored timezone, fiscal start, currency, date format | Retained as previous preferences, visibly disabled in the profile form. Server rejects changes. Active reporting rules are shown separately; saving branding does not activate these preferences. |
@@ -31,6 +31,30 @@ Source map:
 - [Settings UI](../apps/web/src/app/organization-configurations/page.jsx)
 - [Standings periods](../apps/web/src/utils/standingsPeriods.js)
 - [Pledge query boundary](../apps/web/src/app/api/utils/pledgeQuerySource.js)
+
+### Workflow Terminology
+
+September 18 implementation. Local verification is recorded below; production
+releases are verified separately against the exact release commit.
+
+My Prospects and Follow-ups use `WorkspaceTerminologyProvider`, populated by the
+shell's existing settings query. Workspace banners, portfolio headings/category
+tooltips, action-credit labels, assignment-removal copy, and discussion follow-up
+guidance use the configured fundraiser label. Defaults remain MGO for this
+installation; there is no settings migration or automatic rename. Standalone
+components and unavailable settings use the existing role-label defaults.
+
+This presentation context makes no requests and does not remount drafts when labels
+change. Role IDs, owner/fundraiser IDs, permissions, write payloads, cache keys,
+and NXT taxonomy values remain unchanged. Lead Solicitor, Secondary / Athletics
+Solicitor, and Former Solicitor still describe the actual NXT assignment roles;
+action Category and Type values are not relabeled. Person names are never
+rewritten. No automatic pluralization is attempted for custom titles.
+
+This is a bounded first pass, not universal relabeling. Reporting/export headings,
+other legacy pages, server error text, and app branding inside legacy forms remain
+separate follow-on work. No NXT calls, activity queue changes, or rollout expansion
+are introduced.
 
 ## Safe Saves And History
 
@@ -88,6 +112,17 @@ this phase does not deliver staging, CI, a migration runner, or a restore system
 Family Import remains deferred.
 
 ## Verification And Release
+
+September 18 terminology pass: 2,966 tests in 263 files, typecheck, production
+build, release worktree guard, and whitespace checks passed. The tests cover
+configured labels, default fallback, preserved drafts, unchanged permission and
+attribution IDs, real NXT assignment names, and no extra settings/NXT requests.
+Actual components with synthetic data and built CSS were checked at 1280px and
+390px, including long job titles, expanded portfolio cards, action entry, and
+discussion follow-up dialogs. The mobile workspace header now wraps without
+horizontal overflow. No production settings or NXT records were changed, and the
+overnight activity pilot scope is unchanged. Production deployment requires the
+separate exact-SHA and signed-in smoke checks described below.
 
 September 17 local verification: 2,685 tests in 240 files, typecheck, production
 build, release worktree guard, and whitespace checks passed.

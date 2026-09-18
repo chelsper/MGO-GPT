@@ -4,11 +4,13 @@ import { ACTION_CATEGORIES, INTERACTION_TYPES, validActionDate, validNextStepAct
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { formatNextStepDate } from "@/utils/nextStepWorklist";
 import WorkflowNotice, { actionNoticeKind } from "./WorkflowNotice";
+import { useWorkspaceLabels } from "./WorkspaceTerminology";
 
 const fieldClass = "min-h-11 min-w-0 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-base font-normal text-gray-900";
 const buttonClass = "min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function NextStepActionDialog({ item, viewerId, workspaceId, onClose, onSaved }) {
+  const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const dialogRef = useRef(null);
   const inFlight = useRef(false);
   const initialDraft = useRef(null);
@@ -149,7 +151,7 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
         {task.status !== "Open" ? "This next step is no longer open. Close this dialog and reload the saved list."
           : "This next step does not have a single confirmed NXT constituent link. Review its prospect link before logging an action."}
       </p> : draft && !query.isError && <form onSubmit={submit} className="mt-4 grid gap-4">
-        <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">Credit: <strong>{query.data.workspace.name}</strong>. Entered by {query.data.viewer.name}.
+        <p className="break-words rounded-xl bg-blue-50 p-3 text-sm text-blue-900">{fundraiserLabel} credit: <strong>{query.data.workspace.name}</strong>. Entered by {query.data.viewer.name}.
           {" "}Choose whether you are planning work or recording something that already happened.</p>
         {task.opportunityTitle && <p className="text-sm text-gray-600">Opportunity: {task.opportunityTitle}{task.willLinkOpportunity ? " (will be linked in NXT)" : " (local reference only; no NXT link)"}.</p>}
         <fieldset disabled={busy || attempted} className="grid min-w-0 gap-4">

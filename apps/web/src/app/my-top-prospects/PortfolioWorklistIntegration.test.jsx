@@ -28,6 +28,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
 }));
 import MyProspects from "./page";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 beforeEach(() => {
   localStorage.clear();
@@ -89,6 +90,22 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
+});
+
+it("uses configured portfolio labels without renaming NXT roles or adding requests", () => {
+  vi.spyOn(window, "confirm").mockReturnValue(false);
+  state.data["portfolio-categories"] = { categories: [], assignments: [] };
+  render(<WorkspaceTerminologyProvider terminology={{ mgo: "Gift Officer" }}><MyProspects /></WorkspaceTerminologyProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByText("Current NXT Gift Officer assignments")).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "solicitor" } });
+  expect(screen.getAllByText("Lead Solicitor").some(node => node.tagName !== "OPTION")).toBe(true);
+  expect(screen.getAllByText("Secondary / Athletics Solicitor").some(node => node.tagName !== "OPTION")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Show details for Zelda Donor" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove me as Gift Officer" }));
+  expect(window.confirm).toHaveBeenCalledWith("Remove yourself as Gift Officer for Zelda Donor? This will change your active NXT assignment to Former Solicitor and set today's date as the end date.");
+  expect(fetch).not.toHaveBeenCalled();
+  vi.restoreAllMocks();
 });
 
 it("returns from prospect details to the same filtered Top Prospects list and workspace", () => {

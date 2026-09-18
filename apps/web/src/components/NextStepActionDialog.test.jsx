@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NextStepActionDialog from "./NextStepActionDialog";
+import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
 
 let client, context, respond, onSaved, onClose;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -23,6 +24,20 @@ const choose = async () => {
   fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Meeting" } });
   fireEvent.click(screen.getByRole("checkbox"));
 };
+
+it("uses the configured credit label without changing action attribution or category values", async () => {
+  render(<QueryClientProvider client={client}><WorkspaceTerminologyProvider terminology={{ mgo: "Major Gift Officer" }}>
+    <NextStepActionDialog item={{ id: 40 }} viewerId={2} workspaceId={7} onClose={onClose} onSaved={onSaved} />
+  </WorkspaceTerminologyProvider></QueryClientProvider>);
+  await choose();
+  expect(screen.getByText(/Major Gift Officer credit:/)).toHaveTextContent("Selected MGO. Entered by Admin Author.");
+  expect(screen.getByLabelText("Category")).toHaveValue("Meeting");
+  expect(screen.getByLabelText("Action type")).toHaveValue("Stewardship");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Log completed action and complete next step" }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+  expect(JSON.parse(writes()[0][1].body).expectedWorkspaceId).toBe(7);
+});
 
 it("prefills saved notes and stewardship type, but requires category and does not write on open", async () => {
   mount();

@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ListTodo, MessageSquare } from "lucide-react";
 import useUser from "@/utils/useUser";
 import NextStepsWorklist from "@/components/NextStepsWorklist";
+import { useWorkspaceLabels } from "./WorkspaceTerminology";
+import { isMgoRole } from "@/utils/workspaceRoles";
 
 const TeamDiscussionView = lazy(() => import("@/components/TeamDiscussionView"));
 
@@ -16,6 +18,7 @@ export function followUpTab(location) {
 }
 
 export default function FollowUpsWorkspace() {
+  const { mgo: fundraiserLabel } = useWorkspaceLabels();
   const { data: user, loading } = useUser();
   const [tab, setTab] = useState("next-steps");
   const [visited, setVisited] = useState(() => new Set());
@@ -58,7 +61,7 @@ export default function FollowUpsWorkspace() {
     <header>
       <h1 className="text-3xl font-bold text-gray-900">Follow-ups &amp; Discussion</h1>
       <p className="mt-2 text-base text-gray-600">Your follow-ups and team conversations, in one place.</p>
-      {workspace && <p className="mt-3 text-sm text-gray-700">Workspace: <strong>{workspace.name || "My workspace"}</strong>{profile.data.actingAsUser ? " (selected workspace)" : ""}</p>}
+      {workspace && <p className="mt-3 break-words text-sm text-gray-700">{isMgoRole(workspace.role) ? `${fundraiserLabel} workspace` : "Workspace"}: <strong>{workspace.name || "My workspace"}</strong>{profile.data.actingAsUser ? " (selected workspace)" : ""}</p>}
     </header>
     <div role="tablist" aria-label="Follow-up type" className="flex flex-wrap gap-2 border-b border-gray-200 pb-4">
       {[{ value: "next-steps", label: "Next Steps", Icon: ListTodo }, { value: "discussion", label: "Team Discussion", Icon: MessageSquare }].map(({ value, label, Icon }) => (

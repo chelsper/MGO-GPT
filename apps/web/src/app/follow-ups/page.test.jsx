@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import FollowUpsPage from "./page";
 import { followUpTab } from "@/components/FollowUpsWorkspace";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 const user = vi.hoisted(() => ({ id: 2, name: "Admin", role: "admin" }));
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: user, loading: false }) }));
@@ -42,6 +43,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); client?.clear(); delete HTMLElement.prototype.scrollIntoView; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mount = () => render(<QueryClientProvider client={client}><FollowUpsPage /></QueryClientProvider>);
 const firstRow = () => screen.getByRole("article", { name: "Portfolio Person: Prepare visit" });
+
+it("reuses configured workspace terminology without fetching settings or losing edits", async () => {
+  const page = label => <QueryClientProvider client={client}><WorkspaceTerminologyProvider terminology={{ mgo: label }}><FollowUpsPage /></WorkspaceTerminologyProvider></QueryClientProvider>;
+  const view = render(page("Fundraiser"));
+  await screen.findByText("Prepare visit");
+  expect(screen.getByText(/Fundraiser workspace:/)).toBeVisible();
+  fireEvent.click(within(firstRow()).getByText("Details", { exact: true }));
+  fireEvent.click(within(firstRow()).getByRole("button", { name: "Edit next step" }));
+  fireEvent.change(screen.getByLabelText("What should happen next?"), { target: { value: "Keep this draft" } });
+  view.rerender(page("Senior Major Gift Officer"));
+  expect(screen.getByText(/Senior Major Gift Officer workspace:/)).toBeVisible();
+  expect(screen.getByLabelText("What should happen next?")).toHaveValue("Keep this draft");
+  expect(callsTo("/api/users/profile")).toHaveLength(1);
+  expect(callsTo("/api/follow-ups")).toHaveLength(1);
+  expect(fetch.mock.calls).toHaveLength(2);
+});
 
 it("loads saved next steps first and fetches discussions only when that tab is opened", async () => {
   mount();

@@ -9,6 +9,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProspectDetailModal } from "./page";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 let client;
 beforeEach(() => {
@@ -33,6 +34,8 @@ function renderDetail({
   funded = false,
   linkedAction = false,
   readOnly = false,
+  terminology,
+  initialPanel,
 } = {}) {
   const now = new Date().toISOString();
   client = new QueryClient({
@@ -92,14 +95,31 @@ function renderDetail({
   });
   return render(
     <QueryClientProvider client={client}>
+      <WorkspaceTerminologyProvider terminology={terminology}>
       <ProspectDetailModal
         prospectId={1}
+        initialPanel={initialPanel}
         readOnly={readOnly}
         onClose={vi.fn()}
       />
+      </WorkspaceTerminologyProvider>
     </QueryClientProvider>,
   );
 }
+
+it("uses configured action labels without replacing names or refetching when labels change", () => {
+  const view = renderDetail({ terminology: { mgo: "Fundraiser" }, initialPanel: "action" });
+  expect(screen.getByText("Primary Fundraiser")).toBeVisible();
+  expect(screen.getByLabelText("Additional Fundraiser")).toHaveValue("");
+  expect(screen.getByRole("option", { name: "No additional Fundraiser" })).toHaveValue("");
+  fireEvent.change(screen.getByPlaceholderText("What happened?"), { target: { value: "Keep this action draft" } });
+  view.rerender(<QueryClientProvider client={client}><WorkspaceTerminologyProvider terminology={{ mgo: "Gift Officer" }}>
+    <ProspectDetailModal prospectId={1} initialPanel="action" onClose={vi.fn()} />
+  </WorkspaceTerminologyProvider></QueryClientProvider>);
+  expect(screen.getByLabelText("Additional Gift Officer")).toHaveValue("");
+  expect(screen.getByPlaceholderText("What happened?")).toHaveValue("Keep this action draft");
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 it("uses the unchanged opportunity editor and retains a failed draft", async () => {
   renderDetail();

@@ -31,6 +31,7 @@ import {
   isNavigationItemActive,
 } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 import styles from "./AppShell.module.css";
 
 const PUBLIC_ROUTE_PREFIXES = ["/account/", "/forgot-password", "/reset-password"];
@@ -291,6 +292,7 @@ export default function AppShell({ children }) {
     : getWorkspaceRoleLabel(profile?.role, labels) || workspaceLabel;
 
   return (
+    <WorkspaceTerminologyProvider terminology={labels}>
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
@@ -516,5 +518,6 @@ export default function AppShell({ children }) {
       <Breadcrumbs pathname={pathname} canManageWorkspace={canManageWorkspace} />
       <div className={styles.pageContent}>{children}</div>
     </div>
+    </WorkspaceTerminologyProvider>
   );
 }
