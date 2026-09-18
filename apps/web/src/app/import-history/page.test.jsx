@@ -6,10 +6,28 @@ const record = { key: 'constituency-1', source: 'constituency', name: 'Example P
 const payload = (overrides = {}) => ({ counts: { successful: 51, failed: 2 }, records: [record], page: 1, pageSize: 50, hasMore: true, ...overrides });
 const response = (body, ok = true) => ({ ok, json: async () => body });
 beforeEach(() => vi.stubGlobal('fetch', vi.fn(async () => response(payload()))));
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({}, '', '/'); });
 const ready = () => waitFor(() => expect(screen.getByRole('button', { name: 'Refresh history' })).toBeEnabled());
 
 describe('Import History', () => {
+  it('returns to the originating saved batch and row without starting an import', async () => {
+    window.history.replaceState({}, '', `/import-history?${new URLSearchParams({ returnTo: '/constituency-import?queueRun=42&queueRow=9' })}`);
+    render(<ImportHistoryPage />);
+    await ready();
+    expect(screen.getByRole('link', { name: 'Back to Import Batch #42' })).toHaveAttribute('href', '/constituency-import?queueRun=42&queueRow=9');
+    expect(fetch.mock.calls.every(([url, options]) => url.startsWith('/api/import-history?') && !options.method)).toBe(true);
+  });
+  it('offers the import workspace when there is no originating batch', async () => {
+    render(<ImportHistoryPage />);
+    await ready();
+    expect(screen.getByRole('link', { name: 'Back to Constituency Import' })).toHaveAttribute('href', '/constituency-import');
+  });
+  it('does not follow an external destination or return to itself', async () => {
+    window.history.replaceState({}, '', '/import-history?returnTo=%2Fimport-history');
+    render(<ImportHistoryPage />);
+    await ready();
+    expect(screen.getByRole('link', { name: 'Back to Constituency Import' })).toHaveAttribute('href', '/constituency-import');
+  });
   it('shows successes with no approval, retry, or write controls', async () => {
     render(<ImportHistoryPage />);
     await ready();

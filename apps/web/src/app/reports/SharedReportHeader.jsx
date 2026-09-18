@@ -26,23 +26,28 @@ function SharedReportHeaderContent({
           marginBottom: "24px",
         }}
       >
-        <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
           <a
             href={backHref}
             aria-label={backLabel}
             style={{
-              width: "42px",
-              height: "42px",
+              minHeight: "44px",
               borderRadius: "12px",
               border: "1px solid #E2E8F0",
-              display: "grid",
-              placeItems: "center",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "8px 12px",
+              marginBottom: "12px",
+              fontSize: "14px",
+              fontWeight: 700,
+              textDecoration: "none",
               backgroundColor: "white",
               color: "#334155",
               flexShrink: 0,
             }}
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={18} aria-hidden="true" />{backLabel}
           </a>
           <div>
             {eyebrow ? (

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, FileText, RefreshCw } from 'lucide-react';
+import { CheckCircle2, FileText, RefreshCw } from 'lucide-react';
+import WorkflowReturnLink from '@/components/WorkflowReturnLink';
+import { getImportReturnPath } from '@/utils/workflowNavigation';
 import styles from './page.module.css';
 
 const TABS = [['successful', 'Successfully Imported Records'], ['failed', 'Failed Imports']];
@@ -13,6 +15,11 @@ const dateLabel = (value) => {
 };
 
 export default function ImportHistoryPage() {
+  const [returnPath, setReturnPath] = useState('/constituency-import');
+  useEffect(() => {
+    const destination = getImportReturnPath(new URLSearchParams(window.location.search).get('returnTo'), '/constituency-import');
+    setReturnPath(destination.split('?')[0] === '/constituency-import' ? destination : '/constituency-import');
+  }, []);
   const [outcome, setOutcome] = useState('successful');
   const [type, setType] = useState('all');
   const [search, setSearch] = useState('');
@@ -45,7 +52,7 @@ export default function ImportHistoryPage() {
   const { loading, data, error } = state;
   const total = data?.counts[outcome];
   return <main className={styles.page}>
-    <a className={styles.back} href="/"><ArrowLeft size={16} aria-hidden="true" />Back to dashboard</a>
+    <WorkflowReturnLink className={styles.back} href={returnPath} />
     <header className={styles.heading}>
       <div><p className={styles.eyebrow}>Imports</p><h1>Import History</h1>
         <p>Saved import results, separate from the Work Queue.</p></div>

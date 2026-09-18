@@ -1,10 +1,13 @@
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
+import { buildImportBatchHref } from "@/utils/workflowNavigation";
 
-export default function ImportLocalDuplicateNotice({ duplicate }) {
+export default function ImportLocalDuplicateNotice({ duplicate, sourceRunId, sourceRowId }) {
   if (!duplicate) return null;
   const pending = duplicate.kind === "pending_row";
   const created = duplicate.kind === "created";
-  const canOpenImport = /^[1-9]\d*$/.test(String(duplicate.runId || "")) && /^[1-9]\d*$/.test(String(duplicate.rowId || ""));
+  const canOpenImport = /^[1-9]\d{0,17}$/.test(String(duplicate.runId || "")) && /^[1-9]\d{0,17}$/.test(String(duplicate.rowId || ""));
+  const returnParams = sourceRunId ? new URLSearchParams({ returnTo: buildImportBatchHref(sourceRunId, sourceRowId) }) : null;
+  const comparisonHref = `${buildImportBatchHref(duplicate.runId, duplicate.rowId)}${returnParams ? `&${returnParams}` : ""}`;
   return <aside aria-label="Import history conflict" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
     <h4 className="font-bold">{pending ? "Another CSV row needs comparison" : created ? "An earlier import created a record" : "An earlier creation needs verification"}</h4>
     <p className="font-semibold">{duplicate.name}</p>
@@ -17,7 +20,7 @@ export default function ImportLocalDuplicateNotice({ duplicate }) {
         ? "Open the NXT record and compare it with this CSV row. Search indexing can lag after creation. Do not create a second record or select this one without comparing its current identity."
         : "A create request may already have reached NXT. Verify the earlier attempt before retrying. Skipping its row does not make another creation safe."}</p>
     <div className="flex flex-wrap gap-3">
-      {canOpenImport && <a className="font-bold underline" target="_blank" rel="noopener noreferrer" href={`/constituency-import?queueRun=${encodeURIComponent(duplicate.runId)}&queueRow=${encodeURIComponent(duplicate.rowId)}`}>Review blocking import row</a>}
+      {canOpenImport && <a className="font-bold underline" target="_blank" rel="noopener noreferrer" href={comparisonHref}>Review blocking import row</a>}
       {duplicate.createdConstituentId && <a className="font-bold underline" target="_blank" rel="noopener noreferrer" href={buildBlackbaudConstituentProfileUrl(duplicate.createdConstituentId)}>Open previously created NXT record</a>}
     </div>
     <p className="text-xs">No new NXT record was created by this check. Opening these links does not select a match or change NXT.</p>

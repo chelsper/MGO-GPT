@@ -32,7 +32,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request: ${url}`);
   }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 async function openRun() {
   render(<ConstituencyImportPage />);
   fireEvent.click(await screen.findByRole("button", { name: /Run #42/ }));
@@ -40,6 +40,20 @@ async function openRun() {
 }
 
 describe("standard import completion flow", () => {
+  it("opens the exact requested saved row only after a click, preserving the no-preload handoff", async () => {
+    rows.push({ ...structuredClone(rows[0]), id: "10", rowNumber: 2, input: { firstName: "Requested", lastName: "Person" }, match: { blackbaudConstituentId: "124", name: "Requested Person" } });
+    window.history.replaceState({}, "", "/constituency-import?queueRun=42&queueRow=10");
+    render(<ConstituencyImportPage />);
+    const open = await screen.findByRole("button", { name: "Open saved row #10" });
+    expect(fetch.mock.calls.some(([url]) => url === "/api/constituency-import/runs?id=42")).toBe(false);
+    fireEvent.click(open);
+    await screen.findAllByText("Requested Person");
+    expect(screen.queryByText("Jane Dolphin")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => url.includes("/details"))).toBe(false);
+    expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
+    const results = new URL(screen.getByRole("link", { name: "Back to Import History" }).href);
+    expect(results.searchParams.get("returnTo")).toBe("/constituency-import?queueRun=42&queueRow=10");
+  });
   it("opens a held attempted row with a read-only finish control, not stale send/review forms", async () => {
     await openRun();
     expect(screen.getByText("Original import plan (history)")).toBeInTheDocument();

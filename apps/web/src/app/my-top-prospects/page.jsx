@@ -1104,7 +1104,7 @@ function CloseModal({ prospect, onClose, onSubmit, isPending }) {
   );
 }
 
-export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName }) {
+export function ProspectDetailModal({ prospectId, initialPanel, onClose: onRequestClose, readOnly = false, pledgeData, ownerName, returnLabel = "Back to Top Prospects" }) {
   const queryClient = useQueryClient();
   const [expandedTimelineId, setExpandedTimelineId] = useState(null);
   const [editingUpdateId, setEditingUpdateId] = useState(null);
@@ -1828,6 +1828,11 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
     setShowBlackbaudNarrativeSummary(true);
   }, [linkedBlackbaudConstituentId]);
 
+  const returnControl = <button type="button" onClick={onClose}
+    className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-indigo-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">
+    <ArrowLeft size={16} aria-hidden="true" />{returnLabel}
+  </button>;
+
   if (isLoading) {
     return (
       <div
@@ -1853,6 +1858,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
           onClick={(e) => e.stopPropagation()}
         >
           <p style={{ color: "#6B7280" }}>Loading...</p>
+          {returnControl}
         </div>
       </div>
     );
@@ -1906,21 +1912,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
               ? error.message
               : "The prospect details could not be loaded."}
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: "10px 16px",
-              borderRadius: "8px",
-              border: "1px solid #D1D5DB",
-              backgroundColor: "white",
-              color: "#374151",
-              fontWeight: "600",
-              cursor: "pointer",
-            }}
-          >
-            Close
-          </button>
+          {returnControl}
         </div>
       </div>
     );
@@ -3154,6 +3146,8 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             justifyContent: "space-between",
             padding: "20px 24px",
             borderBottom: "1px solid #E5E7EB",
+            gap: "12px",
+            flexWrap: "wrap",
           }}
         >
           <h2
@@ -3166,17 +3160,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
           >
             {prospect.prospect_name}
           </h2>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "4px",
-            }}
-          >
-            <X size={20} color="#6B7280" />
-          </button>
+          {returnControl}
         </div>
 
         <div style={{ padding: "24px" }}>
@@ -8765,6 +8749,7 @@ export default function MyTopProspectsPage() {
           ownerName={profileStatus?.workspaceUser?.name}
           prospectId={selectedProspectId}
           initialPanel={selectedProspectPanel}
+          returnLabel={activeWorkspaceTab === "portfolio" ? "Back to My Portfolio" : "Back to Top Prospects"}
           onClose={closeProspectWorkspace}
           readOnly={isExecutiveReadOnly}
         />

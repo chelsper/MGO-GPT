@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, MessageSquare, Mic, Trophy } from "lucide-react";
+import { MessageSquare, Mic, Trophy } from "lucide-react";
 import useUser from "@/utils/useUser";
 import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal";
 import { canEditWorkspace, canUseMgoWorkspaceRole, getWorkspaceRoleLabel } from "@/utils/workspaceRoles";
 import { ACTION_CATEGORIES, INTERACTION_TYPES } from "@/utils/actionEntryOptions";
+import WorkflowReturnLink from "@/components/WorkflowReturnLink";
+import { getSafeInternalReturnPath, getReturnDestination } from "@/utils/workflowNavigation";
 
 const UPDATE_MODES = [
   {
@@ -164,14 +166,6 @@ function getSuccessLabel(mode) {
   if (mode === "both") return "Action and opportunity update submitted successfully.";
   if (mode === "opportunity") return "Opportunity update submitted successfully.";
   return "Action update submitted successfully.";
-}
-
-function getSafeInternalReturnPath(value) {
-  const path = String(value || "").trim();
-  if (!path || !path.startsWith("/") || path.startsWith("//")) {
-    return "";
-  }
-  return path;
 }
 
 function getOpportunityDisplayStatus(opportunity = {}) {
@@ -2367,7 +2361,7 @@ export default function ActionOpportunityUpdatePage() {
             ? "Could not verify workspace permissions. Reload this page before entering an update."
             : "This workspace is read-only. Only Admins can enter updates on behalf of another MGO."}
         </p>
-        <a href={returnPath}>Return to workspace</a>
+        <WorkflowReturnLink href={returnPath} />
       </main>
     );
   }
@@ -2404,24 +2398,10 @@ export default function ActionOpportunityUpdatePage() {
             display: "flex",
             alignItems: "center",
             gap: "12px",
+            flexWrap: "wrap",
           }}
         >
-          <a
-            href={returnPath}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "36px",
-              height: "36px",
-              borderRadius: "8px",
-              backgroundColor: "#F3F4F6",
-              border: "1px solid #E5E7EB",
-              textDecoration: "none",
-            }}
-          >
-            <ArrowLeft size={18} color="#374151" />
-          </a>
+          <WorkflowReturnLink href={returnPath} />
           <h1
             style={{
               fontSize: "18px",
@@ -4563,7 +4543,7 @@ export default function ActionOpportunityUpdatePage() {
                       cursor: "pointer",
                     }}
                   >
-                    Return to previous page
+                    {getReturnDestination(returnPath).label}
                   </button>
                 </div>
               </div>

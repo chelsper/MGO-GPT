@@ -68,7 +68,7 @@ export default function ImportSuggestedMatches({ row, runId, reviewer, busy, aut
       </div>
     </article>)}
     {candidates.length > 5 && <button type="button" className="font-bold text-blue-800 underline" onClick={() => setShowAll((value) => !value)}>{showAll ? "Show strongest 5" : `Show all ${candidates.length} qualifying matches`}</button>}
-    <ImportLocalDuplicateNotice duplicate={localDuplicate} />
+    <ImportLocalDuplicateNotice duplicate={localDuplicate} sourceRunId={runId} sourceRowId={row.id} />
     {checked && !candidates.length && !selectedId && !localDuplicate && <p className="text-sm text-slate-700">{loaded?.notice || "No remaining suggested matches."} Select an existing record using search below, or use Check for duplicates to confirm and create a new constituent.</p>}
   </section>;
 }

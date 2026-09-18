@@ -5,6 +5,14 @@ afterEach(cleanup);
 const duplicate = { kind: "pending_row", rowId: "2712", runId: "88", rowNumber: 4, name: "Test Person", lookupId: "628866", reason: "matching NXT Lookup ID", sameRun: true };
 
 describe("local import conflict guidance", () => {
+  it("carries the originating batch and row into a separate comparison tab", () => {
+    render(<ImportLocalDuplicateNotice duplicate={duplicate} sourceRunId="42" sourceRowId="9" />);
+    const link = screen.getByRole("link", { name: "Review blocking import row" });
+    const url = new URL(link.href);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ queueRun: "88", queueRow: "2712", returnTo: "/constituency-import?queueRun=42&queueRow=9" });
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
   it("shows the blocking CSV row and a direct review link, not an NXT candidate", () => {
     render(<ImportLocalDuplicateNotice duplicate={duplicate} />);
     expect(screen.getByText(/Import #88 \/ CSV row 4/)).toBeInTheDocument();

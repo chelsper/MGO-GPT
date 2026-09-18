@@ -88,6 +88,32 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/");
+});
+
+it("returns from prospect details to the same filtered Top Prospects list and workspace", () => {
+  window.history.replaceState({}, "", "/my-top-prospects");
+  state.data.prospect = { prospect: state.data.prospects[0] };
+  render(<MyProspects />);
+  const search = screen.getByPlaceholderText("Search by prospect, ask type, or next action");
+  fireEvent.change(search, { target: { value: "Zelda" } });
+  fireEvent.click(screen.getByRole("button", { name: "View Prospect" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to Top Prospects" }));
+  expect(search).toHaveValue("Zelda");
+  expect(screen.getByRole("button", { name: "View Prospect" })).toBeVisible();
+  expect(screen.getByText("Editing Selected MGO's workspace")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("closes a portfolio detail deep link in place without clearing other URL context", () => {
+  window.history.replaceState({}, "", "/my-top-prospects?tab=portfolio&prospectId=1&panel=next-step&search=Zelda#portfolio");
+  state.data.prospect = { prospect: state.data.prospects[0] };
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "Back to My Portfolio" }));
+  expect(window.location.pathname + window.location.search + window.location.hash).toBe("/my-top-prospects?tab=portfolio&search=Zelda#portfolio");
+  expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toBeVisible();
+  expect(screen.getByText("Editing Selected MGO's workspace")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it("keeps healthy background progress compact on the page but exposes status-query failures", () => {

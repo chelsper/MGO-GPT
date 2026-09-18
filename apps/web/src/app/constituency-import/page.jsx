@@ -12,6 +12,7 @@ import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { addressesEquivalent } from "@/utils/contactMatching";
 import { isReviewerRole } from "@/utils/workspaceRoles";
 import QueueImportLink from "@/components/QueueImportLink";
+import ImportWorkspaceNavigation from "@/components/ImportWorkspaceNavigation";
 import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
 import QuickNewConstituentImport from "@/components/QuickNewConstituentImport";
 import { importRecoveryState } from "@/utils/quickImportWorkflow";
@@ -3572,9 +3573,9 @@ export default function ConstituencyImportPage() {
     if (importBusy) { setError("Wait for the current import operation to finish before changing files or runs."); return false; }
     return !unsavedImportDraft || window.confirm("Discard unsaved import edits and continue? Saved runs and NXT records will not be changed.");
   }
-  function openSavedRun(runId) {
+  function openSavedRun(runId, options) {
     if (!canReplaceImportDraft()) return;
-    return loadSavedRun(runId);
+    return loadSavedRun(runId, options);
   }
 
   const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
@@ -6260,32 +6261,18 @@ export default function ConstituencyImportPage() {
   return (
     <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 56px" }}>
       <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
+        <ImportWorkspaceNavigation runId={preview?.savedRun?.id} rowId={focusedRowId} />
         <header
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: "18px",
+            flexWrap: "wrap",
             marginBottom: "18px",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <a
-              href="/"
-              aria-label="Return to home"
-              style={{
-                width: "44px",
-                height: "44px",
-                borderRadius: "12px",
-                border: "1px solid #E5E7EB",
-                display: "grid",
-                placeItems: "center",
-                color: "#374151",
-                backgroundColor: "white",
-              }}
-            >
-              <ArrowLeft size={20} />
-            </a>
             <div>
               <h1 style={{ margin: 0, fontSize: "30px", color: "#111827" }}>
                 Constituency Import
@@ -6300,7 +6287,7 @@ export default function ConstituencyImportPage() {
           </Pill>
         </header>
 
-        <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loading={Boolean(loadingRunId)} />
+        <QueueImportLink onOpen={openSavedRun} loadedRunId={preview?.savedRun?.id} loadedRowId={focusedRowId} loading={Boolean(loadingRunId)} />
 
         <section
           style={{

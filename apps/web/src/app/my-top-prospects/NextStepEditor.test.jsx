@@ -136,6 +136,9 @@ it("keeps a Top Prospects next-step draft across panel changes and cancelled dis
   fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
   expect(screen.getByLabelText("What should happen next?")).toHaveValue("Keep my draft");
   expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Back to Top Prospects" }));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("What should happen next?")).toHaveValue("Keep my draft");
   const unload = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(unload);
   expect(unload.defaultPrevented).toBe(true);
