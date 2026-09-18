@@ -43,11 +43,58 @@ it("uses only a constituent-specific GET with a timeout and no automatic retries
   });
   expect(mocks.save).toHaveBeenCalledWith(row(), { id: "g", date: "2026-09-14", checkedAt: "2026-09-15T12:00:00.000Z" }, 99, gate);
 });
+const noGiftsError = { httpStatus: 404, blackbaudErrorCode: 404, blackbaudErrorName: "ConstituentDoesNotHaveGifts" };
+it.each([null, "2026-09-14T12:00:00Z"])("saves an explicit no-gifts response as verified empty, including after an earlier success (%s)", async checkedAt => {
+  const gift = row("gift", { checked_at: checkedAt });
+  mocks.due.mockResolvedValue([gift, row("action")]);
+  mocks.fetch.mockRejectedValueOnce(noGiftsError).mockResolvedValueOnce({ value: [], count: 0 });
+  expect(await run()).toMatchObject({ status: "complete", calls: 2, updated: 2, deferred: 0 });
+  expect(mocks.save).toHaveBeenCalledWith(gift, { id: null, date: null, checkedAt: "2026-09-15T12:00:00.000Z" }, 99, gate);
+  expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  expect(mocks.defer).not.toHaveBeenCalled();
+});
+it.each([
+  { httpStatus: 404 },
+  { httpStatus: 404, message: "The given constituent does not have any gifts." },
+  { ...noGiftsError, blackbaudErrorName: "ConstituentNotFound" },
+  { ...noGiftsError, blackbaudErrorCode: "404" },
+  { ...noGiftsError, blackbaudErrorCode: 400 },
+  { ...noGiftsError, httpStatus: 500 },
+  { ...noGiftsError, httpStatus: 403 },
+  { ...noGiftsError, httpStatus: 429 },
+])("does not clear a previous gift for an unverified or mismatched error: %j", async error => {
+  mocks.due.mockResolvedValue([row("gift", { checked_at: "2026-09-14T12:00:00Z" })]);
+  mocks.fetch.mockRejectedValue(error);
+  expect(await run()).toMatchObject({ calls: 1, updated: 0, deferred: 1 });
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(mocks.defer).toHaveBeenCalledTimes(1);
+});
+it("does not interpret the no-gifts error as an empty action response", async () => {
+  mocks.due.mockResolvedValue([row("action")]);
+  mocks.fetch.mockRejectedValue(noGiftsError);
+  expect(await run()).toMatchObject({ updated: 0, deferred: 1 });
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(mocks.defer.mock.calls[0][1].error).toBe("unverified_response");
+});
+it("does not verify no gifts after the worker loses its save lease", async () => {
+  mocks.fetch.mockRejectedValue(noGiftsError);
+  mocks.save.mockResolvedValue(false);
+  expect(await run()).toMatchObject({ reason: "lease_lost", updated: 0 });
+  expect(mocks.release).toHaveBeenCalled();
+});
 it("enforces the eight-request batch limit", async () => {
   mocks.due.mockResolvedValue(Array.from({ length: 20 }, (_, i) => row("gift", { constituent_id: String(i + 1) })));
   expect(await run()).toMatchObject({ calls: 8, status: "queued" });
   expect(mocks.fetch).toHaveBeenCalledTimes(8);
   expect(mocks.reserve).toHaveBeenCalledTimes(8);
+});
+it("counts confirmed no-gifts checks against the same request budget", async () => {
+  mocks.due.mockResolvedValue(Array.from({ length: 20 }, (_, i) => row("gift", { constituent_id: String(i + 1) })));
+  mocks.fetch.mockRejectedValue(noGiftsError);
+  expect(await run()).toMatchObject({ calls: 8, updated: 8, deferred: 0, status: "queued" });
+  expect(mocks.fetch).toHaveBeenCalledTimes(8);
+  expect(mocks.reserve).toHaveBeenCalledTimes(8);
+  expect(mocks.save).toHaveBeenCalledTimes(8);
 });
 it("saves gift amount and action summary using only the existing two requests", async () => {
   mocks.due.mockResolvedValue([row(), row("action")]);

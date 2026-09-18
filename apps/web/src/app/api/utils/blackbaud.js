@@ -358,6 +358,14 @@ async function parseBlackbaudResponse(response) {
       payload && typeof payload === "object" && !Array.isArray(payload)
         ? Object.keys(payload).sort()
         : [];
+    // Preserve one unambiguous SKY error identifier, not raw arguments or text.
+    const skyError = Array.isArray(payload) && payload.length === 1 ? payload[0] : null;
+    if (typeof skyError?.error_name === "string" &&
+        /^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(skyError.error_name) &&
+        Number.isSafeInteger(skyError.error_code)) {
+      error.blackbaudErrorName = skyError.error_name;
+      error.blackbaudErrorCode = skyError.error_code;
+    }
     throw error;
   }
 

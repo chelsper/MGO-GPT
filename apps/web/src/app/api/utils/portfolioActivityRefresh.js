@@ -44,6 +44,13 @@ export async function refreshPortfolioActivity({ workspaceIds, origin, refreshUs
         const response = await blackbaudApiFetch(activityRequestPath(row, now), {
           userId: row.workspace_user_id, authUserId: refreshUser.id, origin,
           timeoutMs: 8_000, maxRetries: 0,
+        }).catch(error => {
+          // This endpoint reports a verified absence as a named 404. Other
+          // not-found/access errors must never clear a saved gift or action.
+          if (row.kind === "gift" && error?.httpStatus === 404 &&
+              error.blackbaudErrorCode === 404 &&
+              error.blackbaudErrorName === "ConstituentDoesNotHaveGifts") return {};
+          throw error;
         });
         const result = row.kind === "gift"
           ? { data: latestGiftDate(response, now), checkedAt: now.toISOString(), scan: null }
