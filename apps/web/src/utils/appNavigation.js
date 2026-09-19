@@ -93,6 +93,7 @@ const ROUTE_LABELS = {
 };
 
 const REPORT_ROUTE_LABELS = {
+  "/reports/lists": "Lists",
   "/reports/future-made-phase-ii": "Future. Made. Phase II",
   "/reports/alumni-family-engagement": "Alumni & Family Engagement",
   "/reports/executive-team-standings": "Team Standings",
@@ -167,6 +168,7 @@ export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
     return [
       { label: "Home", href: "/" },
       { label: portfolioGivingTitle(), href: "/reports" },
+      ...(pathname.startsWith("/reports/lists/") || pathname === "/reports/future-made-phase-ii" ? [{ label: "Lists", href: "/reports/lists" }] : []),
       { label: REPORT_ROUTE_LABELS[pathname] || fallback || "Report" },
     ];
   }

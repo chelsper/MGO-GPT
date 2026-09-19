@@ -45,6 +45,7 @@ describe("report configuration API", () => {
       if (query.includes("UPDATE report_configurations")) return [dashboard];
       if (query.includes("configuration_kind = 'dashboard'"))
         return [dashboard];
+      if (query.includes("configuration_kind = 'constituent_list'")) return [];
       if (query.includes("FROM report_configurations")) return [builtin];
       if (query.includes("FROM users"))
         return [{ id: 1, role: "admin", name: "Manager" }];
@@ -85,6 +86,18 @@ describe("report configuration API", () => {
       specificUserIds: [],
       canView: false,
     });
+  });
+  it("dispatches list creation and CAS updates separately from dashboard schemas", async () => {
+    const list = { ...dashboard, report_key: "list-demo", data_configuration: { version: 1, source: "custom_field", fieldCategory: "Interests", fieldDescription: "" } };
+    mocks.sql.mockResolvedValue([list]);
+    const created = await POST(request({ configurationSchema: "constituent-list-v1", title: "Demo", dataConfiguration: list.data_configuration }));
+    expect(created.status).toBe(201);
+    expect((await created.json()).configuration).toMatchObject({ configurationSchema: "constituent-list-v1", active: false, canView: false });
+    expect(mocks.sql.mock.calls[0][0].join(" ")).toContain("'constituent_list'");
+    const updated = await PATCH(request({ reportKey: "list-demo", revision: "1", title: "New title" }));
+    expect(updated.status).toBe(200);
+    const update = mocks.sql.mock.calls.find(([parts]) => parts.join(" ").includes("UPDATE report_configurations"));
+    expect(update[0].join(" ")).toContain("updated_at::text =");
   });
   it("rejects attempts to create an already-active report", async () => {
     const response = await POST(

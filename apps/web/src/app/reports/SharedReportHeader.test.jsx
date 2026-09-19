@@ -3,6 +3,17 @@ import { cleanup, render, screen } from "@testing-library/react";
 import SharedReportHeader from "./SharedReportHeader";
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("groups legacy and configured lists under one selected Lists destination", () => {
+  render(<SharedReportHeader title="Legacy list" activeReportKey="future-made-phase-ii" accessibleReports={[
+    { key: "future-made-phase-ii", title: "Future. Made. Phase II" },
+    { key: "list-demo", title: "Example list", configurationSchema: "constituent-list-v1" },
+  ]} />);
+  expect(screen.getAllByRole("link", { name: "Lists" })).toHaveLength(1);
+  expect(screen.getByRole("link", { name: "Lists" })).toHaveAttribute("href", "/reports/lists");
+  expect(screen.getByRole("link", { name: "Lists" })).toHaveAttribute("aria-current", "page");
+  expect(screen.queryByRole("link", { name: "Future. Made. Phase II" })).not.toBeInTheDocument();
+});
+
 it("shows the report destination as visible text without loading report data", () => {
   const fetch = vi.spyOn(globalThis, "fetch");
   render(<SharedReportHeader title="Sample Report" accessibleReports={[]} />);

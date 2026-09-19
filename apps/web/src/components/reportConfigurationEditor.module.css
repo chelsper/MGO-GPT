@@ -56,6 +56,7 @@
 .footer small { display: block; margin-top: 5px; color: var(--editor-muted); }
 .panel { background: #f8fafc; border: 1px solid var(--editor-line); border-radius: 12px; padding: 18px; }
 .panel h3 { margin: 0; font-size: 17px; }
+.listTitle { margin: 8px 0; font-size: 20px; line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
 .row { padding: 16px; border: 1px solid var(--editor-line); border-radius: 10px; background: white; }
 .rowPreview { background: white; border: 1px solid var(--editor-line); padding: 16px; border-radius: 10px; }
 .rowPreview strong { color: #166534; }

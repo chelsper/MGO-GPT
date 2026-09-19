@@ -32,11 +32,12 @@ describe("report registry", () => {
     });
     expect(supportsReportDataConfiguration(alumni)).toBe(true);
     expect(futureMade).toMatchObject({
-      reportType: REPORT_TYPES.QUERY_BASED,
+      reportType: REPORT_TYPES.LIST,
       href: "/reports/future-made-phase-ii",
     });
     expect(portfolio).toMatchObject({ reportType: REPORT_TYPES.MGO_GPT, href: "/reports" });
     expect(getReportTypeDefinitions().map((definition) => definition.key)).toEqual([
+      REPORT_TYPES.LIST,
       REPORT_TYPES.QUERY_BASED,
       REPORT_TYPES.MGO_GPT,
     ]);

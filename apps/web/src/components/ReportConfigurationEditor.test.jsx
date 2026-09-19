@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { STANDARD_REPORT_DEFINITIONS, getStandardReportMetadata, getDashboardReportMetadata } from "@/app/api/utils/reportRegistry";
 import ReportConfigurationEditor, { buildReportConfigurationPatch, createReportDraft } from "./ReportConfigurationEditor";
+import { listMetadata } from "@/utils/constituentLists";
 
 vi.mock("./ReportDashboardBuilder", () => ({ default: () => <div>Dashboard panel builder</div> }));
 vi.mock("./ReportDashboardPanels", () => ({ default: () => <div>Dashboard preview</div> }));
@@ -33,6 +34,23 @@ describe("report configuration save contracts", () => {
 });
 
 describe("single-report editor", () => {
+  it("creates a disabled custom-field list without reading NXT and previews its exact criteria", async () => {
+    const saved = { ...listMetadata("list-demo"), title: "Interests", description: "", active: false, specificUserIds: [], dataConfiguration: { version: 1, source: "custom_field", fieldCategory: "Interests", fieldDescription: "" }, revision: "1" };
+    fetch.mockResolvedValue(jsonResponse({ configuration: saved }));
+    render(<ReportConfigurationEditor initialConfigurations={[]} users={users} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    fireEvent.change(screen.getByLabelText("List title"), { target: { value: "Interests" } });
+    fireEvent.change(screen.getByLabelText(/^NXT custom field category/), { target: { value: "Interests" } });
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Create disabled list" }));
+    await screen.findByText(/List created as a disabled draft/);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ configurationSchema: "constituent-list-v1", dataConfiguration: saved.dataConfiguration });
+    expect(screen.getByRole("checkbox", { name: /Enable this report/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Delete report" })).not.toBeInTheDocument();
+  });
+
   it("returns to Setup Hub and retains the unsaved-change warning without autosaving", () => {
     const report = dashboard();
     const { unmount } = render(<ReportConfigurationEditor initialConfigurations={[report]} users={users} />);

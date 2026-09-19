@@ -11,6 +11,8 @@ import styles from "./reportConfigurationEditor.module.css";
 import SetupReturnLink from "./SetupReturnLink";
 import ReportSetupGuide from "./ReportSetupGuide";
 import ReportLayoutTransfer from "./ReportLayoutTransfer";
+import ListSourceEditor from "./ListSourceEditor";
+import { LIST_SCHEMA, listMetadata, validateListSource } from "@/utils/constituentLists";
 
 const NEW_REPORT_KEY = "__new-report-draft__";
 const TABS = ["Configure", "Access", "Preview"];
@@ -24,6 +26,7 @@ const AUDIENCES = {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const isDashboard = (configuration) => configuration?.configurationSchema === "query-count-dashboard-v1";
+const isList = (configuration) => configuration?.configurationSchema === LIST_SCHEMA;
 
 export function createReportDraft(configuration) {
   return {
@@ -41,6 +44,7 @@ function pick(object, keys) { return Object.fromEntries(keys.map((key) => [key, 
 export function buildReportConfigurationPatch(configuration, draft, tab) {
   const capabilities = configuration.configurationCapabilities || {};
   const patch = { reportKey: configuration.key };
+  if (isList(configuration)) { patch.configurationSchema = LIST_SCHEMA; patch.revision = configuration.revision; }
   if (tab !== "Access") {
     if (capabilities.canEditTitle !== false) patch.title = draft.title;
     if (capabilities.canEditDescription !== false) patch.description = draft.description;
@@ -49,7 +53,7 @@ export function buildReportConfigurationPatch(configuration, draft, tab) {
   if (tab !== "Configure") {
     patch.visibility = draft.visibility;
     patch.specificUserIds = draft.visibility === "specific_users" ? draft.specificUserIds : [];
-    if (isDashboard(configuration)) patch.active = draft.active;
+    if (isDashboard(configuration) || isList(configuration)) patch.active = draft.active;
   }
   return patch;
 }
@@ -85,7 +89,7 @@ async function deleteReport(reportKey) {
 
 function AccessEditor({ configuration, draft, users, onChange }) {
   const [search, setSearch] = useState("");
-  const generic = isDashboard(configuration);
+  const generic = isDashboard(configuration) || isList(configuration);
   const access = configuration.configurationCapabilities?.access || {};
   const matches = users.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(search.toLowerCase()));
   const userIds = new Set(users.map((user) => Number(user.id)));
@@ -139,8 +143,8 @@ function Preview({ configuration, draft, isNew }) {
     <div className={styles.notice}>Layout preview uses your draft and compatible saved values only. Opening this tab never runs an NXT query. Save your configuration before refreshing data on the report.</div>
     <div><h2>{draft.title || "Untitled report"}</h2><p className={styles.muted}>{draft.description}</p></div>
     {notice && <p className={styles.notice} role="status">{notice}</p>}
-    {generic ? <ReportDashboardPanels configuration={draft.dataConfiguration} snapshot={saved?.snapshot} /> : alumni ? <AlumniReportPreview configuration={draft.dataConfiguration} snapshot={saved} /> : <p className={styles.muted}>This built-in report keeps its specialized layout and calculations. Use Open report to view it; title and access changes do not alter those calculations.</p>}
-    {!isNew && configuration.canView && <div><a className={styles.button} href={getReportHref(configuration)} target="_blank" rel="noreferrer">Open saved report</a></div>}
+    {isList(configuration) ? <p className={styles.notice}>List criteria: {draft.dataConfiguration?.fieldCategory || "Choose a category"}{draft.dataConfiguration?.fieldDescription ? ` / ${draft.dataConfiguration.fieldDescription}` : " / All descriptions"}. Members load from a complete saved snapshot; refresh explicitly after saving and enabling access. NXT indexing can lag by about 30 minutes.</p> : generic ? <ReportDashboardPanels configuration={draft.dataConfiguration} snapshot={saved?.snapshot} /> : alumni ? <AlumniReportPreview configuration={draft.dataConfiguration} snapshot={saved} /> : <p className={styles.muted}>This built-in report keeps its specialized layout and calculations. Use Open report to view it; title and access changes do not alter those calculations.</p>}
+    {!isNew && configuration.canView && <div><a className={styles.button} href={getReportHref(configuration)} target="_blank" rel="noreferrer">{isList(configuration) ? "Open saved list" : "Open saved report"}</a></div>}
   </section>;
 }
 
@@ -160,6 +164,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   const draft = drafts[selectedKey];
   const isNew = selectedKey === NEW_REPORT_KEY;
   const generic = isDashboard(configuration);
+  const itemLabel = isList(configuration) ? "List" : "Report";
   const dirtyKeys = allReports.filter((report) => drafts[report.key] && (report.key === NEW_REPORT_KEY || isDirty(drafts[report.key], report))).map((report) => report.key);
   const hasUnsavedChanges = dirtyKeys.length > 0;
   const currentDirty = Boolean(configuration && draft && (isNew || isDirty(draft, configuration, tab === "Configure" ? BUILD_FIELDS : tab === "Access" ? ACCESS_FIELDS : undefined)));
@@ -182,7 +187,8 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   }
 
   function addReport() {
-    if (!newReport) {
+    if (newReport && isList(newReport) && !window.confirm("Replace the unsaved new-list draft with a new dashboard? Saved lists will not change.")) return;
+    if (!newReport || isList(newReport)) {
       const report = { ...getDashboardReportMetadata(NEW_REPORT_KEY), key: NEW_REPORT_KEY, title: "", description: "", visibility: "specific_users", specificUserIds: [], active: false, dataConfiguration: { version: 1, panels: [] } };
       setNewReport(report);
       setDrafts((current) => ({ ...current, [NEW_REPORT_KEY]: createReportDraft(report) }));
@@ -190,6 +196,16 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
     setSelectedKey(NEW_REPORT_KEY);
     setSearch("");
     setTab("Configure");
+  }
+
+  function addList() {
+    if (newReport && !isList(newReport) && !window.confirm("Replace the unsaved new-report draft with a new list? Saved reports will not change.")) return;
+    if (!newReport || !isList(newReport)) {
+      const report = { ...listMetadata(NEW_REPORT_KEY), key: NEW_REPORT_KEY, title: "", description: "", visibility: "specific_users", specificUserIds: [], active: false, dataConfiguration: { version: 1, source: "custom_field", fieldCategory: "", fieldDescription: "" } };
+      setNewReport(report);
+      setDrafts((current) => ({ ...current, [NEW_REPORT_KEY]: createReportDraft(report) }));
+    }
+    setSelectedKey(NEW_REPORT_KEY); setSearch(""); setTab("Configure");
   }
 
   function importLayout(values) {
@@ -254,10 +270,11 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
     const key = selectedKey;
     const savedTab = tab;
     const patch = isNew ? pick(draft, BUILD_FIELDS) : buildReportConfigurationPatch(configuration, draft, savedTab);
+    if (isList(configuration)) patch.configurationSchema = LIST_SCHEMA;
     let error = "";
     if (Object.hasOwn(patch, "title") && (!draft.title.trim() || draft.title.trim().length > 120)) error = "Enter a report title between 1 and 120 characters.";
-    if (!error && Object.hasOwn(patch, "dataConfiguration")) error = generic ? validateDashboardConfiguration(draft.dataConfiguration) : validateAlumniFamilyEngagementDashboard(draft.dataConfiguration);
-    if (!error && Object.hasOwn(patch, "visibility") && draft.visibility === "specific_users" && (!generic || draft.active) && !draft.specificUserIds.length) error = "Choose at least one active user before saving access.";
+    if (!error && Object.hasOwn(patch, "dataConfiguration")) error = isList(configuration) ? validateListSource(draft.dataConfiguration) : generic ? validateDashboardConfiguration(draft.dataConfiguration) : validateAlumniFamilyEngagementDashboard(draft.dataConfiguration);
+    if (!error && Object.hasOwn(patch, "visibility") && draft.visibility === "specific_users" && ((!generic && !isList(configuration)) || draft.active) && !draft.specificUserIds.length) error = "Choose at least one active user before saving access.";
     if (error) { setFeedback((current) => ({ ...current, [key]: { error: true, message: error } })); return; }
     setSaving(true);
     try {
@@ -273,7 +290,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
         return next;
       });
       if (isNew) { setNewReport(null); setSelectedKey(saved.key); setTab("Access"); }
-      setFeedback((current) => ({ ...current, [saved.key]: { message: isNew ? "Report created as a disabled draft. Select viewers and enable it when ready." : `${savedTab === "Preview" ? "All changes" : savedTab === "Access" ? "Access settings" : "Configuration"} saved. Existing snapshots were not refreshed.` } }));
+      setFeedback((current) => ({ ...current, [saved.key]: { message: isNew ? `${itemLabel} created as a disabled draft. Select viewers and enable it when ready.` : `${savedTab === "Preview" ? "All changes" : savedTab === "Access" ? "Access settings" : "Configuration"} saved. Existing snapshots were not refreshed.` } }));
     } catch (error) {
       setFeedback((current) => ({ ...current, [key]: { error: true, message: error.message } }));
     } finally { setSaving(false); }
@@ -294,13 +311,14 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
         {!allReports.length && <option value="">No reports yet</option>}
         {getReportTypeDefinitions().map((type) => <optgroup key={type.key} label={type.label}>{matchingReports.filter((report) => report.reportType === type.key).map((report) => <option value={report.key} key={report.key}>{drafts[report.key]?.title || report.title || "New report"}{dirtyKeys.includes(report.key) ? " (unsaved)" : ""}</option>)}</optgroup>)}
       </select></label>
-      <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport ? "Continue new report" : "Add report"}</button>
+      <button className={`${styles.button} ${styles.primary}`} disabled={saving} onClick={addReport}><Plus size={17} /> {newReport && !isList(newReport) ? "Continue new report" : "Add report"}</button>
+      <button className={styles.button} disabled={saving} onClick={addList}><Plus size={17} />{newReport && isList(newReport) ? "Continue new list" : "Add list"}</button>
     </section>
     <ReportLayoutTransfer draft={generic ? draft : null} disabled={saving} onImport={importLayout} />
     {pageFeedback && <div className={styles.successNotice} role="status">{pageFeedback.message}</div>}
     {configuration && draft && <section className={styles.card} aria-label="Selected report editor">
-      <div className={styles.sectionHeading}><div><h2 style={{ margin: 0 }}>{draft.title || "New report"}</h2><p className={styles.muted} style={{ margin: "6px 0 0" }}>{generic ? "Query results, counts, and static values" : configuration.reportTypeLabel}</p></div><span className={styles.tag}>{isNew ? "Unsaved draft" : generic ? configuration.active ? "Enabled" : "Disabled draft" : "Built-in report"}</span></div>
-      {generic ? <ReportSetupGuide draft={draft} configuration={configuration} isNew={isNew} disabled={saving} onTab={goToTab} onStarter={(dataConfiguration) => { updateDraft({ dataConfiguration }); goToTab("Configure"); }} /> : <p className={styles.notice}>Built-in report: presentation and access can be edited where supported below. Its specialized calculations, source boundaries, and reporting rules are not changed by a layout. Use Add report for a guided custom dashboard.</p>}
+      <div className={styles.sectionHeading}><div><h2 style={{ margin: 0 }}>{draft.title || "New report"}</h2><p className={styles.muted} style={{ margin: "6px 0 0" }}>{generic ? "Query results, counts, and static values" : configuration.reportTypeLabel}</p></div><span className={styles.tag}>{isNew ? "Unsaved draft" : generic || isList(configuration) ? configuration.active ? "Enabled" : "Disabled draft" : "Built-in report"}</span></div>
+      {isList(configuration) ? <p className={styles.notice}>Configure the membership field, save the disabled list, then select viewers and enable access. Administrators also need to be selected as viewers. Disabling a list hides it without removing any NXT fields.</p> : generic ? <ReportSetupGuide draft={draft} configuration={configuration} isNew={isNew} disabled={saving} onTab={goToTab} onStarter={(dataConfiguration) => { updateDraft({ dataConfiguration }); goToTab("Configure"); }} /> : <p className={styles.notice}>Built-in report: presentation and access can be edited where supported below. Its specialized calculations, source boundaries, and reporting rules are not changed by a layout. Use Add report for a guided custom dashboard.</p>}
       <div className={styles.tabs} role="tablist" aria-label="Report settings">
         {TABS.map((name, index) => <button key={name} id={`report-tab-${name}`} className={styles.tab} role="tab" aria-selected={tab === name} aria-controls={`report-panel-${name}`} tabIndex={tab === name ? 0 : -1} disabled={saving} onClick={() => setTab(name)} onKeyDown={(event) => {
           const next = event.key === "ArrowRight" ? (index + 1) % TABS.length : event.key === "ArrowLeft" ? (index + TABS.length - 1) % TABS.length : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : null;
@@ -310,9 +328,9 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
       <div role="tabpanel" id={`report-panel-${tab}`} aria-labelledby={`report-tab-${tab}`} tabIndex={0}>
         <fieldset disabled={saving} className={styles.editorFields}>
           {tab === "Configure" && <div className={styles.stack}>
-            <div className={styles.grid}><label className={styles.field}>Report title<input id="report-title" maxLength={120} value={draft.title} disabled={configuration.configurationCapabilities?.canEditTitle === false} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="Example: Alumni engagement" /></label></div>
-            <label className={styles.field}>Report description<textarea maxLength={1000} value={draft.description} disabled={configuration.configurationCapabilities?.canEditDescription === false} onChange={(event) => updateDraft({ description: event.target.value })} placeholder="Explain what this report measures." /></label>
-            {generic ? <ReportDashboardBuilder value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} disabled={saving} /> : configuration.key === "alumni-family-engagement" ? <AlumniReportConfiguration value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} /> : <p className={styles.notice}>{configuration.presentationNote || "This built-in report keeps its existing calculations and specialized layout. Use Add report to build a new query-count or static-value dashboard."}</p>}
+            <div className={styles.grid}><label className={styles.field}>{itemLabel} title<input id="report-title" maxLength={120} value={draft.title} disabled={configuration.configurationCapabilities?.canEditTitle === false} onChange={(event) => updateDraft({ title: event.target.value })} placeholder={isList(configuration) ? "Example: Student success partners" : "Example: Alumni engagement"} /></label></div>
+            <label className={styles.field}>{itemLabel} description<textarea maxLength={1000} value={draft.description} disabled={configuration.configurationCapabilities?.canEditDescription === false} onChange={(event) => updateDraft({ description: event.target.value })} placeholder={isList(configuration) ? "Explain who belongs on this list." : "Explain what this report measures."} /></label>
+            {isList(configuration) ? <ListSourceEditor key={selectedKey} value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} /> : generic ? <ReportDashboardBuilder value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} disabled={saving} /> : configuration.key === "alumni-family-engagement" ? <AlumniReportConfiguration value={draft.dataConfiguration} onChange={(value) => updateDraft({ dataConfiguration: value })} /> : <p className={styles.notice}>{configuration.presentationNote || "This built-in report keeps its existing calculations and specialized layout. Use Add report to build a new query-count or static-value dashboard."}</p>}
           </div>}
           {tab === "Access" && (isNew ? <p className={styles.notice}>Save this report in Configure first. It will start disabled; you can then select viewers and enable it here.</p> : <AccessEditor key={selectedKey} configuration={configuration} draft={draft} users={users} onChange={updateDraft} />)}
           {tab === "Preview" && <Preview key={selectedKey} configuration={configuration} draft={draft} isNew={isNew} />}
@@ -323,7 +341,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
         <div className={styles.sectionHeading}>
           {generic && !isNew && <button className={`${styles.button} ${styles.danger}`} disabled={saving} onClick={removeReport}><Trash2 size={17} />Delete report</button>}
           {dirtyKeys.includes(selectedKey) && <button className={styles.button} disabled={saving} onClick={discard}>Discard changes</button>}
-          <button className={`${styles.button} ${styles.primary}`} disabled={saving || !currentDirty || (isNew && tab === "Access")} onClick={save}><Save size={17} />{saving ? "Saving..." : isNew ? "Create disabled report" : tab === "Access" ? "Save access" : tab === "Configure" ? "Save configuration" : "Save all changes"}</button>
+          <button className={`${styles.button} ${styles.primary}`} disabled={saving || !currentDirty || (isNew && tab === "Access")} onClick={save}><Save size={17} />{saving ? "Saving..." : isNew ? `Create disabled ${itemLabel.toLowerCase()}` : tab === "Access" ? "Save access" : tab === "Configure" ? "Save configuration" : "Save all changes"}</button>
         </div>
         {feedback[selectedKey] && <div style={{ flexBasis: "100%" }} className={feedback[selectedKey].error ? `${styles.notice} ${styles.error}` : styles.success} role={feedback[selectedKey].error ? "alert" : "status"}>{feedback[selectedKey].message}</div>}
       </footer>

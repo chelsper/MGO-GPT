@@ -2,6 +2,9 @@ import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import sql from "@/app/api/utils/sql";
+import { listConfigurations, saveListConfiguration } from "@/app/api/utils/listConfigurations";
+import { LIST_SCHEMA } from "@/utils/constituentLists";
+import { requireListSameOrigin } from "@/app/api/utils/constituentListContext";
 import {
   deleteDashboardConfiguration,
   listDashboardConfigurations,
@@ -90,6 +93,7 @@ export async function GET() {
     const dashboards = (await listDashboardConfigurations())
       .map((record) => serializeDashboardConfiguration(record, user))
       .filter((configuration) => canManage || configuration.canView);
+    const lists = await listConfigurations(user);
     const recordsByKey = new Map(records.map((record) => [record.report_key, record]));
     const users = canManage
       ? await sql`
@@ -104,7 +108,7 @@ export async function GET() {
       canManage,
       configurations: [...STANDARD_REPORT_DEFINITIONS.map((definition) =>
         serializeConfiguration(definition, recordsByKey.get(definition.key), user),
-      ), ...dashboards],
+      ), ...dashboards, ...lists],
       users,
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
@@ -130,6 +134,11 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return Response.json({ error: "Expected a configuration object." }, { status: 400 });
+    }
+    if (body.configurationSchema === LIST_SCHEMA || String(body.reportKey || "").startsWith("list-")) {
+      requireListSameOrigin(request);
+      const configuration = await saveListConfiguration({ body, user });
+      return Response.json({ configuration, message: "List configuration saved." });
     }
     if (String(body?.customFieldReportSlug || "").trim()) {
       return Response.json(
@@ -303,6 +312,11 @@ export async function POST(request) {
     if (!canManageWorkspaceRole(user.role)) return Response.json({ error: "Only Admin and Advancement Services users can configure reports." }, { status: 403 });
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Expected a configuration object." }, { status: 400 });
+    if (body.configurationSchema === LIST_SCHEMA) {
+      requireListSameOrigin(request);
+      const configuration = await saveListConfiguration({ body, user, create: true });
+      return Response.json({ configuration, message: "List created as a disabled draft." }, { status: 201 });
+    }
     const configuration = await saveDashboardConfiguration({ body, user, create: true });
     return Response.json({ configuration, message: "Dashboard created." }, { status: 201 });
   } catch (error) {

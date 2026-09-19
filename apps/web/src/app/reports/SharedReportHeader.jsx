@@ -3,6 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
+import { isConstituentList, reportNavigation } from "@/utils/constituentLists";
 
 function SharedReportHeaderContent({
   activeReportKey,
@@ -88,8 +89,8 @@ function SharedReportHeaderContent({
             borderBottom: "1px solid #E2E8F0",
           }}
         >
-          {accessibleReports.map((report) => {
-            const selected = report.key === activeReportKey;
+          {reportNavigation(accessibleReports).map((report) => {
+            const selected = report.key === activeReportKey || (report.key === "lists" && (activeReportKey?.startsWith("list-") || isConstituentList({ key: activeReportKey })));
             return (
               <a
                 key={report.key}

@@ -295,6 +295,8 @@ export default function FutureMadePhaseTwoReportPage() {
       <div style={{ width: "min(1440px, 100%)", margin: "0 auto" }}>
         <SharedReportHeader
           activeReportKey="future-made-phase-ii"
+          backHref="/reports/lists"
+          backLabel="Back to Lists"
           eyebrow="Saved NXT query"
           title="Future. Made. Phase II"
           description="Every constituent returned by this NXT query. Results are not limited to any MGO portfolio or executive workspace."

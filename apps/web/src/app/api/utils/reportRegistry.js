@@ -1,9 +1,11 @@
 import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
+import { LIST_SCHEMA } from "@/utils/constituentLists";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
   CUSTOM_FIELD: "custom_field",
   MGO_GPT: "mgo_gpt",
+  LIST: "constituent_list",
 });
 
 const STANDARD_VISIBILITY_OPTIONS = Object.freeze([
@@ -49,6 +51,7 @@ export const EXECUTIVE_TEAM_STANDINGS_REPORT_KEY = "executive-team-standings";
 export const ALUMNI_FAMILY_ENGAGEMENT_REPORT_KEY = "alumni-family-engagement";
 
 export const REPORT_TYPE_DEFINITIONS = Object.freeze({
+  [REPORT_TYPES.LIST]: Object.freeze({ key: REPORT_TYPES.LIST, label: "Lists", description: "Constituent lists selected by NXT custom-field category and optional description." }),
   [REPORT_TYPES.QUERY_BASED]: Object.freeze({
     key: REPORT_TYPES.QUERY_BASED,
     label: "Query-Based Reports",
@@ -70,8 +73,9 @@ export const REPORT_TYPE_DEFINITIONS = Object.freeze({
 });
 
 // Legacy custom-field reports remain readable for audit purposes, but new report
-// configuration is intentionally limited to supported query-backed and built-in reports.
+// configuration supports query-backed dashboards, built-in reports, and member lists.
 const CONFIGURABLE_REPORT_TYPE_KEYS = Object.freeze([
+  REPORT_TYPES.LIST,
   REPORT_TYPES.QUERY_BASED,
   REPORT_TYPES.MGO_GPT,
 ]);
@@ -94,7 +98,7 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     key: FUTURE_MADE_PHASE_TWO_REPORT_KEY,
-    reportType: REPORT_TYPES.QUERY_BASED,
+    reportType: REPORT_TYPES.LIST,
     adapterKey: "future-made-phase-ii",
     configurationSchema: "standard-report-v1",
     configurationSchemaVersion: 1,
@@ -234,6 +238,8 @@ export function getCustomFieldReportMetadata(slug) {
 }
 
 export function getReportHref(report) {
+  if (report?.key === "lists") return "/reports/lists";
+  if (report?.configurationSchema === LIST_SCHEMA && /^list-[a-z0-9-]{1,70}$/.test(report?.key || "")) return `/reports/lists/${encodeURIComponent(report.key)}`;
   const definition = getReportDefinition(report?.key);
   if (definition) return definition.href;
 
