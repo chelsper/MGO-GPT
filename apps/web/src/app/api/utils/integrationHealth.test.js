@@ -16,13 +16,14 @@ beforeEach(() => {
   vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", "https://app.example");
   vi.stubEnv("VERCEL_ENV", "production");
   refreshUser.mockResolvedValue({ id: 7, name: "Service owner", email: "private@example.test" });
-  sql.mockImplementation(async strings => {
+  sql.mockImplementation(async (strings, ...values) => {
     const text = strings.join(" ");
     if (text.includes("SELECT id, role, active")) return [{ id: 7, active: true, role: "mgo", has_portfolio: true }];
     if (text.includes("blackbaud_api_limit_state")) return [{ blocked_until: "2026-09-17T15:30:00Z", message: "private provider body" }];
     if (text.includes("FROM users u LEFT JOIN blackbaud_connections")) return [{ id: 7, name: "Service owner", has_access: true, has_refresh: true, total_rows: 1, access_token: "TOKEN", refresh_token: "SECRET", email: "private@example.test" }];
     if (text.includes("WITH workspaces")) return [{ ...current, id: 7, name: "Test MGO", total_rows: 1, last_error_message: "private donor" }];
-    if (text.includes("WITH assigned")) return [{ total: 20, never_checked: 4, due: 6, connection_errors: 1, throttled: 2, other_errors: 0, last_checked_at: "2026-09-17T14:00:00Z" }];
+    if (text.includes("WITH enrolled_workspaces")) return [{ workspace_count: values[0].length, awaiting_assignments: values[0].includes("12") ? 1 : 0,
+      total: 20, never_checked: 4, due: 6, connection_errors: 1, throttled: 2, other_errors: 0, last_checked_at: "2026-09-17T14:00:00Z", items: [] }];
     if (text.includes("FROM portfolio_activity_refresh_gates")) return [{ calls_today: 12 }];
     if (text.includes("FROM pending_action_nxt_receipts")) return [{ pending_action_id: 33, owner_user_id: 7, name: "Test MGO", active: true, state: "review", has_action_id: true, reminder_status: "Open", total_rows: 1, request_payload: { notes: "DONOR NOTES" }, constituent_id: "DONOR ID" }];
     throw new Error("Unexpected SQL");
@@ -79,7 +80,7 @@ describe("read-only health projection", () => {
   it.each(["https://other.example", "http://app.example"])("does not read activity from another origin (%s)", async origin => {
     const result = await readIntegrationHealth({ viewerId: 7, origin });
     expect(result.sections.activity).toEqual({ available: true, enabled: false });
-    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("WITH assigned"))).toBe(false);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("WITH enrolled_workspaces"))).toBe(false);
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SELECT id, role, active"))).toBe(false);
   });
   it("shows disabled for the preview environment without expanding the pilot", async () => {
@@ -97,8 +98,8 @@ describe("read-only health projection", () => {
   });
   it("scopes activity to currently assigned constituents and excludes successful receipts", async () => {
     await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
-    const activityCall = sql.mock.calls.find(([s]) => s.join(" ").includes("WITH assigned"));
-    expect(activityCall.slice(1)).toEqual([["7"], "https://app.example"]);
+    const activityCall = sql.mock.calls.find(([s]) => s.join(" ").includes("WITH enrolled_workspaces"));
+    expect(activityCall.slice(1)).toEqual([["7"], "https://app.example", 100]);
     expect(activityCall[0].join(" ")).toContain("SELECT DISTINCT");
     const receipts = sql.mock.calls.find(([s]) => s.join(" ").includes("FROM pending_action_nxt_receipts"))[0].join(" ");
     expect(receipts).toContain("r.state IN ('review', 'processing')");
@@ -113,7 +114,7 @@ describe("read-only health projection", () => {
       : original(s, ...v));
     const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
     expect(result.sections.activity).toMatchObject({ enabled: true, enrollmentMode: "active_mgos", workspaceCount: 2, awaitingAssignments: 1, dailyBudget: 360 });
-    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("WITH assigned")).slice(1)).toEqual([["7", "12"], "https://app.example"]);
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("WITH enrolled_workspaces")).slice(1)).toEqual([["7", "12"], "https://app.example", 100]);
   });
   it("shows unknown rather than disabled or healthy when enrollment discovery fails", async () => {
     const original = sql.getMockImplementation();
@@ -122,5 +123,14 @@ describe("read-only health projection", () => {
     const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
     expect(result.sections.activity).toEqual({ available: false });
     expect(result.sections.verifications.available).toBe(true);
+  });
+  it("keeps a failed coverage read unknown without issuing per-workspace fallbacks", async () => {
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("WITH enrolled_workspaces")
+      ? Promise.reject(new Error("private data")) : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.activity).toEqual({ available: false });
+    expect(result.sections.verifications.available).toBe(true);
+    expect(sql.mock.calls.filter(([s]) => s.join(" ").includes("WITH enrolled_workspaces"))).toHaveLength(1);
   });
 });

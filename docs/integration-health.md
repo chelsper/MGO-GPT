@@ -36,7 +36,7 @@ does not certify live authorization, cron execution, or end-to-end health.
 | Blackbaud cooldown | Subscription circuit-breaker deadline. No saved pause does not prove live API availability; individual jobs can also pause |
 | Connections | Active saved connections plus the viewer; current scheduled-account selection. Expired renewable access tokens are not presented as broken connections |
 | Portfolio maintenance | Active MGO saved assignments, summary/giving freshness and failures, and latest job progress. Constituents no longer assigned are excluded; summary and giving backlogs overlap |
-| Last gift/action enrichment | Existing opt-in configuration and current-origin assigned records only; checks never verified, currently due, classified failures, and worker daily budget. Missing queue rows count as never checked |
+| Last gift/action enrichment | Current enrollment mode, current-origin assigned records, per-portfolio coverage, checks never verified/currently due, classified failures, and shared worker daily budget. Missing queue rows count as never checked |
 | NXT action verification | Reminder-linked receipts in review/processing only, with owner and reminder ID. No donor name, action notes, request payload, raw provider message, or constituent ID is returned |
 
 Portfolio jobs unchanged for 15 minutes are described as needing a progress check,
@@ -44,6 +44,29 @@ not definitively failed. Activity eligibility/lease timestamps are not promises 
 execution time. Worker call reservations are not the remaining subscription quota.
 Last-successful timestamps describe the most recent individual check, not a claim
 that the whole portfolio has refreshed.
+
+### Per-Portfolio Activity Coverage
+
+- Each enrolled active workspace shows assigned records, records with both gift
+  and action checks saved, records waiting for at least one first check, eligible
+  checks, errors, and the most recent successful individual check. Separate gift
+  and action counts, oldest successful check, latest attempt, and error breakdown
+  are in a collapsed detail section that makes no additional request.
+- This measures the overnight worker's saved snapshots, not every private
+  on-demand value elsewhere in the app. A verified empty gift/action response
+  counts as checked. A successful date check does not guarantee an optional gift
+  amount or action description, and does not mean the record is still current.
+- Missing queue rows and incomplete action scans remain waiting until a complete
+  check succeeds. Failed retries preserve earlier successful coverage and dates;
+  their errors remain visible. Eligible counts overlap first checks and routine
+  rechecks and use separate gift/action units, not people. Do not add these counts.
+- Status labels distinguish initial checks, routine rechecks, throttled retries,
+  and connection/unverified errors. Saved times are not a live heartbeat and do
+  not, by themselves, prove a stalled worker or a completed overnight cycle.
+- Missing assignment snapshots show unknown coverage and setup guidance, not a
+  healthy zero. A saved empty assignment list is explicitly shown as having no
+  assigned constituents. Accounts without saved assignments make no NXT requests
+  through this view.
 
 The list does not combine historical import results into an approval queue.
 Pledges, import outcomes, and legacy submission exceptions retain their original
@@ -75,8 +98,14 @@ calls. Connections, active MGO workspaces, and pending receipts each display up 
 alphabetical; verification receipts are oldest first. There is no pagination in
 this initial bounded view. No database schema changes are needed.
 
-The activity scope remains the existing allowlist/canonical origin and is disabled
-in previews. Older portfolio/job tables are workspace-scoped, not origin-scoped;
+The activity scope uses the configured allowlist or automatic active-MGO enrollment,
+minus exclusions, at the canonical origin; it is disabled in previews. One
+aggregate query replaces the old overall-only activity query, with no increase
+in database round trips or per-workspace queries. It computes totals across all
+enrolled active workspaces, returning at most 100 named portfolios alphabetically
+with an explicit truncation notice. Duplicate assignments are deduplicated and
+removed/inactive/other-origin records do not contribute to coverage.
+Older portfolio/job tables are workspace-scoped, not origin-scoped;
 the page does not invent stronger isolation than those stores provide. Separate
 development/production databases remain required.
 
@@ -101,3 +130,19 @@ Production deployment `dpl_BwTLJAyCPwPHcxt8Ti5igRz28yBU` reached Ready and
 A signed-in Admin opened the production page successfully; all sections rendered
 from saved data. This was a read-only smoke check, not a live NXT authorization
 test, job retry, or certification that every backlog has finished.
+
+September 19 coverage follow-up: 3,041 tests in 265 files, typecheck, build, and
+synthetic PostgreSQL coverage checks passed. Tests cover verified empty results,
+partial successes with later errors, missing queues/assignments, scope isolation,
+and more than 100 enrolled portfolios without losing global totals. The new
+aggregate was also executed in a read-only production transaction: five portfolios,
+1,816 gift/action checks, 1,386 not yet checked, and no saved worker errors. Leslie's
+215 records had both checks; the other four were awaiting their first scheduled
+pass. This audit was after automatic enrollment was deployed but before the next
+overnight window, so it does not certify the expanded overnight run. No refresh
+was forced and no NXT or production database writes were made by this follow-up.
+The actual coverage UI was checked with synthetic data at 1280px desktop and
+390px mobile widths: no horizontal overflow or browser errors, and expanding
+per-portfolio details kept the saved-status request count at one. Production
+release verification must confirm the exact deployed commit and the signed-in
+coverage section without forcing a worker run.

@@ -26,7 +26,7 @@ const run = query => new Promise((resolve, reject) => {
 });
 const sql = async (parts, ...values) => {
   const query = parts.reduce((text, part, i) => text + part + (i < values.length ? quote(values[i]) : ""), "").trim();
-  if (query.startsWith("SELECT") || query.startsWith("WITH eligible AS")) return JSON.parse(await run(`SELECT COALESCE(json_agg(t), '[]'::json) FROM (${query}) t`));
+  if (query.startsWith("SELECT") || query.startsWith("WITH eligible AS") || query.startsWith("WITH enrolled_workspaces AS")) return JSON.parse(await run(`SELECT COALESCE(json_agg(t), '[]'::json) FROM (${query}) t`));
   if (query.includes("RETURNING")) return JSON.parse(await run(`WITH t AS (${query}) SELECT COALESCE(json_agg(t), '[]'::json) FROM t`));
   await run(query);
   return [];
@@ -40,6 +40,8 @@ const { activityWorkspaceIds } = await loader.ssrLoadModule(`${root}app/api/util
 await loader.close();
 const enrollmentSource = readFileSync(`${root}app/api/utils/portfolioActivityEnrollment.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function").replaceAll("export function", "function");
 const resolveActivityEnrollment = new Function("sql", "isMgoRole", "activityWorkspaceIds", `${enrollmentSource}\nreturn resolveActivityEnrollment;`)(sql, isMgoRole, activityWorkspaceIds);
+const coverageSource = readFileSync(`${root}app/api/utils/portfolioActivityCoverage.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function").replaceAll("export function", "function");
+const readPortfolioActivityCoverage = new Function("sql", `${coverageSource}\nreturn readPortfolioActivityCoverage;`)(sql);
 const source = readFileSync(`${root}app/api/utils/portfolioActivityStore.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function");
 const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "resolveActivityEnrollment", "portfolioActivityDetailsEnvelope", "ACTIVITY_QUEUE_LIMIT", "activityNextCheckAt", "selectActivityRows", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
   sql, randomUUID, activityKey, 360, () => "https://example.com", () => resolveActivityEnrollment({ enabled: true, mode: "allowlist", workspaceIds: ["7"], excludedIds: [] }), portfolioActivityDetailsEnvelope, ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows,
@@ -202,6 +204,58 @@ try {
   assert(!enrolled.workspaceIds.includes("500") && !enrolled.workspaceIds.includes("501"));
   assert.equal(await run(`SELECT COUNT(*) FROM portfolio_activity_snapshots WHERE origin=${quote(autoOrigin)} AND workspace_user_id=500`), "2");
   console.log("PASS: automatic enrollment discovers new combined-role MGOs; missing assignments queue nothing; exclusions and deactivation preserve saved snapshots.");
+
+  const coverageOrigin = "https://coverage.example.com";
+  await run(`ALTER TABLE users ADD COLUMN name text;
+    INSERT INTO users(id,active,name,blackbaud_portfolio_cache) VALUES
+      (600,TRUE,'A Test MGO','{"leadSolicitor":[{"constituentId":"100"},{"constituentId":"101"},{"constituentId":"102"}],"supportingSolicitor":[{"constituentId":"100"},{"constituentId":"invalid"}]}'),
+      (601,TRUE,'B Empty MGO','{"leadSolicitor":[],"supportingSolicitor":[]}'),
+      (602,TRUE,'C New MGO',NULL),
+      (603,FALSE,'D Inactive MGO','{"leadSolicitor":[{"constituentId":"100"}],"supportingSolicitor":[]}');
+    INSERT INTO portfolio_activity_snapshots(workspace_user_id,origin,constituent_id,kind,checked_at,next_check_at,last_error,last_attempt_at) VALUES
+      (600,${quote(coverageOrigin)},'100','gift',NOW()-INTERVAL '1 hour',NOW()+INTERVAL '1 day',NULL,NOW()-INTERVAL '1 hour'),
+      (600,${quote(coverageOrigin)},'100','action',NOW()-INTERVAL '1 hour',NOW()+INTERVAL '1 day',NULL,NOW()-INTERVAL '1 hour'),
+      (600,${quote(coverageOrigin)},'101','gift',NOW()-INTERVAL '3 days',NOW(),'connection',NOW()),
+      (600,${quote(coverageOrigin)},'101','action',NULL,NOW()+INTERVAL '1 day','throttled',NOW()),
+      (600,'https://other.example.com','101','action',NOW(),NOW()+INTERVAL '1 day',NULL,NOW()),
+      (600,${quote(coverageOrigin)},'removed','gift',NOW(),NOW(),'connection',NOW())`);
+  const coverage = await readPortfolioActivityCoverage(["600", "601", "602", "603"], coverageOrigin);
+  assert.equal(coverage.workspaceCount, 3);
+  assert.equal(coverage.awaitingAssignments, 1);
+  assert.equal(coverage.total, 6);
+  assert.equal(coverage.neverChecked, 3);
+  assert.equal(coverage.due, 3);
+  assert.equal(coverage.connectionErrors, 1);
+  assert.equal(coverage.throttled, 1);
+  assert.equal(coverage.items[0].assigned, 3);
+  assert.equal(coverage.items[0].checked, 1);
+  assert.equal(coverage.items[0].waiting, 2);
+  assert.equal(coverage.items[0].giftsChecked, 2);
+  assert.equal(coverage.items[0].actionsChecked, 1);
+  assert.equal(coverage.items[0].label, 'Checks need attention');
+  assert(Date.parse(coverage.items[0].oldestCheckedAt) < Date.parse(coverage.items[0].lastCheckedAt));
+  assert(Date.parse(coverage.items[0].lastCheckedAt) < Date.parse(coverage.items[0].lastAttemptAt));
+  assert.equal(coverage.items[1].assigned, 0);
+  assert.equal(coverage.items[1].label, 'No assigned constituents');
+  assert.equal(coverage.items[2].assigned, null);
+  assert.equal(coverage.items[2].label, 'Assignment sync needed');
+  assert.equal((await readPortfolioActivityCoverage([], coverageOrigin)).workspaceCount, 0);
+  assert.equal((await readPortfolioActivityCoverage(["601"], coverageOrigin)).total, 0);
+  assert.equal((await readPortfolioActivityCoverage(["600"], 'https://unseen.example.com')).neverChecked, 6);
+  console.log("PASS: coverage deduplicates assignments, counts verified empty checks, distinguishes missing snapshots, preserves partial successes/errors, and excludes removed/inactive/other-origin records.");
+
+  const coverageIds = Array.from({ length: 105 }, (_, i) => String(6000 + i));
+  await run(`INSERT INTO users(id,active,name,blackbaud_portfolio_cache)
+    SELECT i,TRUE,'MGO '||i,jsonb_build_object('leadSolicitor',jsonb_build_array(jsonb_build_object('constituentId','100')),'supportingSolicitor','[]'::jsonb)
+    FROM generate_series(6000,6104) i`);
+  const boundedCoverage = await readPortfolioActivityCoverage(coverageIds, coverageOrigin);
+  assert.equal(boundedCoverage.workspaceCount, 105);
+  assert.equal(boundedCoverage.items.length, 100);
+  assert.equal(boundedCoverage.total, 210);
+  assert.equal(boundedCoverage.neverChecked, 210);
+  assert.equal(boundedCoverage.items[0].name, 'MGO 6000');
+  assert.equal(boundedCoverage.items[99].name, 'MGO 6099');
+  console.log("PASS: coverage totals include all portfolios while the alphabetized display remains bounded to 100.");
 } finally {
   await run(`DROP SCHEMA IF EXISTS ${schema} CASCADE;`);
 }

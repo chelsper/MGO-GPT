@@ -32,6 +32,37 @@ function Details({ children }) {
   return <details className="mt-3 text-sm text-gray-600"><summary className="min-h-11 cursor-pointer content-center rounded font-semibold focus-visible:outline-2 focus-visible:outline-emerald-700">Saved check details</summary><div className="space-y-1 pb-2">{children}</div></details>;
 }
 
+function ActivityCoverage({ activity }) {
+  const items = activity.items || [];
+  return <div className="mt-6 border-t border-gray-200 pt-5">
+    <h3 className="text-lg font-bold">Portfolio coverage</h3>
+    <p className="mb-4 mt-2 max-w-4xl text-sm leading-relaxed text-gray-600">Records checked means both gift and action checks have succeeded at least once, including a verified no-gift or no-action result. It does not mean every record is current or has an amount or description. Waiting records still need one or both first checks.</p>
+    {activity.workspaceCount === 0 && <p className="text-sm text-gray-600">No active workspaces are currently enrolled.</p>}
+    {activity.workspaceCount > 0 && !items.length && <p role="status" className="text-sm text-amber-900">Per-portfolio coverage is unavailable. Reload saved status; this does not mean every portfolio is checked.</p>}
+    <div className="space-y-3">{items.map(item => <article key={item.id} aria-label={`${item.name} activity coverage`} className="min-w-0 rounded-xl border border-gray-200 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="min-w-0 break-words font-bold">{item.name}</h4><Badge level={item.level}>{item.label}</Badge></div>
+      {!item.hasAssignments ? <p className="mt-3 text-sm text-gray-600">No complete assignment snapshot is saved. Check fundraiser mapping and the initial portfolio sync; coverage is unknown, not zero.</p> : <>
+        <dl className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div><dt className="text-xs font-semibold uppercase tracking-wide text-gray-600">Records checked</dt><dd className="mt-1 text-lg font-bold tabular-nums">{item.checked} / {item.assigned}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase tracking-wide text-gray-600">Waiting for first checks</dt><dd className="mt-1 text-lg font-bold tabular-nums">{item.waiting}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase tracking-wide text-gray-600">Checks eligible now</dt><dd className="mt-1 text-lg font-bold tabular-nums">{item.due}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase tracking-wide text-gray-600">Checks with errors</dt><dd className={`mt-1 text-lg font-bold tabular-nums ${item.connectionErrors + item.throttled + item.otherErrors > 0 ? "text-amber-900" : "text-gray-900"}`}>{item.connectionErrors + item.throttled + item.otherErrors}</dd></div>
+        </dl>
+        <p className="mt-3 text-sm text-gray-600">Last successful individual check: {when(item.lastCheckedAt)}. Not a whole-portfolio refresh time.</p>
+        <Details>
+          <p>Gift checks saved: {item.giftsChecked} / {item.assigned}. Action checks saved: {item.actionsChecked} / {item.assigned}.</p>
+          <p>Oldest successful individual check: {when(item.oldestCheckedAt)}</p>
+          <p>Most recent saved attempt: {when(item.lastAttemptAt)}</p>
+          <p>Errors: {item.connectionErrors} connection / {item.throttled} throttled / {item.otherErrors} unverified response.</p>
+          <p>Eligible checks include first checks and routine rechecks; each record has separate gift and action checks. These counts overlap and should not be added together. Errors do not erase earlier successful results.</p>
+          <p>These timestamps are saved evidence, not a live worker heartbeat. Overnight windows, shared budgets and cooldowns still apply.</p>
+        </Details>
+      </>}
+    </article>)}</div>
+    <Limited total={activity.workspaceCount} shown={items.length} />
+  </div>;
+}
+
 export default function IntegrationHealthPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -138,6 +169,7 @@ export default function IntegrationHealthPage() {
           {activity.otherErrors > 0 && <p className="mt-3 text-sm text-amber-900">{activity.otherErrors} checks have unverified responses. Investigate the worker if these persist; saved dates remain in place.</p>}
           <p className="mt-3 text-sm text-gray-600">A backlog can take multiple overnight windows. Normal queued work does not need approval.</p>
           <Details><p>Most recent successful individual check: {when(activity.lastCheckedAt)}</p><p>Next allowed worker time: {when(activity.nextAllowedAt)}</p><p>Saved worker lease ends: {when(activity.leaseUntil)}</p><p>Eligibility is not a promised execution time; the overnight schedule and budgets still apply.</p></Details>
+          <ActivityCoverage activity={activity} />
         </>}
       </Section>
 

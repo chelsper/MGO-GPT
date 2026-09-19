@@ -2,6 +2,7 @@ import sql from "./sql";
 import { getReportRefreshUser } from "./reportRefresh";
 import { activityOrigin, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
 import { activityEnrollmentConfig, resolveActivityEnrollment } from "./portfolioActivityEnrollment";
+import { readPortfolioActivityCoverage } from "./portfolioActivityCoverage";
 
 const LIMIT = 100;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -114,37 +115,14 @@ async function activity(origin) {
   const config = activityEnrollmentConfig();
   const enabled = config.enabled && activityOrigin() === origin && process.env.VERCEL_ENV !== "preview";
   if (!enabled) return { enabled: false };
-  const { workspaceIds: ids, mode, awaitingAssignments } = await resolveActivityEnrollment(config);
-  const [row] = await sql`
-    WITH assigned AS (
-      SELECT DISTINCT u.id AS workspace_id, person ->> 'constituentId' AS constituent_id, kind
-      FROM users u CROSS JOIN LATERAL jsonb_array_elements(
-        CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'leadSolicitor') = 'array'
-          THEN u.blackbaud_portfolio_cache -> 'leadSolicitor' ELSE '[]'::jsonb END ||
-        CASE WHEN jsonb_typeof(u.blackbaud_portfolio_cache -> 'supportingSolicitor') = 'array'
-          THEN u.blackbaud_portfolio_cache -> 'supportingSolicitor' ELSE '[]'::jsonb END
-      ) person CROSS JOIN (VALUES ('gift'), ('action')) kinds(kind)
-      WHERE u.id = ANY(${ids}::bigint[]) AND u.active = TRUE AND person ->> 'constituentId' ~ '^[0-9]+$'
-    )
-    SELECT COUNT(*)::int AS total,
-      COUNT(*) FILTER (WHERE s.checked_at IS NULL)::int AS never_checked,
-      COUNT(*) FILTER (WHERE s.next_check_at IS NULL OR s.next_check_at <= NOW())::int AS due,
-      COUNT(*) FILTER (WHERE s.last_error = 'connection')::int AS connection_errors,
-      COUNT(*) FILTER (WHERE s.last_error = 'throttled')::int AS throttled,
-      COUNT(*) FILTER (WHERE s.last_error IS NOT NULL AND s.last_error NOT IN ('connection', 'throttled'))::int AS other_errors,
-      MAX(s.checked_at) AS last_checked_at
-    FROM assigned a LEFT JOIN portfolio_activity_snapshots s ON s.workspace_user_id = a.workspace_id
-      AND s.constituent_id = a.constituent_id AND s.kind = a.kind AND s.origin = ${origin}
-  `;
+  const { workspaceIds: ids, mode } = await resolveActivityEnrollment(config);
+  const coverage = await readPortfolioActivityCoverage(ids, origin);
   const [gate] = await sql`
     SELECT next_allowed_at, lease_until,
       CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS calls_today
     FROM portfolio_activity_refresh_gates WHERE origin = ${origin}
   `;
-  return { enabled: true, enrollmentMode: mode, workspaceCount: ids.length, awaitingAssignments,
-    total: count(row?.total), neverChecked: count(row?.never_checked),
-    due: count(row?.due), connectionErrors: count(row?.connection_errors), throttled: count(row?.throttled),
-    otherErrors: count(row?.other_errors), lastCheckedAt: date(row?.last_checked_at),
+  return { enabled: true, enrollmentMode: mode, ...coverage,
     nextAllowedAt: date(gate?.next_allowed_at), leaseUntil: date(gate?.lease_until),
     callsToday: count(gate?.calls_today), dailyBudget: ACTIVITY_DAILY_CALLS };
 }

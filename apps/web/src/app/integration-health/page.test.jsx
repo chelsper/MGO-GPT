@@ -115,3 +115,48 @@ it("shows automatic enrollment, initial setup needs and the unchanged shared bud
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: /start|enroll|sync|restart/i })).not.toBeInTheDocument();
 });
+
+it("shows individual coverage and expands saved evidence without another fetch", async () => {
+  const data = snapshot();
+  data.sections.activity = { available: true, enabled: true, enrollmentMode: "active_mgos", workspaceCount: 1,
+    total: 20, neverChecked: 5, due: 9, callsToday: 288, dailyBudget: 360,
+    items: [{ id: "7", name: "Test Fundraiser", hasAssignments: true, assigned: 10, checked: 6, waiting: 4,
+      giftsChecked: 8, actionsChecked: 7, due: 9, connectionErrors: 1, throttled: 2, otherErrors: 0,
+      level: "review", label: "Checks need attention", lastCheckedAt: "2026-09-19T10:00:00Z", oldestCheckedAt: "2026-09-17T10:00:00Z", lastAttemptAt: "2026-09-19T10:05:00Z" }] };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  const item = await screen.findByRole("article", { name: "Test Fundraiser activity coverage" });
+  expect(within(item).getByText("6 / 10")).toBeVisible();
+  expect(within(item).getByText("Records checked")).toBeVisible();
+  expect(within(item).getByText("Waiting for first checks")).toBeVisible();
+  expect(within(item).getByText(/Last successful individual check: Sep 19, 2026, 6:00 AM/)).toBeVisible();
+  fireEvent.click(within(item).getByText("Saved check details"));
+  expect(within(item).getByText(/Gift checks saved: 8 \/ 10. Action checks saved: 7 \/ 10./)).toBeVisible();
+  expect(within(item).getByText(/Errors: 1 connection \/ 2 throttled \/ 0 unverified response/)).toBeVisible();
+  expect(within(item).getByText(/These counts overlap/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("does not present a missing assignment snapshot as a checked empty portfolio", async () => {
+  const data = snapshot();
+  data.sections.activity = { available: true, enabled: true, workspaceCount: 2, items: [
+    { id: "7", name: "New MGO", hasAssignments: false, assigned: null, level: "notice", label: "Assignment sync needed" },
+    { id: "8", name: "Empty MGO", hasAssignments: true, assigned: 0, checked: 0, waiting: 0, due: 0,
+      connectionErrors: 0, throttled: 0, otherErrors: 0, level: "notice", label: "No assigned constituents" },
+  ] };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  const newMgo = await screen.findByRole("article", { name: "New MGO activity coverage" });
+  expect(within(newMgo).getByText(/coverage is unknown, not zero/)).toBeVisible();
+  expect(within(newMgo).queryByText("Records checked")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("article", { name: "Empty MGO activity coverage" })).getByText("0 / 0")).toBeVisible();
+});
+
+it("discloses a bounded coverage list instead of hiding additional portfolios", async () => {
+  const data = snapshot();
+  data.sections.activity = { available: true, enabled: true, workspaceCount: 101,
+    items: [{ id: "7", name: "Test MGO", hasAssignments: false, level: "notice", label: "Assignment sync needed" }] };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  expect(await screen.findByText(/Showing 1 of 101/)).toBeVisible();
+});
