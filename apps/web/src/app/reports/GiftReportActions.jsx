@@ -30,7 +30,7 @@ export function GiftRowActions({ constituent, group }) {
   </div>;
 }
 
-export default function GiftReportActions({ groups, enabled, ready, children }) {
+export default function GiftReportActions({ groups, enabled, ready, savedOpportunities, children }) {
   const [opportunities, setOpportunities] = useState({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -45,6 +45,11 @@ export default function GiftReportActions({ groups, enabled, ready, children }) 
     setOpportunities({});
     setError("");
     setSelection(null);
+    if (savedOpportunities) {
+      setOpportunities(savedOpportunities);
+      setLoading(false);
+      return () => controller.abort();
+    }
     if (!enabled || !ready || !idsKey) { setLoading(false); return; }
     setLoading(true);
     const ids = idsKey.split(",");
@@ -64,7 +69,7 @@ export default function GiftReportActions({ groups, enabled, ready, children }) 
     }
     load();
     return () => controller.abort();
-  }, [enabled, ready, idsKey, retry]);
+  }, [enabled, ready, idsKey, retry, savedOpportunities]);
 
   return <Context.Provider value={{ enabled, opportunities, open: (value) => {
     setSelection({ ...value, gift: {

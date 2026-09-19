@@ -609,6 +609,7 @@ async function getLiveBlackbaudAttributedGiving({
       searchParams,
       pageLimit: 500,
       maxPages: 20,
+      ...(requireComplete ? { strictResponse: true } : {}),
     }).catch((error) => {
       if (requireComplete) throw error;
       return [];
@@ -627,7 +628,10 @@ async function getLiveBlackbaudAttributedGiving({
 
     for (const gift of typedGifts) {
       const giftId = String(gift?.id || "").trim();
-      if (!giftId) continue;
+      if (!giftId) {
+        if (requireComplete) throw new Error("NXT returned a gift without an ID");
+        continue;
+      }
       if (!giftsById.has(giftId)) giftsById.set(giftId, gift);
     }
   }
@@ -637,6 +641,7 @@ async function getLiveBlackbaudAttributedGiving({
     userId: workspaceUser.id,
     authUserId,
     origin,
+    strict: requireComplete,
   });
 
   const fiscalStart = hasFiscalYearWindow
@@ -721,6 +726,8 @@ async function getLiveBlackbaudAttributedGiving({
       isWorkspaceFundraiserIdMatch(fundraiser, fundraiserIdentitySet),
     );
     const giftAmount = Number(getGiftAmount(gift) ?? 0);
+    if (requireComplete && matchingFundraisers.length && !Number.isFinite(giftAmount))
+      throw new Error("NXT returned an invalid credited gift amount");
     const included = matchingFundraisers.length > 0 && giftAmount > 0;
     if (included) {
       closedTotal += giftAmount;

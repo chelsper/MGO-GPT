@@ -1466,8 +1466,11 @@ async function handleGet(request, { params }) {
           ? reportConstituencyCodesResult.payload.value
           : Array.isArray(reportConstituencyCodesResult.payload)
             ? reportConstituencyCodesResult.payload
-            : []
-        : [];
+            : null
+        : null;
+      const reportCodesVerified = Boolean(reportConstituencyCodesResult?.ok &&
+        Array.isArray(reportConstituencyCodes) &&
+        reportConstituencyCodes.every(code => code && typeof code === "object" && !Array.isArray(code)));
       const responsePayload = {
         constituentId: resolvedConstituentId,
         includeInactive,
@@ -1480,22 +1483,22 @@ async function handleGet(request, { params }) {
                   // codes. Reports use the authoritative codes endpoint so a
                   // DAF entity cannot be mistaken for a reportable donor.
                   constituencies: getConstituencyEntries(
-                    { constituent_codes: reportConstituencyCodes },
+                    { constituent_codes: reportCodesVerified ? reportConstituencyCodes : [] },
                     [],
                   ),
-                  constituencyCodesVerified: reportConstituencyCodesResult.ok,
+                  constituencyCodesVerified: reportCodesVerified,
                 }
               : {}),
           },
         },
         warnings:
-          reportProfile && !reportConstituencyCodesResult.ok
-            ? { constituentCodes: reportConstituencyCodesResult.error }
+          reportProfile && !reportCodesVerified
+            ? { constituentCodes: reportConstituencyCodesResult?.error || "Constituent codes response was incomplete." }
             : {},
         ...(includeRaw ? { raw: { constituent: constituentPayload } } : {}),
       };
 
-      if (!includeRaw) {
+      if (!includeRaw && (!reportProfile || reportCodesVerified)) {
         await saveCachedSummary({
           workspaceUserId: user.id,
           authUserId,

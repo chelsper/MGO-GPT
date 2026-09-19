@@ -194,6 +194,17 @@ describe("closed FY gift totals", () => {
     expect(listBlackbaudGiftsMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { date: "2026-08-01", amount: { value: 100 }, gift_type: "Donation", fundraisers: [{ constituent_id: "186057" }] },
+    { id: "gift", date: "2026-08-01", amount: { value: "invalid" }, gift_type: "Donation", fundraisers: [{ constituent_id: "186057" }] },
+  ])("does not save malformed gifts as verified commitment totals", async gift => {
+    const { getClosedFiscalYearSummary } = await import("./closedFyGiftTotals.js");
+    listBlackbaudGiftsMock.mockResolvedValue([gift]);
+    await expect(getClosedFiscalYearSummary({ workspaceUser: leslie, authUserId: 7, origin: "https://example.org", now: new Date("2026-09-19T12:00:00Z"), requireComplete: true })).rejects.toThrow();
+    expect(listBlackbaudGiftsMock.mock.calls.every(([args]) => args.strictResponse === true)).toBe(true);
+    expect(sqlMock.mock.calls.some(([strings]) => strings.join("").includes("UPDATE users"))).toBe(false);
+  });
+
   it("requires a verified cache for rankings and lets other reports reuse it without more API calls", async () => {
     const { getClosedFiscalYearSummary } = await import("./closedFyGiftTotals.js");
     const options = { workspaceUser: leslie, authUserId: 7, origin: "https://example.org", now: new Date("2026-09-04T12:00:00Z"), requireComplete: true };

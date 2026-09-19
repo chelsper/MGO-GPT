@@ -3,7 +3,9 @@
 The annual/lifetime society badges and full constituent intelligence summaries
 share successful NXT gift-list and constituent lifetime-giving reads. The
 calculations remain in their existing helpers. Current-FY giving reports and
-executive fundraiser-credit calculations do not use this cache.
+fundraiser-credit calculations do not use this raw read cache. The default
+portfolio report now has its own complete saved-report path; see
+[Saved Portfolio Giving Report](portfolio-giving-report.md).
 
 ## Isolation And Safety
 

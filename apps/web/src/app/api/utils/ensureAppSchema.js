@@ -2549,8 +2549,8 @@ export default async function ensureAppSchema() {
       )
       VALUES (
         'portfolio-fy-giving',
-        'My Reports',
-        'Review current fiscal-year portfolio giving and shared engagement reports.',
+        'Portfolio giving',
+        'View saved fiscal-year portfolio giving, gift credit, and acknowledgment details.',
         'all_users',
         '[]'::jsonb
       )
@@ -2559,10 +2559,10 @@ export default async function ensureAppSchema() {
     await sql`
       UPDATE report_configurations
       SET
-        title = 'My Reports',
-        description = 'Review current fiscal-year portfolio giving and shared engagement reports.',
+        title = 'Portfolio giving',
+        description = 'View saved fiscal-year portfolio giving, gift credit, and acknowledgment details.',
         updated_at = NOW()
-      WHERE report_key = 'portfolio-fy-giving'
+      WHERE report_key = 'portfolio-fy-giving' AND title = 'My Reports'
     `;
 
     await sql`

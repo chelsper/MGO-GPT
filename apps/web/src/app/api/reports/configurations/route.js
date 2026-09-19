@@ -43,7 +43,7 @@ function serializeConfiguration(definition, record, currentUser) {
   return {
     ...metadata,
     key: definition.key,
-    title: record?.title || definition.title,
+    title: definition.key === "portfolio-fy-giving" ? definition.title : record?.title || definition.title,
     description: record?.description || definition.description,
     visibility,
     specificUserIds,

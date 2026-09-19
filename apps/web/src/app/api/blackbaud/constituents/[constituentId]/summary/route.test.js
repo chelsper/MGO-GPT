@@ -328,6 +328,18 @@ describe("Blackbaud constituent summary identity language", () => {
     });
   });
 
+  it.each([{}, { value: null }, { value: [null] }])("does not verify or cache malformed report constituency codes: %j", async codes => {
+    auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
+    ensureAppSchema.mockResolvedValue();
+    getWorkspaceUser.mockResolvedValue({ workspaceUser: { id: 42 }, sessionUser: { id: 42 }, isActing: false });
+    sql.mockResolvedValue([]);
+    blackbaudApiFetch.mockImplementation(async path => path.endsWith("/constituentcodes") ? codes : { id: "42933", name: "Example Foundation" });
+    const { GET } = await import("./route.js");
+    const response = await GET(new Request("https://jumgogpt.app/api/blackbaud/constituents/42933/summary?report_profile=true&refresh=1"), { params: { constituentId: "42933" } });
+    expect((await response.json()).mapped.constituent.constituencyCodesVerified).toBe(false);
+    expect(sql.mock.calls.some(([strings]) => strings.join("").includes("INSERT INTO blackbaud_constituent_summary_cache"))).toBe(false);
+  });
+
   it("serves the workspace-level last-good portfolio snapshot without new NXT calls", async () => {
     auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
     ensureAppSchema.mockResolvedValue();

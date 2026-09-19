@@ -1,4 +1,5 @@
 import { getWorkspaceRoleLabels } from "./workspaceRoles";
+import { portfolioGivingTitle } from "./portfolioGivingTitle";
 
 function getReviewerRoleDescriptions(mgo) {
   return {
@@ -11,7 +12,7 @@ function getReviewerRoleDescriptions(mgo) {
 export const MGO_NAV_ITEMS = [
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work", primaryOrder: 1, description: "Prioritize your top prospects and browse your assigned portfolio." },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work", primaryOrder: 2, description: "Work your next steps, coordinate with teammates, and prepare for meetings." },
-  { label: "My Reports", href: "/reports", section: "My Work", primaryOrder: 3, description: "Review fiscal-year giving, team standings, and your available reports." },
+  { get label() { return portfolioGivingTitle(); }, href: "/reports", section: "My Work", primaryOrder: 3, description: "Review saved portfolio giving, team standings, and your available reports." },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
@@ -81,7 +82,7 @@ const ROUTE_LABELS = {
   "/prospect-exports": "Top Prospect Exports",
   "/pledge-payments": "Pledge Payments",
   "/report-configurations": "Report Access & Configurations",
-  "/reports": "My Reports",
+  get "/reports"() { return portfolioGivingTitle(); },
   "/request-list": "Request List from DevData",
   "/settings": "My Account & Connections",
   "/setup": "Setup Hub",
@@ -165,7 +166,7 @@ export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
       .join(" ");
     return [
       { label: "Home", href: "/" },
-      { label: "My Reports", href: "/reports" },
+      { label: portfolioGivingTitle(), href: "/reports" },
       { label: REPORT_ROUTE_LABELS[pathname] || fallback || "Report" },
     ];
   }

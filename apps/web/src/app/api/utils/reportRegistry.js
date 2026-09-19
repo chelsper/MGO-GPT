@@ -1,3 +1,5 @@
+import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
+
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
   CUSTOM_FIELD: "custom_field",
@@ -82,8 +84,8 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     configurationSchema: "standard-report-v1",
     configurationSchemaVersion: 1,
     href: "/reports",
-    title: "My Reports",
-    description: "Review current fiscal-year portfolio giving and shared engagement reports.",
+    get title() { return portfolioGivingTitle(); },
+    description: "View saved fiscal-year portfolio giving, gift credit, and acknowledgment details.",
     audienceMode: "portfolio",
     dataConfigurationType: null,
     configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { portfolioGivingTitle } from "./portfolioGivingTitle";
 import {
   getBreadcrumbs,
   getNavigationItems,
@@ -153,12 +154,12 @@ describe("app navigation", () => {
   it("builds explicit report breadcrumbs and highlights report routes", () => {
     expect(getBreadcrumbs("/reports/executive-team-standings")).toEqual([
       { label: "Home", href: "/" },
-      { label: "My Reports", href: "/reports" },
+      { label: portfolioGivingTitle(), href: "/reports" },
       { label: "Team Standings" },
     ]);
     expect(getBreadcrumbs("/reports/alumni-family-engagement")).toEqual([
       { label: "Home", href: "/" },
-      { label: "My Reports", href: "/reports" },
+      { label: portfolioGivingTitle(), href: "/reports" },
       { label: "Alumni & Family Engagement" },
     ]);
     expect(isNavigationItemActive("/reports/alumni-family-engagement", "/reports")).toBe(true);
