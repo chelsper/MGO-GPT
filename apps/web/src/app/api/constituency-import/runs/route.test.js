@@ -78,11 +78,31 @@ describe("constituency import runs route", () => {
     expect(await legacy.json()).not.toHaveProperty("nextCursor");
   });
 
-  it("does not allow an MGO to access the queue listing", async () => {
+  it.each(["mgo", "executive", "", "unknown"])("does not allow %s to inherit queue access from an acting workspace", async (role) => {
     const { GET } = await import("./route.js");
-    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: 1, role: "mgo" } });
+    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: 1, role }, workspaceUser: { id: 7, role: "admin" } });
     expect((await GET(new Request("https://example.com/api/constituency-import/runs?queue=all"))).status).toBe(403);
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(getBlackbaudQuotaStatusMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["admin", "advancement_services", "reviewer", "advancement_admin", "admin,mgo", "advancement_services,mgo"])("authorizes %s from the signed-in account, not the MGO workspace", async (role) => {
+    const { GET } = await import("./route.js");
+    getWorkspaceUserMock.mockResolvedValue({ sessionUser: { id: 7, role }, workspaceUser: { id: 8, role: "mgo" } });
+    sqlMock.mockResolvedValueOnce([]);
+    const response = await GET(new Request("https://example.com/api/constituency-import/runs?limit=8"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ runs: [] });
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a signed-in session before reading import rows or quota status", async () => {
+    const { GET } = await import("./route.js");
+    authMock.mockResolvedValueOnce(null);
+    expect((await GET(makeRequest())).status).toBe(401);
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(getWorkspaceUserMock).not.toHaveBeenCalled();
+    expect(getBlackbaudQuotaStatusMock).not.toHaveBeenCalled();
   });
 
   it("sanitizes a legacy quota-paused row when reopening a saved import", async () => {

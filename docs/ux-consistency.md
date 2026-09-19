@@ -264,3 +264,41 @@ sample data and automated tests. That access discrepancy needs a separate
 session/view investigation before conference rehearsal; no permission or view
 changes were made to bypass it. No live imports, record edits, or explicit NXT
 refreshes were performed. Deployment remains separate.
+
+## Import Entry Access Recovery (September 19, 2026)
+
+The import page now gates entry using the verified signed-in account returned by
+the profile API, matching the import APIs' existing authorization boundary. An
+Admin's MGO display preference or an Advancement Services account's additional
+MGO role no longer incorrectly blocks entry. Acting-workspace roles and cached
+authentication roles cannot grant import access. Inactive accounts and accounts
+without Admin or Advancement Services permission remain blocked. No server-side
+authorization policy changed.
+
+Loading, sign-in required, insufficient permission, and an unavailable access
+check are separate states. Profile reads bypass the browser cache, time out after
+20 seconds, and can be explicitly retried. Incomplete or wrong-account responses
+keep controls closed; late responses are ignored after timeout, account change,
+or unmount. Saved-run and availability reads wait for verified access. Ordinary
+renders and session object changes do not add profile reads. No background
+polling or NXT calls were added to this check.
+
+Regression coverage includes role combinations, display modes, acting-workspace
+isolation, inactive and signed-out accounts, network and malformed-response
+failures, timeouts, retries, account changes, and unchanged import completion
+without resending. Existing duplicate protection, matching, creation, write,
+verification, and recovery behavior remain unchanged.
+
+Verification: 3,170 tests in 269 files, typecheck, production build, release
+guard, and whitespace checks passed. Actual components were checked with
+isolated sample data at 1440px desktop and 390px mobile widths. A simulated
+failed access check recovered to the import form after Retry in both sizes;
+the retry target is 44px tall, with no page-level horizontal overflow. Preview
+writes and external requests were blocked.
+
+The live import entry opened normally during the read-only investigation,
+without changing the signed-in account or workspace view. The earlier live
+incident was not reproduced, so its precise cause remains unconfirmed. The
+fixed failure paths were reproduced in regression tests. No live imports,
+permission changes, record edits, or explicit NXT refreshes were performed.
+Deployment and a post-deployment signed-in recheck remain separate steps.

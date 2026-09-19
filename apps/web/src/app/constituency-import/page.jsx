@@ -5,12 +5,12 @@ import Papa from "papaparse";
 import { getImportWriteResults, hasImportRetryHold, importWriteCanRetry } from "@/utils/importWriteResults";
 import { ArrowLeft, Check, Copy, FileText, Upload } from "lucide-react";
 import useUser from "@/utils/useUser";
-import useWorkspaceView from "@/utils/useWorkspaceView";
+import useImportAccess from "@/utils/useImportAccess";
 import useUnsavedChangesWarning from "@/utils/useUnsavedChangesWarning";
 import WorkflowNotice from "@/components/WorkflowNotice";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import { addressesEquivalent } from "@/utils/contactMatching";
-import { isReviewerRole } from "@/utils/workspaceRoles";
+import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 import QueueImportLink from "@/components/QueueImportLink";
 import ImportWorkspaceNavigation from "@/components/ImportWorkspaceNavigation";
 import ImportNameFormatDefaults from "@/components/ImportNameFormatDefaults";
@@ -3478,8 +3478,8 @@ function isClearlySafeReadyRow(row) {
 
 export default function ConstituencyImportPage() {
   const { data: user, loading } = useUser();
-  const [profile, setProfile] = useState(null);
-  const [loadingProfile, setLoadingProfile] = useState(true);
+  const access = useImportAccess({ user, loading });
+  const isReviewer = access.status === "allowed";
   const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS);
   const [openFieldGroups, setOpenFieldGroups] = useState(DEFAULT_OPEN_FIELD_GROUPS);
   const [importIntent, setImportIntent] = useState("updates");
@@ -3577,10 +3577,6 @@ export default function ConstituencyImportPage() {
     if (!canReplaceImportDraft()) return;
     return loadSavedRun(runId, options);
   }
-
-  const profileRole = profile?.user?.role || profile?.workspaceUser?.role || user?.role || "";
-  const { effectiveRole } = useWorkspaceView(profileRole);
-  const isReviewer = isReviewerRole(effectiveRole);
 
   const selectedFields = useMemo(
     () => IMPORT_FIELDS.filter((field) => activeFields[field.key]),
@@ -3820,29 +3816,6 @@ export default function ConstituencyImportPage() {
       reviewNavigationRows[0] ||
       null;
 
-  useEffect(() => {
-    if (loading) return;
-    let active = true;
-    setLoadingProfile(true);
-    fetch("/api/users/profile")
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(payload?.error || "Failed to load profile");
-        if (active) setProfile(payload);
-      })
-      .catch((profileError) => {
-        if (active) {
-          setError(profileError instanceof Error ? profileError.message : "Failed to load profile");
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingProfile(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [loading]);
-
   async function refreshNxtAvailability() {
     setCheckingNxtAvailability(true);
     setNxtAvailabilityError("");
@@ -3867,9 +3840,9 @@ export default function ConstituencyImportPage() {
   }
 
   useEffect(() => {
-    if (loading || !user?.email) return;
+    if (!isReviewer) return;
     void refreshNxtAvailability();
-  }, [loading, user?.email]);
+  }, [isReviewer]);
 
   function loadCsvPreviewData(csvText) {
     const parsed = parseCsv(csvText);
@@ -6210,48 +6183,34 @@ export default function ConstituencyImportPage() {
     downloadCsv(csv, `${importIntent}-constituency-import-review.csv`);
   }
 
-  if (loading || loadingProfile) {
-    return (
-      <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#6B7280" }}>
-        Loading import review...
-      </main>
-    );
-  }
-
   if (!isReviewer) {
+    const checking = access.status === "loading";
+    const failed = access.status === "error";
+    const signedOut = access.status === "signed_out";
     return (
       <main style={{ minHeight: "100vh", backgroundColor: "#F8FAFC", padding: "28px 18px 48px" }}>
         <div style={{ maxWidth: "900px", margin: "0 auto" }}>
-          <a
-            href="/"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              color: "#4F46E5",
-              fontWeight: 800,
-              textDecoration: "none",
-              marginBottom: "16px",
-            }}
-          >
-            <ArrowLeft size={18} /> Return to home
-          </a>
+          <WorkflowReturnLink href="/" className="mb-4" />
           <section
+            aria-busy={checking}
             style={{
               backgroundColor: "white",
-              border: "1px solid #FECACA",
+              border: `1px solid ${checking ? "#E5E7EB" : failed ? "#FDE68A" : "#FECACA"}`,
               borderRadius: "20px",
               padding: "24px",
             }}
           >
-            <Pill tone="red">Advancement Services only</Pill>
-            <h1 style={{ margin: "14px 0 0", color: "#111827" }}>
-              Constituency imports need reviewer access
+            <Pill tone={checking ? "blue" : failed ? "amber" : "red"}>{checking ? "Checking account" : failed ? "Access check unavailable" : "Advancement Services only"}</Pill>
+            <h1 style={{ margin: "14px 0 8px", color: "#111827", fontSize: "24px", fontWeight: 800, lineHeight: 1.25 }}>
+              {checking ? "Checking import access" : failed ? "Import access could not be checked" : signedOut ? "Sign in to use imports" : "Constituency imports need reviewer access"}
             </h1>
-            <p style={{ color: "#6B7280", lineHeight: 1.5 }}>
-              This import tool is intentionally limited to Advancement Services and workspace
-              admins because it inspects NXT constituency data.
+            <p role={failed ? "alert" : checking ? "status" : undefined} style={{ color: "#6B7280", lineHeight: 1.5 }}>
+              {checking ? "Verifying your signed-in account before loading import data."
+                : failed ? access.message
+                : signedOut ? "Return home and sign in again to check your import access. This check makes no changes to NXT."
+                : "Import tools are limited to active Admin and Advancement Services accounts. Workspace view preferences do not grant access. Contact an administrator if your account needs review."}
             </p>
+            {failed && <button type="button" onClick={access.retry} className="min-h-11 rounded-xl border border-indigo-200 bg-white px-4 py-2 font-semibold text-indigo-700">Retry access check</button>}
           </section>
         </div>
       </main>

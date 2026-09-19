@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: { email: "reviewer@example.test", role: "reviewer" }, loading: false }) }));
-vi.mock("@/utils/useWorkspaceView", () => ({ default: () => ({ effectiveRole: "reviewer" }) }));
 import ConstituencyImportPage from "./page";
 
 let rows, matches;
@@ -19,7 +18,7 @@ beforeEach(() => {
   }];
   vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.stubGlobal("fetch", vi.fn(async (url, options) => {
-    if (url === "/api/users/profile") return json({ user: { role: "reviewer" } });
+    if (url === "/api/users/profile") return json({ user: { id: 7, email: "reviewer@example.test", role: "reviewer", active: true } });
     if (url.startsWith("/api/blackbaud/status")) return json({ quota: { paused: false } });
     if (url === "/api/constituency-import/runs?limit=8") return json({ runs: [{ id: "42", sourceFilename: "test.csv", readyCount: 0, appliedCount: 0, needsReviewCount: rows.filter((r) => r.status !== "Applied").length, failedCount: 0 }] });
     if (url === "/api/constituency-import/runs?id=42") return json({ savedRun: { id: "42", defaults: {} }, rows, summary: { total: rows.length, applied: rows.filter((r) => r.status === "Applied").length, needsReview: rows.filter((r) => r.status !== "Applied").length }, warnings: [] });
