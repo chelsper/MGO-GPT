@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getBreadcrumbs,
   getNavigationItems,
+  getPrimaryNavigationItems,
   groupNavigationItems,
   isNavigationItemActive,
 } from "./appNavigation";
@@ -84,10 +85,33 @@ describe("app navigation", () => {
     expect(items.every((item) => Boolean(item.description))).toBe(true);
   });
 
-  it("keeps the MGO menu unchanged and does not surface reviewer-only tools there", () => {
+  it("preserves the MGO sections and does not surface reviewer-only tools there", () => {
     const items = getNavigationItems({ isReviewer: false, canManageWorkspace: false });
     expect(groupNavigationItems(items).map((group) => group.section)).toEqual(["My Work", "Team & Support", "Requests & Review"]);
     expect(items.some((item) => ["/pledge-payments", "/prospect-exports", "/import-history"].includes(item.href))).toBe(false);
+  });
+
+  it.each([
+    [false, false, false], [false, true, true], [true, false, false], [true, true, false], [true, true, true],
+  ])("promotes only the active workspace's paths with every allowed link once (%s, %s, %s)", (isReviewer, canManageWorkspace, isAdmin) => {
+    const items = getNavigationItems({ isReviewer, canManageWorkspace, isAdmin });
+    const original = [...items];
+    const primary = getPrimaryNavigationItems(items);
+    expect(primary.map(item => item.href)).toEqual(isReviewer
+      ? ["/submissions", "/constituency-import", "/prospect-exports"]
+      : ["/my-top-prospects", "/follow-ups", "/reports"]);
+    expect(primary.every(item => Boolean(item.description))).toBe(true);
+    const groups = groupNavigationItems(items, { promotePrimary: true });
+    expect(groups[0]).toEqual({ section: "Start here", items: primary });
+    expect(groups.flatMap(group => group.items).map(item => item.href).sort())
+      .toEqual(items.map(item => item.href).sort());
+    expect(items).toEqual(original);
+  });
+
+  it("does not create an empty primary group or invent unavailable shortcuts", () => {
+    const items = getNavigationItems({ isReviewer: false }).filter(item => !item.primaryOrder);
+    expect(getPrimaryNavigationItems(items)).toEqual([]);
+    expect(groupNavigationItems(items, { promotePrimary: true })).toEqual(groupNavigationItems(items));
   });
 
   it("builds explicit report breadcrumbs and highlights report routes", () => {

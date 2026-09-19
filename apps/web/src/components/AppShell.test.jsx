@@ -9,6 +9,7 @@ import { useWorkspaceLabels } from "./WorkspaceTerminology";
 const state = vi.hoisted(() => ({
   organization: null,
   profileRole: "admin",
+  reviewer: true,
   worklist: {
     queueCounts: {
       submissions: 2,
@@ -29,11 +30,11 @@ vi.mock("@/utils/useUser", () => ({
 }));
 vi.mock("@/utils/useWorkspaceView", () => ({
   default: () => ({
-    isAdmin: true,
-    adminViewMode: "reviewer",
-    effectiveRole: "reviewer",
-    isMgoView: false,
-    isReviewerView: true,
+    isAdmin: state.profileRole.includes("admin"),
+    adminViewMode: state.reviewer ? "reviewer" : "mgo",
+    effectiveRole: state.reviewer ? "reviewer" : "mgo",
+    isMgoView: !state.reviewer,
+    isReviewerView: state.reviewer,
     setViewMode: vi.fn(),
   }),
 }));
@@ -66,6 +67,7 @@ let root;
 beforeEach(() => {
   state.organization = null;
   state.profileRole = "admin";
+  state.reviewer = true;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -164,5 +166,21 @@ describe("AppShell", () => {
     expect(container.querySelector('[data-testid="location"]')).toHaveTextContent(
       "/constituent-lookup?q=Smith",
     );
+  });
+
+  it.each([false, true])("starts the menu with the same three Home paths, without duplicate links (reviewer: %s)", async reviewer => {
+    state.reviewer = reviewer;
+    await renderShell(reviewer ? "/constituency-import" : "/follow-ups");
+    await act(async () => { fireEvent.click(container.querySelector('[aria-label="Open navigation menu"]')); });
+    const nav = container.querySelector('[aria-label="Application navigation"]');
+    const firstSection = nav.querySelector("section");
+    expect(firstSection.querySelector("h2")).toHaveTextContent("Start here");
+    const hrefs = reviewer ? ["/submissions", "/constituency-import", "/prospect-exports"] : ["/my-top-prospects", "/follow-ups", "/reports"];
+    expect([...firstSection.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(hrefs);
+    for (const href of hrefs) expect(nav.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
+    expect(firstSection.querySelector('[aria-current="page"]')).toHaveAttribute("href", reviewer ? "/constituency-import" : "/follow-ups");
+    if (!reviewer) expect(nav.querySelector('a[href="/constituency-import"]')).toBeNull();
+    await act(async () => { fireEvent.click(container.querySelector('[aria-label="Close navigation menu"]')); });
+    expect(container.querySelector('[aria-label="Application navigation"]')).toBeNull();
   });
 });

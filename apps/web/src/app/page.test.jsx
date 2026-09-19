@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Page from "./page";
 
 const state = vi.hoisted(() => ({
-  session: { email: "reviewer@example.org" }, reviewer: true, failed: false, counts: {}, options: null, role: null,
+  session: { email: "reviewer@example.org" }, reviewer: true, failed: false, counts: {}, options: null, role: null, overdueNextSteps: [],
 }));
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: state.session, loading: false }) }));
 vi.mock("@/utils/useWorkspaceView", () => ({
@@ -15,7 +15,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (options) => {
     if (options.queryKey[0] !== "app-shell-worklist") return {};
     state.options = options;
-    return { data: { queueCounts: state.counts, summary: { openDiscussionItems: 1 } }, isError: state.failed };
+    return { data: { queueCounts: state.counts, summary: { openDiscussionItems: 1 }, overdueNextSteps: state.overdueNextSteps }, isError: state.failed };
   },
 }));
 
@@ -25,6 +25,7 @@ beforeEach(() => {
   state.reviewer = true;
   state.failed = false;
   state.role = null;
+  state.overdueNextSteps = [];
   state.counts = { workQueue: 12, dataRequests: 0, listRequests: 0, constituencyImports: 12, familyImports: 2, prospectPool: 31 };
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -48,7 +49,10 @@ describe("Advancement Services home alerts", () => {
     await render();
     const section = [...container.querySelectorAll("section")].find((node) => node.querySelector("h2")?.textContent === "Reports & Exports");
     expect(section.querySelector('a[href="/pledge-payments"]')).toHaveTextContent("Pledge Payments");
-    expect(section.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Choose one or more MGOs");
+    const primary = container.querySelector('[aria-label="Main workspace paths"]');
+    expect([...primary.querySelectorAll("a")].map(link => link.getAttribute("href")))
+      .toEqual(["/submissions", "/constituency-import", "/prospect-exports"]);
+    expect(primary.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Choose one or more MGOs");
     expect(section.querySelector('a[href="/report-configurations"]')).not.toBeNull();
     expect(container.querySelectorAll('a[href="/knowledge-base/manage"]')).toHaveLength(1);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -93,6 +97,28 @@ describe("Advancement Services home alerts", () => {
     expect(container.querySelector('a[href="/pledge-payments"]')).toBeNull();
     expect(container.querySelector('a[href="/prospect-exports"]')).toBeNull();
     expect(container.querySelector('a[href="/my-top-prospects"]')).not.toBeNull();
+  });
+
+  it("puts fundraiser paths above attention items without duplicate shortcuts or new fetching", async () => {
+    state.reviewer = false;
+    state.overdueNextSteps = [{ id: 9, next_action_text: "Call about event", prospect_name: "Test Constituent", next_action_due_date: "2026-01-02" }];
+    await render();
+    const primary = container.querySelector('[aria-label="Main workspace paths"]');
+    const hrefs = ["/my-top-prospects", "/follow-ups", "/reports"];
+    expect([...primary.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(hrefs);
+    for (const href of hrefs) {
+      const shortcuts = [...container.querySelectorAll(`a[href="${href}"]`)]
+        .filter(link => !link.closest('[aria-labelledby="attention-upcoming-title"]'));
+      expect(shortcuts).toHaveLength(1);
+    }
+    const attention = container.querySelector('[aria-labelledby="attention-upcoming-title"]');
+    expect(primary.compareDocumentPosition(attention) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(attention).toHaveTextContent("Call about event");
+    expect(attention.querySelector('a[href="/my-top-prospects?prospectId=9&panel=next-step"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/action-opportunity-update"]')).not.toBeNull();
+    expect(primary.querySelector('[aria-label="1 open team discussion item"]')).toHaveTextContent("1");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(state.options).toMatchObject({ refetchInterval: false, refetchIntervalInBackground: false });
   });
 
   it("keeps reporting tools out of the admin's MGO view", async () => {

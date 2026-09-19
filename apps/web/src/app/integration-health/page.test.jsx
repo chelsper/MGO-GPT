@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server.node";
 import IntegrationHealthPage from "./page";
 
 const snapshot = () => ({ viewerId: "1", readAt: "2026-09-17T15:00:00Z", limit: 100, sections: {
@@ -25,6 +27,40 @@ it("reads one saved endpoint and keeps successful results quiet", async () => {
   expect(screen.queryByRole("button", { name: /approve|resend|reconnect|restart/i })).not.toBeInTheDocument();
   fireEvent.click(screen.getAllByText("Saved check details")[0]);
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it.each([200, 401, 403])("hydrates the server loading view without replacing it or repeating reads (HTTP %i)", async (status) => {
+  const view = <html lang="en"><head><title>Integration Health</title></head><body><IntegrationHealthPage /></body></html>;
+  const doc = new DOMParser().parseFromString(renderToString(view), "text/html");
+  const originalMain = doc.querySelector("main");
+  const originalHeading = doc.querySelector("h1");
+  const recoverableError = vi.fn();
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  let finishRead;
+  fetch.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+  let root;
+  try {
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { root = hydrateRoot(doc, view, { onRecoverableError: recoverableError }); });
+    expect(doc.querySelector("main")).toBe(originalMain);
+    expect(doc.querySelector("h1")).toBe(originalHeading);
+    expect(doc.querySelector('[role="status"]').textContent).toContain("Loading saved integration status");
+    await act(async () => { finishRead(reply(status === 200 ? snapshot() : {}, status)); });
+    expect(doc.querySelector("main")).toBe(originalMain);
+    expect(doc.querySelector("h1")).toBe(originalHeading);
+    if (status === 200) {
+      expect(doc.body.textContent).toContain("Saved connection; renewal available");
+    } else {
+      expect(doc.querySelector('[role="alert"]').textContent).toContain(status === 401 ? "Sign in" : "active Admin users only");
+      expect(doc.body.textContent).not.toContain("Test MGO");
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(recoverableError).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+  } finally {
+    if (root) await act(async () => root.unmount());
+    consoleError.mockRestore();
+  }
 });
 
 it("reloads only on request and does not keep privileged data after access is revoked", async () => {

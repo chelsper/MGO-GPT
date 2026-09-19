@@ -146,3 +146,24 @@ The actual coverage UI was checked with synthetic data at 1280px desktop and
 per-portfolio details kept the saved-status request count at one. Production
 release verification must confirm the exact deployed commit and the signed-in
 coverage section without forcing a worker run.
+
+### Embedded-Browser Hydration Diagnostic
+
+On September 19, production verification displayed React hydration errors 418
+and 423 even though the saved coverage and expandable details worked. An isolated
+local run (API responses stubbed, production credentials cleared) reported an
+unexpected `div` directly under `html`. The server response contained only `head`
+and `body`; the browser DOM also contained
+`div#codex-browser-sidebar-comments-root`, belonging to Codex's embedded-browser
+overlay rather than the app.
+
+A controlled document hydration test reproduced the same mismatch when that
+external sibling was added and no warning when it was absent. Permanent page
+tests cover successful saved reads and HTTP 401/403 responses, retaining the
+server-rendered page nodes and making only one saved-status request. They do not
+certify every route or replace a standalone-browser smoke test.
+
+No runtime workaround was added: do not delete browser-owned elements, hide
+hydration errors, disable SSR, or change NXT refresh behavior to address this
+diagnostic. If a standalone browser also reports hydration errors, investigate
+its specific mismatch separately rather than assuming the overlay is responsible.

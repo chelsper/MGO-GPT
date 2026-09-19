@@ -22,7 +22,11 @@ describe("Advancement Services workspace shortcuts", () => {
     expect(new Set(links).size).toBe(links.length);
     const reports = screen.getByRole("region", { name: "Reports & Exports" });
     expect(within(reports).getByRole("link", { name: /Pledge Payments/ })).toHaveAttribute("href", "/pledge-payments");
-    expect(within(reports).getByRole("link", { name: /Top Prospect Exports/ })).toHaveAttribute("href", "/prospect-exports");
+    const primary = screen.getByRole("navigation", { name: "Main workspace paths" });
+    expect(within(primary).getAllByRole("link").map(link => link.getAttribute("href")))
+      .toEqual(["/submissions", "/constituency-import", "/prospect-exports"]);
+    expect(within(primary).getByRole("link", { name: /Top Prospect Exports/ })).toHaveAttribute("href", "/prospect-exports");
+    expect(container.querySelector("section")).toHaveAccessibleName("Start here");
   });
 
   it("keeps settings collapsed but reporting tools immediately visible", () => {

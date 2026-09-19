@@ -1,7 +1,7 @@
 export const MGO_NAV_ITEMS = [
-  { label: "My Prospects", href: "/my-top-prospects", section: "My Work" },
-  { label: "My Reports", href: "/reports", section: "My Work" },
-  { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work" },
+  { label: "My Prospects", href: "/my-top-prospects", section: "My Work", primaryOrder: 1, description: "Prioritize your top prospects and browse your assigned portfolio." },
+  { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work", primaryOrder: 2, description: "Work your next steps, coordinate with teammates, and prepare for meetings." },
+  { label: "My Reports", href: "/reports", section: "My Work", primaryOrder: 3, description: "Review fiscal-year giving, team standings, and your available reports." },
   { label: "Log Update", href: "/action-opportunity-update", section: "Team & Support" },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Team & Support" },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Team & Support" },
@@ -13,14 +13,14 @@ export const MGO_NAV_ITEMS = [
 ];
 
 export const REVIEWER_NAV_ITEMS = [
-  { label: "Work Queue", href: "/submissions", section: "Daily Work", description: "Start here for requests and NXT exceptions in one queue." },
+  { label: "Work Queue", href: "/submissions", section: "Daily Work", primaryOrder: 1, description: "Review outstanding requests and NXT exceptions in one queue." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work", description: "Assign prospects to MGOs and follow up on contact information requests." },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
-  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", description: "Choose one or more MGOs and download a master workbook with opportunity details." },
+  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 3, description: "Choose one or more MGOs and download a master workbook with opportunity details." },
   { label: "List Request Queue", href: "/list-requests", section: "Requests", description: "Prioritize list requests and send questions or delivery notes to MGOs." },
   { label: "Data Request Queue", href: "/data-requests", section: "Requests", description: "Review contact information and constituent record corrections." },
-  { label: "Constituency Import", href: "/constituency-import", section: "Imports", description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
+  { label: "Constituency Import", href: "/constituency-import", section: "Imports", primaryOrder: 2, description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
   { label: "Family Import", href: "/family-import", section: "Imports", description: "Review parents and family relationships before creating or linking NXT records." },
   { label: "Import History", href: "/import-history", section: "Imports", description: "View successfully imported records and failed imports. Read-only results; nothing to approve." },
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Tools & Guidance", description: "Search NXT and open a constituent profile." },
@@ -103,11 +103,21 @@ export function getNavigationItems({ isReviewer, canManageWorkspace, isAdmin = f
   return isAdmin ? [...withSetup, INTEGRATION_HEALTH_ITEM] : withSetup;
 }
 
-export function groupNavigationItems(items) {
-  return SECTION_ORDER.map((section) => ({
-    section,
-    items: items.filter((item) => item.section === section),
-  })).filter((group) => group.items.length > 0);
+export function getPrimaryNavigationItems(items) {
+  return items.filter((item) => Number.isInteger(item.primaryOrder) && item.primaryOrder > 0)
+    .sort((a, b) => a.primaryOrder - b.primaryOrder);
+}
+
+export function groupNavigationItems(items, { promotePrimary = false } = {}) {
+  const primaryItems = promotePrimary ? getPrimaryNavigationItems(items) : [];
+  const remainingItems = items.filter((item) => !primaryItems.includes(item));
+  return [
+    ...(primaryItems.length ? [{ section: "Start here", items: primaryItems }] : []),
+    ...SECTION_ORDER.map((section) => ({
+      section,
+      items: remainingItems.filter((item) => item.section === section),
+    })).filter((group) => group.items.length > 0),
+  ];
 }
 
 export function isNavigationItemActive(pathname, href) {

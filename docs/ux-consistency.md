@@ -75,3 +75,31 @@ settings mutation, or NXT mutation was made; this was not full live acceptance
 of every workflow.
 
 See [workflow acceptance](mgo-workflow-readiness.md) for the broader release checks.
+
+## Home And Navigation Entry Paths (September 19, 2026)
+
+Home and the main navigation now promote the same three destinations in a
+"Start here" section, using the existing role-filtered navigation definitions:
+
+- Fundraiser view: My Prospects, Follow-ups & Discussion, My Reports.
+- Advancement Services view: Work Queue, Constituency Import, Top Prospect Exports.
+
+Promoted cards are not repeated in the lower Home groups or other menu sections.
+The fundraiser's Attention & Upcoming section follows the primary cards and keeps
+its contextual follow-up links. All other tools remain accessible; existing
+workspace controls, terminology, and Family Import are unchanged. Two-card
+supporting groups use the full desktop row; primary cards stack on mobile.
+
+This is presentation-only. No new data requests, polling, prefetching, background
+checks, permissions, or NXT writes were introduced. Queue badges still use the
+existing worklist counts, imports have no queue badges, and queue-refresh failures
+retain their visible warning. Home shortcuts and navigation share `primaryOrder`
+metadata in `appNavigation.js` rather than separate role-specific destination lists.
+
+Verification: 3,061 tests in 266 files, typecheck, production build, and release
+worktree checks passed. Tests cover role-specific order, unique destinations,
+permissions, active menu links, existing attention links and badge behavior, and
+no additional fetching. Actual Home and AppShell components were checked with
+synthetic data at desktop and 390px mobile widths: no horizontal overflow, equal
+desktop card sizes, correct menu order, and visible keyboard focus. This is local
+verification, not a deployment or a live NXT workflow acceptance test.

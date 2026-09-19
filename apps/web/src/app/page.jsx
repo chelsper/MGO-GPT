@@ -6,6 +6,8 @@ import useUser from "@/utils/useUser";
 import useWorkspaceView from "@/utils/useWorkspaceView";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import AdvancementServicesHome from "@/components/AdvancementServicesHome";
+import WorkspaceStartPaths from "@/components/WorkspaceStartPaths";
+import { getNavigationItems } from "@/utils/appNavigation";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
@@ -13,24 +15,6 @@ import {
   getWorkspaceRoleLabel,
 } from "@/utils/workspaceRoles";
 const MGO_ACTIONS = [
-  {
-    title: "My Prospects",
-    href: "/my-top-prospects",
-    description: "Work your ranked portfolio, next steps, and opportunity momentum.",
-    section: "myWork",
-  },
-  {
-    title: "My Reports",
-    href: "/reports",
-    description: "Review current fiscal-year portfolio giving and shared engagement reports.",
-    section: "myWork",
-  },
-  {
-    title: "Follow-ups & Discussion",
-    href: "/follow-ups",
-    description: "View all saved next steps or switch to team discussions and meeting prep.",
-    section: "myWork",
-  },
   {
     title: "Log Update",
     href: "/action-opportunity-update",
@@ -75,35 +59,8 @@ const MGO_ACTIONS = [
   },
 ];
 
-const primaryActions = MGO_ACTIONS.filter((action) => action.section === "myWork");
 const teamSupport = MGO_ACTIONS.filter((action) => action.section === "teamSupport");
 const requestsReview = MGO_ACTIONS.filter((action) => action.section === "requestsReview");
-
-function DiscussionAlertBadge({ count, compact = false }) {
-  if (!count) return null;
-
-  return (
-    <span
-      aria-label={`${count} open team discussion ${count === 1 ? "item" : "items"}`}
-      title={`${count} open team discussion ${count === 1 ? "item" : "items"}`}
-      style={{
-        display: "inline-grid",
-        placeItems: "center",
-        minWidth: compact ? "18px" : "24px",
-        height: compact ? "18px" : "24px",
-        borderRadius: "999px",
-        backgroundColor: "#F59E0B",
-        color: "white",
-        fontSize: compact ? "11px" : "13px",
-        fontWeight: 900,
-        lineHeight: 1,
-        boxShadow: "0 0 0 3px rgba(245, 158, 11, 0.16)",
-      }}
-    >
-      !
-    </span>
-  );
-}
 
 function parseWorklistDate(value) {
   const datePart = String(value || "").slice(0, 10);
@@ -382,18 +339,6 @@ export default function Page() {
     );
   }
 
-  const primarySectionStyle = {
-    background:
-      "linear-gradient(180deg, rgba(0, 122, 94, 0.06) 0%, rgba(0, 122, 94, 0.02) 100%)",
-    border: "1px solid rgba(0, 122, 94, 0.22)",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7)",
-  };
-
-  const secondaryCardStyle = {
-    backgroundColor: "#FBFDFC",
-    border: "1px solid rgba(0, 122, 94, 0.12)",
-  };
-
   const supportCardStyle = {
     backgroundColor: "#FCFCFD",
     border: "1px solid #F3F4F6",
@@ -565,6 +510,14 @@ export default function Page() {
             {workspaceSwitchMessage}
           </div>
         ) : null}
+
+        {!isReviewer && <div className="mb-6">
+          <WorkspaceStartPaths
+            items={getNavigationItems({ isReviewer: false, canManageWorkspace, isAdmin })}
+            queueCounts={queueCounts}
+            openDiscussionItems={openDiscussionItems}
+          />
+        </div>}
 
         {hasAttentionItems ? (
           <section
@@ -739,64 +692,6 @@ export default function Page() {
           openDiscussionItems={openDiscussionItems}
           worklistFailed={worklistFailed}
         /> : <>
-        <div style={{ marginBottom: "10px", fontSize: "18px", color: "#111827", fontWeight: 700 }}>
-          My Work
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: "14px",
-            marginBottom: "18px",
-          }}
-        >
-          {primaryActions.map((action, index) => (
-            <a
-              key={action.href}
-              href={action.href}
-              style={{
-                position: "relative",
-                textDecoration: "none",
-                backgroundColor: "white",
-                border:
-                  index === 0
-                    ? "1px solid rgba(0, 122, 94, 0.28)"
-                    : "1px solid rgba(0, 122, 94, 0.14)",
-                borderRadius: "14px",
-                padding: "18px",
-                color: "#111827",
-                ...(index === 0 ? primarySectionStyle : secondaryCardStyle),
-              }}
-            >
-              {action.href === "/follow-ups" ? (
-                <div style={{ position: "absolute", top: "14px", right: "14px" }}>
-                  <DiscussionAlertBadge count={openDiscussionItems} />
-                </div>
-              ) : null}
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 800,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                    color: "#6B7280",
-                    marginBottom: "8px",
-                  }}
-                >
-                  {index === 0 ? "Primary" : "Workspace"}
-                </div>
-              <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "17px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                <span>{action.title}</span>
-                <WorkQueueAlertBadge href={action.href} counts={queueCounts} />
-              </div>
-              <div style={{ color: "#6B7280", fontSize: "14px", lineHeight: 1.55 }}>
-                {action.description}
-              </div>
-            </a>
-          ))}
-        </div>
-
         {teamSupport.length ? (
           <>
             <h2 style={{ margin: "0 0 12px", fontSize: "18px", color: "#111827" }}>
@@ -825,11 +720,6 @@ export default function Page() {
                     color: "#111827",
                   }}
                 >
-                  {action.href === "/follow-ups" ? (
-                    <div style={{ position: "absolute", top: "12px", right: "12px" }}>
-                      <DiscussionAlertBadge count={openDiscussionItems} compact />
-                    </div>
-                  ) : null}
                   <div style={{ fontWeight: 700, marginBottom: "8px", fontSize: "15px" }}>
                     {action.title}
                   </div>

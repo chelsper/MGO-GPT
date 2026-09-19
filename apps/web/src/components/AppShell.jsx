@@ -146,7 +146,7 @@ export default function AppShell({ children }) {
     [canManageWorkspace, isReviewerView, isAdmin],
   );
   const navigationGroups = useMemo(
-    () => groupNavigationItems(navigationItems),
+    () => groupNavigationItems(navigationItems, { promotePrimary: true }),
     [navigationItems],
   );
 

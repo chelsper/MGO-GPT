@@ -1,6 +1,7 @@
 import { Activity, ArrowRight, BookOpen, CalendarDays, ChevronDown, ClipboardList, Download, FileText, MessageSquare, Search, Settings, ShieldCheck, SlidersHorizontal, Upload, Users } from "lucide-react";
 import { getNavigationItems, groupNavigationItems } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "./WorkQueueAlertBadge";
+import WorkspaceStartPaths from "./WorkspaceStartPaths";
 
 const icons = {
   "/setup": Settings,
@@ -26,14 +27,14 @@ const icons = {
 
 const sectionDescriptions = {
   "Daily Work": "Review outstanding work, assign prospects, and coordinate with the team.",
-  "Reports & Exports": "Open the saved pledge worklist, export top prospects, or configure reports.",
+  "Reports & Exports": "Open the saved pledge worklist or configure reports. Top Prospect Exports is above in Start here.",
   "Requests": "Go directly to a specific request queue. These requests also appear in Work Queue.",
-  "Imports": "Start an import or browse saved results in Import History. Nothing to approve in the history page.",
+  "Imports": "Additional import tools and saved results. Nothing to approve in Import History.",
   "Tools & Guidance": "Look up a record or find the guidance you need.",
 };
 
 function ActionCards({ items, queueCounts, openDiscussionItems, featured }) {
-  return <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${items.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
+  return <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${items.length === 4 ? "xl:grid-cols-4" : items.length === 2 ? "xl:grid-cols-2" : "xl:grid-cols-3"}`}>
     {items.map((item) => {
       const Icon = icons[item.href] || FileText;
       const discussionCount = item.href === "/follow-ups" && Number.isSafeInteger(openDiscussionItems) && openDiscussionItems > 0 ? openDiscussionItems : 0;
@@ -59,8 +60,10 @@ function ActionCards({ items, queueCounts, openDiscussionItems, featured }) {
 
 export default function AdvancementServicesHome({ canManageWorkspace, isAdmin = false, queueCounts, openDiscussionItems = 0, worklistFailed = false }) {
   // The home page and persistent menu share destinations, grouping, and permissions.
-  const groups = groupNavigationItems(getNavigationItems({ isReviewer: true, canManageWorkspace, isAdmin }));
+  const navigationItems = getNavigationItems({ isReviewer: true, canManageWorkspace, isAdmin });
+  const groups = groupNavigationItems(navigationItems, { promotePrimary: true }).filter((group) => group.section !== "Start here");
   return <div className="space-y-7">
+    <WorkspaceStartPaths items={navigationItems} queueCounts={queueCounts} openDiscussionItems={openDiscussionItems} />
     <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
       {worklistFailed && <p role="status" className="mb-2 font-medium text-amber-800">Queue alerts could not refresh. Any displayed counts are from the last successful check; open a queue to verify its current work.</p>}
       <details>
