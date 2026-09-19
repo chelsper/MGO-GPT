@@ -1,10 +1,65 @@
 # Constituent Lists
 
+## Query Output and Display Columns
+
+Lists now support `custom_field`, `saved_query`, and `query_json` sources. In
+Setup > Report Access & Configurations, select a list or Add list. Choose a saved
+query system record ID or paste a Dynamic constituent query definition (type 18).
+The Future. Made. Phase II editor has an explicit **Use supplied Future. Made.
+query** draft button containing the definition supplied September 19, 2026.
+These tenant-specific IDs are not defaults for other lists or organizations.
+
+Saving does not execute, create, or edit an NXT query. An explicit list refresh
+executes an asynchronous read-only query and preserves its result columns and
+rows. It does not replace them with the old four-column layout. CSV must be
+complete and valid, with at most 1,000 rows, 25 columns and 512 KB; overflow is
+rejected, never truncated. Existing complete results survive refresh failures.
+All authorized viewers can access every returned field; hiding a column is not
+a security control. Query-definition sharing flags do not grant app access.
+
+After the first refresh, **Load saved output columns** in configuration reads
+only the saved snapshot. Choose visible columns, labels, text/number/USD format,
+and order, then save shared defaults. Display-only edits reuse the same snapshot
+and never execute NXT. **Display columns** on the list adjusts this visit only.
+New output fields appear by default; obsolete column settings are ignored.
+
+### Current Lead Fundraiser
+
+Enable the separate current-lead option and enter exact NXT assignment type names
+(default: Lead Solicitor and Lead Fundraiser). Query lists require an explicit
+output header for the **constituent system record ID**. Include this field in the
+query output; it can be hidden from the display. The app does not infer identity
+from a name, Lookup ID, arbitrary numeric field ID, gift ID, or unconfigured
+QRECID. The supplied six field IDs are not assumed to include this identity.
+
+Refresh reads the [single-constituent fundraiser assignments endpoint](https://developer.sky.blackbaud.com/api#api=56b76470069a0509c8f1c5b3&operation=ListConstituentFundraiserAssignmentsSingleConstituent)
+with `include_inactive=false`, verifies the returned constituent IDs, and excludes
+future, ended, and explicitly inactive assignments. It selects exact lead role
+labels, retains all current leads, and resolves names once per distinct fundraiser
+per refresh. Dates are compared as calendar dates in the report's Eastern time
+context. A blank is a verified absence, not a swallowed API error. Failed reads
+pause publication, retaining the last complete snapshot. Progress checkpoints
+limit work to five constituents or roughly 15 seconds between constituents per
+request. No assignment lookup runs during opening, sorting, or column changes.
+
+The Add constituent custom-field category/value is configured separately. The
+app never converts opaque query filters into writes. Leave the category empty
+for a read-only query list. If enabled, the existing idempotent membership writer
+is reused; extra query filters or NXT indexing lag may exclude a newly added
+constituent from the result until conditions are met.
+
+Existing Future. Made. access and legacy output remain unchanged until a manager
+saves the new source settings. Its old URL then uses the new list viewer. The old
+scheduled query refresh is skipped and the hardcoded membership writer refuses
+outdated requests. Configured lists refresh explicitly; no new schedule or data
+migration is introduced. Old snapshots are not relabeled as a different source.
+
 ## Setup and Compatibility
 
 Reports now groups constituent lists under **Lists** (`/reports/lists`). The existing
 Future. Made. Phase II report remains at its original URL with its existing query,
-access rules, membership action, and refresh behavior. It is not silently migrated.
+access rules, membership action, and refresh behavior until its new list source
+settings are explicitly saved. It is not silently migrated.
 Retired custom-field count reports are not re-enabled. My Dashboards is separate
 future work.
 
@@ -26,7 +81,7 @@ Settings use revision checks to prevent overwriting concurrent changes.
   schema `constituent-list-v1`; no schema migration or credentials in configuration.
 - GET, navigation, search, pagination, and configuration preview are saved-data-only.
   Loading NXT category choices is a separate explicit button.
-- Manual refresh uses filtered `GET /constituent/v1/constituents/customfields`
+- Custom-field list refresh uses filtered `GET /constituent/v1/constituents/customfields`
   with `category`, optional `value`, `include_count`, limit 100, and offset.
 - Blackbaud documents average indexing latency of roughly 30 minutes for this
   endpoint. Newly added membership may be verified on the record before appearing

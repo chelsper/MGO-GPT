@@ -125,6 +125,9 @@ async function refreshReportSnapshot({ origin, target, authorization }) {
     if (!response.ok) {
       throw new Error(payload?.error || `Report refresh returned ${response.status}.`);
     }
+    if (payload?.status === "skipped" && target.key === "future-made-phase-ii") {
+      return { key: target.key, status: "skipped", reason: payload.message };
+    }
 
     if (target.method === "POST") {
       return {
@@ -220,7 +223,7 @@ export async function GET(request) {
     }
 
     return Response.json({
-      status: failed.length || deferred.length || refreshed.some((result) => result.status !== "refreshed") ? "partial" : "refreshed",
+      status: failed.length || deferred.length || refreshed.some((result) => !["refreshed", "skipped"].includes(result.status)) ? "partial" : "refreshed",
       localTime,
       refreshUser: {
         id: refreshUser.id,

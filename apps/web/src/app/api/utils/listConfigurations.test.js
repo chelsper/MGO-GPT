@@ -42,6 +42,13 @@ it("requires active explicit viewers even for admins; separates membership permi
   });
   expect(serializeList({ ...record, active: false }, user).canView).toBe(false);
 });
+it("preserves legacy access but prevents membership writes on query-only lists", () => {
+  const queryOnly = { ...record, data_configuration: { ...source, source: "saved_query", queryId: "123", fieldCategory: "" } };
+  expect(serializeList(queryOnly, user)).toMatchObject({ canView: true, canManageMembers: false });
+  const legacy = { ...record, report_key: "future-made-phase-ii", visibility: "specific_users", specific_user_ids: [2] };
+  expect(serializeList(legacy, user).canView).toBe(true);
+  expect(serializeList(legacy, { ...user, role: "mgo" }).canView).toBe(false);
+});
 it("keeps unshared lists out of normal users' configuration responses", async () => {
   expect(await listConfigurations({ ...user, role: "mgo", id: 2 })).toEqual([]);
   expect(await listConfigurations({ ...user, id: 2 })).toHaveLength(1);

@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const accessMock = vi.hoisted(() => vi.fn());
+vi.mock("@/app/api/utils/reportAccess", () => ({ getReportAccessForUser: accessMock }));
+vi.mock("@/app/api/utils/constituentListContext", () => ({ requireListSameOrigin: vi.fn() }));
 
 const {
   authMock,
@@ -39,8 +42,15 @@ function createRequest(body) {
 }
 
 describe("Future. Made. Phase II membership route", () => {
+  it("blocks the old hardcoded membership writer after list configuration changes", async () => {
+    accessMock.mockResolvedValue({ canView: true, dataConfiguration: { version: 1 } });
+    const { POST } = await import("./route.js");
+    expect((await POST(createRequest({ constituentId: "100" }))).status).toBe(409);
+    expect(createBlackbaudConstituentCustomFieldMock).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    accessMock.mockResolvedValue({ canView: true });
     authMock.mockResolvedValue({ user: { email: "executive@example.edu" } });
     ensureAppSchemaMock.mockResolvedValue();
     getOrCreateUserMock.mockResolvedValue({

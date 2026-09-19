@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readListIdentity, readListPage } from "./constituentListProvider";
+import { isQueryList } from "@/utils/listQueryConfiguration";
+import { advanceQueryList, enrichListLeads } from "./constituentQueryList";
 
 export function listSnapshotKeys(report, origin) {
+  const { columns, ...dataSource } = report.dataConfiguration;
   const hash = createHash("sha256")
-    .update(JSON.stringify([origin, report.dataConfiguration]))
+    .update(JSON.stringify([origin, dataSource]))
     .digest("hex");
   const snapshot = `constituent-list-v1:${report.key}:${hash}`;
   return { snapshot, job: `${snapshot}:refresh` };
@@ -26,6 +29,8 @@ export async function advanceListRefresh({ job, user, origin, source }) {
   job.status = "running";
   job.message = "";
   job.retryAt = null;
+  if (isQueryList(source))
+    return advanceQueryList({ job, user, origin, source });
   if (job.stage === "members") {
     const page = await readListPage({
       user,
@@ -87,14 +92,35 @@ export async function advanceListRefresh({ job, user, origin, source }) {
       job.profileOffset += 1;
     }
   }
-  if (job.stage === "names" && job.profileOffset === job.people.length) {
+  if (
+    job.stage === "names" &&
+    job.profileOffset === job.people.length &&
+    source.leadFundraiser?.enabled
+  ) {
+    job.stage = "fundraisers";
+    job.profileOffset = 0;
+  }
+  if (job.stage === "fundraisers")
+    await enrichListLeads({ job, user, origin, source });
+  if (
+    job.stage === "complete" ||
+    (job.stage === "names" && job.profileOffset === job.people.length)
+  ) {
     job.status = "complete";
     return {
       job,
       snapshot: {
         generatedAt: new Date().toISOString(),
-        rows: job.rows.sort((a, b) => a.name.localeCompare(b.name)),
+        rows: job.rows
+          .map((row) => ({
+            ...row,
+            ...(source.leadFundraiser?.enabled
+              ? { leadFundraiser: job.leads[row.constituentId] }
+              : {}),
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
         total: job.rows.length,
+        leadAsOf: job.leadAsOf || null,
       },
     };
   }

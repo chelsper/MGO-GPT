@@ -9,6 +9,7 @@ vi.mock("@/app/api/utils/getOrCreateUser", () => ({ default: mocks.user }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: vi.fn() }));
 vi.mock("@/app/api/utils/sql", () => ({ default: mocks.sql }));
 import { DELETE, GET, PATCH, POST } from "./route";
+import suppliedQuery from "@/utils/futureMadeQueryTemplate.json";
 
 const dashboard = {
   report_key: "demo",
@@ -152,6 +153,29 @@ describe("report configuration API", () => {
     ).toBe(400);
     mocks.auth.mockResolvedValue(null);
     expect((await GET()).status).toBe(401);
+  });
+  it("saves legacy-list query output without replacing its existing access settings", async () => {
+    const source = {
+      version: 1,
+      source: "query_json",
+      queryJson: JSON.stringify(suppliedQuery),
+      fieldCategory: "Prospect Research",
+      fieldDescription: "Future. Made. Phase II",
+    };
+    const response = await PATCH(request({ reportKey: "future-made-phase-ii", dataConfiguration: source }));
+    expect(response.status).toBe(200);
+    const insert = mocks.sql.mock.calls.find(([parts]) => parts.join(" ").includes("INSERT INTO report_configurations"));
+    expect(insert[1]).toBe("future-made-phase-ii");
+    const savedSource = insert.slice(1).filter((value) => typeof value === "string").map((value) => {
+      try { return JSON.parse(value); } catch { return null; }
+    }).find((value) => value?.source === "query_json");
+    expect(savedSource).toMatchObject({ version: 1, source: "query_json", fieldCategory: "Prospect Research" });
+    expect(JSON.parse(savedSource.queryJson).select_fields).toEqual(suppliedQuery.select_fields);
+    expect(JSON.parse(savedSource.queryJson)).not.toHaveProperty("others_can_modify");
+    for (const column of ["visibility", "specific_user_ids"]) {
+      const flagIndex = insert[0].findIndex((part) => part.includes(`${column} = CASE WHEN`));
+      expect(insert[flagIndex + 1]).toBe(false);
+    }
   });
   it("deletes only a user-created dashboard and its cached snapshot", async () => {
     const response = await DELETE(request({ reportKey: "demo" }));

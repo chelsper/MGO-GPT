@@ -130,7 +130,7 @@ export async function getReportAccessForUser(reportKey, user) {
     title: String(record?.title || "").trim(),
     description: String(record?.description || "").trim(),
     dataConfiguration:
-      supportsReportDataConfiguration(definition)
+      reportKey === FUTURE_MADE_PHASE_TWO_REPORT_KEY ? (record?.data_configuration?.version === 1 ? record.data_configuration : null) : supportsReportDataConfiguration(definition)
         ? normalizeAlumniDonorConfiguration(record?.data_configuration)
         : null,
     visibility,

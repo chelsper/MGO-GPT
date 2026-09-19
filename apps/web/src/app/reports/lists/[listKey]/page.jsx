@@ -5,15 +5,23 @@ import useConstituentList from "../useConstituentList";
 import ListMembershipSearch from "@/components/ListMembershipSearch";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "@/components/reportConfigurationEditor.module.css";
+import ListQueryResults from "@/components/ListQueryResults";
+import { isQueryList, LEAD_COLUMN, orderedListColumns } from "@/utils/listQueryConfiguration";
+import ListColumnEditor from "@/components/ListColumnEditor";
+import { displayCell } from "@/components/QueryResultsTable";
 
 export default function ConstituentListPage({ params }) {
   const { data, error, loading, refreshing, reload, refresh } =
     useConstituentList(params.listKey);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [localColumns, setLocalColumns] = useState(null);
   const report = data?.report;
   const snapshot = data?.snapshot;
   const job = data?.refresh;
+  const customHeaders = ["Constituent", "Lookup ID", "Description", ...(snapshot?.leadAsOf ? [LEAD_COLUMN] : []), "Record"];
+  const columns = orderedListColumns(customHeaders, localColumns && localColumns.revision === report?.revision ? localColumns.columns : report?.dataConfiguration?.columns || []);
+  const displayed = columns.filter((column) => column.visible);
   const filtered = (snapshot?.rows || []).filter((row) =>
     `${row.name} ${row.lookupId} ${row.values.join(" ")}`
       .toLowerCase()
@@ -67,12 +75,10 @@ export default function ConstituentListPage({ params }) {
               aria-label="List source and refresh status"
             >
               <strong>
-                {report.dataConfiguration.fieldCategory} /{" "}
-                {report.dataConfiguration.fieldDescription ||
-                  "All descriptions"}
+                {isQueryList(report.dataConfiguration) ? "NXT query output" : `${report.dataConfiguration.fieldCategory} / ${report.dataConfiguration.fieldDescription || "All descriptions"}`}
               </strong>
               <p className={styles.muted}>
-                NXT custom-field lists can lag by about 30 minutes. Opening this
+                NXT indexing can lag by about 30 minutes. Opening this
                 page never refreshes NXT; use Refresh list when needed.
               </p>
               <p>
@@ -80,10 +86,11 @@ export default function ConstituentListPage({ params }) {
                   ? `Last complete refresh: ${new Date(snapshot.generatedAt).toLocaleString()}`
                   : "No saved list yet. Refresh once and keep this page open until it finishes."}
               </p>
+              {snapshot?.leadAsOf && <p className={styles.muted}>Current lead fundraiser assignments checked as of {snapshot.leadAsOf} (Eastern). Not a live lookup.</p>}
               {job && job.status !== "complete" && (
                 <div role="status">
                   <strong>
-                    {job.stage === "members"
+                    {job.stage === "query" ? "Waiting for NXT query output" : job.stage === "fundraisers" ? `${job.checked} of ${job.total} current fundraiser assignments checked` : job.stage === "members"
                       ? `${job.checked} matching custom fields checked`
                       : `${job.checked} of ${job.total} constituent names checked`}
                   </strong>
@@ -130,7 +137,8 @@ export default function ConstituentListPage({ params }) {
                 report={report}
               />
             )}
-            {snapshot && (
+            {snapshot?.tableRows && <ListQueryResults key={`${report.revision}:${snapshot.generatedAt}`} snapshot={snapshot} defaults={report.dataConfiguration.columns || []} title={report.title} />}
+            {snapshot && !snapshot.tableRows && (
               <section className={styles.card} aria-label="Saved list members">
                 <div className={styles.toolbar}>
                   <h2 className={styles.listTitle}>
@@ -149,6 +157,8 @@ export default function ConstituentListPage({ params }) {
                     />
                   </label>
                 </div>
+                <ListColumnEditor headers={customHeaders} value={columns} onChange={(next) => setLocalColumns({ revision: report.revision, columns: next })} />
+                {!displayed.length && <p>No columns selected. Open Display columns to show them again.</p>}
                 <div style={{ overflowX: "auto" }}>
                   <table
                     style={{
@@ -159,18 +169,13 @@ export default function ConstituentListPage({ params }) {
                   >
                     <thead>
                       <tr>
-                        {[
-                          "Constituent",
-                          "Lookup ID",
-                          "Description",
-                          "Record",
-                        ].map((label) => (
+                        {displayed.map((column) => (
                           <th
-                            key={label}
+                            key={column.header}
                             scope="col"
                             style={{ textAlign: "left", padding: 12 }}
                           >
-                            {label}
+                            {column.label || column.header}
                           </th>
                         ))}
                       </tr>
@@ -183,17 +188,8 @@ export default function ConstituentListPage({ params }) {
                             key={row.constituentId}
                             style={{ borderTop: "1px solid #dbe3ee" }}
                           >
-                            <td style={{ padding: 12 }}>
-                              <strong>{row.name}</strong>
-                            </td>
-                            <td style={{ padding: 12 }}>
-                              {row.lookupId || "Not supplied"}
-                            </td>
-                            <td style={{ padding: 12 }}>
-                              {row.values.join(", ") || "Not supplied"}
-                            </td>
-                            <td style={{ padding: 12 }}>
-                              <a
+                            {displayed.map((column) => <td key={column.header} style={{ padding: 12 }}>
+                              {column.header === "Record" ? <a
                                 className={styles.button}
                                 href={buildBlackbaudConstituentProfileUrl(
                                   row.constituentId,
@@ -202,8 +198,8 @@ export default function ConstituentListPage({ params }) {
                                 rel="noreferrer"
                               >
                                 Open NXT
-                              </a>
-                            </td>
+                              </a> : displayCell(String({ Constituent: row.name, "Lookup ID": row.lookupId, Description: row.values.join(", "), [LEAD_COLUMN]: row.leadFundraiser }[column.header] || ""), column.format)}
+                            </td>)}
                           </tr>
                         ))}
                     </tbody>

@@ -689,6 +689,9 @@ export async function GET(request) {
         { status: 403 },
       );
     }
+    if (access.dataConfiguration?.version === 1) {
+      return Response.json({ status: "skipped", message: "This list now uses configured columns and explicit refresh under Lists.", href: "/reports/lists/future-made-phase-ii" }, { headers: { "Cache-Control": "private, no-store" } });
+    }
 
     const { searchParams } = new URL(request.url);
     forceRefresh = shouldBypassReportCache(request);

@@ -4,12 +4,13 @@ import {
   listMetadata,
   normalizeListSource,
   validateListSource,
+  LEGACY_LIST_KEY,
 } from "@/utils/constituentLists";
 import {
   canManageWorkspaceRole,
   isExecutiveRole,
 } from "@/utils/workspaceRoles";
-import { parseReportSpecificUserIds } from "@/app/api/utils/reportAccess";
+import { canUserViewReport, parseReportSpecificUserIds } from "@/app/api/utils/reportAccess";
 
 export const listError = (message, status = 400) =>
   Object.assign(new Error(message), { status });
@@ -18,7 +19,8 @@ export const validListKey = (key) =>
 
 export function serializeList(record, user) {
   const specificUserIds = parseReportSpecificUserIds(record.specific_user_ids);
-  const canView =
+  const legacy = record.report_key === LEGACY_LIST_KEY;
+  const canView = legacy ? user?.active === true && canUserViewReport({ user, visibility: record.visibility, specificUserIds }) :
     user?.active === true &&
     record.active === true &&
     specificUserIds.includes(Number(user.id));
@@ -32,13 +34,17 @@ export function serializeList(record, user) {
     dataConfiguration: record.data_configuration,
     canView,
     canManageMembers:
-      canView &&
+      canView && Boolean(record.data_configuration?.fieldCategory?.trim()) &&
       (canManageWorkspaceRole(user.role) || isExecutiveRole(user.role)),
     revision: record.revision || String(record.updated_at),
   };
 }
 
 export async function getListRecord(key) {
+  if (key === LEGACY_LIST_KEY) {
+    const rows = await sql`SELECT *, updated_at::text AS revision FROM report_configurations WHERE report_key = ${key} AND configuration_kind = 'standard' LIMIT 1`;
+    return rows[0] || null;
+  }
   if (!validListKey(key)) return null;
   const rows =
     await sql`SELECT *, updated_at::text AS revision FROM report_configurations

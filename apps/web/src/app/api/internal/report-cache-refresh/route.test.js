@@ -101,4 +101,17 @@ describe("report snapshot refresh cron", () => {
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(payload.refreshed[0]).toMatchObject({ key: "demo", status: "pending", remainingQueryCount: 3 });
   });
+
+  it("does not retry or report failure for a legacy list moved to explicit refresh", async () => {
+    fetchMock.mockImplementation(async (url) => Response.json(
+      new URL(url).pathname.endsWith("/future-made-phase-ii")
+        ? { status: "skipped", message: "This list uses configured output and explicit refresh." }
+        : { status: "complete", totalRows: 3 },
+    ));
+    const { GET } = await import("./route.js");
+    const payload = await (await GET(createRequest("?force=1"))).json();
+    expect(payload.status).toBe("refreshed");
+    expect(payload.refreshed.find((report) => report.key === "future-made-phase-ii")).toMatchObject({ status: "skipped" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

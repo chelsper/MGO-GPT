@@ -8,6 +8,8 @@ import {
 } from "@/app/api/utils/blackbaud";
 import { invalidateReportSnapshot } from "@/app/api/utils/reportCache";
 import { isAdminRole, isExecutiveRole } from "@/utils/workspaceRoles";
+import { getReportAccessForUser } from "@/app/api/utils/reportAccess";
+import { requireListSameOrigin } from "@/app/api/utils/constituentListContext";
 
 const FUTURE_MADE_PHASE_TWO_CACHE_KEY = "report:future-made-phase-ii";
 
@@ -85,10 +87,15 @@ async function getCurrentUser() {
 
 export async function POST(request) {
   try {
+    requireListSameOrigin(request);
     const user = await getCurrentUser();
-    if (!user) {
+    if (!user || user.active === false) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const access = await getReportAccessForUser("future-made-phase-ii", user);
+    if (!access.canView) return Response.json({ error: "This list is not shared with you." }, { status: 403 });
+    if (access.dataConfiguration?.version === 1) return Response.json({ error: "This list has new membership settings. Open it from Lists and use its current Add constituent controls." }, { status: 409 });
 
     if (!canManageFutureMadePhaseTwoList(user.role)) {
       return Response.json(
@@ -171,7 +178,7 @@ export async function POST(request) {
             ? error.message
             : "Could not add the constituent to Future. Made. Phase II.",
       },
-      { status: 500 },
+      { status: error?.status || 500 },
     );
   }
 }

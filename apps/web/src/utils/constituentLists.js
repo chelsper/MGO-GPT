@@ -1,3 +1,8 @@
+import {
+  isQueryList,
+  parseListQuery,
+  validateListPresentation,
+} from "./listQueryConfiguration";
 export const LIST_SCHEMA = "constituent-list-v1";
 export const LEGACY_LIST_KEY = "future-made-phase-ii";
 export const isConstituentList = (report) =>
@@ -8,19 +13,31 @@ export function validateListSource(value) {
   if (
     !value ||
     value.version !== 1 ||
-    value.source !== "custom_field" ||
+    !["custom_field", "query_json", "saved_query"].includes(value.source) ||
     Object.keys(value).some(
       (key) =>
-        !["version", "source", "fieldCategory", "fieldDescription"].includes(
-          key,
-        ),
+        ![
+          "version",
+          "source",
+          "fieldCategory",
+          "fieldDescription",
+          "queryJson",
+          "queryId",
+          "columns",
+          "leadFundraiser",
+        ].includes(key),
     )
   ) {
-    return "Choose a custom-field list source.";
+    return "Choose a custom-field or query list source.";
   }
   if (
+    (value.source !== "saved_query" && Object.hasOwn(value, "queryId")) ||
+    (value.source !== "query_json" && Object.hasOwn(value, "queryJson"))
+  )
+    return "Query fields must match the chosen list source.";
+  if (
     typeof value.fieldCategory !== "string" ||
-    !value.fieldCategory.trim() ||
+    (!isQueryList(value) && !value.fieldCategory.trim()) ||
     value.fieldCategory.trim().length > 200
   )
     return "Select an NXT custom field category (200 characters or fewer).";
@@ -29,15 +46,35 @@ export function validateListSource(value) {
     value.fieldDescription.trim().length > 200
   )
     return "The optional description must be 200 characters or fewer.";
-  return "";
+  if (
+    value.source === "saved_query" &&
+    (typeof value.queryId !== "string" ||
+      !/^[1-9]\d*$/.test(value.queryId) ||
+      !Number.isSafeInteger(Number(value.queryId)))
+  )
+    return "Enter a saved NXT query system record ID.";
+  if (value.source === "query_json") {
+    try {
+      parseListQuery(value.queryJson);
+    } catch (error) {
+      return error.message;
+    }
+  }
+  return validateListPresentation(value);
 }
 
 export function normalizeListSource(value) {
   return {
     version: 1,
-    source: "custom_field",
+    source: value.source,
     fieldCategory: value.fieldCategory.trim(),
     fieldDescription: value.fieldDescription.trim(),
+    ...(value.source === "saved_query" ? { queryId: value.queryId } : {}),
+    ...(value.source === "query_json"
+      ? { queryJson: JSON.stringify(parseListQuery(value.queryJson)) }
+      : {}),
+    ...(value.columns ? { columns: value.columns } : {}),
+    ...(value.leadFundraiser ? { leadFundraiser: value.leadFundraiser } : {}),
   };
 }
 

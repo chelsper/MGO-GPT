@@ -72,7 +72,7 @@ export default function useConstituentList(listKey) {
         )
           return;
         command = { action: "continue", jobId: payload.refresh.id };
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, payload.refresh.stage === "query" ? 2000 : 500));
       }
     } catch (failure) {
       if (!current.signal.aborted) setError(failure.message);

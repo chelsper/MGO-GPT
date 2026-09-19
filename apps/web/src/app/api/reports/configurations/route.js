@@ -3,7 +3,7 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getOrCreateUser from "@/app/api/utils/getOrCreateUser";
 import sql from "@/app/api/utils/sql";
 import { listConfigurations, saveListConfiguration } from "@/app/api/utils/listConfigurations";
-import { LIST_SCHEMA } from "@/utils/constituentLists";
+import { LIST_SCHEMA, LEGACY_LIST_KEY, validateListSource, normalizeListSource } from "@/utils/constituentLists";
 import { requireListSameOrigin } from "@/app/api/utils/constituentListContext";
 import {
   deleteDashboardConfiguration,
@@ -53,7 +53,7 @@ function serializeConfiguration(definition, record, currentUser) {
     sourceQueryId: "",
     sourceQueryName: "",
     dataConfiguration:
-      metadata.supportsDataConfiguration
+      definition.key === LEGACY_LIST_KEY ? (record?.data_configuration?.version === 1 ? record.data_configuration : null) : metadata.supportsDataConfiguration
         ? normalizeAlumniFamilyEngagementDashboard(record?.data_configuration)
         : null,
     canView,
@@ -135,6 +135,7 @@ export async function PATCH(request) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return Response.json({ error: "Expected a configuration object." }, { status: 400 });
     }
+    requireListSameOrigin(request);
     if (body.configurationSchema === LIST_SCHEMA || String(body.reportKey || "").startsWith("list-")) {
       requireListSameOrigin(request);
       const configuration = await saveListConfiguration({ body, user });
@@ -210,10 +211,10 @@ export async function PATCH(request) {
     const shouldUpdateDataConfiguration =
       supportsReportDataConfiguration(definition) && hasDataConfigurationUpdate;
     const dataConfiguration = shouldUpdateDataConfiguration
-      ? normalizeAlumniFamilyEngagementDashboard(body?.dataConfiguration)
+      ? (definition.key === LEGACY_LIST_KEY ? body.dataConfiguration : normalizeAlumniFamilyEngagementDashboard(body?.dataConfiguration))
       : null;
     const dataConfigurationError = shouldUpdateDataConfiguration
-      ? validateAlumniFamilyEngagementDashboard(dataConfiguration)
+      ? (definition.key === LEGACY_LIST_KEY ? validateListSource(dataConfiguration) : validateAlumniFamilyEngagementDashboard(dataConfiguration))
       : "";
     if (dataConfigurationError) {
       return Response.json({ error: dataConfigurationError }, { status: 400 });
@@ -251,7 +252,7 @@ export async function PATCH(request) {
         ${JSON.stringify(activeUserIds)}::jsonb,
         ${sourceQueryId || null},
         ${sourceQueryName || null},
-        ${JSON.stringify(dataConfiguration || {})}::jsonb,
+        ${JSON.stringify(shouldUpdateDataConfiguration && definition.key === LEGACY_LIST_KEY ? normalizeListSource(dataConfiguration) : dataConfiguration || {})}::jsonb,
         ${user.id},
         ${user.id}
       )

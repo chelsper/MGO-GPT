@@ -17,7 +17,7 @@ function numericAmount(value) {
   return Number.isFinite(amount) && Math.abs(amount) <= Number.MAX_SAFE_INTEGER ? amount : null;
 }
 
-function displayCell(value, format) {
+export function displayCell(value, format) {
   if (format !== "number" && format !== "currency") return value;
   const amount = numericAmount(value);
   if (amount === null) return value;

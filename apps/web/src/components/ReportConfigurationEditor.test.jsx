@@ -19,6 +19,23 @@ beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("report configuration save contracts", () => {
+  it("enables legacy list data settings without changing legacy access policy or activation", () => {
+    const report = builtin("future-made-phase-ii");
+    const draft = createReportDraft(report);
+    draft.dataConfiguration.fieldCategory = "Configured membership";
+    const patch = buildReportConfigurationPatch(report, draft, "Configure");
+    expect(patch.dataConfiguration).toMatchObject({ version: 1, fieldDescription: "Future. Made. Phase II" });
+    expect(patch).not.toHaveProperty("configurationSchema");
+    expect(patch).not.toHaveProperty("active");
+    expect(patch).not.toHaveProperty("visibility");
+  });
+  it("does not migrate the legacy query when only its title is changed", () => {
+    const report = builtin("future-made-phase-ii");
+    const draft = { ...createReportDraft(report), title: "New display title" };
+    const patch = buildReportConfigurationPatch(report, draft, "Configure");
+    expect(patch.title).toBe("New display title");
+    expect(patch).not.toHaveProperty("dataConfiguration");
+  });
   it("sends configuration without access and access without configuration", () => {
     const report = dashboard();
     const draft = createReportDraft(report);
@@ -26,7 +43,7 @@ describe("report configuration save contracts", () => {
     expect(buildReportConfigurationPatch(report, draft, "Access")).toEqual({ reportKey: report.key, visibility: "specific_users", specificUserIds: [1], active: false });
   });
   it("does not send unsupported built-in data configuration or activation", () => {
-    const report = builtin("future-made-phase-ii");
+    const report = builtin("executive-team-standings");
     const patch = buildReportConfigurationPatch(report, createReportDraft(report), "Preview");
     expect(patch).not.toHaveProperty("active");
     expect(patch).not.toHaveProperty("dataConfiguration");
@@ -81,7 +98,7 @@ describe("single-report editor", () => {
     const first = builtin("future-made-phase-ii");
     const second = builtin("executive-team-standings");
     render(<ReportConfigurationEditor initialConfigurations={[first, second]} users={users} />);
-    fireEvent.change(screen.getByLabelText("Report title"), { target: { value: "Working title" } });
+    fireEvent.change(screen.getByLabelText("List title"), { target: { value: "Working title" } });
     fireEvent.click(screen.getByRole("tab", { name: "Access" }));
     expect(screen.queryByLabelText("Report title")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: /Fundraiser Two/ }));
@@ -89,7 +106,7 @@ describe("single-report editor", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Configure" }));
     expect(screen.getByLabelText("Report title")).toHaveValue(second.title);
     fireEvent.change(screen.getByLabelText("Selected report"), { target: { value: first.key } });
-    expect(screen.getByLabelText("Report title")).toHaveValue("Working title");
+    expect(screen.getByLabelText("List title")).toHaveValue("Working title");
     fireEvent.click(screen.getByRole("tab", { name: /Access/ }));
     expect(screen.getByRole("checkbox", { name: /Fundraiser Two/ })).toBeChecked();
     expect(fetch).not.toHaveBeenCalled();

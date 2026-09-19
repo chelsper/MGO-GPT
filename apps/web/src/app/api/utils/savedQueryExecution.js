@@ -9,11 +9,11 @@ import {
 const QUERY_POLL_INTERVAL_MS = 1500;
 const QUERY_MAX_WAIT_MS = 90000;
 
-function getQueryJobId(job) {
+export function getQueryJobId(job) {
   return String(job?.id ?? job?.job_id ?? job?.jobId ?? "").trim();
 }
 
-function getQueryJobStatus(job) {
+export function getQueryJobStatus(job) {
   return String(
     job?.status ?? job?.state ?? job?.job_status ?? job?.jobStatus ?? "",
   ).trim();
@@ -60,7 +60,7 @@ function firstUrl(candidates) {
   ).trim();
 }
 
-function getQueryResultUrl(job) {
+export function getQueryResultUrl(job) {
   return firstUrl([
     job?.sas_uri,
     job?.sasUri,

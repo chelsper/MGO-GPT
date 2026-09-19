@@ -39,7 +39,7 @@ function byteLimitError() {
   return limitError(`Query results must not exceed ${QUERY_RESULTS_LIMITS.bytes} bytes.`);
 }
 
-function decodeResult({ body, contentType }) {
+export function decodeResult({ body, contentType }) {
   if (!(body instanceof Uint8Array)) throw new DashboardQueryResultsError(FAILURE_MESSAGE);
   if (body.byteLength > QUERY_RESULTS_LIMITS.bytes) throw byteLimitError();
   // Only the actual response MIME can authorize CSV decoding, not the URL or Accept header.
@@ -79,7 +79,7 @@ function removeTechnicalColumns(table) {
   };
 }
 
-function parseResultCsv(content) {
+export function parseResultCsv(content, { preserveTechnical = false } = {}) {
   const text = content.replace(/^\uFEFF/, "");
   const leading = text.trimStart();
   if (!leading) throw new DashboardQueryResultsError("NXT returned an empty CSV result file.");
@@ -158,7 +158,7 @@ function parseResultCsv(content) {
   }
   if (state === "quoted") throw malformedCsv();
   if (state !== "start" || row.length) { finishCell(); finishRow(); }
-  const table = removeTechnicalColumns({ headers, rows });
+  const table = preserveTechnical ? { headers, rows } : removeTechnicalColumns({ headers, rows });
   if (!isValidDashboardTableData(table)) {
     throw limitError("Query results exceed the supported table size or shape.");
   }

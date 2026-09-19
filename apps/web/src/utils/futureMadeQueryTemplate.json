@@ -1,0 +1,47 @@
+{
+  "advanced_processing_options": {
+    "use_alternate_sql_code_table_fields": false,
+    "use_alternate_sql_multiple_attributes": false
+  },
+  "category_id": 85,
+  "constituent_filters": {
+    "include_deceased": false,
+    "include_inactive": true,
+    "include_no_valid_addresses": true
+  },
+  "filter_fields": [
+    {
+      "compare_type": "None",
+      "filter_values": ["15122"],
+      "left_parenthesis": false,
+      "operator": "Equals",
+      "query_field_id": 656,
+      "right_parenthesis": false,
+      "unique_id": "439"
+    }
+  ],
+  "format": "Dynamic",
+  "gift_processing_options": {
+    "matching_gift_credit_option": "Both",
+    "soft_credit_option": "Both",
+    "soft_credit_sub_option": "UseAmountInGrid",
+    "use_gross_amount_for_covenants": false
+  },
+  "name": "Future. Made. Phase II",
+  "others_can_execute": true,
+  "others_can_modify": true,
+  "select_fields": [
+    { "query_field_id": 597 },
+    { "query_field_id": 68586 },
+    { "query_field_id": 68584 },
+    { "query_field_id": 69476 },
+    { "query_field_id": 69474 },
+    { "query_field_id": 69095 }
+  ],
+  "sort_fields": [
+    { "query_field_id": 422, "sort_order": "Ascending" },
+    { "query_field_id": 14300, "sort_order": "Ascending" }
+  ],
+  "suppress_duplicates": true,
+  "type_id": 18
+}

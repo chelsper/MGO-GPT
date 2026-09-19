@@ -54,7 +54,7 @@ export default function ListsPage() {
           {lists.map((list) => (
             <article className={styles.card} key={list.key}>
               <span className={styles.tag}>
-                {list.key === LEGACY_LIST_KEY
+                {list.dataConfiguration?.source === "query_json" ? "NXT query definition" : list.dataConfiguration?.source === "saved_query" ? "Saved NXT query" : list.key === LEGACY_LIST_KEY
                   ? "Existing saved-query list"
                   : "NXT custom-field list"}
               </span>

@@ -107,8 +107,8 @@ export const STANDARD_REPORT_DEFINITIONS = Object.freeze([
     description:
       "View every constituent returned by the saved Future. Made. Phase II NXT query.",
     audienceMode: "shared_snapshot",
-    dataConfigurationType: null,
-    configurationCapabilities: STANDARD_REPORT_CONFIGURATION_CAPABILITIES,
+    dataConfigurationType: "constituent_list",
+    configurationCapabilities: Object.freeze({ ...STANDARD_REPORT_CONFIGURATION_CAPABILITIES, dataConfiguration: "constituent_list" }),
     presentationNote:
       "This report uses the saved Future. Made. Phase II NXT query and a shared snapshot. Standard report visits do not make a new NXT request.",
     presentationNoteTone: "info",
@@ -239,6 +239,7 @@ export function getCustomFieldReportMetadata(slug) {
 
 export function getReportHref(report) {
   if (report?.key === "lists") return "/reports/lists";
+  if (report?.key === FUTURE_MADE_PHASE_TWO_REPORT_KEY && report.dataConfiguration?.version === 1) return `/reports/lists/${FUTURE_MADE_PHASE_TWO_REPORT_KEY}`;
   if (report?.configurationSchema === LIST_SCHEMA && /^list-[a-z0-9-]{1,70}$/.test(report?.key || "")) return `/reports/lists/${encodeURIComponent(report.key)}`;
   const definition = getReportDefinition(report?.key);
   if (definition) return definition.href;

@@ -103,6 +103,14 @@ describe("Future. Made. Phase II report route", () => {
       expect.objectContaining({ queryId: "query-1" }),
     );
   });
+  it("stops the old query refresh after opting into configured list output", async () => {
+    getReportAccessForUserMock.mockResolvedValue({ canView: true, dataConfiguration: { version: 1, source: "query_json" } });
+    const { GET } = await import("./route.js");
+    expect(await (await GET(createRequest("?refresh=1"))).json()).toMatchObject({ status: "skipped", href: "/reports/lists/future-made-phase-ii" });
+    expect(createBlackbaudQueryJobMock).not.toHaveBeenCalled();
+    expect(getBlackbaudQueryJobMock).not.toHaveBeenCalled();
+    expect(saveReportSnapshotMock).not.toHaveBeenCalled();
+  });
 
   it("returns a cached report snapshot when available", async () => {
     const { GET } = await import("./route.js");
