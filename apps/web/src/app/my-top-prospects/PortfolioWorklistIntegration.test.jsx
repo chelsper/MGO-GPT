@@ -29,6 +29,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 import MyProspects from "./page";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
+import { PORTFOLIO_SORT_OPTIONS } from "@/utils/portfolioWorklist";
 
 beforeEach(() => {
   localStorage.clear();
@@ -508,6 +509,27 @@ it.each(["due", "pipeline"])(
     expect(screen.getAllByRole("article")[0]).toHaveTextContent(
       "Due Sep 30, 2026",
     );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(state.data.prospects[0].priority_order).toBe(1);
+  },
+);
+
+it.each(PORTFOLIO_SORT_OPTIONS.filter((option) => option.kind))(
+  "uses $value on actual portfolio responses without fetching or changing Top Prospects ranks",
+  ({ value, kind, direction }) => {
+    state.data["blackbaud-portfolio"].leadSolicitor[0].savedActivity = {
+      [kind]: { date: "2020-01-01", checkedAt: "2025-01-01T12:00:00Z" },
+    };
+    state.data["blackbaud-portfolio"].supportingSolicitor[0].savedActivity = {
+      [kind]: { date: "2020-02-01", checkedAt: "2025-01-01T12:00:00Z" },
+    };
+    render(<MyProspects />);
+    fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value } });
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent(direction === 1 ? "Zelda Donor" : "Amy Donor");
+    fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "solicitor" } });
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(screen.getByLabelText("Sort by")).toHaveValue(value);
     expect(fetch).not.toHaveBeenCalled();
     expect(state.data.prospects[0].priority_order).toBe(1);
   },

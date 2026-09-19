@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPortfolioSignals,
   DEFAULT_PORTFOLIO_VIEW,
+  PORTFOLIO_SORT_OPTIONS,
   matchesPortfolioQuickView,
   normalizePortfolioView,
   paginatePortfolioTiers,
@@ -292,7 +293,55 @@ describe("portfolio priority sorts", () => {
   );
 });
 
+describe("saved activity date sorts", () => {
+  const now = new Date("2026-09-19T12:00:00Z");
+  const sorts = PORTFOLIO_SORT_OPTIONS.filter((option) => option.kind);
+  it.each(sorts)("orders $value by the verified date, not check time or another kind", ({ value, kind, direction }) => {
+    const saved = (date, checkedAt = "2026-09-18T12:00:00Z") => ({ date, checkedAt });
+    const list = [
+      { constituentId: "1", name: "Recent", savedActivity: { [kind]: saved("2026-09-15", "2026-09-16T12:00:00Z") } },
+      { constituentId: "2", name: "Old", savedActivity: { [kind]: saved("2024-02-29T00:00:00Z") } },
+      { constituentId: "3", name: "Middle", savedActivity: { [kind]: saved("2025-12-31") } },
+      { constituentId: "4", name: "A Missing", lastGiftDate: "2000-01-01", latest_activity_at: "2000-01-01" },
+      { constituentId: "5", name: "B Invalid", savedActivity: { [kind]: saved("2026-02-30") } },
+      { constituentId: "6", name: "C Unchecked", savedActivity: { [kind]: { date: "2000-01-01" } } },
+      { constituentId: "7", name: "D Empty", savedActivity: { [kind]: saved(null) } },
+      { constituentId: "8", name: "E Future action", savedActivity: { [kind]: saved("2026-09-20") } },
+      { constituentId: "9", name: "F Future check", savedActivity: { [kind]: saved("2020-01-01", "2026-09-20T12:00:00Z") } },
+      { constituentId: "10", name: "G Other kind", savedActivity: { [kind === "gift" ? "action" : "gift"]: saved("2000-01-01") } },
+      { constituentId: "11", name: "H Bad check", savedActivity: { [kind]: saved("2020-01-01", "invalid") } },
+    ];
+    const signals = new Map([["4", { dueDate: "2000-01-01", lastGiftDate: "2000-01-01" }]]);
+    const original = structuredClone({ list, signals });
+    expect(sortPortfolioPeople(list, signals, value, now).map((person) => person.constituentId)).toEqual([
+      ...(direction === 1 ? ["2", "3", "1"] : ["1", "3", "2"]), "4", "5", "6", "7", "8", "9", "10", "11",
+    ]);
+    expect({ list, signals }).toEqual(original);
+  });
+  it.each(sorts)("breaks $value ties by name then ID and leaves ranks unchanged", ({ value, kind }) => {
+    const activity = { date: "2026-01-01", checkedAt: "2026-09-18T12:00:00Z" };
+    const list = [
+      { constituentId: "10", name: "Beth", priority_order: 1 },
+      { constituentId: "3", name: "Amy", priority_order: 2 },
+      { constituentId: "2", name: "Beth", priority_order: 3 },
+    ].map((person) => ({ ...person, savedActivity: { [kind]: activity } }));
+    const original = structuredClone(list);
+    expect(sortPortfolioPeople(list, new Map(), value, now).map((person) => person.constituentId)).toEqual(["3", "2", "10"]);
+    expect(list).toEqual(original);
+  });
+  it("uses Eastern check dates at the UTC midnight boundary", () => {
+    const list = [
+      { constituentId: "1", name: "Not happened when checked", savedActivity: { action: { date: "2026-09-19", checkedAt: "2026-09-19T01:00:00Z" } } },
+      { constituentId: "2", name: "Verified", savedActivity: { action: { date: "2026-09-18", checkedAt: "2026-09-19T01:00:00Z" } } },
+    ];
+    expect(sortPortfolioPeople(list, new Map(), "action-newest", now).map((person) => person.constituentId)).toEqual(["2", "1"]);
+  });
+});
+
 describe("worklist pagination and preferences", () => {
+  it.each(PORTFOLIO_SORT_OPTIONS)("accepts and retains the $value sort preference", ({ value }) => {
+    expect(normalizePortfolioView({ sort: value }).sort).toBe(value);
+  });
   it("accepts Focus while keeping Compact as the backward-compatible default", () => {
     expect(normalizePortfolioView({ density: "focus" }).density).toBe("focus");
     expect(normalizePortfolioView({ density: "invalid" }).density).toBe(

@@ -1,4 +1,16 @@
 import { calendarDate } from "./prospectActivity";
+import { savedPortfolioActivityDate } from "./portfolioActivity";
+
+export const PORTFOLIO_SORT_OPTIONS = [
+  { value: "open", label: "Open first" },
+  { value: "due", label: "Next step due" },
+  { value: "pipeline", label: "Largest open pipeline" },
+  { value: "name", label: "Name A-Z" },
+  { value: "action-oldest", label: "Last action: oldest to newest", kind: "action", direction: 1 },
+  { value: "action-newest", label: "Last action: newest to oldest", kind: "action", direction: -1 },
+  { value: "gift-oldest", label: "Last gift: oldest to newest", kind: "gift", direction: 1 },
+  { value: "gift-newest", label: "Last gift: newest to oldest", kind: "gift", direction: -1 },
+];
 
 export const DEFAULT_PORTFOLIO_VIEW = {
   density: "compact",
@@ -19,7 +31,7 @@ export function normalizePortfolioView(value) {
     group: ["all", "solicitor", "category"].includes(value?.group)
       ? value.group
       : "all",
-    sort: ["open", "name", "due", "pipeline"].includes(value?.sort)
+    sort: PORTFOLIO_SORT_OPTIONS.some((option) => option.value === value?.sort)
       ? value.sort
       : "open",
     pageSize: value?.pageSize === 50 ? 50 : 25,
@@ -102,7 +114,8 @@ export function matchesPortfolioQuickView(signal, quickView, today) {
   return true;
 }
 
-export function sortPortfolioPeople(people, signals, sort) {
+export function sortPortfolioPeople(people, signals, sort, now = new Date()) {
+  const activitySort = PORTFOLIO_SORT_OPTIONS.find((option) => option.value === sort && option.kind);
   // Derive keys once, not during every comparison. Dates are calendar dates;
   // missing/ambiguous saved values sort last rather than becoming zero.
   const values = new Map(
@@ -110,7 +123,9 @@ export function sortPortfolioPeople(people, signals, sort) {
       const id = String(person.constituentId);
       const signal = signals.get(id);
       let value = null;
-      if (sort === "open") {
+      if (activitySort) {
+        value = savedPortfolioActivityDate(person.savedActivity?.[activitySort.kind], now)?.date ?? null;
+      } else if (sort === "open") {
         value = signal?.hasOpen ? 2 : signal?.openCount === 0 ? 1 : 0;
       } else if (sort === "due" && signal?.nextStep?.trim()) {
         value = calendarDate(signal.dueDate);
@@ -129,6 +144,7 @@ export function sortPortfolioPeople(people, signals, sort) {
     const a = values.get(String(left.constituentId));
     const b = values.get(String(right.constituentId));
     if (a == null || b == null) return Number(a == null) - Number(b == null);
+    if (activitySort) return activitySort.direction * a.localeCompare(b);
     return sort === "due" ? a.localeCompare(b) : b - a;
   }
   return [...people].sort(

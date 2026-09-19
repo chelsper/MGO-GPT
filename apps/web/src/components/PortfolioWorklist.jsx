@@ -9,6 +9,7 @@ import {
 import { ChevronDown, Star } from "lucide-react";
 import {
   DEFAULT_PORTFOLIO_VIEW,
+  PORTFOLIO_SORT_OPTIONS,
   matchesPortfolioQuickView,
   normalizePortfolioView,
   paginatePortfolioTiers,
@@ -410,10 +411,9 @@ export default function PortfolioWorklist({
               value={view.sort}
               onChange={(event) => changeView({ sort: event.target.value })}
             >
-              <option value="open">Open first</option>
-              <option value="due">Next step due</option>
-              <option value="pipeline">Largest open pipeline</option>
-              <option value="name">Name A-Z</option>
+              {PORTFOLIO_SORT_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
           </label>
           <label className="portfolio-worklist__wide-control">
@@ -477,6 +477,12 @@ export default function PortfolioWorklist({
             </select>
           </label>
         </div>
+        {PORTFOLIO_SORT_OPTIONS.some((option) => option.value === view.sort && option.kind) && (
+          <p className="portfolio-worklist__filter-note">
+            Sorted by saved activity dates, not live NXT data. Missing dates appear
+            last and do not mean no gifts or actions.
+          </p>
+        )}
         {view.density === "focus" && (
           <p className="portfolio-worklist__filter-note">
             Focus view keeps one constituent's details open at a time.
@@ -537,7 +543,8 @@ export default function PortfolioWorklist({
               across all fiscal years, not a complete NXT opportunity inventory.
               Missing data is not a zero. Next step due sorts unfinished dated
               steps oldest first. Largest open pipeline sorts saved open
-              opportunity amounts highest first. Missing dates and unavailable
+              opportunity amounts highest first. Last gift and Last action sort
+              by the saved activity date, not when it was checked. Missing dates and unavailable
               amounts sort last; ties sort by name. These sorts do not change
               Top Prospects ranks.
               {view.group !== "all"

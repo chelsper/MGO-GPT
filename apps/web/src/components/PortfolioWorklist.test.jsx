@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import PortfolioWorklist, { PortfolioCard } from "./PortfolioWorklist";
-import { portfolioViewKey } from "@/utils/portfolioWorklist";
+import { PORTFOLIO_SORT_OPTIONS, portfolioViewKey } from "@/utils/portfolioWorklist";
 
 const people = Array.from({ length: 61 }, (_, index) => ({
   constituentId: String(index + 1),
@@ -87,12 +87,69 @@ afterEach(() => {
 const topNav = () =>
   within(screen.getByRole("navigation", { name: "Top portfolio pagination" }));
 const firstPerson = () => screen.getAllByRole("article")[0].textContent;
+const activitySorts = PORTFOLIO_SORT_OPTIONS.filter((option) => option.kind);
+const activityPeople = people.map((person, index) => ({
+  ...person,
+  savedActivity: index < 59 ? undefined : {
+    gift: { date: index === 59 ? "2020-02-01" : "2020-03-01", checkedAt: "2025-01-01T12:00:00Z" },
+    action: { date: index === 59 ? "2020-03-01" : "2020-02-01", checkedAt: "2025-01-01T12:00:00Z" },
+  },
+}));
+const activityFirst = ({ kind, direction }) => (kind === "gift") === (direction === 1) ? "Person 60" : "Person 61";
 const quickView = (name) =>
   within(
     screen.getByRole("group", { name: "Portfolio quick views" }),
   ).getByRole("button", { name });
 
 describe("portfolio worklist", () => {
+  it.each(activitySorts)("applies $value before pagination, keeps group/search filters and makes no requests", (option) => {
+    render(<View people={activityPeople} />);
+    fireEvent.click(topNav().getByRole("button", { name: "Next" }));
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: option.value } });
+    expect(firstPerson()).toContain(activityFirst(option));
+    expect(topNav().getByText("Page 1 of 3")).toBeVisible();
+    expect(screen.getByText(/Sorted by saved activity dates/)).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Person 6" } });
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Organize by"), { target: { value: "solicitor" } });
+    fireEvent.change(screen.getByLabelText("Show group"), { target: { value: "support" } });
+    expect(firstPerson()).toContain(activityFirst(option));
+    expect(screen.getByLabelText("Sort by")).toHaveValue(option.value);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(activitySorts)("retains $value only for the viewer/workspace without storing donor data", (option) => {
+    const { rerender } = render(<View key="first" people={activityPeople} />);
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: option.value } });
+    expect(JSON.parse(localStorage.getItem(storageKey)).sort).toBe(option.value);
+    expect(localStorage.getItem(storageKey)).not.toContain("savedActivity");
+    rerender(<View key="other-workspace" people={activityPeople} storageKey={portfolioViewKey(1, 3)} />);
+    expect(screen.getByLabelText("Sort by")).toHaveValue("open");
+    rerender(<View key="other-viewer" people={activityPeople} storageKey={portfolioViewKey(3, 2)} />);
+    expect(screen.getByLabelText("Sort by")).toHaveValue("open");
+    rerender(<View key="return" people={activityPeople} />);
+    expect(screen.getByLabelText("Sort by")).toHaveValue(option.value);
+    expect(firstPerson()).toContain(activityFirst(option));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(activitySorts)("preserves card order and drafts after new $value dates arrive until Reapply sort", (option) => {
+    const { rerender } = render(<View people={activityPeople} />);
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: option.value } });
+    fireEvent.click(screen.getByRole("button", { name: `Show details for ${activityFirst(option)}` }));
+    const draft = screen.getByRole("textbox", { name: `Draft for ${activityFirst(option)}` });
+    fireEvent.change(draft, { target: { value: "Keep this draft" } });
+    const changed = activityPeople.map((person, index) => index > 0 ? person : {
+      ...person,
+      savedActivity: { [option.kind]: { date: option.direction === 1 ? "2019-01-01" : "2021-01-01", checkedAt: "2025-01-01T12:00:00Z" } },
+    });
+    rerender(<View people={changed} />);
+    expect(firstPerson()).toContain(activityFirst(option));
+    expect(draft).toHaveValue("Keep this draft");
+    fireEvent.click(screen.getByRole("button", { name: "Reapply sort" }));
+    expect(firstPerson()).toContain("Person 01");
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("Keep this draft");
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("filters a solicitor group before pagination while retaining Focus and sort", () => {
     render(<View />);
     expect(screen.queryByLabelText("Show group")).not.toBeInTheDocument();

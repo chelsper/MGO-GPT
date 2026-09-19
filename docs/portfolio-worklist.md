@@ -9,6 +9,7 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 3. Next step due and Largest open pipeline sorts. Missing values sort last; background updates do not reorder existing cards until Reapply sort.
 4. Focus view: one open card at a time, Collapse details, and scroll correction when closing a tall previous card. Collapsing preserves mounted fields and loaded summaries. Compact and Detailed remain available.
 5. Show group: when Organize by is My categories or Solicitor role, choose one group before pagination. This is a display filter, not the card's category-assignment control.
+6. Last action / Last gift: oldest to newest or newest to oldest. These four options use the same verified saved dates displayed on the cards, never check/maintenance times, planned future actions, or narrative data. Missing/invalid dates and confirmed empty results sort last in both directions; ties sort by name then constituent ID. Sorting applies before pagination and within each selected group. Background arrivals do not reorder existing cards until Reapply sort. The choice is saved per viewer/workspace, without storing constituent data or triggering NXT requests.
 
 ## Group Filter
 
@@ -17,10 +18,6 @@ My Prospects > My Portfolio uses the existing portfolio, prospect and category r
 - Selecting a group starts at page one and retains the current sort, quick view and density. Show all groups removes only the group filter. Show all constituents in an empty result clears group, search and quick view.
 - If the selected group disappears during a background update, the worklist stays empty with an Unavailable group option and recovery controls. It does not silently broaden the list.
 - Group selection, search and expanded constituent IDs are in-memory only. Returning to a workspace does not restore a hidden subset. Existing density, grouping, sorting, quick-view and page-size preferences remain scoped to the signed-in viewer and selected workspace. No constituent data or category names are added to browser storage.
-
-## Deliberately Deferred
-
-Recent gift/action sorting remains deferred: saved activity coverage is incomplete, and daily giving snapshots do not provide a uniform all-time activity signal. Missing activity is not evidence of no activity. No new sorting or background refresh behavior is introduced by the saved-date display below.
 
 ## Quiet Rows And Saved Activity
 
@@ -60,6 +57,13 @@ Recent gift/action sorting remains deferred: saved activity coverage is incomple
 - Add only one approved workspace per rollout, starting with a smaller portfolio. Record gift/action totals, never-verified rows, explicit empty results, error counts, request use and oldest successful check separately. Verify the first-fill backlog falls while the existing pilot continues receiving routine checks; allow multiple nights rather than raising caps or forcing a full refresh.
 - Only add another workspace after those checks pass. If throttling, persistent errors or stalled progress appear, pause expansion and investigate. Do not reconnect accounts, reset queues, or change credential access to force acceptance. A production cron secret configured as non-readable must remain non-readable; wait for scheduled execution when a supported manual invocation is unavailable.
 - The scheduler migration only adds a nullable timestamp. It does not delete snapshots, renew old checks or rewrite deadlines. An older worker can ignore the column after rollback; no reverse data migration is needed. Queue fairness becomes accurate as the new worker records attempts.
+
+### September 19 Expansion Preparation
+
+- The read-only overnight audit of the original pilot (Leslie, workspace 7) found 215 verified gift results and 215 verified action results, no current errors or pending action scans, and 288 reserved requests across 36 successful scheduled invocations. Confirmed empty results count as verified, not missing. Richer details still fill on routine checks.
+- The production environment allowlist is now staged as `7,10`, adding only Scott (workspace 10, 81 saved assigned constituents). Environment changes apply on the next production deployment; this preparation did not redeploy or run a refresh. All existing timing, request caps, service permissions, origin restrictions and cooldowns remain unchanged. Restore `7` and redeploy to stop Scott's future checks without deleting saved snapshots.
+- Both portfolios together have 296 workspace-scoped constituents and need at least 592 requests for a complete gift/action pass before pagination. With 288 scheduled slots nightly, completion and ongoing checks span multiple nights. After deployment, verify Scott's first-fill backlog falls while Leslie's existing saved results continue to receive routine checks before adding another workspace.
+- New assignments within an enabled portfolio already enter the queue automatically. Brand-new workspaces are still excluded until explicitly enrolled. A future automatic-enrollment default should admit portfolios gradually, retain an Admin pause/exclusion control, and gate the next admission on backlog progress, freshness and provider health. It must not equate enrollment with immediate refresh, increase the shared budget, or use page opening to launch work. Automatic workspace admission is not enabled by this change.
 
 ## Lightweight Contact Refresh
 
