@@ -156,3 +156,26 @@ AppShell components were checked with synthetic data at desktop and 390px mobile
 widths in both views, including long titles and expanded controls; no horizontal
 overflow was observed. Production settings and NXT records were not changed.
 This is local verification; deployment remains a separate step.
+
+## Deferred Family Import Navigation (September 19, 2026)
+
+Family Import is omitted from the shared navigation list, so it no longer appears
+on Home or in the main menu for any role. This is a conference-presentation
+boundary, not a feature deletion or authorization change. The direct
+`/family-import` route, its Home breadcrumb, existing permissions, API handlers,
+stored runs, and data are unchanged. Bookmarks still work for authorized users.
+
+Constituency Import remains in Start here. Import History remains under Imports;
+the Home description points users to Start here for new constituency imports.
+Its single remaining card fills the row instead of leaving unused grid columns.
+No badges, loading behavior, background jobs, or NXT writes were added.
+
+Verification: 3,110 tests in 267 files, typecheck, production build, release guard,
+and whitespace checks passed. Regression tests cover all navigation roles, the
+retained direct route/breadcrumb, ready import shortcuts, nonempty menu groups,
+and source-page existence for every visible navigation destination. Synthetic
+Home/menu checks covered desktop and 390px mobile layouts, accessible Import
+History scrolling, and unchanged fundraiser primary paths without horizontal
+overflow. This is an entry-path presentation check, not end-to-end live import,
+report refresh, or NXT action acceptance. No production settings or records were
+changed; deployment remains separate.

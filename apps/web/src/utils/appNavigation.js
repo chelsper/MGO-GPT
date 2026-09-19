@@ -31,7 +31,6 @@ export const REVIEWER_NAV_ITEMS = [
   { label: "List Request Queue", href: "/list-requests", section: "Requests" },
   { label: "Data Request Queue", href: "/data-requests", section: "Requests", description: "Review contact information and constituent record corrections." },
   { label: "Constituency Import", href: "/constituency-import", section: "Imports", primaryOrder: 2, description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
-  { label: "Family Import", href: "/family-import", section: "Imports", description: "Review parents and family relationships before creating or linking NXT records." },
   { label: "Import History", href: "/import-history", section: "Imports", description: "View successfully imported records and failed imports. Read-only results; nothing to approve." },
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Tools & Guidance", description: "Search NXT and open a constituent profile." },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Tools & Guidance", description: "Find standards, examples, and process guidance." },

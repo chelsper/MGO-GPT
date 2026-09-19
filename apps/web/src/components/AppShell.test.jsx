@@ -95,6 +95,20 @@ async function renderShell(pathname = "/submissions") {
 }
 
 describe("AppShell", () => {
+  it.each(["admin", "advancement_services", "mgo,admin", "mgo", "executive"])("does not advertise deferred Family Import to %s", async role => {
+    state.profileRole = role;
+    state.reviewer = ["admin", "advancement_services", "mgo,admin"].includes(role);
+    await renderShell("/");
+    await act(async () => { fireEvent.click(container.querySelector('[aria-label="Open navigation menu"]')); });
+    const nav = container.querySelector('[aria-label="Application navigation"]');
+    expect(nav.querySelector('a[href="/family-import"]')).toBeNull();
+    expect(nav.textContent).not.toContain("Family Import");
+    if (state.reviewer) {
+      expect(nav.querySelectorAll('a[href="/constituency-import"]')).toHaveLength(1);
+      expect(nav.querySelectorAll('a[href="/import-history"]')).toHaveLength(1);
+    }
+  });
+
   it.each(["admin", "advancement_services", "mgo,admin"])("offers Home and Setup Hub in editor breadcrumbs for %s", async role => {
     state.profileRole = role;
     await renderShell("/report-configurations");

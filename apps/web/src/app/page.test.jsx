@@ -138,6 +138,8 @@ describe("Advancement Services home alerts", () => {
     expect(badge("/constituency-import")).toBeNull();
     expect(container.querySelector('a[href="/import-history"]')).toHaveTextContent("Import History");
     expect(badge("/family-import")).toBeNull();
+    expect(container.querySelector('a[href="/family-import"]')).toBeNull();
+    expect(container.querySelector('a[href="/constituency-import"]')).not.toBeNull();
     expect(badge("/prospect-pool")).toHaveTextContent("31");
     expect(badge("/list-requests")).toBeNull();
     expect(badge("/data-requests")).toBeNull();

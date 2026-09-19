@@ -20,6 +20,7 @@ describe("Advancement Services workspace shortcuts", () => {
     const expected = getNavigationItems({ isReviewer: true, canManageWorkspace }).map((item) => item.href);
     expect(links.sort()).toEqual(expected.sort());
     expect(new Set(links).size).toBe(links.length);
+    expect(links).not.toContain("/family-import");
     const reports = screen.getByRole("region", { name: "Reports & Exports" });
     expect(within(reports).getByRole("link", { name: /Pledge Payments/ })).toHaveAttribute("href", "/pledge-payments");
     const primary = screen.getByRole("navigation", { name: "Main workspace paths" });
@@ -45,6 +46,11 @@ describe("Advancement Services workspace shortcuts", () => {
     expect(screen.queryByLabelText("8 unfinished constituency import batches")).not.toBeInTheDocument();
     const imports = screen.getByRole("region", { name: "Imports" });
     expect(within(imports).getByRole("link", { name: /Import History/ })).toHaveAttribute("href", "/import-history");
+    expect(within(imports).getAllByRole("link")).toHaveLength(1);
+    expect(imports).toHaveTextContent("Start new constituency imports above in Start here");
+    const grid = imports.querySelector('a[href="/import-history"]').parentElement;
+    expect(grid).toHaveClass("grid-cols-1");
+    expect(grid).not.toHaveClass("sm:grid-cols-2", "xl:grid-cols-3");
     fireEvent.click(screen.getByText("About queue counts"));
     expect(screen.getByText(/do not add the badges together/)).toBeVisible();
   });

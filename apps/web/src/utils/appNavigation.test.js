@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   getBreadcrumbs,
   getNavigationItems,
@@ -8,6 +10,28 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it.each([
+    [false, false, false], [false, true, true], [true, false, false], [true, true, false], [true, true, true],
+  ])("omits deferred Family Import while preserving ready import tools (%s, %s, %s)", (isReviewer, canManageWorkspace, isAdmin) => {
+    const items = getNavigationItems({ isReviewer, canManageWorkspace, isAdmin });
+    expect(items.some(item => item.href === "/family-import")).toBe(false);
+    for (const href of ["/constituency-import", "/import-history"]) {
+      expect(items.filter(item => item.href === href)).toHaveLength(isReviewer ? 1 : 0);
+    }
+    expect(groupNavigationItems(items).every(group => group.items.length > 0)).toBe(true);
+  });
+
+  it("keeps the direct Family Import route and its Home breadcrumb intact", () => {
+    expect(existsSync(resolve("src/app/family-import/page.jsx"))).toBe(true);
+    expect(getBreadcrumbs("/family-import")).toEqual([{ label: "Home", href: "/" }, { label: "Family Import" }]);
+  });
+
+  it.each([false, true])("points all visible workflow destinations to existing pages (reviewer: %s)", isReviewer => {
+    for (const item of getNavigationItems({ isReviewer, canManageWorkspace: true, isAdmin: true })) {
+      expect(existsSync(resolve("src/app", `.${item.href}`, "page.jsx")), item.href).toBe(true);
+    }
+  });
+
   it.each([false, true])("changes only reviewer descriptions, without mutating shared navigation or pluralizing labels (manage: %s)", canManageWorkspace => {
     const options = { isReviewer: true, canManageWorkspace, isAdmin: canManageWorkspace };
     const defaults = getNavigationItems(options);

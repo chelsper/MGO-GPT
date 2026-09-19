@@ -15,7 +15,6 @@ const icons = {
   "/list-requests": FileText,
   "/data-requests": ClipboardList,
   "/constituency-import": Upload,
-  "/family-import": Users,
   "/import-history": FileText,
   "/constituent-lookup": Search,
   "/knowledge-base": BookOpen,
@@ -30,12 +29,12 @@ const sectionDescriptions = {
   "Daily Work": "Review outstanding work, assign prospects, and coordinate with the team.",
   "Reports & Exports": "Open the saved pledge worklist or configure reports. Top Prospect Exports is above in Start here.",
   "Requests": "Go directly to a specific request queue. These requests also appear in Work Queue.",
-  "Imports": "Additional import tools and saved results. Nothing to approve in Import History.",
+  "Imports": "Review saved results below. Start new constituency imports above in Start here. Nothing to approve in Import History.",
   "Tools & Guidance": "Look up a record or find the guidance you need.",
 };
 
 function ActionCards({ items, queueCounts, openDiscussionItems, featured }) {
-  return <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${items.length === 4 ? "xl:grid-cols-4" : items.length === 2 ? "xl:grid-cols-2" : "xl:grid-cols-3"}`}>
+  return <div className={`grid grid-cols-1 gap-3 ${items.length > 1 ? "sm:grid-cols-2" : ""} ${items.length === 1 ? "" : items.length === 4 ? "xl:grid-cols-4" : items.length === 2 ? "xl:grid-cols-2" : "xl:grid-cols-3"}`}>
     {items.map((item) => {
       const Icon = icons[item.href] || FileText;
       const discussionCount = item.href === "/follow-ups" && Number.isSafeInteger(openDiscussionItems) && openDiscussionItems > 0 ? openDiscussionItems : 0;
