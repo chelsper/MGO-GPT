@@ -6282,8 +6282,8 @@ export default function ConstituencyImportPage() {
               </p>
             </div>
           </div>
-          <Pill tone={preview?.savedRun ? "green" : "blue"}>
-            {preview?.savedRun ? "Import run ready for NXT actions" : "Import review: no NXT writes"}
+          <Pill tone="blue">
+            {preview?.savedRun ? `Saved import run #${preview.savedRun.id}` : "Import review: no NXT writes"}
           </Pill>
         </header>
 
@@ -6300,10 +6300,9 @@ export default function ConstituencyImportPage() {
             lineHeight: 1.5,
           }}
         >
-          Choose what the file contains before selecting its fields. Every row is checked against
-          NXT before it can be updated. Potential new records remain in controlled review. Import
-          review never writes to NXT; only an explicit Confirm and send to NXT action updates a
-          confirmed record.
+          Choose what the file contains before selecting its fields. Preparing and reviewing a
+          file does not change NXT. Only explicit create or send controls write to NXT, after the
+          required checks. Possible duplicates and uncertain results stay in review.
         </section>
 
         <section
@@ -7904,7 +7903,7 @@ export default function ConstituencyImportPage() {
                   {preview?.savedRun
                     ? manuallySkippedRows.length
                       ? "Skipped records stay in this batch. Open them later to restore a record to active review."
-                      : "No NXT changes are made until you use Confirm and send to NXT."
+                      : "Reviewing this batch does not send changes. Use its explicit create or send controls only when ready."
                     : "Review the draft below, then use Confirm and send to NXT or save the run for batch work."}
                 </span>
               </div>

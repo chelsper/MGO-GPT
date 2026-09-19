@@ -219,3 +219,48 @@ checks used isolated sample data with network requests blocked. No live record
 edits, imports, explicit NXT refreshes, or workspace changes were performed. This
 is a focused presentation pass, not full end-to-end NXT acceptance. Deployment
 remains a separate step.
+
+## Advancement Services Presentation Walkthrough (September 19, 2026)
+
+Pledge Payments and Top Prospect Exports now have a persistent Back to Home
+link, including loading and error states. Both reuse the shell's configured
+Advancement Services label without a separate settings request. The export
+selector uses neutral workspace wording and the configured fundraising role;
+export column keys, workbook headings, and payloads remain unchanged.
+
+Export search now explains when selected workspaces are hidden but will still
+be included. Clear search restores the roster without clearing selections.
+An empty roster differs from a search with no matches, and selection controls
+are touch-sized. Pledge search has its own no-match message and Clear search
+control. Its result summary distinguishes the total matching rows from the
+visible page range; totals still cover all matching saved rows, not just the
+current page. Clearing search keeps the selected timing tab. Existing query
+boundaries and incomplete-worklist warnings remain visible.
+
+The import header identifies a saved run rather than declaring it ready for NXT
+merely because it was saved. Guidance now covers explicit create controls as
+well as send controls. Matching, duplicate checks, approvals, recovery, and NXT
+write behavior are unchanged. Import History remains read-only and separate
+from the Work Queue. Setup destinations and return paths were reviewed without
+changing settings or permissions.
+
+Verification: 3,125 tests in 267 files, typecheck, production build, release
+guard, and whitespace checks passed. Regression tests cover hidden export
+selections and unchanged export scope, empty rosters, search reset, saved pledge
+pagination/totals, configured labels, Home links, retained incomplete warnings,
+and import verification without resending. Search and selection tests assert
+that no additional requests occur.
+
+Actual components were checked with isolated sample data at 1440px desktop and
+390px mobile widths, including export selection recovery, pledge pagination and
+expanded schedules, import entry, Import History, and Setup. No page-level
+horizontal overflow was observed; the detailed payment schedule retains its
+own horizontal scroll area. Preview writes and external requests were blocked.
+
+Production exports, saved pledge payments, history, and Setup were inspected
+read-only. The live import entry showed a reviewer-access notice in the current
+signed-in session; its complete reviewer flow was therefore checked only with
+sample data and automated tests. That access discrepancy needs a separate
+session/view investigation before conference rehearsal; no permission or view
+changes were made to bypass it. No live imports, record edits, or explicit NXT
+refreshes were performed. Deployment remains separate.

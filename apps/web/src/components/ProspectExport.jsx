@@ -59,7 +59,7 @@ export function ProspectExportForm({ viewerId, ownerIds, master = false, prospec
   }
   const noSelection = !ownerIds.length || (!master && scope === "filtered" && !prospectIds.length);
   return <form onSubmit={download} className="space-y-5">
-    <p className="text-sm text-gray-600">Export {master ? "the selected MGO workspaces" : workspaceName} using saved data. Nothing is changed in the app or NXT.</p>
+    <p className="text-sm text-gray-600">Export {master ? "the selected workspaces" : workspaceName} using saved data. Nothing is changed in the app or NXT.</p>
     <fieldset disabled={busy} className="space-y-5 disabled:opacity-70">
       <div className="grid gap-4 sm:grid-cols-2">
         {!master && <label className="flex flex-col gap-2 text-sm font-semibold" htmlFor={`${prefix}-scope`}>Prospects to export
@@ -77,7 +77,7 @@ export function ProspectExportForm({ viewerId, ownerIds, master = false, prospec
       </div>
       <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
         {preferences.format === "xlsx" ? "Three sheets: Prospect Summary, Opportunity Detail, and Export Notes. Amounts stay numeric, with filters and frozen headings." : "CSV includes Prospect Summary only, without opportunity detail or notes. Saved timestamps travel with each row. Choose Excel for the full workbook."}
-        {master && <p className="mt-2">One prospect row per MGO. Shared prospects/opportunities may appear for more than one MGO; these are not unique institution-wide totals.</p>}
+        {master && <p className="mt-2">One prospect row per workspace. Shared prospects/opportunities may appear in more than one workspace; these are not unique institution-wide totals.</p>}
       </div>
       {scope !== "filtered" && <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" className="mt-1" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
@@ -103,7 +103,7 @@ export function ProspectExportForm({ viewerId, ownerIds, master = false, prospec
     <p className="text-sm text-gray-600">Internal fundraising use only. Share exported donor information only with authorized people. Pipeline is open ask amount, not FY revenue.</p>
     {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
     {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-green-800">{message}</p>}
-    {noSelection && <p className="text-sm text-gray-600">{master ? "Select at least one MGO to export." : "Choose all active prospects or adjust your filters to include a prospect."}</p>}
+    {noSelection && <p className="text-sm text-gray-600">{master ? "Select at least one workspace to export." : "Choose all active prospects or adjust your filters to include a prospect."}</p>}
     <button type="submit" disabled={busy || noSelection} className="inline-flex items-center gap-2 rounded-xl bg-[#5B4BFA] px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
       <Download size={18} aria-hidden="true" />{busy ? "Preparing export..." : `Download ${preferences.format === "xlsx" ? "Excel" : "CSV"}${master ? " master" : ""}`}
     </button>

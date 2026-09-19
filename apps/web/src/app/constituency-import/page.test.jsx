@@ -56,6 +56,9 @@ describe("standard import completion flow", () => {
   });
   it("opens a held attempted row with a read-only finish control, not stale send/review forms", async () => {
     await openRun();
+    expect(screen.getByText("Saved import run #42")).toBeInTheDocument();
+    expect(screen.queryByText("Import run ready for NXT actions")).not.toBeInTheDocument();
+    expect(screen.getByText(/Only explicit create or send controls write to NXT/)).toBeInTheDocument();
     expect(screen.getByText("Original import plan (history)")).toBeInTheDocument();
     expect(screen.getByText("Original send results (history)")).toBeInTheDocument();
     expect(screen.getByText("Original send results (history)").closest("details")).not.toHaveAttribute("open");

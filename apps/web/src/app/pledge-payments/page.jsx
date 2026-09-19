@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import PledgePaymentList, { pledgeMoney } from "@/components/PledgePaymentList";
 import { OPEN_PLEDGE_QUERY_ID, pledgeWorklist } from "@/utils/pledgePayments";
 import { formatCalendarDate } from "@/utils/prospectActivity";
+import WorkflowReturnLink from "@/components/WorkflowReturnLink";
+import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 
 const button = "min-h-11 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50";
 const queryErrors = {
@@ -21,6 +23,7 @@ const queryErrors = {
   query_result_too_large: "The query result exceeds the 10 MB download limit. Reduce unnecessary output columns; no query criteria were changed.",
 };
 export default function PledgePaymentsPage() {
+  const labels = useWorkspaceLabels();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -70,14 +73,16 @@ export default function PledgePaymentsPage() {
   const resumable = !legacySource && ["discovering", "running", "paused"].includes(job?.status);
   const lists = pledgeWorklist(data?.records || [], data?.today);
   const selected = lists[tab];
-  const filtered = selected.filter((row) => `${row.name} ${row.lookupId} ${(row.fundDescriptions || []).join(" ")}`.toLowerCase().includes(search.toLowerCase()));
+  const searchTerm = search.trim().toLowerCase();
+  const filtered = selected.filter((row) => `${row.name} ${row.lookupId} ${(row.fundDescriptions || []).join(" ")}`.toLowerCase().includes(searchTerm));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 50) - 1));
   const visible = filtered.slice(currentPage * 50, (currentPage + 1) * 50);
   const changeTab = (value) => { setTab(value); setPage(0); };
   const incomplete = job && (legacySource || job.status !== "completed");
   return <main className="mx-auto w-full max-w-[1800px] space-y-6 px-4 py-6 text-gray-900 sm:px-8">
+    <WorkflowReturnLink href="/" />
     <header className="flex flex-wrap items-start justify-between gap-4">
-      <div><p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Advancement Services</p>
+      <div className="min-w-0"><p className="break-words text-sm font-semibold uppercase tracking-wide text-gray-500">{labels.advancement_services}</p>
         <h1 className="mt-2 text-3xl font-bold">Pledge Payments</h1>
         <p className="mt-2 max-w-3xl text-gray-600">Track unpaid installments for pledges returned by saved NXT query {OPEN_PLEDGE_QUERY_ID}. One row per pledge, with the full payment schedule one click away.</p>
         <p className="mt-1 max-w-3xl text-sm text-gray-500">The query's existing amount, date, status, and missed-payment criteria determine which pledges are included. Repeated installment rows are counted as one pledge.</p></div>
@@ -115,15 +120,18 @@ export default function PledgePaymentsPage() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div><p className="text-sm text-gray-600">{tab === "pastDue" ? "Includes all unpaid payments due through today, oldest due date first." : "Unpaid future installments, ordered by the next due date. Amount due is for that next date only."}</p>
               <p className="mt-1 text-xs text-gray-500">As of {formatCalendarDate(data.today)} (Eastern). A pledge with arrears and future installments can appear in both tabs.</p></div>
-            <label className="w-full text-sm font-semibold sm:w-72">Find a constituent, pledge, or fund<input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" /></label>
+            <div className="w-full sm:w-72">
+              <label className="text-sm font-semibold">Find a constituent, pledge, or fund<input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" /></label>
+              {search && <button className={`${button} mt-2`} onClick={() => { setSearch(""); setPage(0); }}>Clear search</button>}
+            </div>
           </div>
-          <p className="text-sm text-gray-600">{filtered.length} pledges shown / {tab === "pastDue" ? "Total due through today" : "Total of next payments"}: <strong className="text-gray-900">{pledgeMoney(filtered.reduce((sum, row) => sum + row.amountDueCents, 0))}</strong>. Amounts in USD.</p>
+          <p role="status" className="text-sm text-gray-600">{filtered.length} {filtered.length === 1 ? "pledge" : "pledges"} {searchTerm ? "matching this search" : "in this tab"}{filtered.length > 50 ? ` / Showing ${currentPage * 50 + 1}-${currentPage * 50 + visible.length}` : ""} / {tab === "pastDue" ? "Total due through today" : "Total of next payments"}: <strong className="text-gray-900">{pledgeMoney(filtered.reduce((sum, row) => sum + row.amountDueCents, 0))}</strong>. Amounts in USD.</p>
         </div>
         <div id="pledge-payment-results" role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
           <PledgePaymentList rows={visible} upcoming={tab === "upcoming"} today={data.today} />
-          {!visible.length && <p className="p-6 text-gray-600">{!job ? "Load the worklist to see payments." : incomplete ? "No verified payments match this view yet. Check refresh progress and review items." : "No unpaid payments match this view."}</p>}
+          {!visible.length && <p className="p-6 text-gray-600">{!job ? "Load the worklist to see payments." : searchTerm ? "No saved pledges match this search in this tab. Clear search to see the saved worklist." : incomplete ? "No verified payments match this view yet. Check refresh progress and review items." : "No unpaid payments match this view."}</p>}
         </div>
-        {filtered.length > 50 && <nav aria-label="Pledge payment pages" className="flex items-center justify-between gap-3 border-t border-gray-200 p-4">
+        {filtered.length > 50 && <nav aria-label="Pledge payment pages" className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 p-4">
           <button className={button} disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
           <span className="text-sm">Page {currentPage + 1} of {Math.ceil(filtered.length / 50)}</span>
           <button className={button} disabled={(currentPage + 1) * 50 >= filtered.length} onClick={() => setPage(currentPage + 1)}>Next</button>

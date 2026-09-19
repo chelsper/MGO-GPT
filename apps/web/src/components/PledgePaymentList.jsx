@@ -21,7 +21,7 @@ export default function PledgePaymentList({ rows, upcoming, today }) {
             <a href={buildBlackbaudConstituentProfileUrl(row.constituentId)} target="_blank" rel="noopener noreferrer" className="break-words font-bold text-indigo-700 hover:underline">{row.name}<span className="sr-only"> (opens NXT in a new tab)</span></a>
             <p className="mt-1 text-xs text-gray-500">Pledge {row.lookupId}</p>
             {row.stale && <p className="mt-1 text-xs font-semibold text-amber-800">Previous saved values; refresh pending or incomplete</p>}
-            <button aria-expanded={expanded === row.id} aria-controls={`schedule-${row.id}`} className="mt-2 min-h-9 text-sm font-semibold text-indigo-700 underline" onClick={() => setExpanded(expanded === row.id ? null : row.id)}>
+            <button aria-expanded={expanded === row.id} aria-controls={`schedule-${row.id}`} className="mt-2 min-h-11 text-sm font-semibold text-indigo-700 underline" onClick={() => setExpanded(expanded === row.id ? null : row.id)}>
               {expanded === row.id ? "Hide schedule" : "View payment schedule"}
             </button>
           </div>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import PledgePaymentsPage from "./page";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 const payload = () => ({ today: "2026-09-09", job: { id: "job", status: "completed", total: 1, success: 1, failed: 0 }, issues: [], records: [{
   id: "1", name: "Example Donor", constituentId: "10", lookupId: "P100", totalCents: 10000, balanceCents: 7500,
@@ -22,13 +23,13 @@ describe("pledge payments worklist", () => {
     expect(screen.getByText("Scholarships")).toBeInTheDocument();
     expect(screen.getByText("Student Success")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /Example Donor/ })).toHaveLength(1);
-    expect(screen.getByText(/1 pledges shown/)).toHaveTextContent("$25.00");
+    expect(screen.getByText(/1 pledge in this tab/)).toHaveTextContent("$25.00");
     fireEvent.click(screen.getByRole("tab", { name: /Upcoming/ }));
     expect(screen.getByRole("tab", { name: /Upcoming/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Oct 1, 2026")).toBeInTheDocument();
     expect(screen.getByText("Scholarships")).toBeInTheDocument();
     expect(screen.getByText("Student Success")).toBeInTheDocument();
-    expect(screen.getByText(/1 pledges shown/)).toHaveTextContent("$50.00");
+    expect(screen.getByText(/1 pledge in this tab/)).toHaveTextContent("$50.00");
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("searches saved fund descriptions without requesting NXT", async () => {
@@ -62,7 +63,50 @@ describe("pledge payments worklist", () => {
     expect(screen.getByRole("table", { name: /Payment schedule/ })).toBeInTheDocument();
     expect(screen.getByText("Past due", { exact: true })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "not found" } });
-    expect(screen.getByText("No unpaid payments match this view.")).toBeInTheDocument();
+    expect(screen.getByText(/No saved pledges match this search in this tab/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByText("Example Donor")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("keeps a direct Home path during loading and errors and reuses the configured label", async () => {
+    fetch.mockRejectedValueOnce(new Error("Saved worklist unavailable"));
+    render(<WorkspaceTerminologyProvider terminology={{ advancementServices: "Operations" }}><PledgePaymentsPage /></WorkspaceTerminologyProvider>);
+    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/");
+    expect(screen.getByText("Operations")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Saved worklist unavailable");
+    expect(screen.getByRole("link", { name: "Back to Home" })).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("explains page ranges and recovers search on the selected tab without NXT calls", async () => {
+    const data = payload();
+    data.records = Array.from({ length: 51 }, (_, index) => ({ ...data.records[0], id: String(index + 1), lookupId: `P${index + 100}`, name: `Donor ${String(index).padStart(2, "0")}` }));
+    fetch.mockResolvedValueOnce(Response.json(data));
+    render(<PledgePaymentsPage />);
+    expect(await screen.findByText(/51 pledges in this tab \/ Showing 1-50/)).toHaveTextContent("$1,275.00");
+    fireEvent.click(screen.getByRole("tab", { name: /Upcoming/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+    expect(screen.getByText(/Showing 51-51/)).toHaveTextContent("$2,550.00");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "  p100  " } });
+    expect(screen.getByText("Donor 00")).toBeInTheDocument();
+    expect(screen.getByText(/1 pledge matching this search/)).toHaveTextContent("$50.00");
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByRole("tab", { name: /Upcoming/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText(/Showing 1-50/)).toHaveTextContent("$2,550.00");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("keeps incomplete-data warnings while recovering a search with no matches", async () => {
+    const data = payload();
+    data.job.status = "paused";
+    fetch.mockResolvedValueOnce(Response.json(data));
+    render(<PledgePaymentsPage />);
+    await screen.findByText("Example Donor");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "not found" } });
+    expect(screen.getByText(/No saved pledges match this search/)).toBeInTheDocument();
+    expect(screen.getByText(/This worklist is incomplete or still refreshing/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByText("Example Donor")).toBeInTheDocument();
+    expect(screen.getByText(/This worklist is incomplete or still refreshing/)).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("never labels an uninitialized or incomplete list as no pledges due", async () => {
