@@ -39,6 +39,18 @@ afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllG
 const mount = () => render(<QueryClientProvider client={client}><NextStepsWorklist viewerId={2} workspaceId={7} /></QueryClientProvider>);
 const row = () => screen.getByRole("article", { name: "Person One: Prepare visit" });
 
+it.each([true, false])("gives permission-aware empty-state guidance when canEdit is %s", async editable => {
+  canEdit = editable;
+  items = [];
+  mount();
+  await screen.findByText(editable
+    ? "No open next steps. Open a constituent in My Prospects and choose Set next step to add a follow-up."
+    : "No open next steps in this workspace.");
+  expect(screen.getByRole("link", { name: "My Prospects" })).toHaveAttribute("href", "/my-top-prospects");
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(writes()).toHaveLength(0);
+});
+
 it("completes once, moves to history, and reopens without changing a discussion or sending an NXT action", async () => {
   mount();
   await screen.findByText("Prepare visit");

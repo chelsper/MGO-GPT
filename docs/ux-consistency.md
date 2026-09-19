@@ -179,3 +179,43 @@ History scrolling, and unchanged fundraiser primary paths without horizontal
 overflow. This is an entry-path presentation check, not end-to-end live import,
 report refresh, or NXT action acceptance. No production settings or records were
 changed; deployment remains separate.
+
+## Fundraiser Presentation Walkthrough (September 19, 2026)
+
+Top Prospects filters now apply consistently to active and closed cards. Previously,
+choosing a closed status filtered only the active list, while closed cards ignored
+search and the other filters. The existing fiscal-year helper is reused: active
+prospects use linked open opportunity years, and closed prospects use their saved
+close year. Saved closed years are included in the options. Counts cover both
+lists; filtered exports retain their existing active-only scope.
+
+Filters have visible labels, touch-sized controls, and Clear filters / Show all
+prospects recovery actions. Clearing filters removes only their URL parameters,
+preserving workspace and other URL context. Empty workspaces are distinguished
+from searches with no results, without inviting read-only users to edit. Closed
+cards are keyboard-accessible. The My Prospects page header scrolls normally below
+the desktop breakpoint rather than covering much of a mobile screen.
+
+Follow-ups now uses Return to home and explains the difference between task
+reminders and team talking points. Guidance distinguishes Mark complete from
+opening the NXT action form; empty-state instructions respect edit permissions.
+Shared report headings/navigation wrap long configured names and use 44px link
+targets. The report-card grid can shrink below its previous 250px minimum.
+
+No query keys, request policies, background schedules, permissions, NXT writes,
+or export payload logic changed. Filtering and reset use already-loaded records.
+
+Verification: 3,119 tests in 267 files, typecheck, production build, release guard,
+and whitespace checks passed. Regression coverage includes closed status/search/
+year filtering, export scope, keyboard opening, filter reset context, empty states,
+and no extra requests. Actual components were checked with synthetic data at
+1440px desktop and 390px mobile widths, including filter recovery, scrolling,
+expanded saved gift/action/pledge details, follow-up guidance, and long report
+navigation. No horizontal overflow was observed in those checks.
+
+Production entry pages were inspected read-only while leaving the signed-in
+Admin's Advancement Services setting unchanged. Fundraiser-specific responsive
+checks used isolated sample data with network requests blocked. No live record
+edits, imports, explicit NXT refreshes, or workspace changes were performed. This
+is a focused presentation pass, not full end-to-end NXT acceptance. Deployment
+remains a separate step.

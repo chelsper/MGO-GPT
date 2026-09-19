@@ -1003,7 +1003,7 @@ export default function ReportsPage() {
               style={{
                 marginTop: "16px",
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 250px), 1fr))",
                 gap: "12px",
               }}
             >
@@ -1016,6 +1016,8 @@ export default function ReportsPage() {
                     flexDirection: "column",
                     gap: "8px",
                     minHeight: "156px",
+                    minWidth: 0,
+                    overflowWrap: "anywhere",
                     border: "1px solid #C7D2FE",
                     backgroundColor: "#FAFAFF",
                     borderRadius: "14px",

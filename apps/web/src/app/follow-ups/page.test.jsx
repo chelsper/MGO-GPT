@@ -63,6 +63,9 @@ it("reuses configured workspace terminology without fetching settings or losing 
 it("loads saved next steps first and fetches discussions only when that tab is opened", async () => {
   mount();
   await screen.findByText("Prepare visit");
+  expect(screen.getByRole("link", { name: "Return to home" })).toHaveAttribute("href", "/");
+  expect(screen.getByText("Use Next Steps for tasks to do, and Team Discussion for talking points and handoffs.")).toBeVisible();
+  expect(screen.getByText(/Mark complete finishes only the reminder/)).toBeVisible();
   expect(screen.getByRole("heading", { name: /Overdue/ })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: /No date/ })).toBeInTheDocument();
   expect(screen.getByText("Stewardship")).toBeInTheDocument();

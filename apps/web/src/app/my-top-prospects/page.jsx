@@ -7025,9 +7025,9 @@ export default function MyTopProspectsPage() {
   const opportunityYearOptions = [...new Set([
     ...FY_OPTIONS,
     ...activeProspects.flatMap((prospect) => prospect.open_opportunity_fys || []),
+    ...[...closedSecured, ...closedDeclined].map((prospect) => prospect.expected_close_fy).filter(Boolean),
   ])].sort();
-  const filteredActiveProspects = activeProspects.filter((prospect) => {
-    const nextAction = getProspectNextAction(prospect);
+  const matchesTopProspectFilters = (prospect) => {
     const matchesSearch =
       !normalizedSearch ||
       prospect.prospect_name?.toLowerCase().includes(normalizedSearch) ||
@@ -7060,7 +7060,21 @@ export default function MyTopProspectsPage() {
         (prospect.active_opportunity_count || 0) === 0);
 
     return matchesSearch && matchesStatus && matchesFY && matchesAction;
-  });
+  };
+  const filteredActiveProspects = activeProspects.filter(matchesTopProspectFilters);
+  const filteredClosedSecured = closedSecured.filter(matchesTopProspectFilters);
+  const filteredClosedDeclined = closedDeclined.filter(matchesTopProspectFilters);
+  const filteredProspectCount = filteredActiveProspects.length + filteredClosedSecured.length + filteredClosedDeclined.length;
+  const hasTopProspectFilters = Boolean(searchTerm || statusFilter !== "all" || fyFilter !== "all" || actionFilter !== "all");
+  const clearTopProspectFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setFyFilter("all");
+    setActionFilter("all");
+    const url = new URL(window.location.href);
+    for (const key of ["search", "statusFilter", "fyFilter", "actionFilter"]) url.searchParams.delete(key);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  };
 
   return (
     <div
@@ -7072,12 +7086,11 @@ export default function MyTopProspectsPage() {
     >
       {/* Header */}
       <header
+        className="lg:sticky lg:top-0"
         style={{
           backgroundColor: "white",
           borderBottom: "1px solid #E5E7EB",
           padding: "16px 24px",
-          position: "sticky",
-          top: 0,
           zIndex: 10,
         }}
       >
@@ -7964,7 +7977,7 @@ export default function MyTopProspectsPage() {
                 Filter Top Prospects
               </h2>
               <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
-                Refine the ranked list by prospect, status, open opportunity fiscal year, or next-action state. Years use the linked opportunities' expected close dates.
+                Filter active and closed prospects below. Fiscal year uses open opportunities for active prospects and the saved close year for closed prospects. Filtered exports include active prospects only.
               </p>
             </div>
             <div
@@ -7978,7 +7991,7 @@ export default function MyTopProspectsPage() {
                 fontWeight: "600",
               }}
             >
-              Showing {filteredActiveProspects.length} of {activeProspects.length} active prospects
+              Showing {filteredProspectCount} of {activeProspects.length + closedSecured.length + closedDeclined.length} prospects ({filteredActiveProspects.length} active)
             </div>
             <ProspectExportButton viewerId={profileStatus?.user?.id} workspaceId={activeWorkspaceUserId}
               workspaceName={profileStatus?.workspaceUser?.name || "this workspace"}
@@ -7999,13 +8012,16 @@ export default function MyTopProspectsPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
               gap: "12px",
             }}
           >
+            <label className="grid min-w-0 gap-2 text-sm font-semibold text-gray-700">
+              Search Top Prospects
             <input
-              type="text"
+              type="search"
               value={searchTerm}
+              className="min-h-11 min-w-0 font-normal"
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by prospect, ask type, or next action"
               style={{
@@ -8017,8 +8033,12 @@ export default function MyTopProspectsPage() {
                 boxSizing: "border-box",
               }}
             />
+            </label>
+            <label className="grid min-w-0 gap-2 text-sm font-semibold text-gray-700">
+              Prospect status
             <select
               value={statusFilter}
+              className="min-h-11 min-w-0 font-normal"
               onChange={(e) => setStatusFilter(e.target.value)}
               style={{
                 width: "100%",
@@ -8035,9 +8055,13 @@ export default function MyTopProspectsPage() {
               <option value="Closed – Gift Secured">Closed – Gift Secured</option>
               <option value="Closed – Declined">Closed – Declined</option>
             </select>
+            </label>
+            <label className="grid min-w-0 gap-2 text-sm font-semibold text-gray-700">
+              Fiscal year
             <select
               value={fyFilter}
-              aria-label="Filter by open opportunity fiscal year"
+              className="min-h-11 min-w-0 font-normal"
+              aria-label="Filter by fiscal year"
               onChange={(e) => setFyFilter(e.target.value)}
               style={{
                 width: "100%",
@@ -8049,15 +8073,19 @@ export default function MyTopProspectsPage() {
                 boxSizing: "border-box",
               }}
             >
-              <option value="all">All open opportunity years</option>
+              <option value="all">All fiscal years</option>
               {opportunityYearOptions.map((fy) => (
                 <option key={fy} value={fy}>
                   {fy}
                 </option>
               ))}
             </select>
+            </label>
+            <label className="grid min-w-0 gap-2 text-sm font-semibold text-gray-700">
+              Next-step status
             <select
               value={actionFilter}
+              className="min-h-11 min-w-0 font-normal"
               onChange={(e) => setActionFilter(e.target.value)}
               style={{
                 width: "100%",
@@ -8069,18 +8097,20 @@ export default function MyTopProspectsPage() {
                 boxSizing: "border-box",
               }}
             >
-              <option value="all">All action states</option>
+              <option value="all">All next-step states</option>
               <option value="clarification">Clarification requested</option>
               <option value="overdue">Overdue next steps</option>
-              <option value="due">Next action due</option>
+              <option value="due">Next step has a due date</option>
               <option value="follow-up">Needs follow-up</option>
               <option value="no-opportunity">No active opportunities</option>
             </select>
+            </label>
           </div>
+          {hasTopProspectFilters && <button type="button" className="mt-3 min-h-11 rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700" onClick={clearTopProspectFilters}>Clear filters</button>}
         </div>
 
         {/* Active Prospects */}
-        <h2
+        {(statusFilter === "all" || statusFilter === "Active") && <h2
           style={{
             fontSize: "16px",
             fontWeight: "700",
@@ -8089,7 +8119,7 @@ export default function MyTopProspectsPage() {
           }}
         >
           Active Prospects ({filteredActiveProspects.length})
-        </h2>
+        </h2>}
 
         {isLoading ? (
           <div
@@ -8102,7 +8132,7 @@ export default function MyTopProspectsPage() {
           >
             Loading prospects...
           </div>
-        ) : filteredActiveProspects.length === 0 ? (
+        ) : filteredProspectCount === 0 ? (
           <div
             style={{
               textAlign: "center",
@@ -8121,11 +8151,12 @@ export default function MyTopProspectsPage() {
             <p
               style={{ fontSize: "15px", color: "#6B7280", margin: "0 0 4px" }}
             >
-              No prospects match these filters
+              {hasTopProspectFilters ? "No prospects match these filters" : "No Top Prospects yet"}
             </p>
-            <p style={{ fontSize: "13px", color: "#9CA3AF", margin: 0 }}>
-              Adjust your filters or add a new prospect to expand your pipeline.
+            <p style={{ fontSize: "13px", color: "#4B5563", margin: 0 }}>
+              {hasTopProspectFilters ? "Clear the filters to see your active and closed prospects." : isExecutiveReadOnly ? "This workspace has no active or closed Top Prospects to show." : "Choose Add Prospect above, or open My Portfolio to select a constituent."}
             </p>
+            {hasTopProspectFilters && <button type="button" className="mt-4 min-h-11 rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700" onClick={clearTopProspectFilters}>Show all prospects</button>}
           </div>
         ) : (
           <div style={{ marginBottom: "32px" }}>
@@ -8461,7 +8492,7 @@ export default function MyTopProspectsPage() {
         )}
 
         {/* Closed Prospects */}
-        {(closedSecured.length > 0 || closedDeclined.length > 0) && (
+        {(filteredClosedSecured.length > 0 || filteredClosedDeclined.length > 0) && (
           <div>
             <h2
               style={{
@@ -8474,7 +8505,7 @@ export default function MyTopProspectsPage() {
               Closed Prospects
             </h2>
 
-            {closedSecured.length > 0 && (
+            {filteredClosedSecured.length > 0 && (
               <div style={{ marginBottom: "20px" }}>
                 <h3
                   style={{
@@ -8484,11 +8515,20 @@ export default function MyTopProspectsPage() {
                     margin: "0 0 8px 0",
                   }}
                 >
-                  Gift Secured ({closedSecured.length})
+                  Gift Secured ({filteredClosedSecured.length})
                 </h3>
-                {closedSecured.map((p) => (
+                {filteredClosedSecured.map((p) => (
                   <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View closed prospect ${p.prospect_name}`}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedProspectId(p.id);
+                      }
+                    }}
                     style={{
                       backgroundColor: "white",
                       borderRadius: "12px",
@@ -8578,7 +8618,7 @@ export default function MyTopProspectsPage() {
               </div>
             )}
 
-            {closedDeclined.length > 0 && (
+            {filteredClosedDeclined.length > 0 && (
               <div>
                 <h3
                   style={{
@@ -8588,11 +8628,20 @@ export default function MyTopProspectsPage() {
                     margin: "0 0 8px 0",
                   }}
                 >
-                  Declined ({closedDeclined.length})
+                  Declined ({filteredClosedDeclined.length})
                 </h3>
-                {closedDeclined.map((p) => (
+                {filteredClosedDeclined.map((p) => (
                   <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View closed prospect ${p.prospect_name}`}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedProspectId(p.id);
+                      }
+                    }}
                     style={{
                       backgroundColor: "white",
                       borderRadius: "12px",

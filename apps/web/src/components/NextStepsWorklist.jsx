@@ -135,7 +135,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Next steps</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-600">All saved follow-ups for this workspace. These reminders are separate from NXT actions.</p>
+          <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-600">All saved follow-ups for this workspace. Mark complete finishes only the reminder; Add NXT action opens a separate action form.</p>
         </div>
         <a href="/my-top-prospects" className={buttonClass}>My Prospects</a>
       </div>
@@ -172,7 +172,7 @@ export default function NextStepsWorklist({ viewerId, workspaceId, active = true
         </nav>}
       </div>
       {!total && <div className="rounded-xl border border-gray-200 bg-white p-5 text-gray-600">
-        {search ? "No next steps match your search." : status === "Done" ? "No completed next steps yet." : "No open next steps. Add one from My Prospects when you have a follow-up to track."}
+        {search ? "No next steps match your search." : status === "Done" ? "No completed next steps yet." : workspace?.canEdit ? "No open next steps. Open a constituent in My Prospects and choose Set next step to add a follow-up." : "No open next steps in this workspace."}
         {search && <button type="button" className={`${buttonClass} ml-2`} onClick={() => { setSearch(""); setPage(1); }}>Clear search</button>}
       </div>}
       {pageGroups.map(group => <section key={group.key} aria-labelledby={`next-step-group-${group.key.replaceAll(" ", "-")}`}>

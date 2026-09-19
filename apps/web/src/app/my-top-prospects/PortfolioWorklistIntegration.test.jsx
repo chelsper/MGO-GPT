@@ -8,8 +8,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {} }));
-vi.mock("@/components/ProspectExport", () => ({ default: () => null }));
+const state = vi.hoisted(() => ({ profile: null, data: {}, queryErrors: {}, exportProps: null }));
+vi.mock("@/components/ProspectExport", () => ({ default: (props) => { state.exportProps = props; return null; } }));
 vi.mock("@/utils/useUser", () => ({
   default: () => ({ data: { id: 2 }, loading: false }),
 }));
@@ -120,6 +120,83 @@ it("returns from prospect details to the same filtered Top Prospects list and wo
   expect(search).toHaveValue("Zelda");
   expect(screen.getByRole("button", { name: "View Prospect" })).toBeVisible();
   expect(screen.getByText("Editing Selected MGO's workspace")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+function addClosedProspects() {
+  state.data.prospects.push(
+    { id: 2, status: "Closed – Gift Secured", prospect_name: "Closed Secured", expected_close_fy: "FY24", ask_type: "Scholarship", next_action_text: "Send thanks", next_action_due_date: "2027-06-30" },
+    { id: 3, status: "Closed – Declined", prospect_name: "Closed Declined", expected_close_fy: "FY26", ask_type: "Major Gift" },
+  );
+}
+
+it("filters closed and active Top Prospects consistently using only loaded records", () => {
+  addClosedProspects();
+  render(<MyProspects />);
+  expect(screen.getByText("Showing 3 of 3 prospects (1 active)")).toBeVisible();
+  fireEvent.change(screen.getByRole("combobox", { name: "Prospect status" }), { target: { value: "Closed – Gift Secured" } });
+  expect(screen.getByRole("button", { name: "View closed prospect Closed Secured" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "View closed prospect Closed Declined" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "View Prospect" })).not.toBeInTheDocument();
+  expect(state.exportProps.prospectIds).toEqual([]);
+  expect(screen.queryByText("No prospects match these filters")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search Top Prospects" }), { target: { value: "not found" } });
+  expect(screen.queryByRole("button", { name: "View closed prospect Closed Secured" })).not.toBeInTheDocument();
+  expect(screen.getByText("No prospects match these filters")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Show all prospects" }));
+  expect(screen.getByText("Showing 3 of 3 prospects (1 active)")).toBeVisible();
+  expect(screen.getByRole("button", { name: "View Prospect" })).toBeVisible();
+  expect(state.exportProps.prospectIds).toEqual([1]);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("uses saved close years for closed prospects and preserves unrelated context when clearing filters", () => {
+  addClosedProspects();
+  window.history.replaceState({}, "", "/my-top-prospects?search=Closed&statusFilter=all&fyFilter=FY24&actionFilter=due&keep=context#list");
+  render(<MyProspects />);
+  expect(screen.getByRole("combobox", { name: "Filter by fiscal year" })).toHaveValue("FY24");
+  expect(screen.getByRole("combobox", { name: "Next-step status" })).toHaveValue("due");
+  expect(screen.getByRole("option", { name: "Next step has a due date" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "View closed prospect Closed Secured" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "View closed prospect Closed Declined" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(window.location.search + window.location.hash).toBe("?keep=context#list");
+  expect(screen.getByRole("combobox", { name: "Filter by fiscal year" })).toHaveValue("all");
+  expect(screen.getByRole("combobox", { name: "Next-step status" })).toHaveValue("all");
+  expect(screen.getByRole("searchbox", { name: "Search Top Prospects" })).toHaveValue("");
+  expect(screen.getByText("Editing Selected MGO's workspace")).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each(["Enter", " "])("opens a closed prospect with the %s key without a new fetch", key => {
+  addClosedProspects();
+  state.data.prospect = { prospect: state.data.prospects[1] };
+  render(<MyProspects />);
+  const closed = screen.getByRole("button", { name: "View closed prospect Closed Secured" });
+  expect(closed).toHaveAttribute("tabindex", "0");
+  fireEvent.keyDown(closed, { key });
+  expect(screen.getByRole("button", { name: "Back to Top Prospects" })).toBeVisible();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("does not describe an empty read-only workspace as a filter failure or prompt editing", () => {
+  state.profile.user.role = "executive";
+  state.data.prospects = [];
+  render(<MyProspects />);
+  expect(screen.getByText("No Top Prospects yet")).toBeVisible();
+  expect(screen.getByText("This workspace has no active or closed Top Prospects to show.")).toBeVisible();
+  expect(screen.queryByText(/Choose Add Prospect above/)).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("labels filters and limits the pinned prospect header to desktop without adding requests", () => {
+  const { container } = render(<MyProspects />);
+  expect(container.querySelector("header")).toHaveClass("lg:sticky", "lg:top-0");
+  expect(container.querySelector("header").style.position).toBe("");
+  for (const name of ["Prospect status", "Filter by fiscal year", "Next-step status"]) {
+    expect(screen.getByRole("combobox", { name })).toHaveClass("min-h-11", "min-w-0");
+  }
+  expect(screen.getByRole("searchbox", { name: "Search Top Prospects" })).toHaveClass("min-h-11");
   expect(fetch).not.toHaveBeenCalled();
 });
 

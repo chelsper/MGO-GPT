@@ -26,7 +26,7 @@ function SharedReportHeaderContent({
           marginBottom: "24px",
         }}
       >
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, flex: "1 1 320px", overflowWrap: "anywhere" }}>
           <a
             href={backHref}
             aria-label={backLabel}
@@ -96,14 +96,17 @@ function SharedReportHeaderContent({
                 href={getReportHref(report)}
                 aria-current={selected ? "page" : undefined}
                 style={{
-                  minHeight: "40px",
+                  minHeight: "44px",
                   display: "inline-flex",
                   alignItems: "center",
                   borderRadius: "999px",
                   border: selected ? "1px solid #4F46E5" : "1px solid #C7D2FE",
                   backgroundColor: selected ? "#4F46E5" : "white",
                   color: selected ? "white" : "#4338CA",
-                  padding: "0 15px",
+                  padding: "8px 15px",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  overflowWrap: "anywhere",
                   fontSize: "14px",
                   fontWeight: 800,
                   textDecoration: "none",

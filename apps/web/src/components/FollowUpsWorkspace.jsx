@@ -57,10 +57,10 @@ export default function FollowUpsWorkspace() {
   const workspace = profile.data?.workspaceUser;
   const scope = `${profile.data?.user?.id}:${workspace?.id}`;
   return <main className="mx-auto w-full max-w-[1480px] space-y-5 px-4 py-6 sm:px-6">
-    <a href="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-gray-600"><ArrowLeft size={16} aria-hidden="true" />Back to dashboard</a>
+    <a href="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-gray-600"><ArrowLeft size={16} aria-hidden="true" />Return to home</a>
     <header>
       <h1 className="text-3xl font-bold text-gray-900">Follow-ups &amp; Discussion</h1>
-      <p className="mt-2 text-base text-gray-600">Your follow-ups and team conversations, in one place.</p>
+      <p className="mt-2 text-base text-gray-600">Use Next Steps for tasks to do, and Team Discussion for talking points and handoffs.</p>
       {workspace && <p className="mt-3 break-words text-sm text-gray-700">{isMgoRole(workspace.role) ? `${fundraiserLabel} workspace` : "Workspace"}: <strong>{workspace.name || "My workspace"}</strong>{profile.data.actingAsUser ? " (selected workspace)" : ""}</p>}
     </header>
     <div role="tablist" aria-label="Follow-up type" className="flex flex-wrap gap-2 border-b border-gray-200 pb-4">

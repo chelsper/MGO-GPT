@@ -15,3 +15,14 @@ it("keeps the Reports landing page return destination as Home", () => {
   render(<SharedReportHeader title="My Reports" accessibleReports={[]} backHref="/" backLabel="Return to home" />);
   expect(screen.getByRole("link", { name: "Return to home" })).toHaveAttribute("href", "/");
 });
+
+it("keeps long report names within the navigation and preserves the selected destination", () => {
+  const fetch = vi.spyOn(globalThis, "fetch");
+  render(<SharedReportHeader title="A long presentation report title" activeReportKey="portfolio-fy-giving"
+    accessibleReports={[{ key: "portfolio-fy-giving", title: "A very long configured report name" }]} />);
+  const report = screen.getByRole("link", { name: "A very long configured report name" });
+  expect(report).toHaveAttribute("href", "/reports");
+  expect(report).toHaveAttribute("aria-current", "page");
+  expect(report).toHaveStyle({ maxWidth: "100%", minHeight: "44px", overflowWrap: "anywhere" });
+  expect(fetch).not.toHaveBeenCalled();
+});
