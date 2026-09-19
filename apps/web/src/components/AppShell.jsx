@@ -142,8 +142,8 @@ export default function AppShell({ children }) {
   const canManageWorkspace = canManageWorkspaceRole(profile?.role);
   const canSwitchMgoWorkspace = canUseExecutiveViewRole(profile?.role);
   const navigationItems = useMemo(
-    () => getNavigationItems({ isReviewer: isReviewerView, canManageWorkspace, isAdmin }),
-    [canManageWorkspace, isReviewerView, isAdmin],
+    () => getNavigationItems({ isReviewer: isReviewerView, canManageWorkspace, isAdmin, roleLabels: { mgo: labels.mgo } }),
+    [canManageWorkspace, isReviewerView, isAdmin, labels.mgo],
   );
   const navigationGroups = useMemo(
     () => groupNavigationItems(navigationItems, { promotePrimary: true }),

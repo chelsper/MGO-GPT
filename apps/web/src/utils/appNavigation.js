@@ -1,3 +1,13 @@
+import { getWorkspaceRoleLabels } from "./workspaceRoles";
+
+function getReviewerRoleDescriptions(mgo) {
+  return {
+    "/prospect-pool": `Assign prospects to ${mgo} workspaces and follow up on contact information requests.`,
+    "/prospect-exports": `Choose one or more ${mgo} workspaces and download a master workbook with opportunity details.`,
+    "/list-requests": `Prioritize list requests and send questions or delivery notes to ${mgo} users.`,
+  };
+}
+
 export const MGO_NAV_ITEMS = [
   { label: "My Prospects", href: "/my-top-prospects", section: "My Work", primaryOrder: 1, description: "Prioritize your top prospects and browse your assigned portfolio." },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "My Work", primaryOrder: 2, description: "Work your next steps, coordinate with teammates, and prepare for meetings." },
@@ -14,11 +24,11 @@ export const MGO_NAV_ITEMS = [
 
 export const REVIEWER_NAV_ITEMS = [
   { label: "Work Queue", href: "/submissions", section: "Daily Work", primaryOrder: 1, description: "Review outstanding requests and NXT exceptions in one queue." },
-  { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work", description: "Assign prospects to MGOs and follow up on contact information requests." },
+  { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work" },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
-  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 3, description: "Choose one or more MGOs and download a master workbook with opportunity details." },
-  { label: "List Request Queue", href: "/list-requests", section: "Requests", description: "Prioritize list requests and send questions or delivery notes to MGOs." },
+  { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 3 },
+  { label: "List Request Queue", href: "/list-requests", section: "Requests" },
   { label: "Data Request Queue", href: "/data-requests", section: "Requests", description: "Review contact information and constituent record corrections." },
   { label: "Constituency Import", href: "/constituency-import", section: "Imports", primaryOrder: 2, description: "Upload a file, resolve possible matches, and review changes before sending to NXT." },
   { label: "Family Import", href: "/family-import", section: "Imports", description: "Review parents and family relationships before creating or linking NXT records." },
@@ -26,7 +36,7 @@ export const REVIEWER_NAV_ITEMS = [
   { label: "Find a Constituent", href: "/constituent-lookup", section: "Tools & Guidance", description: "Search NXT and open a constituent profile." },
   { label: "Knowledge Base", href: "/knowledge-base", section: "Tools & Guidance", description: "Find standards, examples, and process guidance." },
   { label: "Edit Knowledge Base", href: "/knowledge-base/manage", section: "Tools & Guidance", description: "Maintain the team's shared guidance and examples." },
-];
+].map(item => ({ ...item, description: item.description || getReviewerRoleDescriptions("MGO")[item.href] }));
 
 export const ADMIN_WORKSPACE_ITEMS = [
   { label: "Field Settings", href: "/blackbaud-mapping", section: "Admin & Workspace", description: "Manage field mapping, ownership, and NXT sync behavior." },
@@ -95,12 +105,16 @@ const SETUP_EDITOR_ROUTES = new Set([
   "/blackbaud-mapping",
 ]);
 
-export function getNavigationItems({ isReviewer, canManageWorkspace, isAdmin = false }) {
+export function getNavigationItems({ isReviewer, canManageWorkspace, isAdmin = false, roleLabels }) {
   const items = !isReviewer ? MGO_NAV_ITEMS : canManageWorkspace
     ? [...REVIEWER_NAV_ITEMS, ...ADMIN_WORKSPACE_ITEMS]
     : REVIEWER_NAV_ITEMS;
   const withSetup = canManageWorkspace ? [...items, SETUP_HUB_ITEM] : items;
-  return isAdmin ? [...withSetup, INTEGRATION_HEALTH_ITEM] : withSetup;
+  const navigationItems = isAdmin ? [...withSetup, INTEGRATION_HEALTH_ITEM] : withSetup;
+  if (!isReviewer || !roleLabels) return navigationItems;
+  // Display-only copy; custom titles are never pluralized or used for access checks.
+  const descriptions = getReviewerRoleDescriptions(getWorkspaceRoleLabels({ mgo: roleLabels.mgo }).mgo);
+  return navigationItems.map(item => descriptions[item.href] ? { ...item, description: descriptions[item.href] } : item);
 }
 
 export function getPrimaryNavigationItems(items) {

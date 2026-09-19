@@ -8,13 +8,14 @@ import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import AdvancementServicesHome from "@/components/AdvancementServicesHome";
 import WorkspaceStartPaths from "@/components/WorkspaceStartPaths";
 import HomeWorkspaceControls from "@/components/HomeWorkspaceControls";
+import { useWorkspaceLabels } from "@/components/WorkspaceTerminology";
 import { getNavigationItems } from "@/utils/appNavigation";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
-  getWorkspaceRoleLabel,
+  normalizeWorkspaceRoles,
 } from "@/utils/workspaceRoles";
-const MGO_ACTIONS = [
+const getMgoActions = (labels) => [
   {
     title: "Log Update",
     href: "/action-opportunity-update",
@@ -42,13 +43,13 @@ const MGO_ACTIONS = [
   {
     title: "Request List from DevData",
     href: "/request-list",
-    description: "Request lists and reporting support from Advancement Services.",
+    description: `Request lists and reporting support from ${labels.advancement_services}.`,
     section: "requestsReview",
   },
   {
     title: "Request Data Update",
     href: "/data-requests",
-    description: "Send contact updates or corrected constituent information to Advancement Services.",
+    description: `Send contact updates or corrected constituent information to ${labels.advancement_services}.`,
     section: "requestsReview",
   },
   {
@@ -58,9 +59,6 @@ const MGO_ACTIONS = [
     section: "requestsReview",
   },
 ];
-
-const teamSupport = MGO_ACTIONS.filter((action) => action.section === "teamSupport");
-const requestsReview = MGO_ACTIONS.filter((action) => action.section === "requestsReview");
 
 function parseWorklistDate(value) {
   const datePart = String(value || "").slice(0, 10);
@@ -151,6 +149,10 @@ function getHomepageAttentionItems(worklist) {
 }
 
 export default function Page() {
+  const labels = useWorkspaceLabels();
+  const actions = getMgoActions(labels);
+  const teamSupport = actions.filter((action) => action.section === "teamSupport");
+  const requestsReview = actions.filter((action) => action.section === "requestsReview");
   const queryClient = useQueryClient();
   const { data: user, loading } = useUser();
   const [profile, setProfile] = useState(null);
@@ -201,8 +203,8 @@ export default function Page() {
   const canManageWorkspace = canManageWorkspaceRole(profile?.role);
   const canSwitchMgoWorkspace = canUseExecutiveViewRole(profile?.role);
   const roleLabel = isAdmin
-    ? `Admin · ${isReviewer ? "Advancement Services view" : "MGO view"}`
-    : getWorkspaceRoleLabel(profile?.role) || (isReviewer ? "Advancement Services" : "MGO");
+    ? `Admin · ${isReviewer ? labels.advancement_services : labels.mgo} view`
+    : normalizeWorkspaceRoles(profile?.role).map(role => labels[role]).join(", ") || (isReviewer ? labels.advancement_services : labels.mgo);
 
   const {
     data: actingWorkspaceStatus,
@@ -292,7 +294,7 @@ export default function Page() {
           adminUser: profile,
           actingUser: null,
         });
-        setWorkspaceSwitchMessage("Viewing your MGO workspace");
+        setWorkspaceSwitchMessage(`Viewing your ${labels.mgo} workspace`);
       } else {
         const response = await fetch("/api/admin/workspace-user", {
           method: "POST",
@@ -301,7 +303,7 @@ export default function Page() {
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
-          throw new Error(payload?.error || "Failed to switch MGO workspace");
+          throw new Error(payload?.error || "Failed to switch workspace");
         }
         queryClient.setQueryData(["acting-workspace-status", profile?.id, effectiveRole], {
           adminUser: profile,
@@ -309,7 +311,7 @@ export default function Page() {
         });
         setWorkspaceSwitchMessage(
           payload?.actingUser?.name
-            ? `Viewing ${payload.actingUser.name}'s MGO workspace`
+            ? `Viewing ${payload.actingUser.name}'s workspace`
             : "Workspace updated",
         );
       }
@@ -355,20 +357,20 @@ export default function Page() {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 40px" }}>
+      <main style={{ maxWidth: "1480px", margin: "0 auto", padding: "24px 18px 40px", overflowWrap: "anywhere" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
           <img
             src="https://ucarecdn.com/8291db54-6f2a-43f4-9fc2-e6ced1ab623d/-/format/auto/"
             alt="MGO-GPT Logo"
-            style={{ width: "30px", height: "30px", borderRadius: "8px" }}
+            style={{ width: "30px", height: "30px", borderRadius: "8px", flexShrink: 0 }}
           />
-          <h1 style={{ margin: 0, fontSize: "28px", color: "#111827", fontWeight: 800 }}>
+          <h1 style={{ margin: 0, minWidth: 0, overflowWrap: "anywhere", fontSize: "28px", color: "#111827", fontWeight: 800 }}>
             {isAdmin
               ? isReviewer
-                ? "Advancement Services workspace"
-                : "MGO Workspace"
+                ? `${labels.advancement_services} workspace`
+                : `${labels.mgo} Workspace`
               : isReviewer
-                ? "Advancement Services Hub"
+                ? `${labels.advancement_services} Hub`
                 : "Today"}
           </h1>
         </div>
@@ -380,7 +382,7 @@ export default function Page() {
           {isAdmin
             ? isReviewer
               ? "Work the shared queues and keep team momentum moving."
-              : "Work the MGO companion layer while keeping admin tools available in the background."
+              : `Work in the ${labels.mgo} workspace while keeping admin tools available in the background.`
             : isReviewer
               ? "Review submissions, manage shared queues, and keep the knowledge base current."
               : "Work your prospects, log fundraising movement, and keep next steps moving."}
@@ -714,7 +716,6 @@ export default function Page() {
                 fontSize: "12px",
                 fontWeight: 700,
                 color: "#6A5BFF",
-                textTransform: "capitalize",
               }}
             >
               {roleLabel}

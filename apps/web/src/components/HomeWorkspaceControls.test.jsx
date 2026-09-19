@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import HomeWorkspaceControls from "./HomeWorkspaceControls";
+import { WorkspaceTerminologyProvider } from "./WorkspaceTerminology";
 
 const profile = { id: 7, role: "admin", name: "Test Admin", active: true };
 const mgo = { id: 9, role: "mgo", name: "Selected MGO", active: true };
@@ -9,6 +10,37 @@ const defaults = { profile, isReviewer: false, actingUser: null, workspaceResolv
 const expand = container => fireEvent.click(container.querySelector("summary"));
 
 describe("Home workspace controls", () => {
+  it("updates terminology in place without changing people, open controls, callback values, or read-only access", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const onViewModeChange = vi.fn(), onActingWorkspaceChange = vi.fn();
+    const controls = <HomeWorkspaceControls {...defaults} actingUser={executive} onViewModeChange={onViewModeChange} onActingWorkspaceChange={onActingWorkspaceChange} />;
+    try {
+      const view = render(<WorkspaceTerminologyProvider>{controls}</WorkspaceTerminologyProvider>);
+      expand(view.container);
+      view.rerender(<WorkspaceTerminologyProvider terminology={{ mgo: "Fundraiser", advancementServices: "Data Services", executive: "Leadership" }}>{controls}</WorkspaceTerminologyProvider>);
+      expect(view.container.querySelector("details")).toHaveAttribute("open");
+      expect(screen.getByRole("combobox")).toHaveValue("10");
+      expect(screen.getByRole("option", { name: "Selected Executive (Leadership)" })).toHaveValue("10");
+      expect(screen.getByText(/This workspace is read-only/)).toBeVisible();
+      expect(screen.getByText(/Leadership workspaces are read-only/)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Fundraiser", exact: true })).toBeDisabled();
+      expect(onViewModeChange).not.toHaveBeenCalled();
+      expect(onActingWorkspaceChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Data Services" }));
+      expect(onViewModeChange).toHaveBeenCalledExactlyOnceWith("reviewer");
+      fireEvent.change(screen.getByRole("combobox"), { target: { value: "9" } });
+      expect(onActingWorkspaceChange).toHaveBeenCalledExactlyOnceWith("9");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it("does not grant Admin access to a role renamed Admin", () => {
+    const { container } = render(<WorkspaceTerminologyProvider terminology={{ mgo: "Admin" }}>
+      <HomeWorkspaceControls {...defaults} profile={mgo} />
+    </WorkspaceTerminologyProvider>);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it.each(["mgo", "executive", "advancement_services", null])("does not add Admin controls for %s", role => {
     const { container } = render(<HomeWorkspaceControls {...defaults} profile={{ ...profile, role }} />);
     expect(container).toBeEmptyDOMElement();

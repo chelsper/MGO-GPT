@@ -132,3 +132,27 @@ enablement, and no reads from disclosure interaction. Actual Home components wer
 checked with synthetic data at desktop and 390px mobile widths, including keyboard
 expansion/collapse, visible attribution, and no horizontal overflow. No production
 workspace was switched and no live NXT operation was performed during verification.
+
+## Configured Home Role Labels (September 19, 2026)
+
+Home now uses the existing organization terminology context for workspace titles,
+signed-in role labels, compact view controls, leadership selector labels, and
+request descriptions. Prospect Pool, Top Prospect Exports, and List Request Queue
+descriptions share configured fundraiser copy through the navigation metadata.
+No custom title is automatically pluralized, and person names are not rewritten.
+Blank or unavailable settings retain existing defaults; no automatic switch from
+MGO to Fundraiser was made. Long titles wrap on mobile.
+
+This adds no settings requests, polling, background jobs, NXT calls, or writes.
+Existing role IDs, routes, query keys, permissions, and workspace-switch payloads
+remain unchanged. Labels update without resetting the selected workspace or its
+open disclosure. Admin attribution and read-only notices remain visible.
+
+Verification: 3,097 tests in 267 files, typecheck, production build, release
+worktree checks, and whitespace checks passed. Coverage includes configured and
+default labels, safe text rendering, stable destinations/permissions, unchanged
+callback values and query enablement, and no additional fetching. Actual Home and
+AppShell components were checked with synthetic data at desktop and 390px mobile
+widths in both views, including long titles and expanded controls; no horizontal
+overflow was observed. Production settings and NXT records were not changed.
+This is local verification; deployment remains a separate step.

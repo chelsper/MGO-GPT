@@ -8,6 +8,18 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it.each([false, true])("changes only reviewer descriptions, without mutating shared navigation or pluralizing labels (manage: %s)", canManageWorkspace => {
+    const options = { isReviewer: true, canManageWorkspace, isAdmin: canManageWorkspace };
+    const defaults = getNavigationItems(options);
+    const configured = getNavigationItems({ ...options, roleLabels: { mgo: "Gift Officer" } });
+    expect(configured.map(({ description, ...item }) => item)).toEqual(defaults.map(({ description, ...item }) => item));
+    expect(configured.find(item => item.href === "/prospect-exports").description).toContain("Gift Officer workspaces");
+    expect(defaults.find(item => item.href === "/prospect-exports").description).toContain("MGO workspaces");
+    expect(getNavigationItems({ ...options, roleLabels: { mgo: " " } })).toEqual(defaults);
+    expect(getNavigationItems(options)).toEqual(defaults);
+    expect(getNavigationItems({ ...options, isReviewer: false, roleLabels: { mgo: "Admin" } }))
+      .toEqual(getNavigationItems({ ...options, isReviewer: false }));
+  });
   it.each([
     ["/report-configurations", "Report Access & Configurations"],
     ["/organization-configurations", "Organization Settings"],

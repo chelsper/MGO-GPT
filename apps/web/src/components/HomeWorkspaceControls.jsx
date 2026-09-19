@@ -1,5 +1,6 @@
 import { ChevronDown } from "lucide-react";
-import { canEditWorkspace, canViewWorkspaceAsRole, getWorkspaceRoleLabel, isAdminRole } from "@/utils/workspaceRoles";
+import { canEditWorkspace, canViewWorkspaceAsRole, isExecutiveRole, isMgoRole, isAdminRole } from "@/utils/workspaceRoles";
+import { useWorkspaceLabels } from "./WorkspaceTerminology";
 
 export default function HomeWorkspaceControls({
   profile,
@@ -13,6 +14,7 @@ export default function HomeWorkspaceControls({
   onViewModeChange,
   onActingWorkspaceChange,
 }) {
+  const labels = useWorkspaceLabels();
   if (!isAdminRole(profile?.role)) return null;
 
   const workspaceKnown = workspaceResolved && !workspaceFailed;
@@ -27,7 +29,7 @@ export default function HomeWorkspaceControls({
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
           <span className="text-xs font-bold uppercase tracking-wide text-gray-500">Workspace</span>
           <span className="min-w-0 break-words text-sm font-semibold">
-            {isReviewer ? "Advancement Services" : `MGO: ${workspaceKnown ? actingUser ? ownerLabel : "My workspace" : workspaceFailed ? "Could not verify workspace" : "Loading workspace..."}`}
+            {isReviewer ? labels.advancement_services : `${labels.mgo}: ${workspaceKnown ? actingUser ? ownerLabel : "My workspace" : workspaceFailed ? "Could not verify workspace" : "Loading workspace..."}`}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-sm font-semibold text-emerald-700">
@@ -39,11 +41,11 @@ export default function HomeWorkspaceControls({
         <fieldset className="min-w-0">
           <legend className="mb-2 text-sm font-semibold">Workspace view</legend>
           <div className="flex flex-wrap gap-2">
-            {[{ value: "reviewer", label: "Advancement Services" }, { value: "mgo", label: "MGO" }].map(option => {
+            {[{ value: "reviewer", label: labels.advancement_services }, { value: "mgo", label: labels.mgo }].map(option => {
               const active = isReviewer === (option.value === "reviewer");
               return <button key={option.value} type="button" aria-pressed={active} disabled={active}
                 onClick={() => onViewModeChange(option.value)}
-                className={`min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${active ? "border-emerald-700 bg-emerald-700 text-white" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}>
+                className={`min-h-11 min-w-0 max-w-full break-words rounded-lg border px-3 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${active ? "border-emerald-700 bg-emerald-700 text-white" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}>
                 {option.label}
               </button>;
             })}
@@ -60,13 +62,13 @@ export default function HomeWorkspaceControls({
             <option value={profile.id}>My workspace</option>
             {selectionMissing && <option value={actingUser.id}>{ownerLabel}</option>}
             {viewableUsers.map(user => <option key={user.id} value={user.id}>
-              {user.name || user.email}{getWorkspaceRoleLabel(user.role) === "Executive" ? " (Executive)" : ""}
+              {user.name || user.email}{isExecutiveRole(user.role) && !isMgoRole(user.role) ? ` (${labels.executive})` : ""}
             </option>)}
           </select>
           <p id="home-workspace-help" className="mt-2 text-xs leading-relaxed text-gray-600">
             {usersFailed ? "The workspace list could not load. Reload the page to try again. Your selected workspace has not changed."
               : usersPending ? "Loading available workspaces..."
-                : "Choose My workspace to return to your own work. Executive workspaces are read-only."}
+                : `Choose My workspace to return to your own work. ${labels.executive} workspaces are read-only.`}
           </p>
         </div>}
       </div>

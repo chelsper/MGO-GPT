@@ -11,7 +11,7 @@ customization work.
 
 | Source | Active consumers and boundaries |
 | --- | --- |
-| Institution profile application name, short name, terminology | Shared AppShell header, navigation drawer, account role labels, and view-switch labels. My Prospects and Follow-ups also reuse configured fundraiser terminology as described below. Permission role keys stay unchanged. Other page copy, document titles, exports, and legacy forms are not universally relabeled. |
+| Institution profile application name, short name, terminology | Shared AppShell header, navigation drawer, account role labels, and view-switch labels. Home, My Prospects, and Follow-ups also reuse configured role terminology as described below. Permission role keys stay unchanged. Other page copy, document titles, exports, and legacy forms are not universally relabeled. |
 | Notification inbox and sender display name | Existing email consumers are preserved. Verified sender address and authentication policy remain environment-controlled. Documented email domains do not change sign-in access. |
 | Release-managed reporting policy | Shared default profile values, standings period construction, pledge query ID/type/system-ID header validation, and saved active-pledge display constants. July 1, Eastern time, USD, Gift query 12033, QRECID remain unchanged. |
 | Stored timezone, fiscal start, currency, date format | Retained as previous preferences, visibly disabled in the profile form. Server rejects changes. Active reporting rules are shown separately; saving branding does not activate these preferences. |
@@ -34,7 +34,7 @@ Source map:
 
 ### Workflow Terminology
 
-September 18 implementation. Local verification is recorded below; production
+September 18 implementation, extended to Home September 19. Local verification is recorded below; production
 releases are verified separately against the exact release commit.
 
 My Prospects and Follow-ups use `WorkspaceTerminologyProvider`, populated by the
@@ -50,6 +50,16 @@ and NXT taxonomy values remain unchanged. Lead Solicitor, Secondary / Athletics
 Solicitor, and Former Solicitor still describe the actual NXT assignment roles;
 action Category and Type values are not relabeled. Person names are never
 rewritten. No automatic pluralization is attempted for custom titles.
+
+Home now reuses the same provider for its headings, signed-in role summary,
+compact Admin workspace controls, and request descriptions. Reviewer navigation
+metadata accepts display-only role labels for Prospect Pool, Top Prospect Exports,
+and List Request Queue descriptions. Custom titles are followed by "workspaces"
+or "users" instead of being pluralized. The shell and reviewer Home pass the same
+configured fundraiser label. Leadership option labels use stable role helpers;
+changing labels never changes workspace eligibility or edit access. Long titles
+wrap on mobile, and a settings update preserves the selected person and open
+workspace disclosure. The existing MGO default and Home logo branding are retained.
 
 This is a bounded first pass, not universal relabeling. Reporting/export headings,
 other legacy pages, server error text, and app branding inside legacy forms remain

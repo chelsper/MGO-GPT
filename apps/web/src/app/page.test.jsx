@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { fireEvent } from "@testing-library/dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Page from "./page";
+import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
 const state = vi.hoisted(() => ({
   session: { email: "reviewer@example.org" }, reviewer: true, failed: false, counts: {}, options: null, role: null, overdueNextSteps: [],
@@ -111,7 +112,7 @@ afterEach(() => {
   delete globalThis.IS_REACT_ACT_ENVIRONMENT;
 });
 
-const render = async () => act(async () => root.render(<Page />));
+const render = async (terminology) => act(async () => root.render(<WorkspaceTerminologyProvider terminology={terminology}><Page /></WorkspaceTerminologyProvider>));
 const badge = (href) => container.querySelector(`main a[href="${href}"] span[aria-label]`)
   || container.querySelector(`a[href="${href}"] span[aria-label]`);
 
@@ -124,7 +125,7 @@ describe("Advancement Services home alerts", () => {
     const primary = container.querySelector('[aria-label="Main workspace paths"]');
     expect([...primary.querySelectorAll("a")].map(link => link.getAttribute("href")))
       .toEqual(["/submissions", "/constituency-import", "/prospect-exports"]);
-    expect(primary.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Choose one or more MGOs");
+    expect(primary.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Choose one or more MGO workspaces");
     expect(section.querySelector('a[href="/report-configurations"]')).not.toBeNull();
     expect(container.querySelectorAll('a[href="/knowledge-base/manage"]')).toHaveLength(1);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -199,5 +200,56 @@ describe("Advancement Services home alerts", () => {
     await render();
     expect(container.querySelector('a[href="/pledge-payments"]')).toBeNull();
     expect(container.querySelector('a[href="/reports"]')).not.toBeNull();
+  });
+});
+
+describe("Home configured terminology", () => {
+  const terminology = { mgo: "Gift Officer", advancementServices: "Data Services", executive: "Leadership" };
+
+  it.each(["admin", "advancement_services"])("uses configured reviewer headings, footer, and descriptions for %s without extra reads", async role => {
+    state.role = role;
+    await render(terminology);
+    expect(container.querySelector("h1")).toHaveTextContent(role === "admin" ? "Data Services workspace" : "Data Services Hub");
+    expect(container.querySelector("footer")).toHaveTextContent(role === "admin" ? "Admin · Data Services view" : "Data Services");
+    expect(container.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("Choose one or more Gift Officer workspaces");
+    expect(container.querySelector('a[href="/prospect-pool"]')).toHaveTextContent("Assign prospects to Gift Officer workspaces");
+    expect(container.querySelector('a[href="/list-requests"]')).toHaveTextContent("delivery notes to Gift Officer users");
+    expect(container.textContent).not.toContain("MGOs");
+    expect(container.textContent).not.toContain("Advancement Services");
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/users/profile");
+  });
+
+  it.each(["admin", "mgo", "mgo,executive"])("relabels fundraiser copy but not routes, selected people, roles, or queries for %s", async role => {
+    state.role = role;
+    state.reviewer = false;
+    state.actingStatus = { actingUser: state.mgoUsers[0] };
+    await render(terminology);
+    expect(container.querySelector("h1")).toHaveTextContent(role === "admin" ? "Gift Officer Workspace" : "Today");
+    expect(container.querySelector("footer")).toHaveTextContent(role === "admin" ? "Admin · Gift Officer view" : role === "mgo" ? "Gift Officer" : "Gift Officer, Leadership");
+    expect(container.querySelector('a[href="/request-list"]')).toHaveTextContent("reporting support from Data Services");
+    expect(container.querySelector('a[href="/data-requests"]')).toHaveTextContent("constituent information to Data Services");
+    const originalQueries = Object.keys(state.queries);
+    await render({ ...terminology, mgo: "Fundraiser" });
+    if (role === "admin") {
+      expect(container.querySelector('[aria-label="Workspace controls"] summary')).toHaveTextContent("Fundraiser: Selected MGO");
+      expect(container.querySelector('#home-workspace-owner')).toHaveValue("9");
+    }
+    expect(Object.keys(state.queries)).toEqual(originalQueries);
+    expect(originalQueries.sort()).toEqual(["acting-workspace-status", "app-shell-worklist", "workspace-mgo-users"]);
+    expect(state.options).toMatchObject({ queryKey: ["app-shell-worklist", 7, "mgo"], refetchInterval: false });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/users/profile");
+    expect(state.setViewMode).not.toHaveBeenCalled();
+    expect(state.setQueryData).not.toHaveBeenCalled();
+  });
+
+  it("falls back on blank settings and renders custom labels as text, not markup", async () => {
+    state.role = "admin";
+    await render({ advancementServices: " " });
+    expect(container.querySelector("h1")).toHaveTextContent("Advancement Services workspace");
+    await render({ advancementServices: "<b>Data Services</b>", mgo: "<img src=x>" });
+    expect(container.querySelector("h1")).toHaveTextContent("<b>Data Services</b> workspace");
+    expect(container.querySelector('a[href="/prospect-exports"]')).toHaveTextContent("<img src=x> workspaces");
+    expect(container.querySelector("main b, main img[src=x]")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

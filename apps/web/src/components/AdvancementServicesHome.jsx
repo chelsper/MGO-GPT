@@ -2,6 +2,7 @@ import { Activity, ArrowRight, BookOpen, CalendarDays, ChevronDown, ClipboardLis
 import { getNavigationItems, groupNavigationItems } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "./WorkQueueAlertBadge";
 import WorkspaceStartPaths from "./WorkspaceStartPaths";
+import { useWorkspaceLabels } from "./WorkspaceTerminology";
 
 const icons = {
   "/setup": Settings,
@@ -59,8 +60,9 @@ function ActionCards({ items, queueCounts, openDiscussionItems, featured }) {
 }
 
 export default function AdvancementServicesHome({ canManageWorkspace, isAdmin = false, queueCounts, openDiscussionItems = 0, worklistFailed = false }) {
+  const roleLabels = useWorkspaceLabels();
   // The home page and persistent menu share destinations, grouping, and permissions.
-  const navigationItems = getNavigationItems({ isReviewer: true, canManageWorkspace, isAdmin });
+  const navigationItems = getNavigationItems({ isReviewer: true, canManageWorkspace, isAdmin, roleLabels });
   const groups = groupNavigationItems(navigationItems, { promotePrimary: true }).filter((group) => group.section !== "Start here");
   return <div className="space-y-7">
     <WorkspaceStartPaths items={navigationItems} queueCounts={queueCounts} openDiscussionItems={openDiscussionItems} />
