@@ -72,7 +72,7 @@ Names only; never add values or OAuth tokens to this document.
 | Built-in query | `BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_ID`, `BLACKBAUD_FUTURE_MADE_PHASE_TWO_QUERY_NAME` | Inspect its route/configuration before changing a saved query |
 | Email | `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `SUBMISSIONS_RECIPIENT_EMAIL` | Approved test recipients; do not assume a dry-run email mode |
 | Scheduled jobs | `CRON_SECRET`, fallback `REPORT_REFRESH_CRON_SECRET`, `REPORT_REFRESH_USER_ID` or `REPORT_REFRESH_USER_EMAIL` | Actual connection owner and cron authorization; not public client settings |
-| Activity pilot | `PORTFOLIO_ACTIVITY_WORKSPACE_IDS`, `PORTFOLIO_ACTIVITY_ORIGIN` | Internal workspace IDs and canonical HTTPS origin; disabled unless deliberately configured |
+| Overnight activity | `PORTFOLIO_ACTIVITY_ENROLLMENT_MODE`, `PORTFOLIO_ACTIVITY_WORKSPACE_IDS`, `PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS`, `PORTFOLIO_ACTIVITY_ORIGIN` | Modes: `allowlist` (default), `active_mgos`, `disabled`. IDs are internal workspace IDs, not fundraiser IDs. Exact canonical HTTPS origin required. Exclusions apply to both enabled modes; malformed exclusions fail closed. See portfolio worklist runbook. |
 | Deployment checks | `VERIFY_DEPLOY_URL`, `EXPECTED_COMMIT_SHA` | Verification target/version, not authentication |
 | Generated integration | `ANYTHING_PROJECT_TOKEN`, `CORS_ORIGINS`, `NEXT_PUBLIC_CREATE_*`, `NEXT_PUBLIC_PROJECT_GROUP_ID` | Compatibility plumbing; inspect callers before removing/configuring |
 

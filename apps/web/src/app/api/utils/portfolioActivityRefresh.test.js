@@ -88,6 +88,20 @@ it("enforces the eight-request batch limit", async () => {
   expect(mocks.fetch).toHaveBeenCalledTimes(8);
   expect(mocks.reserve).toHaveBeenCalledTimes(8);
 });
+it("shares the same eight-call budget across all enrolled portfolios instead of multiplying it", async () => {
+  const workspaceIds = ["7", "8", "9", "10", "11"];
+  mocks.due.mockResolvedValue(Array.from({ length: 20 }, (_, i) => row("gift", { workspace_user_id: workspaceIds[i % 5], constituent_id: String(i + 1) })));
+  expect(await run({ workspaceIds })).toMatchObject({ calls: 8, status: "queued" });
+  expect(mocks.seed).toHaveBeenCalledWith(workspaceIds, options.origin);
+  expect(mocks.fetch).toHaveBeenCalledTimes(8);
+  expect(mocks.reserve).toHaveBeenCalledTimes(8);
+  expect(mocks.claim).toHaveBeenCalledTimes(1);
+});
+it("makes no NXT calls for enrolled accounts without saved assigned constituents", async () => {
+  mocks.due.mockResolvedValue([]);
+  expect(await run({ workspaceIds: ["12"] })).toMatchObject({ calls: 0, updated: 0 });
+  expect(mocks.fetch).not.toHaveBeenCalled();
+});
 it("counts confirmed no-gifts checks against the same request budget", async () => {
   mocks.due.mockResolvedValue(Array.from({ length: 20 }, (_, i) => row("gift", { constituent_id: String(i + 1) })));
   mocks.fetch.mockRejectedValue(noGiftsError);

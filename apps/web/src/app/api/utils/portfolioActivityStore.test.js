@@ -9,7 +9,12 @@ import { activityNextCheckAt } from "./portfolioActivitySchedule";
 const row = { workspace_user_id: 7, origin: "https://example.com", constituent_id: "100", kind: "action" };
 const gate = { origin: row.origin, token: "lease" };
 const query = () => sql.mock.calls.at(-1)[0].join("?");
-beforeEach(() => sql.mockReset().mockResolvedValue([]));
+beforeEach(() => {
+  sql.mockReset().mockResolvedValue([]);
+  vi.stubEnv("PORTFOLIO_ACTIVITY_ENROLLMENT_MODE", "allowlist");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS", "");
+  vi.stubEnv("VERCEL_ENV", "production");
+});
 afterEach(() => vi.unstubAllEnvs());
 it("atomically claims one origin-wide lease with a bounded expiry", async () => {
   sql.mockResolvedValue([{ lease_token: "lease" }]);
@@ -85,8 +90,25 @@ it("action writes only request a check for enabled portfolios in the same origin
   vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", row.origin);
   await requestPortfolioActionRefresh({ origin: "https://other.example.com", constituentId: "100" });
   expect(sql).not.toHaveBeenCalled();
+  sql.mockResolvedValueOnce([{ id: 7, role: "mgo", active: true }]);
   await requestPortfolioActionRefresh({ origin: row.origin, constituentId: "100" });
   expect(query()).toContain("requested_at = NOW()");
   expect(query()).not.toContain("activity_date =");
-  expect(sql.mock.calls[0].slice(1)).toEqual([row.origin, "100", ["7"]]);
+  expect(sql.mock.calls.at(-1).slice(1)).toEqual([row.origin, "100", ["7"]]);
+});
+it("requests action checks for newly enrolled MGOs while excluding inactive and opted-out accounts", async () => {
+  vi.stubEnv("PORTFOLIO_ACTIVITY_ENROLLMENT_MODE", "active_mgos");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", row.origin);
+  vi.stubEnv("PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS", "7");
+  sql.mockResolvedValueOnce([{ id: 7, role: "mgo", active: true }, { id: 12, role: "mgo", active: true }, { id: 13, role: "mgo", active: false }]);
+  await requestPortfolioActionRefresh({ origin: row.origin, constituentId: "100" });
+  expect(sql.mock.calls.at(-1).slice(1)).toEqual([row.origin, "100", ["12"]]);
+  expect(query()).not.toContain("activity_date =");
+});
+it("does not enqueue production action hints from preview", async () => {
+  vi.stubEnv("PORTFOLIO_ACTIVITY_ENROLLMENT_MODE", "active_mgos");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", row.origin);
+  vi.stubEnv("VERCEL_ENV", "preview");
+  await requestPortfolioActionRefresh({ origin: row.origin, constituentId: "100" });
+  expect(sql).not.toHaveBeenCalled();
 });

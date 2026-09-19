@@ -35,10 +35,14 @@ const activityKey = (origin, id, kind) => `prospect-activity-v1|${kind}|${create
 const loader = await createServer({ configFile: false, resolve: { alias: { "@": root } }, server: { middlewareMode: true, ws: false }, appType: "custom", optimizeDeps: { noDiscovery: true, include: [] } });
 const { portfolioActivityDetailsEnvelope, savedPortfolioActivity } = await loader.ssrLoadModule(`${root}utils/portfolioActivity.js`);
 const { ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows } = await loader.ssrLoadModule(`${root}app/api/utils/portfolioActivitySchedule.js`);
+const { isMgoRole } = await loader.ssrLoadModule(`${root}utils/workspaceRoles.js`);
+const { activityWorkspaceIds } = await loader.ssrLoadModule(`${root}app/api/utils/portfolioActivityData.js`);
 await loader.close();
+const enrollmentSource = readFileSync(`${root}app/api/utils/portfolioActivityEnrollment.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function").replaceAll("export function", "function");
+const resolveActivityEnrollment = new Function("sql", "isMgoRole", "activityWorkspaceIds", `${enrollmentSource}\nreturn resolveActivityEnrollment;`)(sql, isMgoRole, activityWorkspaceIds);
 const source = readFileSync(`${root}app/api/utils/portfolioActivityStore.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function");
-const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "activityWorkspaceIds", "portfolioActivityDetailsEnvelope", "ACTIVITY_QUEUE_LIMIT", "activityNextCheckAt", "selectActivityRows", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
-  sql, randomUUID, activityKey, 360, () => "https://example.com", () => ["7"], portfolioActivityDetailsEnvelope, ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows,
+const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "resolveActivityEnrollment", "portfolioActivityDetailsEnvelope", "ACTIVITY_QUEUE_LIMIT", "activityNextCheckAt", "selectActivityRows", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
+  sql, randomUUID, activityKey, 360, () => "https://example.com", () => resolveActivityEnrollment({ enabled: true, mode: "allowlist", workspaceIds: ["7"], excludedIds: [] }), portfolioActivityDetailsEnvelope, ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows,
 );
 const ddl = readFileSync(`${root}app/api/utils/ensureAppSchema.js`, "utf8").match(/DO \$activity_schema\$[\s\S]*?\$activity_schema\$/)[0];
 const origin = "https://example.com";
@@ -49,6 +53,7 @@ try {
     CREATE TABLE portfolio_constituent_snapshots(workspace_user_id bigint, constituent_id text, summary_payload jsonb, last_refreshed_at timestamptz);
     INSERT INTO users VALUES (7,TRUE,'{"leadSolicitor":[{"constituentId":"100"},{"constituentId":"100"},{"constituentId":"101"}]}'),
       (8,TRUE,'{"leadSolicitor":[{"constituentId":"800"}]}'), (9,FALSE,'{"leadSolicitor":[{"constituentId":"900"}]}'), (99,TRUE,NULL);`);
+  await run("ALTER TABLE users ADD COLUMN role text DEFAULT 'mgo'; UPDATE users SET role='admin' WHERE id=99");
   await run(ddl.replace("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS activity_details JSONB;", "")
     .replace("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;", ""));
   await run("INSERT INTO portfolio_activity_snapshots(workspace_user_id,origin,constituent_id,kind,record_id,activity_date,checked_at) VALUES (7,'https://example.com','100','gift','legacy','2020-01-01',NOW())");
@@ -179,6 +184,24 @@ try {
   const secondRound = (await store.dueActivityRows(manyWorkspaces,manyOrigin)).slice(0,8);
   assert(secondRound.every(row=>!firstWorkspaces.has(row.workspace_user_id)));
   console.log("PASS: bounded candidate queries still rotate fairly when more than 20 portfolios are eligible.");
+
+  const automatic = { enabled: true, mode: "active_mgos", workspaceIds: [], excludedIds: ["8"] };
+  let enrolled = await resolveActivityEnrollment(automatic);
+  assert(!enrolled.workspaceIds.includes("8") && !enrolled.workspaceIds.includes("9") && !enrolled.workspaceIds.includes("99"));
+  await run(`INSERT INTO users(id,active,role,blackbaud_portfolio_cache) VALUES
+    (500,TRUE,' Executive, MGO ','{"leadSolicitor":[{"constituentId":"50001"}],"supportingSolicitor":[]}'),
+    (501,TRUE,'mgo',NULL)`);
+  enrolled = await resolveActivityEnrollment(automatic);
+  assert(enrolled.workspaceIds.includes("500") && enrolled.workspaceIds.includes("501"));
+  const autoOrigin = "https://automatic.example.com";
+  await store.seedActivityQueue(enrolled.workspaceIds, autoOrigin);
+  assert.equal(await run(`SELECT COUNT(*) FROM portfolio_activity_snapshots WHERE origin=${quote(autoOrigin)} AND workspace_user_id=500`), "2");
+  assert.equal(await run(`SELECT COUNT(*) FROM portfolio_activity_snapshots WHERE origin=${quote(autoOrigin)} AND workspace_user_id=501`), "0");
+  await run("UPDATE users SET active=FALSE WHERE id=500; UPDATE users SET role='executive' WHERE id=501");
+  enrolled = await resolveActivityEnrollment(automatic);
+  assert(!enrolled.workspaceIds.includes("500") && !enrolled.workspaceIds.includes("501"));
+  assert.equal(await run(`SELECT COUNT(*) FROM portfolio_activity_snapshots WHERE origin=${quote(autoOrigin)} AND workspace_user_id=500`), "2");
+  console.log("PASS: automatic enrollment discovers new combined-role MGOs; missing assignments queue nothing; exclusions and deactivation preserve saved snapshots.");
 } finally {
   await run(`DROP SCHEMA IF EXISTS ${schema} CASCADE;`);
 }

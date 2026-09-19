@@ -125,9 +125,12 @@ export default function IntegrationHealthPage() {
       </Section>
 
       <Section id="health-activity" title="Last gift / action enrichment" available={activity?.available}
-        description="The opt-in activity worker checks saved portfolio assignments in bounded batches. Gift and action checks are separate items, not people.">
-        {!activity?.enabled ? <p className="text-sm text-gray-700">Not enabled for this environment/origin. This is not an error. Enabling or expanding the pilot requires a separate configuration decision.</p> : <>
+        description="The overnight activity worker checks saved portfolio assignments in bounded batches. Gift and action checks are separate items, not people.">
+        {!activity?.enabled ? <p className="text-sm text-gray-700">Not enabled for this environment/origin. Check the activity enrollment configuration if overnight checks are expected.</p> : <>
           <div className="flex items-center gap-2 text-emerald-800"><Activity size={18} aria-hidden="true" /><strong>Budgeted activity checks</strong></div>
+          <p className="mt-3 text-sm text-gray-700">{activity.enrollmentMode === "active_mgos" ? "Automatic enrollment: active MGOs" : "Selected-workspace enrollment"}. {activity.workspaceCount ?? "Unknown"} enrolled workspaces.</p>
+          {activity.enrollmentMode === "active_mgos" && <p className="mt-2 text-sm text-gray-600">New active MGOs join automatically after fundraiser mapping and initial portfolio assignment sync. Inactive accounts and configured exclusions are not checked.</p>}
+          {activity.awaitingAssignments > 0 && <p className="mt-2 text-sm text-amber-900">{activity.awaitingAssignments} enrolled workspaces still need an initial assignment snapshot. Check their setup in Security &amp; Access and My Prospects.</p>}
           <p className="mt-3 text-sm text-gray-700">{activity.total} checks / {activity.neverChecked} never verified / {activity.due} eligible now.</p>
           <p className="mt-2 text-sm text-gray-700">{activity.callsToday} of {activity.dailyBudget} reserved API calls today. This is this worker's budget, not the subscription's remaining quota.</p>
           {activity.connectionErrors > 0 && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-900">{activity.connectionErrors} saved connection errors. Have the scheduled account owner check access/permissions; reconnect only if authorization requires it.</p>}

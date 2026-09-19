@@ -100,3 +100,18 @@ it("recovers after a failed saved read without repeating the request automatical
   await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   expect(await screen.findByText("Test MGO")).toBeVisible();
 });
+
+it("shows automatic enrollment, initial setup needs and the unchanged shared budget without starting work", async () => {
+  const data = snapshot();
+  data.sections.activity = { available: true, enabled: true, enrollmentMode: "active_mgos", workspaceCount: 5,
+    awaitingAssignments: 1, total: 1800, neverChecked: 1300, due: 1400, callsToday: 288, dailyBudget: 360 };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  expect(await screen.findByText(/Automatic enrollment: active MGOs. 5 enrolled workspaces/)).toBeVisible();
+  expect(screen.getByText(/New active MGOs join automatically after fundraiser mapping/)).toBeVisible();
+  expect(screen.getByText(/1 enrolled workspaces still need an initial assignment snapshot/)).toBeVisible();
+  expect(screen.getByText(/288 of 360 reserved API calls today/)).toBeVisible();
+  expect(screen.getByText(/A backlog can take multiple overnight windows/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: /start|enroll|sync|restart/i })).not.toBeInTheDocument();
+});

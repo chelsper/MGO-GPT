@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import sql from "./sql";
 import { prospectActivityCacheKey } from "./prospectActivityCacheKey";
-import { ACTIVITY_DAILY_CALLS, activityOrigin, activityWorkspaceIds } from "./portfolioActivityData";
+import { ACTIVITY_DAILY_CALLS, activityOrigin } from "./portfolioActivityData";
+import { resolveActivityEnrollment } from "./portfolioActivityEnrollment";
 import { portfolioActivityDetailsEnvelope } from "@/utils/portfolioActivity";
 import { ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows } from "./portfolioActivitySchedule";
 
@@ -145,8 +146,9 @@ export async function deferActivityRow(row, { scan = null, error = null, delayMs
 
 // A confirmed NXT write is a refresh hint, not proof of the latest action.
 export async function requestPortfolioActionRefresh({ origin, constituentId }) {
-  const workspaceIds = activityWorkspaceIds();
-  if (!workspaceIds.length || origin !== activityOrigin() || !/^\d+$/.test(String(constituentId))) return;
+  if (process.env.VERCEL_ENV === "preview" || origin !== activityOrigin() || !/^\d+$/.test(String(constituentId))) return;
+  const { workspaceIds } = await resolveActivityEnrollment();
+  if (!workspaceIds.length) return;
   await sql`
     UPDATE portfolio_activity_snapshots SET next_check_at = NOW(), requested_at = NOW()
     WHERE origin = ${origin} AND constituent_id = ${String(constituentId)} AND kind = 'action'

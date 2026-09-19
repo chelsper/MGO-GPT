@@ -1,6 +1,7 @@
 import sql from "./sql";
 import { getReportRefreshUser } from "./reportRefresh";
-import { activityOrigin, activityWorkspaceIds, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
+import { activityOrigin, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
+import { activityEnrollmentConfig, resolveActivityEnrollment } from "./portfolioActivityEnrollment";
 
 const LIMIT = 100;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -110,9 +111,10 @@ async function portfolios() {
 }
 
 async function activity(origin) {
-  const ids = activityWorkspaceIds();
-  const enabled = ids.length > 0 && activityOrigin() === origin && process.env.VERCEL_ENV !== "preview";
+  const config = activityEnrollmentConfig();
+  const enabled = config.enabled && activityOrigin() === origin && process.env.VERCEL_ENV !== "preview";
   if (!enabled) return { enabled: false };
+  const { workspaceIds: ids, mode, awaitingAssignments } = await resolveActivityEnrollment(config);
   const [row] = await sql`
     WITH assigned AS (
       SELECT DISTINCT u.id AS workspace_id, person ->> 'constituentId' AS constituent_id, kind
@@ -139,7 +141,8 @@ async function activity(origin) {
       CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS calls_today
     FROM portfolio_activity_refresh_gates WHERE origin = ${origin}
   `;
-  return { enabled: true, total: count(row?.total), neverChecked: count(row?.never_checked),
+  return { enabled: true, enrollmentMode: mode, workspaceCount: ids.length, awaitingAssignments,
+    total: count(row?.total), neverChecked: count(row?.never_checked),
     due: count(row?.due), connectionErrors: count(row?.connection_errors), throttled: count(row?.throttled),
     otherErrors: count(row?.other_errors), lastCheckedAt: date(row?.last_checked_at),
     nextAllowedAt: date(gate?.next_allowed_at), leaseUntil: date(gate?.lease_until),

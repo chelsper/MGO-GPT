@@ -11,11 +11,14 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(now);
   vi.clearAllMocks();
   vi.stubEnv("PORTFOLIO_ACTIVITY_WORKSPACE_IDS", "7");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_ENROLLMENT_MODE", "allowlist");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS", "");
   vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", "https://app.example");
   vi.stubEnv("VERCEL_ENV", "production");
   refreshUser.mockResolvedValue({ id: 7, name: "Service owner", email: "private@example.test" });
   sql.mockImplementation(async strings => {
     const text = strings.join(" ");
+    if (text.includes("SELECT id, role, active")) return [{ id: 7, active: true, role: "mgo", has_portfolio: true }];
     if (text.includes("blackbaud_api_limit_state")) return [{ blocked_until: "2026-09-17T15:30:00Z", message: "private provider body" }];
     if (text.includes("FROM users u LEFT JOIN blackbaud_connections")) return [{ id: 7, name: "Service owner", has_access: true, has_refresh: true, total_rows: 1, access_token: "TOKEN", refresh_token: "SECRET", email: "private@example.test" }];
     if (text.includes("WITH workspaces")) return [{ ...current, id: 7, name: "Test MGO", total_rows: 1, last_error_message: "private donor" }];
@@ -53,7 +56,7 @@ describe("read-only health projection", () => {
     try {
       const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
       expect(result.sections.quota.paused).toBe(true);
-      expect(result.sections.activity).toMatchObject({ due: 6, neverChecked: 4, total: 20, callsToday: 12, dailyBudget: 360 });
+      expect(result.sections.activity).toMatchObject({ enrollmentMode: "allowlist", workspaceCount: 1, awaitingAssignments: 0, due: 6, neverChecked: 4, total: 20, callsToday: 12, dailyBudget: 360 });
       expect(result.sections.verifications.items[0].href).toBe("/follow-ups?tab=next-steps&nextStepId=33&status=Open");
       const json = JSON.stringify(result);
       for (const value of ["TOKEN", "SECRET", "DONOR", "private", "request_payload", "access_token"]) expect(json).not.toContain(value);
@@ -77,6 +80,7 @@ describe("read-only health projection", () => {
     const result = await readIntegrationHealth({ viewerId: 7, origin });
     expect(result.sections.activity).toEqual({ available: true, enabled: false });
     expect(sql.mock.calls.some(([s]) => s.join(" ").includes("WITH assigned"))).toBe(false);
+    expect(sql.mock.calls.some(([s]) => s.join(" ").includes("SELECT id, role, active"))).toBe(false);
   });
   it("shows disabled for the preview environment without expanding the pilot", async () => {
     vi.stubEnv("VERCEL_ENV", "preview");
@@ -99,5 +103,24 @@ describe("read-only health projection", () => {
     const receipts = sql.mock.calls.find(([s]) => s.join(" ").includes("FROM pending_action_nxt_receipts"))[0].join(" ");
     expect(receipts).toContain("r.state IN ('review', 'processing')");
     expect(receipts).toContain("LIMIT 100");
+  });
+  it("reports automatic enrollment and setup gaps from local account metadata only", async () => {
+    vi.stubEnv("PORTFOLIO_ACTIVITY_ENROLLMENT_MODE", "active_mgos");
+    vi.stubEnv("PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS", "10");
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("SELECT id, role, active")
+      ? [{ id: 7, active: true, role: "mgo", has_portfolio: true }, { id: 12, active: true, role: "executive,mgo", has_portfolio: null }, { id: 10, active: true, role: "mgo", has_portfolio: true }]
+      : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.activity).toMatchObject({ enabled: true, enrollmentMode: "active_mgos", workspaceCount: 2, awaitingAssignments: 1, dailyBudget: 360 });
+    expect(sql.mock.calls.find(([s]) => s.join(" ").includes("WITH assigned")).slice(1)).toEqual([["7", "12"], "https://app.example"]);
+  });
+  it("shows unknown rather than disabled or healthy when enrollment discovery fails", async () => {
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("SELECT id, role, active")
+      ? Promise.reject(new Error("private data")) : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.activity).toEqual({ available: false });
+    expect(result.sections.verifications.available).toBe(true);
   });
 });
