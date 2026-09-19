@@ -103,3 +103,32 @@ no additional fetching. Actual Home and AppShell components were checked with
 synthetic data at desktop and 390px mobile widths: no horizontal overflow, equal
 desktop card sizes, correct menu order, and visible keyboard focus. This is local
 verification, not a deployment or a live NXT workflow acceptance test.
+
+## Compact Home Workspace Controls (September 19, 2026)
+
+The Admin-only Home workspace switcher is now a collapsed native disclosure above
+Start here. Its summary always identifies the current view and, in MGO view, the
+confirmed selected workspace. Expanding it reveals the existing view buttons and
+workspace selector. The selected view is disabled so clicking it cannot reset an
+acting workspace. My workspace remains the explicit return-to-self option.
+
+Admin action attribution stays visible outside the disclosure when working in an
+MGO workspace. The existing edit-permission helper determines whether the notice
+describes editing or read-only viewing. An unresolved workspace is labeled as
+loading or unavailable, never assumed to be My workspace. A failed workspace read
+shows a visible warning even while collapsed; unavailable selectors are disabled.
+
+No endpoints, cache keys, query enablement, refresh schedules, NXT writes, or
+authorization rules changed. Expanding/collapsing the controls is local browser
+behavior and triggers no request. Existing workspace-switch handlers are reused,
+and their feedback is now announced through a status region. Non-Admin Home views
+and the persistent account-menu controls are unchanged.
+
+Verification: 3,087 tests in 267 files, typecheck, production build, and release
+worktree checks passed. New coverage includes collapsed controls, combined Admin
+roles, editing versus read-only context, unverified/loading/error states, original
+selector eligibility, callbacks, failed-switch feedback, unchanged query
+enablement, and no reads from disclosure interaction. Actual Home components were
+checked with synthetic data at desktop and 390px mobile widths, including keyboard
+expansion/collapse, visible attribution, and no horizontal overflow. No production
+workspace was switched and no live NXT operation was performed during verification.

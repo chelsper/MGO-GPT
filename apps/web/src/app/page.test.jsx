@@ -1,18 +1,24 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { fireEvent } from "@testing-library/dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Page from "./page";
 
 const state = vi.hoisted(() => ({
   session: { email: "reviewer@example.org" }, reviewer: true, failed: false, counts: {}, options: null, role: null, overdueNextSteps: [],
+  actingStatus: { actingUser: null }, workspaceFailed: false, usersPending: false, usersFailed: false, queries: {},
+  mgoUsers: [], setViewMode: vi.fn(), setQueryData: vi.fn(),
 }));
 vi.mock("@/utils/useUser", () => ({ default: () => ({ data: state.session, loading: false }) }));
 vi.mock("@/utils/useWorkspaceView", () => ({
-  default: () => ({ isReviewerView: state.reviewer, isMgoView: !state.reviewer, isAdmin: state.role === "admin", effectiveRole: state.reviewer ? "reviewer" : "mgo" }),
+  default: () => ({ isReviewerView: state.reviewer, isMgoView: !state.reviewer, isAdmin: state.role?.split(",").includes("admin"), effectiveRole: state.reviewer ? "reviewer" : "mgo", setViewMode: state.setViewMode }),
 }));
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({}),
+  useQueryClient: () => ({ setQueryData: state.setQueryData }),
   useQuery: (options) => {
+    state.queries[options.queryKey[0]] = options;
+    if (options.queryKey[0] === "acting-workspace-status") return { data: state.actingStatus, isError: state.workspaceFailed };
+    if (options.queryKey[0] === "workspace-mgo-users") return { data: state.mgoUsers, isPending: state.usersPending, isError: state.usersFailed };
     if (options.queryKey[0] !== "app-shell-worklist") return {};
     state.options = options;
     return { data: { queueCounts: state.counts, summary: { openDiscussionItems: 1 }, overdueNextSteps: state.overdueNextSteps }, isError: state.failed };
@@ -26,11 +32,77 @@ beforeEach(() => {
   state.failed = false;
   state.role = null;
   state.overdueNextSteps = [];
+  state.actingStatus = { actingUser: null };
+  state.workspaceFailed = false;
+  state.usersPending = false;
+  state.usersFailed = false;
+  state.queries = {};
+  state.mgoUsers = [{ id: 9, name: "Selected MGO", role: "mgo" }];
+  state.setViewMode.mockReset();
+  state.setQueryData.mockReset();
   state.counts = { workQueue: 12, dataRequests: 0, listRequests: 0, constituencyImports: 12, familyImports: 2, prospectPool: 31 };
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ user: { id: 7, name: "Test Reviewer", email: state.session.email, role: state.role || (state.reviewer ? "advancement_services" : "mgo") } }) })));
+});
+
+describe("Home workspace switching presentation", () => {
+  it.each(["admin", "mgo,admin"])("keeps %s controls compact without new reads or changing query enablement", async role => {
+    state.role = role;
+    state.reviewer = false;
+    state.actingStatus = { actingUser: state.mgoUsers[0] };
+    await render();
+    const controls = container.querySelector('[aria-label="Workspace controls"]');
+    expect(controls.querySelector("details")).not.toHaveAttribute("open");
+    expect(controls.querySelector("summary")).toHaveTextContent("MGO: Selected MGO");
+    expect(controls).toHaveTextContent("Editing as Admin");
+    await act(async () => { fireEvent.click(controls.querySelector("summary")); });
+    expect(controls.querySelector("details")).toHaveAttribute("open");
+    expect(controls.querySelector("select")).toHaveValue("9");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(state.queries["acting-workspace-status"].enabled).toBe(true);
+    expect(state.queries["workspace-mgo-users"].enabled).toBe(true);
+    expect(state.setViewMode).not.toHaveBeenCalled();
+    expect(state.setQueryData).not.toHaveBeenCalled();
+  });
+
+  it.each(["advancement_services", "mgo", "executive"])("does not add Home Admin controls for %s", async role => {
+    state.role = role;
+    state.reviewer = role === "advancement_services";
+    await render();
+    expect(container.querySelector('[aria-label="Workspace controls"]')).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves workspace queries disabled in Advancement Services view even when controls expand", async () => {
+    state.role = "admin";
+    await render();
+    await act(async () => { fireEvent.click(container.querySelector('[aria-label="Workspace controls"] summary')); });
+    expect(state.queries["acting-workspace-status"].enabled).toBe(false);
+    expect(state.queries["workspace-mgo-users"].enabled).toBe(false);
+    expect(container.querySelector('[aria-label="Workspace controls"] select')).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the selected workspace and surfaces a failed switch without updating the cache", async () => {
+    state.role = "admin";
+    state.reviewer = false;
+    await render();
+    fetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Failed to switch workspace. Try again." }) });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => { fireEvent.click(container.querySelector('[aria-label="Workspace controls"] summary')); });
+      await act(async () => { fireEvent.change(container.querySelector('#home-workspace-owner'), { target: { value: "9" } }); });
+      expect(fetch).toHaveBeenLastCalledWith("/api/admin/workspace-user", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: 9 }),
+      });
+      expect(container.querySelector('[role="status"]')).toHaveTextContent("Failed to switch workspace");
+      expect(container.querySelector('[aria-label="Workspace controls"] summary')).toHaveTextContent("My workspace");
+      expect(state.setQueryData).not.toHaveBeenCalled();
+      expect(container.querySelector('#home-workspace-owner')).toHaveValue("7");
+    } finally { consoleError.mockRestore(); }
+  });
 });
 afterEach(() => {
   act(() => root.unmount());

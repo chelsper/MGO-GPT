@@ -7,11 +7,11 @@ import useWorkspaceView from "@/utils/useWorkspaceView";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
 import AdvancementServicesHome from "@/components/AdvancementServicesHome";
 import WorkspaceStartPaths from "@/components/WorkspaceStartPaths";
+import HomeWorkspaceControls from "@/components/HomeWorkspaceControls";
 import { getNavigationItems } from "@/utils/appNavigation";
 import {
   canManageWorkspaceRole,
   canUseExecutiveViewRole,
-  canViewWorkspaceAsRole,
   getWorkspaceRoleLabel,
 } from "@/utils/workspaceRoles";
 const MGO_ACTIONS = [
@@ -194,7 +194,7 @@ export default function Page() {
     };
   }, [user]);
 
-  const { isAdmin, adminViewMode, effectiveRole, isMgoView, isReviewerView, setViewMode } = useWorkspaceView(
+  const { isAdmin, effectiveRole, isMgoView, isReviewerView, setViewMode } = useWorkspaceView(
     profile?.role,
   );
   const isReviewer = isReviewerView;
@@ -206,6 +206,7 @@ export default function Page() {
 
   const {
     data: actingWorkspaceStatus,
+    isError: workspaceFailed,
   } = useQuery({
     queryKey: ["acting-workspace-status", profile?.id, effectiveRole],
     queryFn: async () => {
@@ -220,6 +221,8 @@ export default function Page() {
   });
   const {
     data: mgoUsers = [],
+    isPending: usersPending,
+    isError: usersFailed,
   } = useQuery({
     queryKey: ["workspace-mgo-users", profile?.id, effectiveRole],
     queryFn: async () => {
@@ -383,124 +386,21 @@ export default function Page() {
               : "Work your prospects, log fundraising movement, and keep next steps moving."}
         </p>
 
-        {isAdmin ? (
-          <div
-            style={{
-              marginBottom: "16px",
-              backgroundColor: "#FCFCFD",
-              border: "1px solid #E5E7EB",
-              borderRadius: "14px",
-              padding: "14px 16px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "16px",
-              flexWrap: "wrap",
-            }}
-          >
-              <div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase",
-                    color: "#6B7280",
-                    marginBottom: "6px",
-                  }}
-                >
-                  Workspace view
-                </div>
-              <div style={{ fontSize: "15px", fontWeight: 700, color: "#111827" }}>
-                You are currently in {isReviewer ? "Advancement Services" : "MGO"} view.
-              </div>
-              <div style={{ marginTop: "4px", fontSize: "13px", color: "#6B7280" }}>
-                Switch view when you need to test or manage another workflow.
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                flexWrap: "wrap",
-              }}
-            >
-              <div
-                style={{
-                  display: "inline-flex",
-                  border: "1px solid #E5E7EB",
-                  borderRadius: "999px",
-                  padding: "4px",
-                  gap: "4px",
-                  backgroundColor: "#F9FAFB",
-                }}
-              >
-                {[
-                  { value: "reviewer", label: "Advancement Services" },
-                  { value: "mgo", label: "MGO" },
-                ].map((option) => {
-                  const active = adminViewMode === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleViewModeChange(option.value)}
-                      style={{
-                        border: "none",
-                        borderRadius: "999px",
-                        padding: "8px 12px",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        color: active ? "white" : "#4B5563",
-                        backgroundColor: active ? "#6A5BFF" : "transparent",
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {canSwitchMgoWorkspace && isMgoView ? (
-                <div style={{ minWidth: "240px", flex: "1 1 260px" }}>
-                  <select
-                    value={actingUser?.id || profile?.id || ""}
-                    onChange={(event) => handleActingWorkspaceChange(event.target.value)}
-                    style={{
-                      width: "100%",
-                      border: "1px solid #D1D5DB",
-                      borderRadius: "10px",
-                      padding: "10px 12px",
-                      fontSize: "13px",
-                      color: "#111827",
-                      backgroundColor: "white",
-                    }}
-                  >
-                    <option value={profile?.id || ""}>View as: My workspace</option>
-                    {mgoUsers
-                      .filter(
-                        (mgoUser) =>
-                          canViewWorkspaceAsRole(profile?.role, mgoUser.role) &&
-                          String(mgoUser.id) !== String(profile?.id || ""),
-                      )
-                      .map((mgoUser) => (
-                        <option key={mgoUser.id} value={mgoUser.id}>
-                          View as: {mgoUser.name || mgoUser.email}
-                          {getWorkspaceRoleLabel(mgoUser.role) === "Executive"
-                            ? " (Executive)"
-                            : ""}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        <HomeWorkspaceControls
+          profile={profile}
+          isReviewer={isReviewer}
+          actingUser={actingUser}
+          mgoUsers={mgoUsers}
+          workspaceResolved={Boolean(actingWorkspaceStatus)}
+          workspaceFailed={workspaceFailed}
+          usersPending={usersPending}
+          usersFailed={usersFailed}
+          onViewModeChange={handleViewModeChange}
+          onActingWorkspaceChange={handleActingWorkspaceChange}
+        />
         {workspaceSwitchMessage ? (
           <div
+            role="status"
             style={{
               marginBottom: "12px",
               fontSize: "13px",
