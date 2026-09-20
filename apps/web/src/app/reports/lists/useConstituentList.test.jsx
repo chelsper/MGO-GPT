@@ -47,3 +47,31 @@ it("preserves saved results on refresh failure and never auto-retries", async ()
   expect(result.current.data.snapshot.total).toBe(2);
   expect(fetch).toHaveBeenCalledTimes(2);
 });
+it("stops at restart-required without a silent new query and sends restart only after an explicit request", async () => {
+  fetch
+    .mockResolvedValueOnce(response({ snapshot: { total: 2 } }))
+    .mockResolvedValueOnce(
+      response({
+        snapshot: { total: 2 },
+        refresh: { id: "old", status: "needs_restart", stage: "query" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      response({
+        snapshot: { total: 2 },
+        refresh: { id: "new", status: "needs_configuration", stage: "mapping" },
+      }),
+    );
+  const { result } = renderHook(() => useConstituentList("list-demo"));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await act(async () => result.current.refresh());
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(result.current.data.refresh.status).toBe("needs_restart");
+  expect(result.current.refreshing).toBe(false);
+  await act(async () => result.current.refresh(true));
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({
+    action: "restart",
+  });
+  expect(result.current.data.refresh.id).toBe("new");
+});

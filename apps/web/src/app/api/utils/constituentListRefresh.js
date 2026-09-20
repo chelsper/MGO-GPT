@@ -3,6 +3,7 @@ import { readListIdentity, readListPage } from "./constituentListProvider";
 import { isQueryList } from "@/utils/listQueryConfiguration";
 import { advanceQueryList, enrichListLeads } from "./constituentQueryList";
 import { isValidDashboardTableData } from "./dashboardConfiguration";
+import { listQueryRecovery } from "./listQueryRecovery";
 
 export function listSnapshotKeys(report, origin) {
   const { columns, ...dataSource } = report.dataConfiguration;
@@ -130,6 +131,7 @@ export async function advanceListRefresh({ job, user, origin, source }) {
 
 export function listRefreshStatus(saved) {
   const table = saved.job?.table;
+  const recovery = listQueryRecovery(saved.job);
   return {
     snapshot: saved.snapshot,
     queryOutput:
@@ -144,7 +146,7 @@ export function listRefreshStatus(saved) {
     refresh: saved.job
       ? {
           id: saved.job.id,
-          status: saved.job.status,
+          status: recovery.restartRequired ? "needs_restart" : saved.job.status,
           stage: saved.job.stage,
           checked:
             saved.job.stage === "members"
@@ -152,8 +154,8 @@ export function listRefreshStatus(saved) {
               : saved.job.profileOffset || 0,
           total: saved.job.people?.length ?? null,
           busy: saved.job.leaseUntil > Date.now(),
-          message: saved.job.message || "",
-          retryAt: saved.job.retryAt || null,
+          message: recovery.message,
+          retryAt: recovery.retryAt,
         }
       : null,
   };

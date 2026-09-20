@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { Search } from "lucide-react";
 import QueryResultsTable from "./QueryResultsTable";
 import ListColumnEditor from "./ListColumnEditor";
 import { orderedListColumns } from "@/utils/listQueryConfiguration";
-import styles from "./reportConfigurationEditor.module.css";
+import styles from "./listReport.module.css";
 
 export default function ListQueryResults({
   snapshot,
@@ -25,45 +26,57 @@ export default function ListQueryResults({
     .map((row) => indexes.map((index) => row[index]));
   return (
     <section
-      className={styles.stack}
+      className={styles.results}
       aria-label={preview ? "Query output preview" : "Saved query output"}
     >
-      {preview && (
-        <p className={styles.notice}>
-          Query output preview. Current lead fundraiser lookup is not complete.
-          These are the returned query values, not a complete refreshed list.
-          Any last complete saved list remains unchanged.
-        </p>
-      )}
-      <div className={styles.toolbar}>
-        <h2>{snapshot.total} query rows</h2>
-        <label className={styles.field}>
-          {preview ? "Search query preview" : "Search saved output"}
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
+      <div className={styles.resultsHeader}>
+        <div>
+          <h2>{snapshot.total} results</h2>
+          <p>
+            {search.trim() ? (
+              `${rows.length} matching your search`
+            ) : (
+              <>
+                <span className={styles.desktopHint}>
+                  Select a column heading to sort
+                </span>
+                <span className={styles.mobileHint}>
+                  Swipe the table to see all columns
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+        <div className={styles.tools}>
+          <label className={styles.search}>
+            <span className={styles.srOnly}>
+              {preview ? "Search query preview" : "Search saved output"}
+            </span>
+            <Search size={17} aria-hidden="true" />
+            <input
+              type="search"
+              placeholder="Search this list"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <ListColumnEditor
+            headers={snapshot.headers}
+            value={settings}
+            onChange={setSettings}
+            compact
           />
-        </label>
+        </div>
       </div>
-      <ListColumnEditor
-        headers={snapshot.headers}
-        value={settings}
-        onChange={setSettings}
-      />
-      <p className={styles.muted}>
-        Column changes here apply to this visit. Set shared defaults in Report
-        Access &amp; Configurations.
-        {!preview &&
-          snapshot.leadAsOf &&
-          " A blank current-lead cell means no matching current lead assignment was found at refresh."}
-      </p>
-      <QueryResultsTable
-        headers={columns.map((column) => column.header)}
-        rows={rows}
-        columnSettings={columns}
-        title={title}
-      />
+      <div className={styles.tableBody}>
+        <QueryResultsTable
+          headers={columns.map((column) => column.header)}
+          rows={rows}
+          columnSettings={columns}
+          title={title}
+          compact
+        />
+      </div>
     </section>
   );
 }

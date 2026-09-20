@@ -16,6 +16,10 @@ import {
 } from "./dashboardConfiguration";
 import { LEAD_COLUMN, parseListQuery } from "@/utils/listQueryConfiguration";
 import { readCurrentLead } from "./listCurrentFundraiser";
+import {
+  listQueryExpired,
+  LEGACY_QUERY_EXPIRY_MESSAGE,
+} from "./listQueryRecovery";
 
 export async function advanceQueryList({ job, user, origin, source }) {
   if (job.stage === "members") {
@@ -41,13 +45,12 @@ export async function advanceQueryList({ job, user, origin, source }) {
     return { job, snapshot: null };
   }
   if (job.stage === "query") {
-    if (Date.now() - Date.parse(job.queryStartedAt) > 30 * 60 * 1000)
-      throw Object.assign(
-        new Error(
-          "The query job expired. Restart this refresh; your previous results are retained.",
-        ),
-        { status: 422 },
-      );
+    if (listQueryExpired(job))
+      throw Object.assign(new Error(LEGACY_QUERY_EXPIRY_MESSAGE), {
+        status: 422,
+        code: "LIST_QUERY_EXPIRED",
+        restartRequired: true,
+      });
     const result = await getBlackbaudQueryJob({
       userId: user.id,
       authUserId: user.id,
@@ -60,7 +63,7 @@ export async function advanceQueryList({ job, user, origin, source }) {
         new Error(
           "NXT could not execute this query. Check its definition and restart the refresh.",
         ),
-        { status: 422 },
+        { status: 422, code: "LIST_QUERY_FAILED", restartRequired: true },
       );
     const url = getQueryResultUrl(result);
     if (!url || !/^(?:completed|complete|succeeded|success)$/i.test(status)) {

@@ -24,6 +24,26 @@ and order, then save shared defaults. Display-only edits reuse the same snapshot
 and never execute NXT. **Display columns** on the list adjusts this visit only.
 New output fields appear by default; obsolete column settings are ignored.
 
+### Reader Presentation
+
+The list places saved results first in a bordered, horizontally scrollable table.
+Search and the compact **Columns** menu share one toolbar. Show/hide choices are
+immediate; rename, format and reorder controls are in a secondary disclosure.
+These are visit-only choices and do not fetch NXT or change shared defaults.
+Keyboard users can close the column menu with Escape. Mobile readers receive a
+horizontal-scroll hint; the page itself does not widen to fit the table.
+
+A small status line shows the saved timestamp in Eastern time and active refresh
+progress. Technical provider messages, output headers, setup guidance, and repair
+controls appear only in a collapsed **List settings & status** section for users
+with `canConfigure`. Other readers never see those diagnostic elements. Incomplete
+first-time query output is still labeled **Fundraiser details pending**, and a
+failed refresh retains a brief **Showing saved results. Refresh paused.** status.
+This presentation does not claim incomplete data is complete or live. When a
+complete snapshot exists it remains the main table; a newer unfinished preview
+is available only within the administrator details. Membership search remains
+available below the results with the existing confirmation and write safeguards.
+
 ### Current Lead Fundraiser
 
 Enable the separate current-lead option and enter exact NXT assignment type names
@@ -124,6 +144,22 @@ Settings use revision checks to prevent overwriting concurrent changes.
 - Resume continues a checkpoint. Restart unfinished refresh is available for a
   paused run (after any provider cooldown) if membership changed during paging.
   Restart discards only in-progress work, never the last complete snapshot.
+
+### Expired Query Recovery
+
+Query attempts older than 30 minutes, and explicit failed/cancelled NXT query
+jobs, require a new attempt rather than repeated polling. They expose
+`needs_restart` and **Restart refresh**, with confirmation that saved results
+remain available and no constituent records will change. GET derives expiry
+from saved timestamps without calling NXT or modifying the job. It removes only
+the legacy cooldown attached to the app's own expiry message; real provider
+backoff and active leases still block a restart.
+
+Continue requests never recreate an expired job. An explicit start (including
+Resume from an older client) or restart creates a fresh attempt under the same
+revision/lease protections. There is no automatic restart loop. Retained output
+awaiting an ID mapping and fundraiser checkpoints are not expired by this
+query-phase limit. Invalid mapping still stops safely at `needs_configuration`.
 
 ## Membership Writes
 

@@ -211,7 +211,15 @@ it("publishes a verified zero-row output, fails expired or failed jobs without r
   const failed = args();
   await advanceQueryList(failed);
   getBlackbaudQueryJob.mockResolvedValueOnce({ status: "Failed" });
-  await expect(advanceQueryList(failed)).rejects.toThrow(/could not execute/);
+  await expect(advanceQueryList(failed)).rejects.toMatchObject({
+    code: "LIST_QUERY_FAILED",
+    restartRequired: true,
+  });
   failed.job.queryStartedAt = "2000-01-01";
-  await expect(advanceQueryList(failed)).rejects.toThrow(/expired/);
+  const callsBeforeExpiryCheck = getBlackbaudQueryJob.mock.calls.length;
+  await expect(advanceQueryList(failed)).rejects.toMatchObject({
+    code: "LIST_QUERY_EXPIRED",
+    restartRequired: true,
+  });
+  expect(getBlackbaudQueryJob).toHaveBeenCalledTimes(callsBeforeExpiryCheck);
 });

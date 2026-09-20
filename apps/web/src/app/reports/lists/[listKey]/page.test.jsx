@@ -95,22 +95,25 @@ const pendingOutput = {
     retryAt: "2026-09-20T12:00:00Z",
   },
 };
-it("shows query output and setup guidance rather than hiding data behind futile retries", () => {
+it("puts data first and keeps technical setup details collapsed for administrators", () => {
   mocks.useList.mockReturnValue({
     data: pendingOutput,
     reload: mocks.reload,
     refresh: mocks.refresh,
   });
   render(<Page params={{ listKey: "list-demo" }} />);
-  expect(
-    screen.getByText("Query output ready; fundraiser setup needs attention"),
-  ).toBeInTheDocument();
+  expect(screen.getByText("Fundraiser details pending")).toBeInTheDocument();
+  const details = screen.getByText("List settings & status").closest("details");
+  expect(details).not.toHaveAttribute("open");
+  expect(screen.getByText("Choose the correct ID field.")).not.toBeVisible();
+  fireEvent.click(screen.getByText("List settings & status"));
   expect(
     screen.getByText("Returned output fields: Name, Amount"),
   ).toBeInTheDocument();
-  expect(
-    screen.getByRole("link", { name: "Open Report Access & Configurations" }),
-  ).toHaveAttribute("href", "/report-configurations");
+  expect(screen.getByRole("link", { name: "Configure list" })).toHaveAttribute(
+    "href",
+    "/report-configurations",
+  );
   const preview = screen.getByRole("region", { name: "Query output preview" });
   expect(within(preview).getByText("New result")).toBeInTheDocument();
   expect(
@@ -126,7 +129,7 @@ it("shows query output and setup guidance rather than hiding data behind futile 
   expect(mocks.reload).toHaveBeenCalledTimes(1);
   expect(mocks.refresh).not.toHaveBeenCalled();
 });
-it("keeps the last complete list visible, puts newer output in a separate preview and limits setup links", () => {
+it("keeps the last complete list visible without exposing diagnostics or a competing preview to viewers", () => {
   mocks.useList.mockReturnValue({
     data: {
       ...pendingOutput,
@@ -139,8 +142,10 @@ it("keeps the last complete list visible, puts newer output in a separate previe
   });
   render(<Page params={{ listKey: "list-demo" }} />);
   expect(
-    screen.getByText(/Ask an administrator or Advancement Services/),
-  ).toBeInTheDocument();
+    screen.queryByText(
+      /Choose the correct ID field|Returned output fields|Administrator details/,
+    ),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByRole("link", { name: /Configurations/ }),
   ).not.toBeInTheDocument();
@@ -149,10 +154,47 @@ it("keeps the last complete list visible, puts newer output in a separate previe
       screen.getByRole("region", { name: "Saved query output" }),
     ).getByText("Older complete result"),
   ).toBeVisible();
-  const toggle = screen.getByText("View newer query output preview");
-  expect(toggle.closest("details")).not.toHaveAttribute("open");
-  fireEvent.click(toggle);
-  expect(screen.getByText("New result")).toBeInTheDocument();
+  expect(
+    screen.queryByText("View newer query output preview"),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByText("New result")).not.toBeInTheDocument();
+  expect(screen.queryByText("List settings & status")).not.toBeInTheDocument();
+});
+it("shows initial query results to viewers without configuration warnings or repair controls", () => {
+  mocks.useList.mockReturnValue({
+    data: {
+      ...pendingOutput,
+      report: { ...pendingOutput.report, canConfigure: false },
+    },
+    refresh: mocks.refresh,
+    reload: mocks.reload,
+  });
+  render(<Page params={{ listKey: "list-demo" }} />);
+  expect(screen.getByText("New result")).toBeVisible();
+  expect(screen.getByText("Fundraiser details pending")).toBeVisible();
+  expect(
+    screen.queryByText(
+      /Choose the correct ID|Returned output fields|Administrator details/,
+    ),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("link", { name: /List settings|Configure list/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", {
+      name: /Refresh query output|Reload status/,
+    }),
+  ).not.toBeInTheDocument();
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  expect(mocks.reload).not.toHaveBeenCalled();
+});
+it("gives administrators a direct setup entry without an expanded warning", () => {
+  mocks.useList.mockReturnValue({ data: pendingOutput });
+  render(<Page params={{ listKey: "list-demo" }} />);
+  expect(
+    screen.getByRole("link", { name: "List settings", exact: true }),
+  ).toHaveAttribute("href", "/report-configurations");
+  expect(screen.getByText("Choose the correct ID field.")).not.toBeVisible();
 });
 it("asks before explicitly rereading a saved query edited in NXT", () => {
   mocks.useList.mockReturnValue({
@@ -165,10 +207,77 @@ it("asks before explicitly rereading a saved query edited in NXT", () => {
     .mockReturnValueOnce(false)
     .mockReturnValueOnce(true);
   render(<Page params={{ listKey: "list-demo" }} />);
+  fireEvent.click(screen.getByText("List settings & status"));
   const button = screen.getByRole("button", { name: "Refresh query output" });
   fireEvent.click(button);
   expect(mocks.refresh).not.toHaveBeenCalled();
   fireEvent.click(button);
   expect(confirm).toHaveBeenCalledTimes(2);
   expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+});
+it("replaces the expired-job Resume loop with one clearly labeled restart and no misleading waiting status", () => {
+  mocks.useList.mockReturnValue({
+    data: {
+      ...pendingOutput,
+      queryOutput: null,
+      refresh: {
+        status: "needs_restart",
+        stage: "query",
+        message: "This query attempt has expired and is not running.",
+        retryAt: null,
+      },
+    },
+    refresh: mocks.refresh,
+    reload: mocks.reload,
+  });
+  vi.spyOn(window, "confirm")
+    .mockReturnValueOnce(false)
+    .mockReturnValueOnce(true);
+  render(<Page params={{ listKey: "list-demo" }} />);
+  expect(
+    screen.getByText("Refresh paused. Try again when ready."),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText(/Waiting for NXT|Resume after/),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Resume refresh" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Restart unfinished refresh" }),
+  ).not.toBeInTheDocument();
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  const restart = screen.getByRole("button", {
+    name: "Restart refresh",
+    exact: true,
+  });
+  fireEvent.click(restart);
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  fireEvent.click(restart);
+  expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+});
+it("does not hide a real cooldown or imply an expired query is still running", () => {
+  mocks.useList.mockReturnValue({
+    data: {
+      ...pendingOutput,
+      queryOutput: null,
+      refresh: {
+        status: "needs_restart",
+        stage: "query",
+        retryAt: "2099-09-20T01:00:00Z",
+        busy: true,
+      },
+    },
+    refresh: mocks.refresh,
+  });
+  render(<Page params={{ listKey: "list-demo" }} />);
+  expect(screen.getByText(/A new refresh can start after/)).not.toBeVisible();
+  fireEvent.click(screen.getByText("List settings & status"));
+  expect(screen.getByText(/A new refresh can start after/)).toBeVisible();
+  expect(
+    screen.queryByText(/Waiting for NXT|Resume after/),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Restart refresh" }),
+  ).toBeDisabled();
 });

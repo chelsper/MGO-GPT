@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "./reportConfigurationEditor.module.css";
+import listStyles from "./listReport.module.css";
 
-export default function ListMembershipSearch({ report }) {
+export default function ListMembershipSearch({ report, compact = false }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [error, setError] = useState("");
@@ -110,7 +111,11 @@ export default function ListMembershipSearch({ report }) {
   }
   const configuredValue = report.dataConfiguration.fieldDescription;
   return (
-    <details className={`${styles.card} ${styles.sourceList}`}>
+    <details
+      className={
+        compact ? listStyles.membership : `${styles.card} ${styles.sourceList}`
+      }
+    >
       <summary>Add a constituent to this list</summary>
       <p className={styles.muted}>
         Adds the configured NXT custom field to an existing constituent only.

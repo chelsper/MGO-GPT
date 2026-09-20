@@ -6,8 +6,11 @@ import ListMembershipSearch from "@/components/ListMembershipSearch";
 import { buildBlackbaudConstituentProfileUrl } from "@/utils/blackbaudLinks";
 import styles from "@/components/reportConfigurationEditor.module.css";
 import ListQueryResults from "@/components/ListQueryResults";
+import ListRefreshStatus, {
+  ListRefreshDetails,
+} from "@/components/ListRefreshStatus";
+import listStyles from "@/components/listReport.module.css";
 import {
-  isQueryList,
   LEAD_COLUMN,
   orderedListColumns,
 } from "@/utils/listQueryConfiguration";
@@ -24,6 +27,7 @@ export default function ConstituentListPage({ params }) {
   const snapshot = data?.snapshot;
   const job = data?.refresh;
   const needsConfiguration = job?.status === "needs_configuration";
+  const needsRestart = job?.status === "needs_restart";
   const queryOutput = data?.queryOutput;
   const preview = queryOutput && (
     <ListQueryResults
@@ -58,8 +62,16 @@ export default function ConstituentListPage({ params }) {
     Math.max(0, Math.ceil(filtered.length / 25) - 1),
   );
   const busy = refreshing || job?.busy;
+  function restartRefresh() {
+    if (
+      window.confirm(
+        "Start a new read-only query refresh? Your last complete saved list will remain available. No constituent records will be changed.",
+      )
+    )
+      refresh(true);
+  }
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} ${listStyles.page}`}>
       <div className={styles.container}>
         <SharedReportHeader
           activeReportKey={params.listKey}
@@ -69,25 +81,34 @@ export default function ConstituentListPage({ params }) {
           backLabel="Back to Lists"
           action={
             report &&
-            !needsConfiguration && (
+            (needsConfiguration ? (
+              report.canConfigure && (
+                <a className={styles.button} href="/report-configurations">
+                  List settings
+                </a>
+              )
+            ) : (
               <button
                 className={styles.button}
                 disabled={loading || busy}
-                onClick={refresh}
+                onClick={needsRestart ? restartRefresh : refresh}
               >
-                {busy
-                  ? "Refreshing list..."
-                  : job && job.status !== "complete"
-                    ? "Resume refresh"
-                    : "Refresh list"}
+                {needsRestart
+                  ? "Restart refresh"
+                  : busy
+                    ? "Refreshing list..."
+                    : job && job.status !== "complete"
+                      ? "Resume refresh"
+                      : "Refresh list"}
               </button>
-            )
+            ))
           }
         />
         {loading && <p role="status">Loading saved list...</p>}
-        {error && (
+        {error && !report && (
           <div role="alert" className={`${styles.notice} ${styles.error}`}>
-            {error}
+            This list could not be loaded. Try again or contact your
+            administrator if it remains unavailable.
             <p>
               <button className={styles.button} onClick={reload}>
                 Reload status
@@ -97,141 +118,26 @@ export default function ConstituentListPage({ params }) {
         )}
         {report && (
           <div className={styles.stack}>
-            <section
-              className={styles.panel}
-              aria-label="List source and refresh status"
-            >
-              <strong>
-                {isQueryList(report.dataConfiguration)
-                  ? "NXT query output"
-                  : `${report.dataConfiguration.fieldCategory} / ${report.dataConfiguration.fieldDescription || "All descriptions"}`}
-              </strong>
-              <p className={styles.muted}>
-                {!isQueryList(report.dataConfiguration) &&
-                  "NXT indexing can lag by about 30 minutes. "}
-                Opening this page never refreshes NXT; use Refresh list when
-                needed.
-              </p>
-              <p>
-                {snapshot
-                  ? `Last complete refresh: ${new Date(snapshot.generatedAt).toLocaleString()}`
-                  : queryOutput
-                    ? "Query output is available below. Current lead fundraiser lookup is not complete."
-                    : "No saved list yet. Refresh once and keep this page open until it finishes."}
-              </p>
-              {snapshot?.leadAsOf && (
-                <p className={styles.muted}>
-                  Current lead fundraiser assignments checked as of{" "}
-                  {snapshot.leadAsOf} (Eastern). Not a live lookup.
-                </p>
-              )}
-              {job && job.status !== "complete" && (
-                <div role="status">
-                  <strong>
-                    {needsConfiguration
-                      ? "Query output ready; fundraiser setup needs attention"
-                      : job.stage === "query"
-                        ? "Waiting for NXT query output"
-                        : job.stage === "fundraisers"
-                          ? `${job.checked} of ${job.total} current fundraiser assignments checked`
-                          : job.stage === "members"
-                            ? `${job.checked} matching custom fields checked`
-                            : `${job.checked} of ${job.total} constituent names checked`}
-                  </strong>
-                  <p>
-                    {job.message ||
-                      "Refreshing in small batches. Leaving this page pauses after the current batch. Saved results remain available."}
-                  </p>
-                  {needsConfiguration && (
-                    <>
-                      {queryOutput && (
-                        <p>
-                          Returned output fields:{" "}
-                          {queryOutput.headers.join(", ")}
-                        </p>
-                      )}
-                      <p>
-                        {report.canConfigure ? (
-                          <a
-                            className={styles.button}
-                            href="/report-configurations"
-                          >
-                            Open Report Access &amp; Configurations
-                          </a>
-                        ) : (
-                          "Ask an administrator or Advancement Services to correct this list's ID mapping."
-                        )}
-                      </p>
-                      {report.dataConfiguration.source === "saved_query" && (
-                        <p>
-                          If the saved query was edited in NXT, retrieve its
-                          updated fields.{" "}
-                          <button
-                            className={styles.button}
-                            disabled={busy}
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  "Re-run the saved query to load output after changes in NXT? This replaces only the unfinished preview. No constituent records will be changed.",
-                                )
-                              )
-                                refresh(true);
-                            }}
-                          >
-                            Refresh query output
-                          </button>
-                        </p>
-                      )}
-                    </>
-                  )}
-                  {!needsConfiguration && job.retryAt && (
-                    <p>
-                      Resume after {new Date(job.retryAt).toLocaleTimeString()}.
-                    </p>
-                  )}
-                  <button
-                    className={styles.button}
-                    disabled={refreshing}
-                    onClick={reload}
-                  >
-                    Reload status
-                  </button>
-                </div>
-              )}
-              {job?.status === "paused" && (
+            <ListRefreshStatus
+              snapshot={snapshot}
+              queryOutput={queryOutput}
+              job={job}
+              refreshing={refreshing}
+              error={error}
+            />
+            {!snapshot && !queryOutput && (
+              <section className={listStyles.empty}>
+                <h2>{busy ? "Preparing your list" : "No saved list yet"}</h2>
                 <p>
-                  <button
-                    className={styles.button}
-                    disabled={busy}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "Restart this unfinished refresh? Your last complete saved list will remain available. No constituent records will be changed.",
-                        )
-                      )
-                        refresh(true);
-                    }}
-                  >
-                    Restart unfinished refresh
-                  </button>
+                  {busy
+                    ? "Your results will appear here when ready."
+                    : needsConfiguration
+                      ? "An administrator needs to finish setting up this list."
+                      : "Use the refresh button above to retrieve the latest results."}
                 </p>
-              )}
-            </section>
-            {report.canManageMembers && (
-              <ListMembershipSearch
-                key={`${report.key}:${report.revision}`}
-                report={report}
-              />
+              </section>
             )}
-            {preview &&
-              (snapshot ? (
-                <details className={styles.panel}>
-                  <summary>View newer query output preview</summary>
-                  {preview}
-                </details>
-              ) : (
-                preview
-              ))}
+            {!snapshot && preview}
             {snapshot?.tableRows && (
               <ListQueryResults
                 key={`${report.revision}:${snapshot.generatedAt}`}
@@ -372,6 +278,31 @@ export default function ConstituentListPage({ params }) {
                 )}
               </section>
             )}
+            {report.canManageMembers && (
+              <ListMembershipSearch
+                key={`${report.key}:${report.revision}`}
+                report={report}
+                compact
+              />
+            )}
+            <ListRefreshDetails
+              report={report}
+              snapshot={snapshot}
+              queryOutput={queryOutput}
+              job={job}
+              busy={busy}
+              refreshing={refreshing}
+              error={error}
+              reload={reload}
+              refresh={refresh}
+            >
+              {snapshot && preview && (
+                <details className={styles.panel}>
+                  <summary>View newer query output preview</summary>
+                  {preview}
+                </details>
+              )}
+            </ListRefreshDetails>
           </div>
         )}
       </div>

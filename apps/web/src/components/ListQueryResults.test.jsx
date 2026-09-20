@@ -28,13 +28,14 @@ it("changes visible columns, order, labels, currency formatting, and search with
     "Gift",
   );
   expect(within(table).getByText("$1,250.00")).toBeInTheDocument();
-  fireEvent.click(screen.getByText("Display columns"));
+  fireEvent.click(screen.getByText("Columns"));
   fireEvent.click(
     screen.getByRole("checkbox", { name: "System ID", exact: true }),
   );
   expect(
     within(table).queryByRole("columnheader", { name: "System ID" }),
   ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("Rename, format & reorder"));
   fireEvent.click(screen.getByRole("button", { name: "Move Amount down" }));
   fireEvent.change(screen.getByLabelText("Label for Name"), {
     target: { value: "Constituent" },
@@ -84,5 +85,33 @@ it("provides the supplied query as an unsaved opt-in and requires no NXT reads t
   expect(
     screen.getByLabelText(/Constituent system record ID output header/),
   ).toHaveValue("");
+  expect(fetch).not.toHaveBeenCalled();
+});
+it("keeps the compact column menu keyboard accessible and hides technical IDs", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  render(
+    <ListQueryResults
+      snapshot={{
+        ...snapshot,
+        headers: ["QRECID", "Name", "Amount", "Current lead fundraiser"],
+      }}
+      title="Test list"
+    />,
+  );
+  expect(screen.queryByText("QRECID")).not.toBeInTheDocument();
+  const toggle = screen.getByText("Columns");
+  expect(toggle.closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(toggle);
+  expect(toggle.closest("details")).toHaveAttribute("open");
+  for (const checkbox of screen.getAllByRole("checkbox"))
+    fireEvent.click(checkbox);
+  expect(
+    screen.getByText(/no columns are selected for display/),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Name", exact: true }));
+  expect(screen.getByRole("table")).toBeInTheDocument();
+  fireEvent.keyDown(toggle.closest("details"), { key: "Escape" });
+  expect(toggle.closest("details")).not.toHaveAttribute("open");
+  expect(toggle).toHaveFocus();
   expect(fetch).not.toHaveBeenCalled();
 });

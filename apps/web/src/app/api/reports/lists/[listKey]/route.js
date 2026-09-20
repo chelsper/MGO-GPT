@@ -8,6 +8,7 @@ import {
   listSnapshotKeys,
   listRefreshStatus,
 } from "@/app/api/utils/constituentListRefresh";
+import { listQueryRecovery } from "@/app/api/utils/listQueryRecovery";
 // These snapshot/lease primitives are data-independent and preserve last-good publication.
 import {
   readPortfolioReport as readSaved,
@@ -41,6 +42,7 @@ export async function POST(request, { params }) {
     const { user, report, origin } = await listContext(request, params.listKey);
     const keys = listSnapshotKeys(report, origin);
     const saved = await readSaved(keys);
+    const recovery = listQueryRecovery(saved.job);
     const present = async () =>
       listResponse({ report, ...listRefreshStatus(await readSaved(keys)) });
     if (
@@ -50,20 +52,24 @@ export async function POST(request, { params }) {
           report.dataConfiguration.source === "saved_query"
         )) ||
       saved.job?.leaseUntil > Date.now() ||
-      new Date(saved.job?.retryAt || 0).getTime() > Date.now()
+      new Date(recovery.retryAt || 0).getTime() > Date.now()
     )
       return present();
     if (
       body.action === "continue" &&
       (!saved.job ||
         saved.job.id !== body.jobId ||
-        saved.job.status === "complete")
+        saved.job.status === "complete" ||
+        recovery.restartRequired)
     )
       return present();
     const { newListRefresh, advanceListRefresh } =
       await import("@/app/api/utils/constituentListRefresh");
     const next =
-      body.action === "restart" || !saved.job || saved.job.status === "complete"
+      body.action === "restart" ||
+      !saved.job ||
+      saved.job.status === "complete" ||
+      (body.action === "start" && recovery.restartRequired)
         ? newListRefresh()
         : saved.job;
     const claimed = await claim(keys, saved.job, next);
@@ -86,14 +92,18 @@ export async function POST(request, { params }) {
     } catch (error) {
       await checkpoint(keys, claimed, {
         ...working,
-        status: "paused",
+        status: error.restartRequired === true ? "needs_restart" : "paused",
+        failureCode: error.restartRequired === true ? error.code : null,
         message:
           error.status && ![401, 403].includes(error.status)
             ? error.message
             : "NXT could not complete this phase. The previous list is retained. Resume after checking connection or quota status.",
-        retryAt: new Date(
-          Date.now() + Math.max(60000, Number(error.retryAfterMs) || 0),
-        ).toISOString(),
+        retryAt:
+          error.restartRequired === true
+            ? null
+            : new Date(
+                Date.now() + Math.max(60000, Number(error.retryAfterMs) || 0),
+              ).toISOString(),
       });
       if ([401, 403].includes(error.status)) throw error;
     }

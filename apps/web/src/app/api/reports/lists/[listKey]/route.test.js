@@ -26,6 +26,7 @@ vi.mock("@/app/api/utils/constituentListRefresh", async (original) => ({
 }));
 vi.mock("@/app/api/utils/sql", () => ({ default: vi.fn() }));
 import { GET, POST } from "./route";
+import { LEGACY_QUERY_EXPIRY_MESSAGE } from "@/app/api/utils/listQueryRecovery";
 const record = {
   report_key: "list-demo",
   title: "Demo",
@@ -196,3 +197,113 @@ it("allows an explicit restart after a saved query is edited in NXT without chan
   });
   expect(mocks.advance.mock.calls[0][0].job.id).not.toBe("old");
 });
+
+const expiredJob = () => ({
+  id: "expired",
+  status: "paused",
+  stage: "query",
+  queryJobId: "old-nxt-job",
+  queryStartedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+  message: LEGACY_QUERY_EXPIRY_MESSAGE,
+  retryAt: new Date(Date.now() + 60000).toISOString(),
+});
+function mockQuerySource() {
+  mocks.record.mockResolvedValue({
+    ...record,
+    data_configuration: {
+      version: 1,
+      source: "saved_query",
+      queryId: "123",
+      fieldCategory: "",
+      fieldDescription: "",
+    },
+  });
+}
+it("reports old expired jobs as restart-required on GET, with no fake wait or NXT call", async () => {
+  mockQuerySource();
+  mocks.read.mockResolvedValue({ snapshot: { total: 2 }, job: expiredJob() });
+  const response = await GET(req(), params);
+  expect(await response.json()).toMatchObject({
+    snapshot: { total: 2 },
+    refresh: { status: "needs_restart", retryAt: null },
+  });
+  expect(mocks.advance).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
+  expect(mocks.checkpoint).not.toHaveBeenCalled();
+});
+it.each(["start", "restart"])(
+  "starts one fresh attempt on explicit %s, instead of resuming the expired job",
+  async (action) => {
+    mockQuerySource();
+    const previous = expiredJob();
+    mocks.read.mockResolvedValue({ snapshot: { total: 2 }, job: previous });
+    await POST(req({ action }), params);
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.claim.mock.calls[0][1]).toBe(previous);
+    const working = mocks.advance.mock.calls[0][0].job;
+    expect(working).toMatchObject({
+      status: "running",
+      stage: "members",
+      retryAt: null,
+    });
+    expect(working.id).not.toBe(previous.id);
+    expect(working).not.toHaveProperty("queryJobId");
+    expect(working).not.toHaveProperty("queryStartedAt");
+    expect(mocks.advance).toHaveBeenCalledTimes(1);
+  },
+);
+it("never automatically restarts an expired attempt from a continuation or a stale tab", async () => {
+  mockQuerySource();
+  mocks.read.mockResolvedValue({ snapshot: { total: 2 }, job: expiredJob() });
+  const response = await POST(
+    req({ action: "continue", jobId: "expired" }),
+    params,
+  );
+  expect(await response.json()).toMatchObject({
+    snapshot: { total: 2 },
+    refresh: { status: "needs_restart" },
+  });
+  expect(mocks.advance).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
+});
+it("honors active leases and genuine provider backoff even when a new attempt is needed", async () => {
+  mockQuerySource();
+  for (const job of [
+    { ...expiredJob(), leaseUntil: Date.now() + 60000 },
+    { ...expiredJob(), message: "NXT throttling", failureCode: null },
+  ]) {
+    mocks.read.mockResolvedValue({ snapshot: { total: 2 }, job });
+    await POST(req({ action: "restart" }), params);
+  }
+  expect(mocks.advance).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
+});
+it("cannot duplicate a restart when another tab wins the claim", async () => {
+  mockQuerySource();
+  mocks.read.mockResolvedValue({ snapshot: { total: 2 }, job: expiredJob() });
+  mocks.claim.mockResolvedValueOnce(null);
+  await POST(req({ action: "start" }), params);
+  expect(mocks.advance).not.toHaveBeenCalled();
+});
+it.each(["LIST_QUERY_EXPIRED", "LIST_QUERY_FAILED"])(
+  "checkpoints terminal %s without adding a futile cooldown or changing saved results",
+  async (code) => {
+    mockQuerySource();
+    mocks.advance.mockRejectedValueOnce(
+      Object.assign(new Error("Restart this query."), {
+        status: 422,
+        code,
+        restartRequired: true,
+      }),
+    );
+    const response = await POST(req({ action: "start" }), params);
+    expect(response.status).toBe(200);
+    expect(mocks.checkpoint.mock.calls[0][2]).toMatchObject({
+      status: "needs_restart",
+      failureCode: code,
+      retryAt: null,
+    });
+    expect(mocks.checkpoint.mock.calls[0][3]).toBeUndefined();
+    expect(await response.json()).toMatchObject({ snapshot: { total: 0 } });
+  },
+);
