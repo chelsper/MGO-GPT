@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { portfolioGivingTitle } from "./portfolioGivingTitle";
 import {
   getBreadcrumbs,
   getNavigationItems,
@@ -11,6 +10,13 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it("names the report collection Reports while retaining its default destination", () => {
+    const items = getNavigationItems({ isReviewer: false });
+    expect(items.find(item => item.href === "/reports")).toMatchObject({ label: "Reports", primaryOrder: 3 });
+    expect(getBreadcrumbs("/reports")).toEqual([
+      { label: "Home", href: "/" }, { label: "Reports" },
+    ]);
+  });
   it.each([
     [false, false, false], [false, true, true], [true, false, false], [true, true, false], [true, true, true],
   ])("omits deferred Family Import while preserving ready import tools (%s, %s, %s)", (isReviewer, canManageWorkspace, isAdmin) => {
@@ -154,12 +160,12 @@ describe("app navigation", () => {
   it("builds explicit report breadcrumbs and highlights report routes", () => {
     expect(getBreadcrumbs("/reports/executive-team-standings")).toEqual([
       { label: "Home", href: "/" },
-      { label: portfolioGivingTitle(), href: "/reports" },
+      { label: "Reports", href: "/reports" },
       { label: "Team Standings" },
     ]);
     expect(getBreadcrumbs("/reports/alumni-family-engagement")).toEqual([
       { label: "Home", href: "/" },
-      { label: portfolioGivingTitle(), href: "/reports" },
+      { label: "Reports", href: "/reports" },
       { label: "Alumni & Family Engagement" },
     ]);
     expect(isNavigationItemActive("/reports/alumni-family-engagement", "/reports")).toBe(true);

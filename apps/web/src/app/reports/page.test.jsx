@@ -13,7 +13,7 @@ vi.mock("./useReportConfigurations", () => ({
     visibleReports: [
       {
         key: "portfolio-fy-giving",
-        title: "FY27 portfolio giving",
+        title: "My FY27 Portfolio Giving",
         canView: true,
       },
     ],
@@ -25,6 +25,7 @@ vi.mock("./usePortfolioGivingReport", () => ({
   usePortfolioGivingReport: m.report,
 }));
 import ReportsPage from "./page";
+import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
 const snapshot = {
   workspaceUserId: 7,
   generatedAt: "2026-09-19T12:00:00Z",
@@ -85,9 +86,11 @@ it("shows saved amounts and existing gift actions without live gift or opportuni
       screen.getByRole("button", { name: "Link to Opportunity" }),
     ).toBeTruthy(),
   );
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(
-    /FY\d+ portfolio giving/,
-  );
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(portfolioGivingTitle());
+  const defaultReportLink = screen.getByRole("navigation", { name: "Reports" }).querySelector("a");
+  expect(defaultReportLink).toHaveTextContent("My FY27 Portfolio Giving");
+  expect(defaultReportLink).toHaveAttribute("href", "/reports");
+  expect(defaultReportLink).toHaveAttribute("aria-current", "page");
   expect(screen.queryByText("Available reports")).toBeNull();
   expect(screen.queryByText("My Reports")).toBeNull();
   expect(screen.getAllByText("$100.00").length).toBeGreaterThan(0);

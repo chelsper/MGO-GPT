@@ -33,6 +33,7 @@ export function serializeList(record, user) {
     specificUserIds,
     dataConfiguration: record.data_configuration,
     canView,
+    canConfigure: user?.active === true && canManageWorkspaceRole(user.role),
     canManageMembers:
       canView && Boolean(record.data_configuration?.fieldCategory?.trim()) &&
       (canManageWorkspaceRole(user.role) || isExecutiveRole(user.role)),

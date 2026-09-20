@@ -181,6 +181,7 @@ describe("Advancement Services home alerts", () => {
     const primary = container.querySelector('[aria-label="Main workspace paths"]');
     const hrefs = ["/my-top-prospects", "/follow-ups", "/reports"];
     expect([...primary.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(hrefs);
+    expect(primary.querySelector('a[href="/reports"] h3')).toHaveTextContent(/^Reports$/);
     for (const href of hrefs) {
       const shortcuts = [...container.querySelectorAll(`a[href="${href}"]`)]
         .filter(link => !link.closest('[aria-labelledby="attention-upcoming-title"]'));

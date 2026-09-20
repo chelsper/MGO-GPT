@@ -103,3 +103,47 @@ it("publishes a verified empty list without inventing names", async () => {
   ).toBe(0);
   expect(mocks.identity).not.toHaveBeenCalled();
 });
+it("exposes only validated query output while preserving the last complete snapshot and private job details", () => {
+  const snapshot = {
+    total: 1,
+    tableRows: [["Older result"]],
+    headers: ["Name"],
+  };
+  const job = {
+    ...newListRefresh(),
+    status: "needs_configuration",
+    stage: "mapping",
+    table: { headers: ["QRECID", "Name"], rows: [["100", "New result"]] },
+    queryOutputAt: "2026-09-19T12:00:00Z",
+    queryJobId: "private-job",
+    resultUrl: "https://example.test/private?signature=secret",
+    fundraiserNames: { 1: "Private cached name" },
+  };
+  const status = listRefreshStatus({ snapshot, job });
+  expect(status.snapshot).toBe(snapshot);
+  expect(status.queryOutput).toEqual({
+    headers: ["QRECID", "Name"],
+    tableRows: [["100", "New result"]],
+    total: 1,
+    generatedAt: job.queryOutputAt,
+  });
+  expect(JSON.stringify(status)).not.toMatch(
+    /private-job|signature|Private cached/,
+  );
+  expect(
+    listRefreshStatus({ snapshot, job: { ...job, status: "complete" } })
+      .queryOutput,
+  ).toBeNull();
+  expect(
+    listRefreshStatus({
+      snapshot,
+      job: { ...job, table: { headers: ["Name"], rows: [[42]] } },
+    }).queryOutput,
+  ).toBeNull();
+  expect(
+    listRefreshStatus({
+      snapshot,
+      job: { ...job, table: { headers: ["Name"], rows: [] } },
+    }).queryOutput.total,
+  ).toBe(0);
+});

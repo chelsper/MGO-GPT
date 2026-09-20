@@ -4,7 +4,12 @@ import ListColumnEditor from "./ListColumnEditor";
 import { orderedListColumns } from "@/utils/listQueryConfiguration";
 import styles from "./reportConfigurationEditor.module.css";
 
-export default function ListQueryResults({ snapshot, defaults = [], title }) {
+export default function ListQueryResults({
+  snapshot,
+  defaults = [],
+  title,
+  preview = false,
+}) {
   const [settings, setSettings] = useState(defaults);
   const [search, setSearch] = useState("");
   const columns = orderedListColumns(snapshot.headers, settings);
@@ -19,11 +24,21 @@ export default function ListQueryResults({ snapshot, defaults = [], title }) {
     )
     .map((row) => indexes.map((index) => row[index]));
   return (
-    <section className={styles.stack} aria-label="Saved query output">
+    <section
+      className={styles.stack}
+      aria-label={preview ? "Query output preview" : "Saved query output"}
+    >
+      {preview && (
+        <p className={styles.notice}>
+          Query output preview. Current lead fundraiser lookup is not complete.
+          These are the returned query values, not a complete refreshed list.
+          Any last complete saved list remains unchanged.
+        </p>
+      )}
       <div className={styles.toolbar}>
         <h2>{snapshot.total} query rows</h2>
         <label className={styles.field}>
-          Search saved output
+          {preview ? "Search query preview" : "Search saved output"}
           <input
             type="search"
             value={search}
@@ -38,8 +53,10 @@ export default function ListQueryResults({ snapshot, defaults = [], title }) {
       />
       <p className={styles.muted}>
         Column changes here apply to this visit. Set shared defaults in Report
-        Access &amp; Configurations. A blank current-lead cell means no matching
-        current lead assignment was found at refresh.
+        Access &amp; Configurations.
+        {!preview &&
+          snapshot.leadAsOf &&
+          " A blank current-lead cell means no matching current lead assignment was found at refresh."}
       </p>
       <QueryResultsTable
         headers={columns.map((column) => column.header)}

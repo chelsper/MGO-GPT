@@ -17,8 +17,9 @@ rejected, never truncated. Existing complete results survive refresh failures.
 All authorized viewers can access every returned field; hiding a column is not
 a security control. Query-definition sharing flags do not grant app access.
 
-After the first refresh, **Load saved output columns** in configuration reads
-only the saved snapshot. Choose visible columns, labels, text/number/USD format,
+After the first refresh, **Load returned output fields** in configuration reads
+only saved data: the unfinished query output preview, if available, otherwise
+the complete snapshot. Choose visible columns, labels, text/number/USD format,
 and order, then save shared defaults. Display-only edits reuse the same snapshot
 and never execute NXT. **Display columns** on the list adjusts this visit only.
 New output fields appear by default; obsolete column settings are ignored.
@@ -31,6 +32,30 @@ output header for the **constituent system record ID**. Include this field in th
 query output; it can be hidden from the display. The app does not infer identity
 from a name, Lookup ID, arbitrary numeric field ID, gift ID, or unconfigured
 QRECID. The supplied six field IDs are not assumed to include this identity.
+
+The ID mapping can be left blank for the first refresh. Once a complete, valid
+CSV has arrived, its fields and rows are saved before optional fundraiser lookup.
+A missing/invalid mapping or generated-column collision stops at
+`needs_configuration`, not a timed provider retry. The list shows a clearly
+labeled **Query output preview** and the exact returned field names. No IDs are
+guessed and no fundraiser lookups occur until mapping validates. The last
+complete snapshot is never replaced by this preview; malformed/oversized CSV is
+never exposed as a valid preview either.
+
+In configuration, load the returned fields and choose the constituent system
+record ID from the dropdown, then save and refresh. Confirm the chosen field's
+meaning in NXT: being numeric alone is insufficient. A configured field absent
+from the output remains visibly unresolved rather than silently replaced.
+Returned options are scoped to the saved query definition; unsaved source
+changes cannot reuse unrelated fields. Generated lead names are not ID options.
+Changing source or enrichment mapping uses a separate cache key and requires an
+explicit new refresh; changing display settings alone does not.
+
+Opening the preview and loading fields do not execute NXT. Start/continue stop
+on an unresolved mapping. For a saved-query-ID source, **Refresh query output**
+explicitly re-runs the query after confirmation, allowing recovery when output
+fields were edited in NXT without changing the saved query's ID. Existing
+cooldown, lease, access and revision protections still apply.
 
 Refresh reads the [single-constituent fundraiser assignments endpoint](https://developer.sky.blackbaud.com/api#api=56b76470069a0509c8f1c5b3&operation=ListConstituentFundraiserAssignmentsSingleConstituent)
 with `include_inactive=false`, verifies the returned constituent IDs, and excludes

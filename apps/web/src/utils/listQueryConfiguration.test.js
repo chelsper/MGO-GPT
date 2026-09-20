@@ -1,7 +1,11 @@
 import { expect, it } from "vitest";
 import query from "./futureMadeQueryTemplate.json";
 import { normalizeListSource, validateListSource } from "./constituentLists";
-import { orderedListColumns, parseListQuery } from "./listQueryConfiguration";
+import {
+  listOutputSourceKey,
+  orderedListColumns,
+  parseListQuery,
+} from "./listQueryConfiguration";
 const source = {
   version: 1,
   source: "query_json",
@@ -38,15 +42,13 @@ it.each([
 ])("rejects invalid query input %s", (queryJson) => {
   expect(validateListSource({ ...source, queryJson })).not.toBe("");
 });
-it("requires explicit system-ID mapping and lead roles, and validates display settings", () => {
+it("allows discovering output before choosing a system ID, requires lead roles and validates display settings", () => {
   const leadFundraiser = {
     enabled: true,
     systemIdColumn: "",
     assignmentTypes: ["Lead Solicitor"],
   };
-  expect(validateListSource({ ...source, leadFundraiser })).toMatch(
-    /system record ID/,
-  );
+  expect(validateListSource({ ...source, leadFundraiser })).toBe("");
   expect(
     validateListSource({
       ...source,
@@ -64,6 +66,35 @@ it("requires explicit system-ID mapping and lead roles, and validates display se
   expect(
     validateListSource({ ...base, source: "saved_query", queryId: "1e3" }),
   ).toMatch(/query system/);
+});
+it("scopes output headers to the query while allowing formatting, mapping and display edits", () => {
+  const key = listOutputSourceKey(source);
+  expect(
+    listOutputSourceKey({
+      ...source,
+      queryJson: JSON.stringify(
+        Object.fromEntries(Object.entries(query).reverse()),
+        null,
+        2,
+      ),
+      columns: [],
+      leadFundraiser: { enabled: true, systemIdColumn: "Changed" },
+    }),
+  ).toBe(key);
+  expect(
+    listOutputSourceKey({
+      ...source,
+      queryJson: JSON.stringify({
+        ...query,
+        select_fields: [{ query_field_id: 597 }],
+      }),
+    }),
+  ).not.toBe(key);
+  expect(listOutputSourceKey({ ...source, queryJson: "bad" })).toBeNull();
+  expect(listOutputSourceKey(undefined)).toBeNull();
+  expect(listOutputSourceKey({ source: "saved_query", queryId: "1" })).not.toBe(
+    listOutputSourceKey({ source: "saved_query", queryId: "2" }),
+  );
 });
 it("orders display columns without altering data, hides technical metadata and ignores obsolete settings", () => {
   const settings = [

@@ -125,3 +125,74 @@ it("does not publish after a configuration revision or permission changes", asyn
   expect((await POST(req({ action: "start" }), params)).status).toBe(409);
   expect(mocks.checkpoint).not.toHaveBeenCalled();
 });
+it("returns cached query previews without repeatedly running a query that needs mapping changes", async () => {
+  const job = {
+    id: "mapping-job",
+    status: "needs_configuration",
+    stage: "mapping",
+    table: { headers: ["Name"], rows: [["Example"]] },
+    message: "Choose the correct ID field.",
+  };
+  mocks.read.mockResolvedValue({ snapshot: { total: 0, rows: [] }, job });
+  for (const response of [
+    await GET(req(), params),
+    await POST(req({ action: "start" }), params),
+    await POST(req({ action: "continue", jobId: job.id }), params),
+    await POST(req({ action: "restart" }), params),
+  ]) {
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      snapshot: { total: 0 },
+      queryOutput: { headers: ["Name"], tableRows: [["Example"]] },
+      refresh: { status: "needs_configuration" },
+      report: { canConfigure: false },
+    });
+  }
+  expect(mocks.advance).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
+  expect(mocks.checkpoint).not.toHaveBeenCalled();
+});
+it("checkpoints a configuration hold and its preview without replacing the last good list", async () => {
+  mocks.advance.mockImplementationOnce(async ({ job }) => ({
+    job: {
+      ...job,
+      status: "needs_configuration",
+      stage: "mapping",
+      table: { headers: ["Name"], rows: [["Example"]] },
+    },
+    snapshot: null,
+  }));
+  expect((await POST(req({ action: "start" }), params)).status).toBe(200);
+  expect(mocks.checkpoint.mock.calls[0][2]).toMatchObject({
+    status: "needs_configuration",
+    table: { headers: ["Name"] },
+  });
+  expect(mocks.checkpoint.mock.calls[0][3]).toBeNull();
+});
+it("allows an explicit restart after a saved query is edited in NXT without changing its ID", async () => {
+  mocks.record.mockResolvedValue({
+    ...record,
+    data_configuration: {
+      version: 1,
+      source: "saved_query",
+      queryId: "123",
+      fieldCategory: "",
+      fieldDescription: "",
+    },
+  });
+  mocks.read.mockResolvedValue({
+    snapshot: { total: 0 },
+    job: { id: "old", status: "needs_configuration", stage: "mapping" },
+  });
+  for (const action of ["start", "continue"]) {
+    await POST(req({ action, jobId: "old" }), params);
+  }
+  expect(mocks.advance).not.toHaveBeenCalled();
+  expect((await POST(req({ action: "restart" }), params)).status).toBe(200);
+  expect(mocks.advance).toHaveBeenCalledTimes(1);
+  expect(mocks.advance.mock.calls[0][0].job).toMatchObject({
+    status: "running",
+    stage: "members",
+  });
+  expect(mocks.advance.mock.calls[0][0].job.id).not.toBe("old");
+});

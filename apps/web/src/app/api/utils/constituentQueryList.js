@@ -77,26 +77,38 @@ export async function advanceQueryList({ job, user, origin, source }) {
     const table = parseResultCsv(decodeResult(file), {
       preserveTechnical: true,
     });
-    if (source.leadFundraiser?.enabled && table.headers.includes(LEAD_COLUMN))
-      throw Object.assign(
-        new Error(
-          `Rename the query's ${LEAD_COLUMN} output column to avoid a duplicate header.`,
-        ),
-        { status: 422 },
-      );
+    // Keep validated output available even when optional enrichment needs setup.
+    job.table = table;
+    job.queryOutputAt = new Date().toISOString();
+    job.stage = "mapping";
+  }
+  if (job.stage === "mapping") {
+    const table = job.table;
     if (source.leadFundraiser?.enabled) {
       const index = table.headers.indexOf(source.leadFundraiser.systemIdColumn);
-      if (index < 0 || table.rows.some((row) => !/^[1-9]\d*$/.test(row[index])))
-        throw Object.assign(
-          new Error(
-            "The configured constituent system ID column is missing or contains invalid values. Check the query output mapping; no IDs were inferred.",
-          ),
-          { status: 422 },
-        );
+      const invalidRows =
+        index < 0
+          ? 0
+          : table.rows.filter((row) => !/^[1-9]\d*$/.test(row[index])).length;
+      let issue = "";
+      if (table.headers.includes(LEAD_COLUMN))
+        issue = `Rename the query's ${LEAD_COLUMN} output column to avoid a duplicate header.`;
+      else if (index < 0)
+        issue =
+          "Select the constituent system record ID from the returned output fields in Report Access & Configurations. The current mapping does not match a returned field.";
+      else if (invalidRows)
+        issue = `The selected ID field has ${invalidRows} row(s) with blank or invalid system IDs. Choose the correct constituent system record ID field or correct the query output.`;
+      if (issue) {
+        job.status = "needs_configuration";
+        job.message = `${issue} Query output is available below; no IDs were inferred and no fundraiser lookups were made. Save corrected settings, then refresh the list.`;
+        job.retryAt = null;
+        return { job, snapshot: null };
+      }
       job.people = [...new Set(table.rows.map((row) => row[index]))];
       job.identityIndex = index;
     }
-    job.table = table;
+    job.status = "running";
+    job.message = "";
     job.stage = source.leadFundraiser?.enabled ? "fundraisers" : "complete";
   }
   if (job.stage === "fundraisers")

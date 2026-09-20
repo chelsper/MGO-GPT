@@ -90,10 +90,57 @@ it("supports saved IDs and separately verifies current leads by explicit system 
   expect(snapshot.tableRows[0].at(-1)).toBe("Current Fundraiser");
   expect(snapshot.tableRows[1].at(-1)).toBe("Current Fundraiser");
 });
-it("does not infer IDs from a name or Lookup ID header and does not publish malformed output", async () => {
+it.each([
+  "Lookup ID,QRECID,Name\n100,101,Example",
+  "Constituent system record ID,Name\n,Example",
+  "Constituent system record ID,Name\nExample,Example",
+  "Constituent system record ID,Current lead fundraiser\n100,Another",
+])(
+  "retains valid output for mapping review without inferring IDs or publishing a complete snapshot: %s",
+  async (content) => {
+    const ctx = args();
+    ctx.source.leadFundraiser = {
+      enabled: true,
+      systemIdColumn: "Constituent system record ID",
+      assignmentTypes: ["Lead Solicitor"],
+    };
+    await advanceQueryList(ctx);
+    downloadBlackbaudQueryResultWithMetadata.mockResolvedValueOnce(
+      csv(content),
+    );
+    const result = await advanceQueryList(ctx);
+    expect(result.snapshot).toBeNull();
+    expect(result.job).toMatchObject({
+      status: "needs_configuration",
+      stage: "mapping",
+      retryAt: null,
+    });
+    expect(result.job.table.rows).toHaveLength(1);
+    expect(result.job.queryOutputAt).toBeTruthy();
+    expect(result.job.people).toBeUndefined();
+    expect(readCurrentLead).not.toHaveBeenCalled();
+  },
+);
+it("allows first output discovery without mapping and can use the retained table after a correction", async () => {
+  const ctx = args();
+  ctx.source.leadFundraiser = {
+    enabled: true,
+    systemIdColumn: "",
+    assignmentTypes: ["Lead Solicitor"],
+  };
+  await advanceQueryList(ctx);
+  expect((await advanceQueryList(ctx)).job.status).toBe("needs_configuration");
+  expect(readCurrentLead).not.toHaveBeenCalled();
+  ctx.source.leadFundraiser.systemIdColumn = "Constituent system record ID";
+  const result = await advanceQueryList(ctx);
+  expect(result.job.status).toBe("complete");
+  expect(result.snapshot.total).toBe(3);
+  expect(downloadBlackbaudQueryResultWithMetadata).toHaveBeenCalledTimes(1);
+  expect(getBlackbaudQueryJob).toHaveBeenCalledTimes(1);
+  expect(readCurrentLead).toHaveBeenCalledTimes(2);
+});
+it("does not expose malformed output as a preview or publish it", async () => {
   for (const content of [
-    "Lookup ID,Name\n100,Example",
-    "Constituent system record ID,Name\n,Example",
     "Name,Name\nExample,Another",
     "Name,Amount\nExample",
     "<html>Error</html>",
@@ -109,6 +156,7 @@ it("does not infer IDs from a name or Lookup ID header and does not publish malf
       csv(content),
     );
     await expect(advanceQueryList(ctx)).rejects.toThrow();
+    expect(ctx.job.table).toBeUndefined();
   }
   expect(readCurrentLead).not.toHaveBeenCalled();
 });

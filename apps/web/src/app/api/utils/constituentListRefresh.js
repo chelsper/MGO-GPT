@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readListIdentity, readListPage } from "./constituentListProvider";
 import { isQueryList } from "@/utils/listQueryConfiguration";
 import { advanceQueryList, enrichListLeads } from "./constituentQueryList";
+import { isValidDashboardTableData } from "./dashboardConfiguration";
 
 export function listSnapshotKeys(report, origin) {
   const { columns, ...dataSource } = report.dataConfiguration;
@@ -128,8 +129,18 @@ export async function advanceListRefresh({ job, user, origin, source }) {
 }
 
 export function listRefreshStatus(saved) {
+  const table = saved.job?.table;
   return {
     snapshot: saved.snapshot,
+    queryOutput:
+      saved.job?.status !== "complete" && isValidDashboardTableData(table)
+        ? {
+            headers: table.headers,
+            tableRows: table.rows,
+            total: table.rows.length,
+            generatedAt: saved.job.queryOutputAt || null,
+          }
+        : null,
     refresh: saved.job
       ? {
           id: saved.job.id,

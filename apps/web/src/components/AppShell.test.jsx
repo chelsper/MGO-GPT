@@ -191,6 +191,7 @@ describe("AppShell", () => {
     expect(firstSection.querySelector("h2")).toHaveTextContent("Start here");
     const hrefs = reviewer ? ["/submissions", "/constituency-import", "/prospect-exports"] : ["/my-top-prospects", "/follow-ups", "/reports"];
     expect([...firstSection.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(hrefs);
+    if (!reviewer) expect(firstSection.querySelector('a[href="/reports"]')).toHaveTextContent(/^Reports$/);
     for (const href of hrefs) expect(nav.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
     expect(firstSection.querySelector('[aria-current="page"]')).toHaveAttribute("href", reviewer ? "/constituency-import" : "/follow-ups");
     if (!reviewer) expect(nav.querySelector('a[href="/constituency-import"]')).toBeNull();

@@ -44,6 +44,11 @@ export async function POST(request, { params }) {
     const present = async () =>
       listResponse({ report, ...listRefreshStatus(await readSaved(keys)) });
     if (
+      (saved.job?.status === "needs_configuration" &&
+        !(
+          body.action === "restart" &&
+          report.dataConfiguration.source === "saved_query"
+        )) ||
       saved.job?.leaseUntil > Date.now() ||
       new Date(saved.job?.retryAt || 0).getTime() > Date.now()
     )

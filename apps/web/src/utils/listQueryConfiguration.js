@@ -140,9 +140,37 @@ export function validateListPresentation(source) {
     return "Choose valid current lead fundraiser settings.";
   if (lead?.enabled && !lead.assignmentTypes.length)
     return "Enter the exact NXT lead assignment type.";
-  if (lead?.enabled && isQueryList(source) && !lead.systemIdColumn.trim())
-    return "Select the constituent system record ID output header before enabling current lead fundraiser. A Lookup ID is not a system ID.";
+  // Mapping can be chosen after the first output preview; enrichment still fails closed.
   return "";
+}
+
+// Scope discovered headers to the query, not display settings or ID mapping edits.
+export function listOutputSourceKey(source) {
+  if (!source) return null;
+  try {
+    const definition =
+      source.source === "query_json"
+        ? parseListQuery(source.queryJson)
+        : source.source === "saved_query"
+          ? { queryId: source.queryId }
+          : {
+              fieldCategory: source.fieldCategory,
+              fieldDescription: source.fieldDescription,
+            };
+    const canonical = (value) =>
+      Array.isArray(value)
+        ? value.map(canonical)
+        : object(value)
+          ? Object.fromEntries(
+              Object.keys(value)
+                .sort()
+                .map((key) => [key, canonical(value[key])]),
+            )
+          : value;
+    return JSON.stringify([source.source, canonical(definition)]);
+  } catch {
+    return null;
+  }
 }
 
 export const defaultLegacyListSource = () => ({

@@ -4,6 +4,7 @@ import ListColumnEditor from "./ListColumnEditor";
 import {
   isQueryList,
   LEAD_COLUMN,
+  listOutputSourceKey,
   parseListQuery,
 } from "@/utils/listQueryConfiguration";
 import futureMadeQuery from "@/utils/futureMadeQueryTemplate.json";
@@ -12,7 +13,14 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
   const [catalog, setCatalog] = useState({ categories: [], values: [] });
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [headers, setHeaders] = useState([]);
+  const [outputFields, setOutputFields] = useState(null);
+  const sourceKey = listOutputSourceKey(value);
+  const headers =
+    sourceKey &&
+    outputFields?.sourceKey === sourceKey &&
+    outputFields?.reportKey === reportKey
+      ? outputFields.headers
+      : [];
   const lead = value.leadFundraiser || {
     enabled: false,
     systemIdColumn: "",
@@ -20,30 +28,45 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
   };
   const query = isQueryList(value);
   async function loadColumns() {
+    controller.current?.abort();
+    const current = new AbortController();
+    controller.current = current;
     setLoading(true);
+    setNotice("");
     try {
       const response = await fetch(
         `/api/reports/lists/${encodeURIComponent(reportKey)}`,
-        { cache: "no-store" },
+        { cache: "no-store", signal: current.signal },
       );
       const payload = await response.json();
       if (!response.ok)
         throw new Error(payload.error || "Could not load saved columns.");
+      if (current.signal.aborted) return;
+      if (
+        !sourceKey ||
+        sourceKey !== listOutputSourceKey(payload.report?.dataConfiguration)
+      )
+        throw new Error(
+          "These source changes have not been saved. Save the source and refresh the list before loading its returned fields.",
+        );
       const savedHeaders =
-        payload.snapshot?.headers ||
+        payload.queryOutput?.headers ||
+        payload.snapshot?.headers?.filter(
+          (header) => !(payload.snapshot.leadAsOf && header === LEAD_COLUMN),
+        ) ||
         (payload.snapshot
           ? ["Constituent", "Lookup ID", "Description", "Record"]
           : []);
-      setHeaders(savedHeaders);
+      setOutputFields({ sourceKey, reportKey, headers: savedHeaders });
       setNotice(
         savedHeaders.length
-          ? "Saved output headers loaded. Save configuration to apply shared column defaults."
-          : "No saved output yet. Save and refresh the list first.",
+          ? "Returned output fields loaded. Choose the constituent system ID field if using current lead fundraiser, then save. No ID field was selected automatically."
+          : "No saved output yet. Save and refresh the list first; fundraiser lookup will wait until you select an ID field.",
       );
     } catch (error) {
-      setNotice(error.message);
+      if (!current.signal.aborted) setNotice(error.message);
     } finally {
-      setLoading(false);
+      if (!current.signal.aborted) setLoading(false);
     }
   }
   const controller = useRef(null);
@@ -215,8 +238,8 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
           {query && (
             <label className={styles.field}>
               Constituent system record ID output header
-              <input
-                list="list-output-headers"
+              <select
+                aria-label="Constituent system record ID output header"
                 value={lead.systemIdColumn}
                 onChange={(event) =>
                   onChange({
@@ -227,17 +250,34 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
                     },
                   })
                 }
-              />
-              <small>
-                Enter the exact returned header for the constituent system ID,
-                not Lookup ID, gift ID, or name. Include this field in NXT
-                output; it may be hidden from display.
-              </small>
-              <datalist id="list-output-headers">
+              >
+                <option value="">
+                  Choose the constituent system record ID column
+                </option>
+                {lead.systemIdColumn &&
+                  !headers.includes(lead.systemIdColumn) && (
+                    <option value={lead.systemIdColumn} disabled>
+                      {lead.systemIdColumn} (
+                      {headers.length
+                        ? "not in returned fields"
+                        : "load fields to verify"}
+                      )
+                    </option>
+                  )}
                 {headers.map((header) => (
-                  <option key={header} value={header} />
+                  <option key={header} value={header}>
+                    {header}
+                  </option>
                 ))}
-              </datalist>
+              </select>
+              <small>
+                Load returned output fields below, then choose the constituent
+                system ID, not Lookup ID, gift ID, or fundraiser name. Verify
+                the field's meaning in NXT; numeric values alone do not prove it
+                is a constituent system ID. Include this field in query output;
+                it may be hidden from display. If it is missing, update the
+                query and refresh. Fundraiser lookup waits for valid mapping.
+              </small>
             </label>
           )}
           <label className={styles.field}>
@@ -271,7 +311,7 @@ export default function ListSourceEditor({ value, onChange, reportKey }) {
             disabled={loading}
             onClick={loadColumns}
           >
-            Load saved output columns
+            Load returned output fields
           </button>
         </div>
       )}
