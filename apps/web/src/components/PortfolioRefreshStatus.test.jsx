@@ -44,6 +44,70 @@ describe("quiet healthy background maintenance", () => {
     expect(screen.getByText("Portfolio summaries up to date")).toBeVisible();
   });
 
+  it("keeps normal cooldowns collapsed even when progress is older than 15 minutes", () => {
+    const now = Date.now();
+    const state = runningNightly({ status: "paused",
+      updatedAt: new Date(now - 60 * 60 * 1000).toISOString(),
+      pausedUntil: new Date(now + 60 * 60 * 1000).toISOString() });
+    render(<View state={state} />);
+    expect(screen.getByText("Background check waiting. You can keep working.")).toBeVisible();
+    expect(screen.getByText("Nightly portfolio maintenance")).not.toBeVisible();
+    expect(screen.queryByText(/progress needs checking/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Portfolio summaries up to date")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Refresh details"));
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+  });
+
+  it("preserves the user's disclosure choice across pause and automatic continuation", () => {
+    const state = runningNightly();
+    const paused = { ...state, job: { ...state.job, status: "paused",
+      pausedUntil: new Date(Date.now() + 60000).toISOString() } };
+    const { rerender } = render(<View state={state} />);
+    rerender(<View state={paused} isPending />);
+    expect(screen.getByText("Nightly portfolio maintenance")).not.toBeVisible();
+    rerender(<View state={state} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).not.toBeVisible();
+    fireEvent.click(screen.getByText("Refresh details"));
+    rerender(<View state={paused} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+    rerender(<View state={state} isPending />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+  });
+
+  it("allows automatic continuation after a cooldown but reveals a stalled pause", () => {
+    let now = Date.parse("2026-09-20T19:50:00Z");
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const state = runningNightly({ status: "paused", pausedUntil: new Date(now).toISOString() });
+    const { rerender } = render(<View state={state} />);
+    now += 60 * 1000;
+    rerender(<View state={state} isPending />);
+    expect(screen.getByText("Nightly portfolio maintenance")).not.toBeVisible();
+    now += 14 * 60 * 1000;
+    rerender(<View state={state} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+  });
+
+  it.each([
+    { pausedUntil: null }, { pausedUntil: "invalid" },
+    { pausedUntil: "2000-01-01T00:00:00Z" }, { jobId: null },
+    { updatedAt: null }, { updatedAt: "invalid" }, { updatedAt: "2999-01-01T00:00:00Z" },
+    { failedCount: 1 }, { failedItems: [{ constituentId: "1" }] },
+    { totalCount: null }, { successCount: 169 }, { mode: "full" }, { mode: "stale" },
+  ])("does not conceal a manual, failed or unverified pause: %j", (overrides) => {
+    render(<View state={runningNightly({ status: "paused",
+      pausedUntil: new Date(Date.now() + 60000).toISOString(), ...overrides })} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+    expect(screen.queryByText("Background check waiting. You can keep working.")).not.toBeInTheDocument();
+  });
+
+  it("does not conceal cooldown errors or incomplete saved summaries", () => {
+    const state = runningNightly({ status: "paused", pausedUntil: new Date(Date.now() + 60000).toISOString() });
+    const { rerender } = render(<View state={state} error={new Error("Status unavailable")} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+    rerender(<View state={{ ...state, inventory: { total: 302, current: 301, stale: 1, failed: 0 } }} />);
+    expect(screen.getByText("Nightly portfolio maintenance")).toBeVisible();
+  });
+
   it.each([
     { mode: "full" }, { mode: "stale" }, { mode: undefined },
     { status: "paused" }, { status: "completed_with_failures" }, { status: "unknown" },

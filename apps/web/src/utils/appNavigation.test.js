@@ -166,7 +166,19 @@ describe("app navigation", () => {
     expect(getBreadcrumbs("/reports/alumni-family-engagement")).toEqual([
       { label: "Home", href: "/" },
       { label: "Reports", href: "/reports" },
+      { label: "My Dashboards", href: "/reports/dashboards" },
       { label: "Alumni & Family Engagement" },
+    ]);
+    expect(getBreadcrumbs("/reports/dashboards")).toEqual([
+      { label: "Home", href: "/" },
+      { label: "Reports", href: "/reports" },
+      { label: "My Dashboards" },
+    ]);
+    expect(getBreadcrumbs("/reports/dashboards/campaign-progress")).toEqual([
+      { label: "Home", href: "/" },
+      { label: "Reports", href: "/reports" },
+      { label: "My Dashboards", href: "/reports/dashboards" },
+      { label: "Campaign Progress" },
     ]);
     expect(isNavigationItemActive("/reports/alumni-family-engagement", "/reports")).toBe(true);
     expect(isNavigationItemActive("/report-configurations", "/reports")).toBe(false);

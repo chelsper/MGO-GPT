@@ -230,6 +230,26 @@ it("keeps healthy background progress compact on the page but exposes status-que
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("keeps cooldown details out of the portfolio worklist until requested", () => {
+  state.data["portfolio-refresh-job"] = {
+    inventory: { total: 2, current: 2, stale: 0, failed: 0 },
+    job: { jobId: "41", workspaceUserId: 44, mode: "nightly", status: "paused",
+      totalCount: 2, processedCount: 1, successCount: 1, failedCount: 0,
+      updatedAt: new Date().toISOString(), pausedUntil: new Date(Date.now() + 60000).toISOString() },
+  };
+  render(<MyProspects />);
+  fireEvent.click(screen.getByRole("button", { name: "My Portfolio" }));
+  expect(screen.getByText("Background check waiting. You can keep working.")).toBeVisible();
+  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  expect(screen.getByText(/This refresh will continue automatically/)).not.toBeVisible();
+  expect(screen.getByRole("searchbox", { name: "Search portfolio" })).toBeVisible();
+  expect(screen.getAllByRole("article")).toHaveLength(2);
+  fireEvent.click(screen.getByText("Refresh details"));
+  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Waiting for Blackbaud" })).toBeDisabled();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("shows saved contacts and their checked date immediately without requests", () => {
   Object.assign(state.data["blackbaud-portfolio"].leadSolicitor[0], {
     email: "saved@example.com", phone: "904-555-0199", address: "100 Saved Street",

@@ -1,5 +1,6 @@
 import { portfolioGivingTitle } from "@/utils/portfolioGivingTitle";
 import { LIST_SCHEMA } from "@/utils/constituentLists";
+import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
 
 export const REPORT_TYPES = Object.freeze({
   QUERY_BASED: "query_based",
@@ -239,6 +240,7 @@ export function getCustomFieldReportMetadata(slug) {
 
 export function getReportHref(report) {
   if (report?.key === "lists") return "/reports/lists";
+  if (report?.key === DASHBOARDS_KEY && !isReportDashboard(report)) return DASHBOARDS_HREF;
   if (report?.key === FUTURE_MADE_PHASE_TWO_REPORT_KEY && report.dataConfiguration?.version === 1) return `/reports/lists/${FUTURE_MADE_PHASE_TWO_REPORT_KEY}`;
   if (report?.configurationSchema === LIST_SCHEMA && /^list-[a-z0-9-]{1,70}$/.test(report?.key || "")) return `/reports/lists/${encodeURIComponent(report.key)}`;
   const definition = getReportDefinition(report?.key);

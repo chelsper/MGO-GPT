@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import { isConstituentList, reportNavigation } from "@/utils/constituentLists";
+import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "@/utils/reportDashboards";
+import DashboardSwitcher from "@/components/DashboardSwitcher";
 
 function SharedReportHeaderContent({
   activeReportKey,
@@ -11,10 +13,17 @@ function SharedReportHeaderContent({
   title,
   description,
   action = null,
-  backHref = "/reports",
-  backLabel = "Back to reports",
+  backHref,
+  backLabel,
   accessibleReports = [],
+  reportSection,
+  dashboardSwitchDisabled = false,
 }) {
+  const dashboardDetail = reportSection === DASHBOARDS_KEY || (activeReportKey !== DASHBOARDS_KEY &&
+    isReportDashboard(accessibleReports.find((report) => report.key === activeReportKey) || { key: activeReportKey })
+  );
+  const returnHref = backHref || (dashboardDetail ? DASHBOARDS_HREF : "/reports");
+  const returnLabel = backLabel || (dashboardDetail ? "Back to My Dashboards" : "Back to reports");
   return (
     <>
       <header
@@ -29,8 +38,8 @@ function SharedReportHeaderContent({
       >
         <div style={{ minWidth: 0, flex: "1 1 320px", overflowWrap: "anywhere" }}>
           <a
-            href={backHref}
-            aria-label={backLabel}
+            href={returnHref}
+            aria-label={returnLabel}
             style={{
               minHeight: "44px",
               borderRadius: "12px",
@@ -48,7 +57,7 @@ function SharedReportHeaderContent({
               flexShrink: 0,
             }}
           >
-            <ArrowLeft size={18} aria-hidden="true" />{backLabel}
+            <ArrowLeft size={18} aria-hidden="true" />{returnLabel}
           </a>
           <div>
             {eyebrow ? (
@@ -90,7 +99,9 @@ function SharedReportHeaderContent({
           }}
         >
           {reportNavigation(accessibleReports).map((report) => {
-            const selected = report.key === activeReportKey || (report.key === "lists" && (activeReportKey?.startsWith("list-") || isConstituentList({ key: activeReportKey })));
+            const selected = report.key === activeReportKey ||
+              (report.key === DASHBOARDS_KEY && dashboardDetail) ||
+              (report.key === "lists" && (activeReportKey?.startsWith("list-") || isConstituentList({ key: activeReportKey })));
             return (
               <a
                 key={report.key}
@@ -119,13 +130,16 @@ function SharedReportHeaderContent({
           })}
         </nav>
       ) : null}
+      {dashboardDetail && (
+        <DashboardSwitcher reports={accessibleReports} activeReportKey={activeReportKey} disabled={dashboardSwitchDisabled} />
+      )}
     </>
   );
 }
 
 function SharedReportHeaderWithConfigurationLoader(props) {
-  const { visibleReports } = useReportConfigurations();
-  return <SharedReportHeaderContent {...props} accessibleReports={visibleReports} />;
+  const { visibleReports, error } = useReportConfigurations();
+  return <SharedReportHeaderContent {...props} accessibleReports={error ? [] : visibleReports} />;
 }
 
 export default function SharedReportHeader({ accessibleReports, ...props }) {

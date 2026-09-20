@@ -3,6 +3,7 @@ import {
   parseListQuery,
   validateListPresentation,
 } from "./listQueryConfiguration";
+import { DASHBOARDS_KEY, DASHBOARDS_HREF, isReportDashboard } from "./reportDashboards";
 export const LIST_SCHEMA = "constituent-list-v1";
 export const LEGACY_LIST_KEY = "future-made-phase-ii";
 export const isConstituentList = (report) =>
@@ -104,9 +105,13 @@ export function listMetadata(key) {
 export function reportNavigation(reports) {
   const entries = [];
   for (const report of reports) {
+    if (report.canView === false || report.active === false) continue;
     if (isConstituentList(report)) {
       if (!entries.some((entry) => entry.key === "lists"))
         entries.push({ key: "lists", title: "Lists", href: "/reports/lists" });
+    } else if (isReportDashboard(report)) {
+      if (!entries.some((entry) => entry.key === DASHBOARDS_KEY))
+        entries.push({ key: DASHBOARDS_KEY, title: "My Dashboards", href: DASHBOARDS_HREF });
     } else entries.push(report);
   }
   return entries;

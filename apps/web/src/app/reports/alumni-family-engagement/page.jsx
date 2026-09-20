@@ -267,6 +267,8 @@ export default function AlumniFamilyEngagementPage() {
       <div style={{ maxWidth: "1480px", margin: "0 auto" }}>
         <SharedReportHeader
           activeReportKey="alumni-family-engagement"
+          reportSection="dashboards"
+          dashboardSwitchDisabled={arranging || savingLayout}
           eyebrow="Shared engagement report"
           title={reportTitle}
           description={reportDescription}

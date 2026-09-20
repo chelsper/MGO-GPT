@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDashboardValueFingerprint } from "@/app/api/utils/dashboardConfiguration";
 import ReportDashboardPage from "./page";
 
+vi.mock("@/app/reports/useReportConfigurations", () => ({
+  useReportConfigurations: () => ({ visibleReports: [], error: null }),
+}));
+
 const definition = { key: "count", rowKey: "r", columnKey: "c", source: "query_count", queryId: "123", refreshPolicy: "refreshable" };
 const configuration = {
   key: "engagement", title: "Engagement dashboard", description: "Saved engagement counts",
@@ -29,10 +33,10 @@ beforeEach(() => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(report())
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("ReportDashboardPage", () => {
-  it("uses only the cached GET on mount and the shared report header without extra loaders", async () => {
+  it("uses only the cached dashboard GET alongside cached navigation metadata", async () => {
     mount();
     expect(await screen.findByRole("heading", { name: "Engagement dashboard" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to reports" })).toHaveAttribute("href", "/reports");
+    expect(screen.getByRole("link", { name: "Back to My Dashboards" })).toHaveAttribute("href", "/reports/dashboards");
     expect(screen.getByText("Not refreshed")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith("/api/reports/dashboards/engagement", expect.objectContaining({ cache: "no-store" }));

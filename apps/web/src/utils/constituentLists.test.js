@@ -15,7 +15,7 @@ it("groups existing and configured lists under one Lists destination", () => {
       listMetadata("list-demo"),
       { key: "alumni-family-engagement" },
     ]).map((item) => item.key),
-  ).toEqual(["portfolio-fy-giving", "lists", "alumni-family-engagement"]);
+  ).toEqual(["portfolio-fy-giving", "lists", "dashboards"]);
   expect(getReportHref(listMetadata("list-demo"))).toBe(
     "/reports/lists/list-demo",
   );

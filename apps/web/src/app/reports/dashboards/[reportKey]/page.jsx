@@ -166,7 +166,8 @@ export default function ReportDashboardPage() {
       <div className={styles.pageContent}>
         <SharedReportHeader
           activeReportKey={configuration?.key || reportKey}
-          accessibleReports={[]}
+          reportSection="dashboards"
+          dashboardSwitchDisabled={arranging || savingLayout}
           eyebrow="Configured dashboard"
           title={configuration?.title || "Report dashboard"}
           description={configuration?.description || "Saved query results, counts, and static values from the last dashboard snapshot."}

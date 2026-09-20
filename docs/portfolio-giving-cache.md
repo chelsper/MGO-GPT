@@ -89,8 +89,15 @@ portfolio report now has its own complete saved-report path; see
   disclosure. It shows giving-check progress separately from summary freshness;
   current summaries do not imply that giving checks are complete.
 - Expanding details is local UI only. Automatic batch requests do not reopen the
-  disclosure. Completion collapses it again; pauses, failures, stale/unknown
-  summaries, missing/old progress and status-request errors remain visible.
+  disclosure. A normal nightly cooldown with current saved summaries, valid
+  progress and zero failures also stays collapsed, with a short waiting status.
+  The saved retry deadline may outlast the 15-minute progress window; the panel
+  remains collapsed through the cooldown and for up to 15 minutes afterward
+  while automatic continuation resumes. Opening details retains the existing
+  cooldown-aware controls and does not trigger requests.
+  Completion collapses it again; failures, stale/unknown summaries, invalid
+  pauses, overdue pauses, missing/old running progress and status-request errors
+  remain visible.
   Old progress is a reason to check, not proof of failure or a worker heartbeat.
 - Manual stale-summary/full-rebuild jobs retain expanded progress. This change
   adds no NXT requests and does not alter job creation, processing, retries,

@@ -59,6 +59,38 @@ it("exposes status-read errors instead of presenting cached progress as healthy"
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it.each([false, true])("collapses the reported 169-current cooldown for admin=%s without bypassing its deadline", (isAdmin) => {
+  let now = Date.parse("2026-09-20T19:50:00Z");
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const props = controls({ isAdmin, state: {
+    inventory: { total: 169, current: 169, stale: 0, failed: 0 },
+    job: { jobId: "41", workspaceUserId: 7, mode: "nightly", status: "paused",
+      totalCount: 169, processedCount: 81, successCount: 81, failedCount: 0,
+      updatedAt: "2026-09-20T19:49:50Z", pausedUntil: "2026-09-20T19:50:48Z" },
+  } });
+  const { rerender } = render(<PortfolioRefreshProgress {...props} />);
+  expect(screen.getByText("Saved summaries ready")).toBeVisible();
+  expect(screen.getByText("Background check waiting. You can keep working.")).toBeVisible();
+  expect(screen.getByText("Background portfolio maintenance")).not.toBeVisible();
+  expect(screen.getByText(/This refresh will continue automatically/)).not.toBeVisible();
+  expect(screen.getByRole("button", { name: "Cancel" })).not.toBeVisible();
+  fireEvent.click(screen.getByText("Refresh details"));
+  expect(screen.getByText("Background portfolio maintenance")).toBeVisible();
+  const waiting = screen.getByRole("button", { name: "Waiting for Blackbaud" });
+  expect(waiting).toBeDisabled();
+  fireEvent.click(waiting);
+  expect(props.onResume).not.toHaveBeenCalled();
+  now += 49000;
+  rerender(<PortfolioRefreshProgress {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Resume now" }));
+  expect(props.onResume).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(props.onCancel).toHaveBeenCalledOnce();
+  expect(props.onStart).not.toHaveBeenCalled();
+  expect(props.onRetryFailures).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("honors the cooldown and delegates explicit resume and cancellation to the parent", () => {
   let now = Date.parse("2026-09-17T12:00:00Z");
   vi.spyOn(Date, "now").mockImplementation(() => now);

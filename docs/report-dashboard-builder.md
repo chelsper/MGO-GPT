@@ -1,5 +1,28 @@
 # Report Configuration And Dashboard Builder
 
+## My Dashboards
+
+Reports groups Alumni & Family Engagement and configured dashboards under
+**My Dashboards** (`/reports/dashboards`). The landing page lists only enabled
+dashboards the signed-in user can view, with local title/description search.
+Alumni appears first when available; other dashboards are sorted by title.
+Managers see a Manage dashboards link to the existing configuration editor.
+Disabled drafts and dashboards outside their audience are not reader shortcuts,
+even for managers. The underlying API access checks remain unchanged.
+
+Dashboard pages keep their existing URLs and use a shared selector to switch
+between accessible dashboards. Back links and breadcrumbs return to My
+Dashboards. Switching is disabled while arranging a layout; this does not change
+layout-save or refresh behavior. Portfolio Giving, Lists, and Team Standings
+remain separate report destinations.
+
+The landing page reads configuration metadata only. It does not prefetch report
+snapshots, start queries, or add schedules. The selector uses the same cached
+configuration hook; a direct custom-dashboard visit now also reads that metadata.
+Only the selected dashboard reads its existing saved-snapshot endpoint. New metric
+catalogs and personal dashboard composition are not part of this navigation step;
+creation remains in the administrator/Advancement Services builder.
+
 ## Editing Reports
 
 Open Report Access & Configurations. Search/select one report, or choose Add report.

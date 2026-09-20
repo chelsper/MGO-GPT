@@ -27,11 +27,23 @@ export default function PortfolioRefreshStatus({
   const healthy = summariesCurrent && settled && !isPending && !error;
   const backgroundJob =
     job?.mode === "nightly" && ["queued", "processing"].includes(job.status);
-  const progressAge = Date.now() - Date.parse(job?.updatedAt || "");
+  const now = Date.now();
+  const progressAge = now - Date.parse(job?.updatedAt || "");
   const recentProgress =
     Number.isFinite(progressAge) &&
     progressAge >= 0 &&
     progressAge < RECENT_PROGRESS_MS;
+  const cooldownDeadline = Date.parse(job?.pausedUntil || "");
+  // A saved cooldown can outlast the progress window. Allow the runner time to
+  // resume afterward, but do not conceal an indefinitely stalled pause.
+  const routineCooldown =
+    job?.mode === "nightly" &&
+    job.status === "paused" &&
+    !!job.jobId &&
+    Number.isFinite(progressAge) &&
+    progressAge >= 0 &&
+    Number.isFinite(cooldownDeadline) &&
+    now - cooldownDeadline < RECENT_PROGRESS_MS;
   const validProgress =
     job &&
     [
@@ -47,14 +59,13 @@ export default function PortfolioRefreshStatus({
     !job.failedItems?.length;
   // Every automatic batch sets isPending. Do not reopen the panel on each batch.
   const quietBackground =
-    backgroundJob &&
+    ((backgroundJob && recentProgress) || routineCooldown) &&
     summariesCurrent &&
     inventory.total > 0 &&
     validProgress &&
-    recentProgress &&
     !error;
 
-  // Pauses, failures, missing/stale summaries and unverified progress stay visible.
+  // Failures, stale summaries and pauses without a verified retry stay visible.
   if (!healthy && !quietBackground)
     return (
       <>
@@ -84,8 +95,9 @@ export default function PortfolioRefreshStatus({
         </span>{" "}
         {quietBackground ? (
           <span className="ml-3 inline-block">
-            Background giving check: {job.processedCount} of {job.totalCount}{" "}
-            checked. You can keep working.
+            {routineCooldown
+              ? "Background check waiting. You can keep working."
+              : `Background giving check: ${job.processedCount} of ${job.totalCount} checked. You can keep working.`}
           </span>
         ) : null}
         <span className="ml-3 inline-block whitespace-nowrap text-xs font-semibold text-indigo-700">
