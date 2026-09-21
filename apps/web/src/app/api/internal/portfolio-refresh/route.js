@@ -1,10 +1,9 @@
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getReportRefreshUser } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
+import { PORTFOLIO_REFRESH_HOURS } from "@/app/api/utils/portfolioMaintenancePolicy";
 
 export const maxDuration = 300;
-
-const PORTFOLIO_REFRESH_HOURS = new Set([1, 2, 3, 4, 5, 6]);
 
 function getRefreshSecret() {
   return String(
@@ -163,7 +162,7 @@ export async function GET(request) {
   const url = new URL(request.url);
   const force = url.searchParams.get("force") === "1";
   const currentHour = getNewYorkHour();
-  if (!force && !PORTFOLIO_REFRESH_HOURS.has(currentHour)) {
+  if (!force && !PORTFOLIO_REFRESH_HOURS.includes(currentHour)) {
     return Response.json({
       status: "skipped",
       reason: "Outside the overnight portfolio refresh window.",

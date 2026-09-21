@@ -11,8 +11,8 @@ import {
 } from "@/app/api/utils/reportRefresh";
 import sql from "@/app/api/utils/sql";
 import { isAdminRole } from "@/utils/workspaceRoles";
+import { PORTFOLIO_BATCH_SIZE as DEFAULT_BATCH_SIZE } from "@/app/api/utils/portfolioMaintenancePolicy";
 
-const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_CONCURRENCY = 2;
 const PROCESSING_LEASE_MINUTES = 5;
 

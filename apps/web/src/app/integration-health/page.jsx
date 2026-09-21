@@ -94,7 +94,7 @@ export default function IntegrationHealthPage() {
       .finally(() => { clearTimeout(timer); if (active) setLoading(false); });
     return () => { active = false; clearTimeout(timer); controller.abort(); };
   }, [attempt]);
-  const { quota, connections, portfolios, activity, verifications } = data?.sections || {};
+  const { quota, connections, portfolios, capacity, activity, verifications } = data?.sections || {};
   const connectionItems = connections?.items || [];
   const portfolioItems = portfolios?.items || [];
   const verificationItems = verifications?.items || [];
@@ -138,6 +138,29 @@ export default function IntegrationHealthPage() {
         <Limited total={connections?.total} shown={connectionItems.length} />
       </Section>
 
+      <Section id="health-capacity" title="Refresh capacity" available={capacity?.available}
+        description="Saved workload compared with the configured overnight schedule. No additional NXT calls or automatic refreshes are started here.">
+        {capacity?.available && <>
+          <Badge level="notice">{capacity.exceedsNight ? "Daily coverage exceeds scheduled capacity" : capacity.unknownWorkspaces ? "Workload is incomplete" : "Capacity arithmetic only; not a freshness guarantee"}</Badge>
+          <dl className="mt-5 grid grid-cols-2 gap-5 lg:grid-cols-4">
+            <div><dt className="text-sm text-gray-600">Known assignment slots</dt><dd className="mt-1 text-2xl font-bold tabular-nums">{capacity.slots}</dd></div>
+            <div><dt className="text-sm text-gray-600">Normal-night item ceiling</dt><dd className="mt-1 text-2xl font-bold tabular-nums">{capacity.itemsPerNight}</dd></div>
+            <div><dt className="text-sm text-gray-600">Slots needing checks</dt><dd className="mt-1 text-2xl font-bold tabular-nums">{capacity.due}</dd></div>
+            <div><dt className="text-sm text-gray-600">Giving checked in last 24 hours</dt><dd className="mt-1 text-2xl font-bold tabular-nums">{capacity.givingChecked24Hours} / {capacity.slots}</dd></div>
+          </dl>
+          <p className="mt-4 text-sm leading-relaxed text-gray-700">{capacity.workspaces} active workspaces considered; {capacity.uniqueConstituents} distinct constituents in known assignments. A constituent assigned to two workspaces consumes two portfolio slots.</p>
+          {capacity.unknownWorkspaces > 0 && <p className="mt-3 text-sm font-semibold text-amber-900">{capacity.unknownWorkspaces} {capacity.unknownWorkspaces === 1 ? "workspace lacks" : "workspaces lack"} a verified-empty or structurally complete assignment snapshot. Counts are a lower bound, not complete coverage.</p>}
+          <p className="mt-3 text-sm leading-relaxed text-gray-700">{capacity.neverChecked} slots have no saved giving check; {capacity.givingOver48Hours} have a giving check at least 48 hours old. Saved values remain available. Reconnecting accounts does not fix a capacity gap.</p>
+          <Details>
+            <p>Configured window: 1:00-7:00 AM Eastern, one batch of 10 every 10 minutes. The ceiling assumes a normal six-hour night; daylight-saving transitions change available slots. Assignment refreshes, failures, cooldowns and overlap can reduce throughput.</p>
+            <p>One full sweep needs at least {capacity.minimumSweepNights} normal-night equivalents; the current backlog alone needs at least {capacity.minimumBacklogNights}. These are best-case arithmetic lower bounds, not finish dates; newly due work competes for the same capacity.</p>
+            <p>{capacity.givingDue} giving checks due / {capacity.summaryDue} summaries due. The combined backlog counts each assignment only once. {capacity.assignmentsDue} assignment snapshots are missing or due.</p>
+            <p>Oldest saved giving check: {when(capacity.oldestGivingCheck)}. The last-24-hour count includes any saved refresh path, not just cron, and counts each current assignment once.</p>
+            <p>Giving is eligible again after 20 hours; full summaries normally after seven days. Neither rule guarantees execution. Check capacity and observed freshness before changing schedules or budgets; this page does not verify deployed cron execution.</p>
+          </Details>
+        </>}
+      </Section>
+
       <Section id="health-portfolios" title="Portfolio maintenance" available={portfolios?.available}
         description="Current assigned constituents only. Summary and giving backlogs overlap and must not be added together. Missing snapshots are unknown, not zero activity.">
         <div className="mb-4 flex flex-wrap gap-3"><a className={button} href="/my-top-prospects?tab=portfolio">Open portfolios</a><a className={button} href="/access-management">Security & Access</a></div>
@@ -164,6 +187,7 @@ export default function IntegrationHealthPage() {
           {activity.awaitingAssignments > 0 && <p className="mt-2 text-sm text-amber-900">{activity.awaitingAssignments} enrolled workspaces still need an initial assignment snapshot. Check their setup in Security &amp; Access and My Prospects.</p>}
           <p className="mt-3 text-sm text-gray-700">{activity.total} checks / {activity.neverChecked} never verified / {activity.due} eligible now.</p>
           <p className="mt-2 text-sm text-gray-700">{activity.callsToday} of {activity.dailyBudget} reserved API calls today. This is this worker's budget, not the subscription's remaining quota.</p>
+          {activity.capacity && <p className="mt-2 text-sm leading-relaxed text-gray-700">The current schedule offers at most {activity.capacity.callsPerNight} reserved call slots per normal night, even when the daily budget is higher. Checking every enrolled gift/action item with one fresh call each requires at least {activity.capacity.minimumSweepNights} normal-night equivalents. Pagination, retries and newly due checks add work; cached reuse can avoid calls. This is a sizing comparison, not a completion estimate.</p>}
           {activity.connectionErrors > 0 && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-900">{activity.connectionErrors} saved connection errors. Have the scheduled account owner check access/permissions; reconnect only if authorization requires it.</p>}
           {activity.throttled > 0 && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{activity.throttled} checks last encountered throttling. Let cooldowns and the daily budget control retries; do not restart each portfolio.</p>}
           {activity.otherErrors > 0 && <p className="mt-3 text-sm text-amber-900">{activity.otherErrors} checks have unverified responses. Investigate the worker if these persist; saved dates remain in place.</p>}

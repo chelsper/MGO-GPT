@@ -22,6 +22,9 @@ beforeEach(() => {
     if (text.includes("blackbaud_api_limit_state")) return [{ blocked_until: "2026-09-17T15:30:00Z", message: "private provider body" }];
     if (text.includes("FROM users u LEFT JOIN blackbaud_connections")) return [{ id: 7, name: "Service owner", has_access: true, has_refresh: true, total_rows: 1, access_token: "TOKEN", refresh_token: "SECRET", email: "private@example.test" }];
     if (text.includes("WITH workspaces")) return [{ ...current, id: 7, name: "Test MGO", total_rows: 1, last_error_message: "private donor" }];
+    if (text.includes("WITH capacity_workspaces")) return [{ workspace_count: 1, unknown_workspaces: 0, assignments_due: 0,
+      assignment_slots: 10, unique_constituents: 10, due_slots: 4, giving_due: 3, summary_due: 2,
+      never_checked: 1, giving_over_48_hours: 0, giving_checked_24_hours: 9 }];
     if (text.includes("WITH enrolled_workspaces")) return [{ workspace_count: values[0].length, awaiting_assignments: values[0].includes("12") ? 1 : 0,
       total: 20, never_checked: 4, due: 6, connection_errors: 1, throttled: 2, other_errors: 0, last_checked_at: "2026-09-17T14:00:00Z", items: [] }];
     if (text.includes("FROM portfolio_activity_refresh_gates")) return [{ calls_today: 12 }];
@@ -57,6 +60,8 @@ describe("read-only health projection", () => {
     try {
       const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
       expect(result.sections.quota.paused).toBe(true);
+      expect(result.sections.capacity).toMatchObject({ available: true, slots: 10, due: 4, itemsPerNight: 360 });
+      expect(result.sections.activity.capacity).toMatchObject({ callsPerNight: 288, minimumSweepNights: 1 });
       expect(result.sections.activity).toMatchObject({ enrollmentMode: "allowlist", workspaceCount: 1, awaitingAssignments: 0, due: 6, neverChecked: 4, total: 20, callsToday: 12, dailyBudget: 360 });
       expect(result.sections.verifications.items[0].href).toBe("/follow-ups?tab=next-steps&nextStepId=33&status=Open");
       const json = JSON.stringify(result);
@@ -133,5 +138,14 @@ describe("read-only health projection", () => {
     expect(result.sections.activity).toEqual({ available: false });
     expect(result.sections.verifications.available).toBe(true);
     expect(sql.mock.calls.filter(([s]) => s.join(" ").includes("WITH enrolled_workspaces"))).toHaveLength(1);
+  });
+  it("does not turn a failed capacity read into zero backlog or hide other sections", async () => {
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("WITH capacity_workspaces")
+      ? Promise.reject(new Error("private data")) : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.capacity).toEqual({ available: false });
+    expect(result.sections.portfolios.available).toBe(true);
+    expect(result.sections.verifications.available).toBe(true);
   });
 });

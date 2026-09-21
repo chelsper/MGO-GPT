@@ -170,7 +170,12 @@ original reviewed release, not this later implementation.
 ## Follow-Up Release Status
 
 Finding 1 was subsequently deployed as `4ced281b6bf1084f63b42274c36571aa533c6308`.
-Findings 2 and 3 now have tested local fixes awaiting a separate release. See
+Findings 2 and 3 were deployed as `69b57b0a60b4009a9875e6bc71aba706e2807ebd`. See
 `docs/reliability-recovery-2026-09-21.md` for deployment verification, recovery
 boundaries, historical-receipt behavior, and regression evidence. The original
 audit findings and line references above remain historical baseline evidence.
+
+Capacity/freshness remains open. The subsequent read-only measurement work and
+updated saved-data evidence are recorded in
+`docs/conference-refresh-capacity-2026-09-21.md`; it does not increase scheduled
+work, remove limits, or certify daily coverage.

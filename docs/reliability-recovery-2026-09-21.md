@@ -11,9 +11,17 @@
   receipt history. No verification buttons, NXT writes, or refresh jobs were run.
 - Candidate evidence: 3,567 tests, typecheck, build, and release guard passed.
 
-## Prepared Locally: Findings 2 And 3
+## Deployed: Findings 2 And 3
 
-These follow-up changes have not been deployed.
+- Release SHA: `69b57b0a60b4009a9875e6bc71aba706e2807ebd`.
+- Vercel deployment: `dpl_CMAkdxvTjrfCr5vdFoHYHhJZfwjc`.
+- Previous release: `4ced281b6bf1084f63b42274c36571aa533c6308`.
+- Normal fast-forward push to `main`; the `mgo-gpt` deployment completed and
+  production SHA/assets matched. The effective project root remains `apps/web`.
+- Signed-in Integration Health loaded successfully after release. One historical
+  reminder receipt now appears for explicit local-finalization verification, as
+  expected with the additive marker. No verification, reminder change, NXT write,
+  refresh, or failure injection was performed in production.
 
 ### Empty Portfolio Handling
 
@@ -74,5 +82,7 @@ can remain blocked; investigate the existing action rather than sending another.
 - No production database failure injection or live NXT acceptance writes were run.
 
 The remaining audit readiness item is background refresh capacity/freshness.
+The next local change adds read-only Admin capacity measurements, not extra API
+traffic. See `docs/conference-refresh-capacity-2026-09-21.md`.
 Sandbox isolation and approved sandbox write acceptance are still required before
 calling the conference copy ready. Family import remains out of scope.

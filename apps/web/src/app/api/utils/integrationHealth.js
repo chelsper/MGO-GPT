@@ -3,6 +3,7 @@ import { getReportRefreshUser } from "./reportRefresh";
 import { activityOrigin, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
 import { activityEnrollmentConfig, resolveActivityEnrollment } from "./portfolioActivityEnrollment";
 import { readPortfolioActivityCoverage } from "./portfolioActivityCoverage";
+import { activityCapacity, readPortfolioRefreshCapacity } from "./portfolioRefreshCapacity";
 
 const LIMIT = 100;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -122,7 +123,7 @@ async function activity(origin) {
       CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS calls_today
     FROM portfolio_activity_refresh_gates WHERE origin = ${origin}
   `;
-  return { enabled: true, enrollmentMode: mode, ...coverage,
+  return { enabled: true, enrollmentMode: mode, ...coverage, capacity: activityCapacity(coverage.total),
     nextAllowedAt: date(gate?.next_allowed_at), leaseUntil: date(gate?.lease_until),
     callsToday: count(gate?.calls_today), dailyBudget: ACTIVITY_DAILY_CALLS };
 }
@@ -153,7 +154,7 @@ export async function readIntegrationHealth({ viewerId, origin }) {
       return { blockedUntil: date(row?.blocked_until), updatedAt: date(row?.updated_at),
         paused: Boolean(date(row?.blocked_until) && Date.parse(row.blocked_until) > Date.now()) };
     },
-    connections: () => connections(viewerId), portfolios,
+    connections: () => connections(viewerId), portfolios, capacity: readPortfolioRefreshCapacity,
     activity: () => activity(origin), verifications,
   };
   // Partial failures stay unknown, never become empty/healthy sections. No schema,

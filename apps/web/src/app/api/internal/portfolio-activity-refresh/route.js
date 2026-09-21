@@ -4,6 +4,7 @@ import { activityOrigin } from "@/app/api/utils/portfolioActivityData";
 import { activityEnrollmentConfig, resolveActivityEnrollment } from "@/app/api/utils/portfolioActivityEnrollment";
 import { refreshPortfolioActivity } from "@/app/api/utils/portfolioActivityRefresh";
 import { isReviewerRole } from "@/utils/workspaceRoles";
+import { PORTFOLIO_REFRESH_HOURS } from "@/app/api/utils/portfolioMaintenancePolicy";
 
 export const maxDuration = 120;
 
@@ -15,7 +16,7 @@ export async function GET(request) {
   const origin = activityOrigin();
   if (!enrollment.enabled || !origin || process.env.VERCEL_ENV === "preview") return reply({ status: "disabled" });
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(new Date()));
-  if (!(hour >= 1 && hour < 7) && new URL(request.url).searchParams.get("force") !== "1") return reply({ status: "outside_window" });
+  if (!PORTFOLIO_REFRESH_HOURS.includes(hour) && new URL(request.url).searchParams.get("force") !== "1") return reply({ status: "outside_window" });
   try {
     await ensureAppSchema();
     const refreshUser = await getReportRefreshUser();

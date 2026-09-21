@@ -196,3 +196,32 @@ it("discloses a bounded coverage list instead of hiding additional portfolios", 
   render(<IntegrationHealthPage />);
   expect(await screen.findByText(/Showing 1 of 101/)).toBeVisible();
 });
+
+it("shows capacity separately from saved freshness, without starting more work", async () => {
+  const data = snapshot();
+  data.sections.capacity = { available: true, workspaces: 103, unknownWorkspaces: 2, slots: 908,
+    uniqueConstituents: 800, due: 578, givingDue: 578, summaryDue: 10, neverChecked: 25,
+    givingOver48Hours: 100, givingChecked24Hours: 330, itemsPerNight: 360,
+    minimumSweepNights: 3, minimumBacklogNights: 2, exceedsNight: true, assignmentsDue: 1 };
+  data.sections.activity = { available: true, enabled: true, dailyBudget: 360, callsToday: 288,
+    capacity: { callsPerNight: 288, minimumSweepNights: 7 } };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  const section = await screen.findByRole("region", { name: "Refresh capacity" });
+  expect(within(section).getByText("Daily coverage exceeds scheduled capacity")).toBeVisible();
+  expect(within(section).getByText("330 / 908")).toBeVisible();
+  expect(within(section).getByText(/2 workspaces lack/)).toBeVisible();
+  expect(within(section).getByText(/25 slots have no saved giving check/)).toBeVisible();
+  fireEvent.click(within(section).getByText("Saved check details"));
+  expect(within(section).getByText(/best-case arithmetic lower bounds, not finish dates/)).toBeVisible();
+  expect(screen.getByText(/at most 288 reserved call slots per normal night/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: /start|refresh now|restart|sync/i })).not.toBeInTheDocument();
+});
+
+it("shows unknown capacity when the section is unavailable", async () => {
+  render(<IntegrationHealthPage />);
+  const section = await screen.findByRole("region", { name: "Refresh capacity" });
+  expect(within(section).getByRole("status")).toHaveTextContent("unknown, not clear");
+  expect(within(section).queryByText("Known assignment slots")).not.toBeInTheDocument();
+});
