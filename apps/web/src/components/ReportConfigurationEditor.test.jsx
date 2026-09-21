@@ -72,6 +72,7 @@ describe("single-report editor", () => {
     const report = dashboard();
     const { unmount } = render(<ReportConfigurationEditor initialConfigurations={[report]} users={users} />);
     expect(screen.getByRole("link", { name: "Back to Setup Hub" })).toHaveAttribute("href", "/setup");
+    expect(screen.getByRole("link", { name: "Metric Library" })).toHaveAttribute("href", "/report-configurations/metrics");
     expect(screen.queryByRole("link", { name: /Back to dashboard/ })).not.toBeInTheDocument();
     const clean = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(clean);

@@ -2540,6 +2540,24 @@ export default async function ensureAppSchema() {
       ON report_configurations (visibility)
     `;
     await sql`
+      DO $metric_library_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 4);
+        CREATE TABLE IF NOT EXISTS report_metric_library (
+          id UUID PRIMARY KEY,
+          source_id TEXT NOT NULL UNIQUE,
+          source_fingerprint TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          display_format TEXT NOT NULL CHECK (display_format IN ('number', 'currency', 'table')),
+          published BOOLEAN NOT NULL DEFAULT FALSE,
+          updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      END $metric_library_schema$
+    `;
+    await sql`
       INSERT INTO report_configurations (
         report_key,
         title,

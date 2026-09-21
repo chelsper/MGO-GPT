@@ -61,6 +61,10 @@
 .rowPreview { background: white; border: 1px solid var(--editor-line); padding: 16px; border-radius: 10px; }
 .rowPreview strong { color: #166534; }
 .preview { padding-top: 8px; }
+.metricEntry { display: grid; gap: 8px; text-align: left; padding: 16px; border: 1px solid var(--editor-line); border-radius: 12px; background: white; color: var(--editor-ink); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.metricEntry[aria-pressed="true"] { border-color: #0f766e; background: #f0fdfa; }
+.metricEntry span, .metricEntry small { color: var(--editor-muted); font-size: 13px; }
+.metricValue { color: #0f766e; font-size: 36px; font-weight: 750; margin: 16px 0; overflow-wrap: anywhere; }
 .transfer { margin-bottom: 20px; }
 .transfer summary, .sourceList summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; font-weight: 700; }
 .transfer p { margin: 12px 0; }

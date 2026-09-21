@@ -146,6 +146,11 @@ export function isNavigationItemActive(pathname, href) {
 
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
+  if (pathname === "/report-configurations/metrics") return [
+    { label: "Home", href: "/" },
+    ...(canManageWorkspace ? [{ label: "Setup Hub", href: "/setup" }, { label: "Report Access & Configurations", href: "/report-configurations" }] : []),
+    { label: "Metric Library" },
+  ];
 
   const exactLabel = ROUTE_LABELS[pathname];
   if (exactLabel) {

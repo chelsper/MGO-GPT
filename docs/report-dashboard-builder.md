@@ -19,9 +19,58 @@ remain separate report destinations.
 The landing page reads configuration metadata only. It does not prefetch report
 snapshots, start queries, or add schedules. The selector uses the same cached
 configuration hook; a direct custom-dashboard visit now also reads that metadata.
-Only the selected dashboard reads its existing saved-snapshot endpoint. New metric
-catalogs and personal dashboard composition are not part of this navigation step;
-creation remains in the administrator/Advancement Services builder.
+Only the selected dashboard reads its existing saved-snapshot endpoint. Personal
+dashboard composition remains a later phase; creation stays in the
+administrator/Advancement Services builder. The Metric Library below prepares
+existing saved sources for reuse without changing those dashboards.
+
+## Metric Library (Phase 1)
+
+Open **Setup Hub > Report Access & Configurations > Metric Library**. Active
+Administrators and Advancement Services managers can register an existing Alumni
+& Family Engagement count, general-dashboard value, or query-results table.
+Give it a clear name and reporting-period description, select its saved source,
+and save. New entries start unpublished; nothing is enrolled automatically.
+**Make available in the library** publishes only the reusable reference, not a
+new dashboard. End-user dashboard assembly is not included in this phase.
+
+Query counts stay numeric, manual values support number or USD currency display,
+and query tables retain their source column formatting. A row count is never a
+giving amount or a distinct-donor count unless the underlying query guarantees
+one row per donor. Preview is explicit and saved-only. Missing results remain
+unknown, zero is valid, and frozen/manual/stale results retain their original
+provenance and timestamp. Previewing or editing adds no NXT calls or refresh jobs.
+
+Access and refresh policy are inherited from the source report. They are edited
+in the existing report editor, not duplicated here. Reader endpoints recheck
+publication, the source's current audience/activation, and its identity on every
+request. Publishing cannot grant additional access. Managers have a separate
+saved-result preview, including disabled drafts, consistent with the existing
+configuration preview. Query tables expose all source columns to that audience;
+review report viewers before publishing constituent-level data.
+
+Source references bind the report record, structural keys and query/source type.
+Changing a configured query ID, source kind or recreating the report makes the
+entry unavailable until a manager explicitly reviews and accepts the source.
+Labels, layout, policy and ordinary manual-value edits do not break reuse.
+Edits to an NXT query's definition under the same query ID cannot be detected by
+this metadata check; validate its output through the existing source workflow.
+A broken entry can still be unpublished without accepting a replacement.
+Duplicate source entries are rejected. Revision checks prevent concurrent edits
+from silently overwriting one another; failed saves retain the user's draft.
+
+`GET /api/reports/metrics` returns authorized published metadata only; `?manage=1`
+is manager-only. `GET /api/reports/metrics/:id` projects just the chosen saved
+result; `?preview=1` is manager-only. POST/PATCH update library metadata only and
+reject cross-origin writes, unknown fields and oversized bodies. All responses
+are private/no-store. No cron secret, query execution, snapshot write or access
+setting is accepted through these routes.
+
+Schema initialization adds only `report_metric_library`, using an advisory lock
+and idempotent CREATE. It stores references, presentation, publication and
+revision metadata; no source configurations or saved results are migrated.
+Rollback to the previous app leaves this unused table in place and existing
+reports intact. Do not drop it as part of a normal rollback.
 
 ## Editing Reports
 

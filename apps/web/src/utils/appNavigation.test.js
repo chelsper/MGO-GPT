@@ -10,6 +10,15 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it("returns Metric Library managers to report configuration through Setup Hub", () => {
+    expect(getBreadcrumbs("/report-configurations/metrics", { canManageWorkspace: true })).toEqual([
+      { label: "Home", href: "/" }, { label: "Setup Hub", href: "/setup" },
+      { label: "Report Access & Configurations", href: "/report-configurations" }, { label: "Metric Library" },
+    ]);
+    expect(getBreadcrumbs("/report-configurations/metrics")).toEqual([
+      { label: "Home", href: "/" }, { label: "Metric Library" },
+    ]);
+  });
   it("names the report collection Reports while retaining its default destination", () => {
     const items = getNavigationItems({ isReviewer: false });
     expect(items.find(item => item.href === "/reports")).toMatchObject({ label: "Reports", primaryOrder: 3 });

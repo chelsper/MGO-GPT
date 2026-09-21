@@ -106,8 +106,9 @@ Future. Made. Phase II report remains at its original URL with its existing quer
 access rules, membership action, and refresh behavior until its new list source
 settings are explicitly saved. It is not silently migrated.
 Retired custom-field count reports are not re-enabled. My Dashboards now groups
-the existing engagement and configured dashboards separately from Lists; reusable
-metric libraries and personal dashboard composition remain future work.
+the existing engagement and configured dashboards separately from Lists. The
+administrator Metric Library now registers their existing saved sources for reuse;
+personal dashboard composition remains future work. See `report-dashboard-builder.md`.
 
 Admin and Advancement Services use **Setup > Report Access & Configurations >
 Add list**. Configure a title, an existing NXT constituent custom-field category,

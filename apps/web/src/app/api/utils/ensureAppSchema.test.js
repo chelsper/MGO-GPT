@@ -68,3 +68,12 @@ it("adds an append-only organization settings audit without changing existing pr
   expect(query).toContain("CREATE TABLE IF NOT EXISTS organization_settings_audits");
   expect(query).not.toMatch(/UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|report_snapshots_cache/);
 });
+
+it("adds only an idempotent locked metric metadata table without seeding or rewriting reports", async () => {
+  await ensureAppSchema();
+  const query = sqlMock.mock.calls.map(([strings]) => strings.join(" ")).find(text => text.includes("DO $metric_library_schema$"));
+  expect(query).toContain("pg_advisory_xact_lock(734019, 4)");
+  expect(query).toContain("source_id TEXT NOT NULL UNIQUE");
+  expect(query).toContain("published BOOLEAN NOT NULL DEFAULT FALSE");
+  expect(query).not.toMatch(/INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|report_snapshots_cache/);
+});

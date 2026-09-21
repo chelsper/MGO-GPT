@@ -309,7 +309,7 @@ export default function ReportConfigurationEditor({ initialConfigurations, users
   }
 
   return <main className={styles.page}><div className={styles.container}>
-    <header className={styles.header}><div><SetupReturnLink /><h1>Report Access &amp; Configurations</h1><p className={styles.muted}>Choose a report, build its content, then decide who can see it.</p></div></header>
+    <header className={styles.header}><div><SetupReturnLink /><h1>Report Access &amp; Configurations</h1><p className={styles.muted}>Choose a report, build its content, then decide who can see it.</p></div><a className={styles.button} href="/report-configurations/metrics">Metric Library</a></header>
     <section className={`${styles.card} ${styles.toolbar}`} aria-label="Choose a report">
       <label className={`${styles.field} ${styles.search}`}>Find a report<input type="search" placeholder="Search reports" value={search} disabled={saving} onChange={(event) => setSearch(event.target.value)} /></label>
       <label className={`${styles.field} ${styles.picker}`}>Selected report<select value={selectedKey} disabled={saving} onChange={(event) => setSelectedKey(event.target.value)}>
