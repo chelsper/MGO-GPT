@@ -48,3 +48,15 @@ it("keeps legacy receipts completed and exposes only safe intent/date fields for
   expect(receipt).toMatchObject({ actionIntent: "planned", actionDate: "2026-09-18" });
   expect(receipt).not.toHaveProperty("createPayload");
 });
+it("distinguishes NXT saved from confirmed local finalization without exposing notes", () => {
+  const row = { state: "saved", blackbaud_action_id: "500", request_payload: { notes: "private" } };
+  expect(publicActionReceipt(row)).toMatchObject({ state: "saved", needsLocalRecovery: true, message: expect.stringContaining("local save") });
+  expect(publicActionReceipt({ ...row, local_finalized_at: "2026-09-21T12:00:00Z" }).needsLocalRecovery).toBe(false);
+  expect(JSON.stringify(publicActionReceipt(row))).not.toContain("private");
+});
+it("offers verification for an old processing receipt only when a remote ID was saved", () => {
+  const row = { state: "processing", updated_at: "2026-01-01T00:00:00Z", blackbaud_action_id: "500" };
+  expect(publicActionReceipt(row).canVerify).toBe(true);
+  expect(publicActionReceipt({ ...row, blackbaud_action_id: null }).canVerify).toBe(false);
+  expect(publicActionReceipt({ ...row, updated_at: new Date().toISOString() }).canVerify).toBe(false);
+});

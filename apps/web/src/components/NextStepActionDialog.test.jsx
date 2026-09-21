@@ -200,6 +200,29 @@ it.each(["processing", "saved", "no action ID"])("does not offer recovery for %s
   expect(screen.queryByRole("button", { name: "Verify existing NXT action" })).not.toBeInTheDocument();
   expect(fetch.mock.calls).toHaveLength(1);
 });
+it("offers safe local recovery for an older saved receipt without re-opening the create form", async () => {
+  withReview("Open");
+  context.receipt = { ...context.receipt, state: "saved", needsLocalRecovery: true, message: "The local activity save needs confirmation." };
+  fetch.mockImplementation(async (url, options) => options?.method === "PATCH"
+    ? reply({ receipt: { ...context.receipt, needsLocalRecovery: false, message: "Local save checked." } }) : reply(context));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Verify existing NXT action" }));
+  await screen.findByText("Local save checked.");
+  expect(screen.queryByRole("button", { name: "Verify existing NXT action" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
+  expect(writes()).toHaveLength(0);
+  expect(fetch.mock.calls.filter(([, options]) => options?.method === "PATCH")).toHaveLength(1);
+});
+it("offers only verification when the server marks a stopped processing receipt recoverable", async () => {
+  withReview("Open");
+  context.receipt = { ...context.receipt, state: "processing", canVerify: true };
+  fetch.mockImplementation(async (url, options) => options?.method === "PATCH"
+    ? reply({ receipt: { ...context.receipt, state: "saved", canVerify: false, message: "Local save checked." } }) : reply(context));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Verify existing NXT action" }));
+  await screen.findByText("Local save checked.");
+  expect(writes()).toHaveLength(0);
+});
 
 it("schedules from the saved due date without offering reminder completion", async () => {
   respond = async action => reply({ receipt: { state: "saved", actionId: "500", constituentId: "123", actionIntent: action.actionIntent,

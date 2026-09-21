@@ -103,6 +103,7 @@ describe("read-only health projection", () => {
     expect(activityCall[0].join(" ")).toContain("SELECT DISTINCT");
     const receipts = sql.mock.calls.find(([s]) => s.join(" ").includes("FROM pending_action_nxt_receipts"))[0].join(" ");
     expect(receipts).toContain("r.state IN ('review', 'processing')");
+    expect(receipts).toContain("r.state = 'saved' AND r.local_finalized_at IS NULL");
     expect(receipts).toContain("LIMIT 100");
   });
   it("reports automatic enrollment and setup gaps from local account metadata only", async () => {

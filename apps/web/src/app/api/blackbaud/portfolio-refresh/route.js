@@ -581,14 +581,18 @@ export async function POST(request) {
       SELECT blackbaud_portfolio_cache, blackbaud_constituent_id
       FROM users WHERE id = ${workspaceUserId} LIMIT 1
     `;
-    const ids = portfolioIds(parsePayload(cacheRows[0]?.blackbaud_portfolio_cache));
-    if (!ids.length) {
+    const membership = parsePayload(cacheRows[0]?.blackbaud_portfolio_cache);
+    const ids = portfolioIds(membership);
+    const verifiedEmpty = membership?.portfolioMeta?.assignmentDataStatus === "live"
+      && Array.isArray(membership.leadSolicitor) && membership.leadSolicitor.length === 0
+      && Array.isArray(membership.supportingSolicitor) && membership.supportingSolicitor.length === 0;
+    if (!ids.length && !verifiedEmpty) {
       return Response.json(
         { error: "Load the Blackbaud portfolio assignment snapshot before starting enrichment" },
         { status: 409 },
       );
     }
-    const snapshots = await sql`
+    const snapshots = ids.length ? await sql`
       SELECT ids.constituent_id, summary.summary_payload, summary.data_complete,
         summary.stale_after, summary.last_error_stage,
         giving.payload AS giving_payload, giving.stale_after AS giving_stale_after
@@ -597,7 +601,7 @@ export async function POST(request) {
         ON summary.workspace_user_id = ${workspaceUserId} AND summary.constituent_id = ids.constituent_id
       LEFT JOIN portfolio_giving_snapshots AS giving
         ON giving.workspace_user_id = ${workspaceUserId} AND giving.constituent_id = ids.constituent_id
-    `;
+    ` : [];
     const selectedIds = selectPortfolioRefreshIds(ids, snapshots, mode);
     const jobs = await sql`
       INSERT INTO portfolio_refresh_jobs (
@@ -609,7 +613,8 @@ export async function POST(request) {
         batch_size,
         concurrency,
         mode,
-        status
+        status,
+        completed_at
       ) VALUES (
         ${workspaceUserId},
         ${context.authUserId},
@@ -619,7 +624,8 @@ export async function POST(request) {
         ${DEFAULT_BATCH_SIZE},
         ${DEFAULT_CONCURRENCY},
         ${mode},
-        ${selectedIds.length ? "queued" : "completed"}
+        ${selectedIds.length ? "queued" : "completed"},
+        CASE WHEN ${selectedIds.length} = 0 THEN NOW() ELSE NULL END
       )
       RETURNING *
     `;

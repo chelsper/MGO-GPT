@@ -1217,6 +1217,15 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      DO $pending_action_finalization_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 7);
+        ALTER TABLE pending_action_nxt_receipts
+          ADD COLUMN IF NOT EXISTS local_finalized_at TIMESTAMPTZ;
+      END $pending_action_finalization_schema$
+    `;
+
+    await sql`
       DO $nxt_create_receipts_schema$
       BEGIN
         PERFORM pg_advisory_xact_lock(734019, 6);

@@ -95,3 +95,10 @@ it("adds owner-scoped personal layout storage without report data or new refresh
   expect(query).toContain("revision BIGINT NOT NULL DEFAULT 1");
   expect(query).not.toMatch(/INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|report_snapshots_cache/);
 });
+it("adds a nullable action-finalization marker without falsely marking historical receipts complete", async () => {
+  await ensureAppSchema();
+  const query = sqlMock.mock.calls.map(([parts]) => parts.join(" ")).find(text => text.includes("DO $pending_action_finalization_schema$"));
+  expect(query).toContain("pg_advisory_xact_lock(734019, 7)");
+  expect(query).toContain("ADD COLUMN IF NOT EXISTS local_finalized_at TIMESTAMPTZ");
+  expect(query).not.toMatch(/DEFAULT|UPDATE pending_action_nxt_receipts|DELETE FROM|DROP TABLE/);
+});

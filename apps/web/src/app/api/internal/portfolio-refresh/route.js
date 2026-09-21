@@ -212,12 +212,19 @@ export async function GET(request) {
     if (!job) {
       // Refresh assignment membership once before constructing a new manifest.
       // This call persists every assignment before enrichment starts.
-      if (target.refreshAssignments) await callRefreshRoute({
-        origin: url.origin,
-        authorization,
-        workspaceUserId: target.workspaceUserId,
-        path: "/api/blackbaud/portfolio?refreshAssignments=1",
-      });
+      if (target.refreshAssignments) {
+        const assignments = await callRefreshRoute({
+          origin: url.origin,
+          authorization,
+          workspaceUserId: target.workspaceUserId,
+          path: "/api/blackbaud/portfolio?refreshAssignments=1",
+        });
+        const meta = assignments?.portfolioMeta;
+        if (meta?.assignmentDataStatus !== "live" || (meta.source && meta.source !== "live")
+          || !Array.isArray(assignments.leadSolicitor) || !Array.isArray(assignments.supportingSolicitor)) {
+          throw new Error("NXT portfolio membership could not be verified. Saved assignments were retained; retry when NXT is available.");
+        }
+      }
       const started = await callRefreshRoute({
         origin: url.origin,
         authorization,
@@ -234,6 +241,11 @@ export async function GET(request) {
         workspaceUserId: Number(target.workspaceUserId),
         reason: "No stale constituents were selected.",
       });
+    }
+
+    // A verified-empty (or already-current) manifest is a completed no-op.
+    if (job.status === "completed") {
+      return Response.json({ status: "completed", workspaceUserId: Number(target.workspaceUserId), job });
     }
 
     const processed = await callRefreshRoute({

@@ -166,3 +166,11 @@ of alternate create retries, and read-only saved-submission verification. See
 `docs/nxt-create-write-safety.md` for scope and recovery limits. It is not yet
 deployed and does not close findings 2-4. The audit evidence above describes the
 original reviewed release, not this later implementation.
+
+## Follow-Up Release Status
+
+Finding 1 was subsequently deployed as `4ced281b6bf1084f63b42274c36571aa533c6308`.
+Findings 2 and 3 now have tested local fixes awaiting a separate release. See
+`docs/reliability-recovery-2026-09-21.md` for deployment verification, recovery
+boundaries, historical-receipt behavior, and regression evidence. The original
+audit findings and line references above remain historical baseline evidence.

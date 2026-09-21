@@ -36,7 +36,8 @@ beforeEach(() => {
   mocks.get.mockResolvedValue(savedAction);
   mocks.patch.mockResolvedValue({});
   mocks.complete.mockResolvedValue({ found: true, item: { id: 40, status: "Done" } });
-  mocks.sql.mockResolvedValue([]);
+  mocks.sql.mockImplementation(async parts => parts.join(" ").includes("WITH saved AS")
+    ? [{ state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }] : []);
 });
 
 it("loads saved context on demand without any NXT calls", async () => {
@@ -195,7 +196,7 @@ const reverify = (changes = {}) => PATCH(new Request("https://example.com/api/pe
 }), params);
 function reviewReceipt(changes = {}) {
   return { state: "review", blackbaud_action_id: "500", constituent_id: "123", reminder_completed: false,
-    request_payload: { ...body, sourceToken: JSON.stringify([token, 20]),
+    local_finalized_at: null, request_payload: { ...body, sourceToken: JSON.stringify([token, 20]),
       createPayload: { summary: savedAction.summary, description: savedAction.description, category: savedAction.category, date: savedAction.date },
       metadata: { type: savedAction.type, fundraisers: savedAction.fundraisers, opportunity_id: savedAction.opportunity_id } }, ...changes };
 }
@@ -203,7 +204,7 @@ it.each(["Open", "Done"])("reverifies only the durable action and leaves a %s re
   mocks.read.mockResolvedValue({ id: 40, status, constituentId: "different-new-link" });
   const receipt = reviewReceipt();
   mocks.receipt.mockResolvedValue(receipt);
-  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", message: "Existing NXT action verified." }]);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", local_finalized_at: "2026-09-16T16:00:00Z", message: "Existing NXT action verified." }]);
   const response = await reverify();
   expect(response.status).toBe(200);
   const payload = await response.json();
@@ -216,7 +217,9 @@ it.each(["Open", "Done"])("reverifies only the durable action and leaves a %s re
   expect(mocks.complete).not.toHaveBeenCalled();
   expect(mocks.fundraisers).not.toHaveBeenCalled();
   const [parts, ...values] = mocks.sql.mock.calls[0];
-  expect(parts.join("?")).toContain("AND state = 'review'");
+  expect(parts.join("?")).toContain("AND state = ANY(");
+  expect(parts.join("?")).toContain("AND local_finalized_at IS NULL");
+  expect(values).toContainEqual(["review", "saved"]);
   expect(parts.join("?")).toContain("p.user_id = ?");
   expect(parts.join("?")).not.toMatch(/UPDATE pending_actions|UPDATE discussion_items|blackbaud_portfolio_cache/);
   expect(values).toContain("20");
@@ -227,7 +230,7 @@ it("accepts harmless provider formatting during recovery", async () => {
   receipt.request_payload.createPayload.description = "Notes: first\nsecond";
   mocks.receipt.mockResolvedValue(receipt);
   mocks.get.mockResolvedValue({ ...savedAction, category: "Phone call", description: "Notes: first\r\nsecond" });
-  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved" }]);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }]);
   expect((await reverify()).status).toBe(200);
 });
 it.each([{ constituent_id: "other" }, { id: "other" }, { type: "Cultivation" }, { fundraisers: [] }, { description: "Changed notes" }])("keeps a real mismatch blocked without any write: %j", async changes => {
@@ -245,17 +248,19 @@ it.each([null, reviewReceipt({ blackbaud_action_id: null }), reviewReceipt({ sta
   expect(mocks.sql).not.toHaveBeenCalled();
 });
 it("returns an already-saved receipt without more NXT reads", async () => {
-  mocks.receipt.mockResolvedValue(reviewReceipt({ state: "saved" }));
+  mocks.receipt.mockResolvedValue(reviewReceipt({ state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }));
   expect((await reverify()).status).toBe(200);
   expect(mocks.get).not.toHaveBeenCalled();
   expect(mocks.sql).not.toHaveBeenCalled();
 });
 it("recovers the winning concurrent verification without a second activity insert", async () => {
-  mocks.receipt.mockResolvedValueOnce(reviewReceipt()).mockResolvedValue(reviewReceipt({ state: "saved" }));
+  mocks.sql.mockResolvedValue([]);
+  mocks.receipt.mockResolvedValueOnce(reviewReceipt()).mockResolvedValue(reviewReceipt({ state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }));
   expect((await reverify()).status).toBe(200);
   expect(mocks.sql).toHaveBeenCalledOnce();
 });
 it("fails safely if the receipt changed during verification", async () => {
+  mocks.sql.mockResolvedValue([]);
   mocks.receipt.mockResolvedValueOnce(reviewReceipt()).mockResolvedValue(null);
   expect((await reverify()).status).toBe(409);
   expect(mocks.complete).not.toHaveBeenCalled();
@@ -311,8 +316,8 @@ it.each(["2026-09-16", "2026-09-18"])("schedules an incomplete action on %s with
   expect(mocks.patch).not.toHaveBeenCalled();
   expect(mocks.complete).not.toHaveBeenCalled();
   const finalize = mocks.sql.mock.calls.find(([parts]) => parts.join("?").includes("INSERT INTO prospect_updates"));
-  expect(finalize[0].join("?")).toContain("WHERE ?::boolean");
-  expect(finalize.slice(1)).toContain(false);
+  expect(finalize[0].join("?")).toContain("AND ? = 'completed'");
+  expect(finalize.slice(1)).toContain("planned");
 });
 it.each([
   { actionIntent: undefined }, { actionIntent: "" }, { actionIntent: "scheduled" },
@@ -345,7 +350,7 @@ it("reverifies planned actions against the original intent and excludes local co
   receipt.request_payload.metadata.completed = false;
   mocks.receipt.mockResolvedValue(receipt);
   mocks.get.mockResolvedValue({ ...savedAction, completed: false });
-  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved" }]);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }]);
   const response = await reverify();
   expect(response.status).toBe(200);
   expect((await response.json()).receipt.actionIntent).toBe("planned");
@@ -359,6 +364,74 @@ it("still recovers legacy completed receipts with no intent field", async () => 
   const receipt = reviewReceipt();
   delete receipt.request_payload.actionIntent;
   mocks.receipt.mockResolvedValue(receipt);
-  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved" }]);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }]);
   expect((await reverify()).status).toBe(200);
+});
+
+it("keeps failed local finalization recoverable and never resends the verified NXT action", async () => {
+  let stored;
+  mocks.claim.mockImplementation(async ({ payload }) => { stored = reviewReceipt({ state: "processing", request_payload: payload }); return true; });
+  mocks.sql.mockImplementation(async parts => {
+    const query = parts.join(" ");
+    if (query.includes("WITH saved AS")) throw new Error("local activity insert failed");
+    if (query.includes("SET state =")) stored.state = "review";
+    return [];
+  });
+  const response = await call();
+  expect(response.status).toBe(202);
+  expect((await response.json()).receipt).toMatchObject({ state: "review", actionId: "500", message: expect.stringContaining("local activity save") });
+  expect(stored.local_finalized_at).toBeNull();
+  expect(mocks.complete).not.toHaveBeenCalled();
+  mocks.receipt.mockImplementation(async () => stored);
+  mocks.sql.mockImplementation(async parts => {
+    if (parts.join(" ").includes("WITH saved AS")) {
+      stored = { ...stored, state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" };
+      return [stored];
+    }
+    return [];
+  });
+  expect((await reverify()).status).toBe(200);
+  const reads = mocks.get.mock.calls.length;
+  expect((await reverify()).status).toBe(200);
+  expect(mocks.get).toHaveBeenCalledTimes(reads);
+  expect(mocks.create).toHaveBeenCalledOnce();
+  expect(mocks.patch).toHaveBeenCalledOnce(); // Only the original successful POST metadata patch.
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("does not complete a reminder when local finalization returns no durable marker", async () => {
+  mocks.sql.mockResolvedValue([]);
+  expect((await (await call()).json()).receipt.state).toBe("review");
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("repairs a legacy saved receipt whose app finalization was never confirmed", async () => {
+  const receipt = reviewReceipt({ state: "saved" });
+  mocks.receipt.mockResolvedValue(receipt);
+  mocks.sql.mockResolvedValue([{ ...receipt, local_finalized_at: "2026-09-16T16:00:00Z" }]);
+  expect((await (await reverify()).json()).receipt).toMatchObject({ state: "saved", needsLocalRecovery: false });
+  expect(mocks.get).toHaveBeenCalledOnce();
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("leaves legacy saved recovery pending when the NXT record no longer matches", async () => {
+  mocks.receipt.mockResolvedValue(reviewReceipt({ state: "saved" }));
+  mocks.get.mockResolvedValue({ ...savedAction, constituent_id: "other" });
+  expect((await reverify()).status).toBe(409);
+  expect(mocks.sql).not.toHaveBeenCalled();
+});
+it("recovers an interrupted processing receipt only after five minutes using its exact saved version", async () => {
+  const receipt = reviewReceipt({ state: "processing", updated_at: "2026-01-01 12:00:00.123456+00" });
+  mocks.receipt.mockResolvedValue(receipt);
+  mocks.sql.mockResolvedValue([{ ...receipt, state: "saved", local_finalized_at: "2026-09-16T16:00:00Z" }]);
+  expect((await reverify()).status).toBe(200);
+  expect(mocks.sql.mock.calls[0].slice(1)).toContain(receipt.updated_at);
+  expect(mocks.sql.mock.calls[0][0].join(" ")).toContain("updated_at <= NOW() - INTERVAL '5 minutes'");
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+});
+it.each([new Date().toISOString(), "not a date", null])("keeps fresh or undated processing receipts protected: %s", async updated_at => {
+  mocks.receipt.mockResolvedValue(reviewReceipt({ state: "processing", updated_at }));
+  expect((await reverify()).status).toBe(409);
+  expect(mocks.get).not.toHaveBeenCalled();
 });

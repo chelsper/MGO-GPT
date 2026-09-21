@@ -11,6 +11,7 @@ const states = {
 
 // Only the durable receipt's verified state may receive a success treatment.
 export function actionNoticeKind(receipt) {
+  if (receipt?.needsLocalRecovery) return "verification";
   return receipt?.state === "saved" ? "verified" : receipt?.state === "processing" ? "processing" : "verification";
 }
 

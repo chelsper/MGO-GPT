@@ -134,13 +134,13 @@ async function verifications() {
       p.status AS reminder_status, COUNT(*) OVER()::int AS total_rows
     FROM pending_action_nxt_receipts r JOIN users u ON u.id = r.owner_user_id
     JOIN pending_actions p ON p.id = r.pending_action_id AND p.owner_user_id = r.owner_user_id
-    WHERE r.state IN ('review', 'processing')
+    WHERE r.state IN ('review', 'processing') OR (r.state = 'saved' AND r.local_finalized_at IS NULL)
     ORDER BY r.updated_at, r.pending_action_id LIMIT 100
   `;
   return { total: count(rows[0]?.total_rows), items: rows.map(row => ({
     id: String(row.pending_action_id), ownerId: String(row.owner_user_id), ownerName: name(row.name),
     ownerActive: row.active === true, hasActionId: row.has_action_id === true,
-    state: row.state === "review" ? "review" : "processing", updatedAt: date(row.updated_at),
+    state: row.state === "processing" ? "processing" : "review", updatedAt: date(row.updated_at),
     href: `/follow-ups?tab=next-steps&nextStepId=${encodeURIComponent(row.pending_action_id)}&status=${row.reminder_status === "Done" ? "Done" : "Open"}`,
   })) };
 }

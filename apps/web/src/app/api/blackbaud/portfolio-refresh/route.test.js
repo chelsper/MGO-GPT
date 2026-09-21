@@ -14,6 +14,51 @@ const request = (action = "process") => new Request("https://jumgogpt.app/api/bl
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, jobId: "1" }),
 });
 
+describe("portfolio membership before starting enrichment", () => {
+  const verifiedEmpty = { leadSolicitor: [], supportingSolicitor: [], portfolioMeta: { assignmentDataStatus: "live" } };
+  function useMembership(membership) {
+    sql.mockImplementation(async (parts, ...values) => {
+      const query = parts.join(" ");
+      if (query.includes("SELECT * FROM portfolio_refresh_jobs")) return [];
+      if (query.includes("SELECT blackbaud_portfolio_cache")) return [{ blackbaud_portfolio_cache: membership, blackbaud_constituent_id: "99" }];
+      if (query.includes("INSERT INTO portfolio_refresh_jobs")) {
+        const count = JSON.parse(values[3]).length;
+        return [{ id: 45, workspace_user_id: 7, total_count: count, status: count ? "queued" : "completed" }];
+      }
+      return [];
+    });
+  }
+  it.each([verifiedEmpty, JSON.stringify(verifiedEmpty)])("finishes explicitly verified empty membership as a no-op: %j", async membership => {
+    useMembership(membership);
+    const response = await POST(request("start"));
+    expect(response.status).toBe(201);
+    expect((await response.json()).job).toMatchObject({ status: "completed", totalCount: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+    const queries = sql.mock.calls.map(([parts]) => parts.join(" "));
+    expect(queries.some(query => query.includes("INSERT INTO portfolio_refresh_items"))).toBe(false);
+    expect(queries.some(query => query.includes("FROM unnest"))).toBe(false);
+    expect(queries.find(query => query.includes("INSERT INTO portfolio_refresh_jobs"))).toContain("completed_at");
+    expect(queries.join(" ")).not.toMatch(/DELETE FROM|UPDATE users|UPDATE portfolio_constituent_snapshots/);
+  });
+  it.each([null, "not json", {}, { leadSolicitor: [], supportingSolicitor: [] },
+    { ...verifiedEmpty, portfolioMeta: { assignmentDataStatus: "unavailable" } },
+    { ...verifiedEmpty, portfolioMeta: { assignmentDataStatus: "partial" } },
+    { ...verifiedEmpty, supportingSolicitor: undefined },
+    { ...verifiedEmpty, leadSolicitor: [{}] }])("keeps unavailable or malformed membership blocked without erasing saved data: %j", async membership => {
+    useMembership(membership);
+    expect((await POST(request("start"))).status).toBe(409);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sql.mock.calls.map(([parts]) => parts.join(" ")).join(" ")).not.toMatch(/INSERT INTO|UPDATE users|DELETE FROM/);
+  });
+  it("starts normal enrichment when a formerly empty portfolio gains an assignment", async () => {
+    useMembership(verifiedEmpty);
+    expect((await (await POST(request("start"))).json()).job.totalCount).toBe(0);
+    useMembership({ ...verifiedEmpty, leadSolicitor: [{ constituentId: "123" }] });
+    expect((await (await POST(request("start"))).json()).job).toMatchObject({ status: "queued", totalCount: 1 });
+    expect(sql.mock.calls.some(([parts]) => parts.join(" ").includes("INSERT INTO portfolio_refresh_items"))).toBe(true);
+  });
+});
+
 beforeEach(() => {
   job = { id: 1, workspace_user_id: 7, mode: "nightly", status: "queued", batch_size: 10, concurrency: 2 };
   snapshot = { summary_payload: { mapped: { ...mapped, constituent: { id: "123", name: "Test" }, prospectSummaryNarrative: "Good snapshot" } }, data_complete: true, stale_after: new Date(Date.now() + 6 * 86400000).toISOString() };

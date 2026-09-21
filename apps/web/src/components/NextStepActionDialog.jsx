@@ -98,14 +98,15 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
     } finally { inFlight.current = false; setBusy(false); }
   }
   async function verifyExisting() {
-    if (inFlight.current || query.isFetching || receipt?.state !== "review" || !receipt.actionId) return;
+    if (inFlight.current || query.isFetching || (receipt?.state !== "review" && !receipt?.needsLocalRecovery && !receipt?.canVerify) || !receipt.actionId) return;
     inFlight.current = true; setBusy(true); setError("");
     try {
       const response = await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expectedWorkspaceId: workspaceId, actionId: receipt.actionId }) });
       const payload = await response.json().catch(() => null);
       if (!response.ok || payload?.receipt?.actionId !== receipt.actionId
-        || payload?.receipt?.constituentId !== receipt.constituentId || payload?.receipt?.state !== "saved") {
+        || payload?.receipt?.constituentId !== receipt.constituentId || payload?.receipt?.state !== "saved"
+        || payload.receipt.needsLocalRecovery) {
         throw new Error(payload?.error || "Verification could not be confirmed. Reload submission status. No action was sent again.");
       }
       setResult(payload.receipt);
@@ -192,10 +193,10 @@ export default function NextStepActionDialog({ item, viewerId, workspaceId, onCl
         </fieldset>
       </form>}
       {error && <p ref={resultRef} tabIndex={-1} role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-      {receipt?.state === "review" && receipt.actionId && <div className="mt-4">
+      {(receipt?.state === "review" || receipt?.needsLocalRecovery || receipt?.canVerify) && receipt.actionId && <div className="mt-4">
         <button type="button" className={`${buttonClass} !border-indigo-600 !bg-indigo-600 !text-white`} disabled={busy || query.isFetching} onClick={verifyExisting}>
           {busy ? "Checking submission..." : "Verify existing NXT action"}</button>
-        <p className="mt-2 text-xs text-gray-600">Reads this action in NXT and checks it against the original submission. Does not send it again or change the next step.</p>
+        <p className="mt-2 text-xs text-gray-600">Reads this action in NXT and checks it against the original submission, then safely finishes any missing local activity save. Does not send it again or change the next step.</p>
       </div>}
       {(query.isError || attempted || receipt) && <button type="button" className={`${buttonClass} mt-4`} disabled={busy || query.isFetching}
         onClick={reloadStatus}>Reload submission status</button>}

@@ -11,6 +11,7 @@ import { readNextStepAction, readNextStepActionReceipt, claimNextStepAction, act
   actionConstituentId, verifiedNextStepAction, publicActionReceipt } from "@/app/api/utils/pendingActionNxt";
 import { ACTION_CATEGORIES, INTERACTION_TYPES, validActionDate, validNextStepActionDate } from "@/utils/actionEntryOptions";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
+import finalizeNextStepAction from "@/app/api/utils/finalizeNextStepAction";
 
 const headers = { "Cache-Control": "private, no-store, max-age=0" };
 const reply = (body, status = 200) => Response.json(body, { status, headers });
@@ -54,6 +55,7 @@ export async function POST(request, { params }) {
   let claimed = false;
   let actionId = null;
   let verified = false;
+  let finalized = false;
   let reminderCompleted = false;
   let ownerUserId;
   let constituentId;
@@ -142,25 +144,11 @@ export async function POST(request, { params }) {
     // Finalize the receipt and local activity in one statement, exactly once.
     // Never run the legacy action route, which can clear the primary plan.
     stage = "finalize";
-    await sql`
-      WITH saved AS (
-        UPDATE pending_action_nxt_receipts SET state = 'saved',
-          message = 'NXT action saved and verified. The next step has not been completed by this submission.', updated_at = NOW()
-        WHERE pending_action_id = ${params.id} AND owner_user_id = ${ownerUserId} AND state = 'processing'
-        RETURNING entered_by_user_id
-      ), activity AS (
-        INSERT INTO prospect_updates (prospect_id, update_date, update_notes, update_title,
-          action_category, action_type, blackbaud_action_id, entered_by_user_id)
-        SELECT p.id, ${action.actionDate}::date, ${action.notes || action.summary}, ${action.summary},
-          ${action.actionCategory}, ${metadata.type}, ${actionId}, s.entered_by_user_id
-        FROM saved s JOIN prospects p ON p.id = ${item.prospect_id} AND p.user_id = ${ownerUserId}
-        WHERE ${completed}::boolean
-        RETURNING id
-      )
-      UPDATE users SET blackbaud_summary_cache = NULL, blackbaud_summary_cache_key = NULL,
-        blackbaud_summary_cached_at = NULL, updated_at = NOW()
-      WHERE id = ${ownerUserId} AND EXISTS (SELECT 1 FROM saved)
-    `;
+    const localReceipt = await finalizeNextStepAction({ id: params.id, ownerUserId, actionId, constituentId,
+      expected: { ...action, createPayload, metadata }, originalProspectId: item.prospect_id,
+      states: ["processing"], message: "NXT action saved and verified. The next step has not been completed by this submission." });
+    if (!localReceipt?.local_finalized_at) throw new Error("Local action finalization was not confirmed");
+    finalized = true;
     if (completed && action.completeReminder) {
       const completion = await applyPendingActionQuickAction({ id: params.id, ownerUserId, action: "complete", expectedUpdatedAt: item.updated_at });
       reminderCompleted = Boolean(completion?.item);
@@ -191,17 +179,20 @@ export async function POST(request, { params }) {
           : "The app could not prepare this action submission. No action was sent to NXT. Reload the saved list before trying again; resetting your NXT connection is not required for this app error.";
       return reply({ error: message }, 502);
     }
-    const message = verified && actionIntent === "planned"
+    const message = verified && !finalized
+      ? "The NXT action was verified, but its local activity save could not finish. Verify the existing action to safely finish the app save. Do not log this action again."
+      : verified && actionIntent === "planned"
       ? "Planned NXT action was verified as incomplete, but the app could not confirm the saved receipt. Reload submission status. Do not send it again."
       : verified
       ? "NXT action saved and verified, but the local completion result could not be confirmed. Reload the saved list before marking the next step complete. Do not log this action again."
       : "The app has not yet verified this NXT action. Do not log it again. Verification and next-step completion are separate.";
     try {
-      await sql`UPDATE pending_action_nxt_receipts SET state = ${verified ? "saved" : "review"},
+      await sql`UPDATE pending_action_nxt_receipts SET state = ${finalized ? "saved" : "review"},
         message = ${message}, reminder_completed = ${reminderCompleted}, updated_at = NOW()
-        WHERE pending_action_id = ${params.id} AND owner_user_id = ${ownerUserId}`;
+        WHERE pending_action_id = ${params.id} AND owner_user_id = ${ownerUserId}
+          AND (${finalized}::boolean OR local_finalized_at IS NULL)`;
     } catch { /* The original durable claim still prevents a duplicate POST. */ }
-    return reply({ receipt: { state: verified ? "saved" : "review", actionId, constituentId, actionIntent, actionDate, reminderCompleted, message } }, 202);
+    return reply({ receipt: { state: finalized ? "saved" : "review", actionId, constituentId, actionIntent, actionDate, reminderCompleted, message } }, 202);
   }
 }
 
@@ -223,8 +214,9 @@ export async function PATCH(request, { params }) {
     if (!receipt || receipt.blackbaud_action_id !== body.actionId) {
       return reply({ error: "A matching saved NXT action ID is required. No action was sent or changed." }, 409);
     }
-    if (receipt.state === "saved") return reply({ receipt: publicActionReceipt(receipt, item.status) });
-    if (receipt.state !== "review") return reply({ error: "This submission is still processing. Reload submission status before verifying." }, 409);
+    if (receipt.state === "saved" && receipt.local_finalized_at) return reply({ receipt: publicActionReceipt(receipt, item.status) });
+    const staleProcessing = receipt.state === "processing" && Date.parse(receipt.updated_at) <= Date.now() - 5 * 60 * 1000;
+    if (!["review", "saved"].includes(receipt.state) && !staleProcessing) return reply({ error: "This submission is still processing. Reload submission status before verifying." }, 409);
     const expected = receipt.request_payload;
     if (!expected?.createPayload || !expected?.metadata
       || !validActionDate(expected.actionDate) || typeof expected.summary !== "string" || !expected.summary
@@ -241,36 +233,13 @@ export async function PATCH(request, { params }) {
       createPayload: expected.createPayload, metadata: expected.metadata, actionIntent: expected.actionIntent || "completed" })) {
       return reply({ error: "NXT returned the action, but its identity or required fields do not match the original submission. Review it in NXT. Nothing was sent or changed." }, 409);
     }
-    const [saved] = await sql`
-      WITH saved AS (
-        UPDATE pending_action_nxt_receipts SET state = 'saved',
-          message = 'Existing NXT action verified. No action was sent again. This check did not change the next step or linked discussions.', updated_at = NOW()
-        WHERE pending_action_id = ${params.id} AND owner_user_id = ${ownerUserId} AND state = 'review'
-          AND blackbaud_action_id = ${receipt.blackbaud_action_id} AND constituent_id = ${receipt.constituent_id}
-          AND request_payload = ${JSON.stringify(expected)}::jsonb
-        RETURNING *
-      ), activity AS (
-        INSERT INTO prospect_updates (prospect_id, update_date, update_notes, update_title,
-          action_category, action_type, blackbaud_action_id, entered_by_user_id)
-        SELECT p.id, ${expected.actionDate}::date, ${expected.notes || expected.summary}, ${expected.summary},
-          ${expected.actionCategory}, ${expected.metadata.type}, s.blackbaud_action_id, s.entered_by_user_id
-        FROM saved s JOIN prospects p ON p.id = ${originalProspectId} AND p.user_id = ${ownerUserId}
-        LEFT JOIN constituents c ON c.id = p.constituent_id AND c.user_id = p.user_id
-        WHERE s.constituent_id IN (p.blackbaud_constituent_id, c.blackbaud_constituent_id)
-          AND ${expected.actionIntent || "completed"} = 'completed'
-          AND (p.constituent_id IS NULL OR c.id IS NOT NULL)
-          AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY[p.blackbaud_constituent_id, c.blackbaud_constituent_id]) link(id)
-            WHERE NULLIF(btrim(link.id), '') IS NOT NULL AND btrim(link.id) <> s.constituent_id)
-          AND NOT EXISTS (SELECT 1 FROM prospect_updates pu WHERE pu.prospect_id = p.id AND pu.blackbaud_action_id = s.blackbaud_action_id)
-        RETURNING id
-      ), cache AS (
-        UPDATE users SET blackbaud_summary_cache = NULL, blackbaud_summary_cache_key = NULL,
-          blackbaud_summary_cached_at = NULL, updated_at = NOW()
-        WHERE id = ${ownerUserId} AND EXISTS (SELECT 1 FROM saved) RETURNING id
-      ) SELECT * FROM saved
-    `;
+    const saved = await finalizeNextStepAction({ id: params.id, ownerUserId, actionId: receipt.blackbaud_action_id,
+      constituentId: receipt.constituent_id, expected, originalProspectId,
+      states: staleProcessing ? ["processing"] : ["review", "saved"],
+      processingVersion: staleProcessing ? receipt.updated_at : null,
+      message: "Existing NXT action verified and local save checked. No action was sent again. This check did not change the next step or linked discussions." });
     const latest = saved || await readNextStepActionReceipt(params.id, ownerUserId);
-    if (latest?.state !== "saved") return reply({ error: "The saved submission changed. Reload its status; no NXT action was sent or changed." }, 409);
+    if (latest?.state !== "saved" || !latest.local_finalized_at) return reply({ error: "The saved submission changed. Reload its status; no NXT action was sent or changed." }, 409);
     const currentTask = await readNextStepAction(params.id, ownerUserId);
     return reply({ receipt: publicActionReceipt(latest, currentTask?.status || null) });
   } catch {

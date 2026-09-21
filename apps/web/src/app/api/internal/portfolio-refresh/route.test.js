@@ -79,13 +79,37 @@ describe("scheduled portfolio refresh worker", () => {
   it("refreshes overdue membership then starts a lightweight nightly manifest", async () => {
     const { GET } = await import("./route.js");
     sqlMock.mockResolvedValueOnce([{ workspace_user_id: 7 }]);
-    fetch.mockResolvedValueOnce(Response.json({ leadSolicitor: [] }))
+    fetch.mockResolvedValueOnce(Response.json({ leadSolicitor: [{ constituentId: "123" }], supportingSolicitor: [], portfolioMeta: { assignmentDataStatus: "live" } }))
       .mockResolvedValueOnce(Response.json({ job: { jobId: "45" } }))
       .mockResolvedValueOnce(Response.json({ job: { jobId: "45", status: "queued", batchSize: 10 } }));
     expect((await GET(request())).status).toBe(200);
     expect(String(fetch.mock.calls[0][0])).toContain("refreshAssignments=1");
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "start", mode: "nightly" });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("completes verified-empty assignment refresh without requesting an enrichment batch", async () => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([{ workspace_user_id: 7 }]);
+    fetch.mockResolvedValueOnce(Response.json({ leadSolicitor: [], supportingSolicitor: [], portfolioMeta: { assignmentDataStatus: "live" } }))
+      .mockResolvedValueOnce(Response.json({ job: { jobId: "45", status: "completed", totalCount: 0 } }));
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "completed", job: { totalCount: 0 } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.some(([, options]) => options.body?.includes('"process"'))).toBe(false);
+  });
+
+  it.each([{}, { assignmentDataStatus: "unavailable" }, { assignmentDataStatus: "partial" },
+    { assignmentDataStatus: "live", source: "stale-cache" }])("does not treat an unavailable assignment refresh as successful empty membership: %j", async portfolioMeta => {
+    const { GET } = await import("./route.js");
+    sqlMock.mockResolvedValueOnce([{ workspace_user_id: 7 }]);
+    fetch.mockResolvedValueOnce(Response.json({ leadSolicitor: [], supportingSolicitor: [], portfolioMeta }));
+    const response = await GET(request());
+    expect(response.status).toBe(502);
+    expect((await response.json()).error).toContain("Saved assignments were retained");
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(sqlMock.mock.calls.map(([parts]) => parts.join(" ")).join(" ")).not.toMatch(/UPDATE|DELETE|INSERT/);
   });
 
   it("starts giving maintenance without reloading current assignments", async () => {

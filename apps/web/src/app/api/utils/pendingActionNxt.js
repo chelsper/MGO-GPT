@@ -36,7 +36,8 @@ export async function readNextStepAction(id, ownerUserId) {
 
 export async function readNextStepActionReceipt(id, ownerUserId) {
   const [receipt] = await sql`
-    SELECT state, blackbaud_action_id, constituent_id, reminder_completed, message, request_payload
+    SELECT state, blackbaud_action_id, constituent_id, reminder_completed, message, request_payload, local_finalized_at,
+      updated_at::text AS updated_at
     FROM pending_action_nxt_receipts
     WHERE pending_action_id = ${id} AND owner_user_id = ${ownerUserId}
   `;
@@ -104,13 +105,19 @@ export function verifiedNextStepAction(payload, { actionId, constituentId, creat
 }
 
 export function publicActionReceipt(receipt, reminderStatus = null) {
+  const needsLocalRecovery = receipt.state === "saved" && !receipt.local_finalized_at;
+  const staleProcessing = receipt.state === "processing" && Date.parse(receipt.updated_at) <= Date.now() - 5 * 60 * 1000;
   return {
     state: receipt.state, actionId: receipt.blackbaud_action_id || null,
     constituentId: receipt.constituent_id, reminderCompleted: Boolean(receipt.reminder_completed),
     actionIntent: receipt.request_payload?.actionIntent || "completed",
     actionDate: receipt.request_payload?.actionDate || null,
     reminderStatus,
-    message: receipt.state === "review"
+    needsLocalRecovery,
+    canVerify: Boolean(receipt.blackbaud_action_id && (receipt.state === "review" || needsLocalRecovery || staleProcessing)),
+    message: needsLocalRecovery
+      ? "The NXT action was saved, but the app activity save has not been confirmed. Verify the existing action to safely finish the local save. Nothing will be sent again and the next step will not change."
+      : receipt.state === "review"
       ? "The app has not yet verified this NXT action. Do not log it again. Verification and next-step completion are separate."
       : receipt.message || "This action submission is in progress or awaiting verification. It will not be sent again. Reload its status before doing anything else in NXT.",
   };
