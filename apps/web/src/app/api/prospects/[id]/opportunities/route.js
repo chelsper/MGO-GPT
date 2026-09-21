@@ -14,11 +14,13 @@ import {
 } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
+import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
 
 const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
 
 export async function POST(request, { params }) {
+  let writeReceipt = null;
   try {
     await ensureAppSchema();
 
@@ -87,27 +89,29 @@ export async function POST(request, { params }) {
 
     if (linkedBlackbaudConstituentId) {
       const origin = new URL(request.url).origin;
-      blackbaudOpportunity = await createBlackbaudOpportunity({
-        userId: user.id,
-        authUserId: sessionUser?.id || user.id,
-        origin,
-        payload: buildBlackbaudOpportunityPayload({
-          blackbaudConstituentId: linkedBlackbaudConstituentId,
-          title,
-          purpose: opportunityPurpose,
-          currentStage: resolvedOpportunityStage,
-          estimatedAmount: estimatedAmount ?? null,
-          askDate: askDate || null,
-          expectedDate: expectedDate || null,
-          opportunityStatus: resolvedOpportunityStatus,
-          closedAmount:
-            isFundedOpportunity
-              ? estimatedAmount ?? null
-              : isDeclinedOpportunity
-                ? 0
-                : null,
-          closeDate,
-        }),
+      const payload = buildBlackbaudOpportunityPayload({
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+        title,
+        purpose: opportunityPurpose,
+        currentStage: resolvedOpportunityStage,
+        estimatedAmount: estimatedAmount ?? null,
+        askDate: askDate || null,
+        expectedDate: expectedDate || null,
+        opportunityStatus: resolvedOpportunityStatus,
+        closedAmount:
+          isFundedOpportunity
+            ? estimatedAmount ?? null
+            : isDeclinedOpportunity
+              ? 0
+              : null,
+        closeDate,
+      });
+      blackbaudOpportunity = await guardedNxtCreate({
+        ownerUserId: user.id, enteredByUserId: sessionUser.id, kind: "opportunity",
+        source: `prospect-opportunity:${prospectId}`,
+        requestData: { title, purpose, currentStage, estimatedAmount, askDate, expectedDate, latestNotes }, payload,
+        onReceipt: receipt => { writeReceipt = receipt; },
+        create: () => createBlackbaudOpportunity({ userId: user.id, authUserId: sessionUser.id, origin, payload }),
       });
     }
 
@@ -132,6 +136,7 @@ export async function POST(request, { params }) {
       sharedOpportunityKey: null,
     });
 
+    await completeNxtCreateReceipt(writeReceipt);
     return Response.json(
       {
         ...linkedOpportunity.opportunity,
@@ -145,6 +150,8 @@ export async function POST(request, { params }) {
       { status: 201 },
     );
   } catch (error) {
+    const protectedResponse = nxtCreateFailure(error, writeReceipt);
+    if (protectedResponse) return protectedResponse;
     console.error("Error creating prospect opportunity:", error);
     return Response.json(
       {

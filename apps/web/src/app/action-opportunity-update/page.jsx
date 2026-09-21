@@ -1,4 +1,5 @@
 "use client";
+import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -2527,6 +2528,7 @@ export default function ActionOpportunityUpdatePage() {
               Action needed
             </div>
             {error}
+            <NxtWriteRecoveryLink message={error} />
           </div>
         ) : null}
 
@@ -4473,6 +4475,7 @@ export default function ActionOpportunityUpdatePage() {
                   Action needed
                 </div>
                 {error}
+                <NxtWriteRecoveryLink message={error} />
               </div>
             ) : null}
             {successMessage ? (

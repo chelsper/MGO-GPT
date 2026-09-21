@@ -5,6 +5,7 @@ import { resolveConstituent } from "@/app/api/utils/constituents";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
+import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
 import {
   buildBlackbaudActionMetadataPayload,
   buildBlackbaudActionPayload,
@@ -38,6 +39,7 @@ function getBlackbaudActionConstituentId(payload) {
 }
 
 export async function POST(request) {
+  let writeReceipt = null;
   try {
     const session = await auth();
     if (!session || !session.user?.email) {
@@ -102,24 +104,24 @@ export async function POST(request) {
         origin,
         apiUserId: user.id,
       });
-      blackbaudAction = await createBlackbaudAction({
-        userId: user.id,
-        authUserId,
-        origin,
-        payload: buildBlackbaudActionPayload({
-          blackbaudConstituentId: linkedBlackbaudConstituentId,
-          actionDate,
-          completedDate,
-          actionCategory,
-          summary,
-          actionNotes: notes,
-          nextStep,
-          authorName: actionAuthor.name,
-          fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
-        }),
-      }).catch((error) => ({
-        error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
-      }));
+      const payload = buildBlackbaudActionPayload({
+        blackbaudConstituentId: linkedBlackbaudConstituentId,
+        actionDate,
+        completedDate,
+        actionCategory,
+        summary,
+        actionNotes: notes,
+        nextStep,
+        authorName: actionAuthor.name,
+        fundraiserIds: fundraiserIds.length > 0 ? fundraiserIds : undefined,
+      });
+      blackbaudAction = await guardedNxtCreate({
+        ownerUserId: user.id, enteredByUserId: actionAuthor.id, kind: "action", source: "donor-update",
+        requestData: { actionDate, donorName, interactionType, transcript, notes, nextStep, summary, estimatedAmount, attachments, actionCategory,
+          constituentId, blackbaudConstituentId, createNewConstituent, additionalFundraiserUserId }, payload,
+        onReceipt: receipt => { writeReceipt = receipt; },
+        create: () => createBlackbaudAction({ userId: user.id, authUserId, origin, payload, maxRetries: 0 }),
+      });
 
       const createdActionId = getBlackbaudActionId(blackbaudAction);
       if (!blackbaudAction?.error && !createdActionId) {
@@ -139,7 +141,6 @@ export async function POST(request) {
           });
           const verifiedConstituentId = getBlackbaudActionConstituentId(verifiedAction);
           if (
-            verifiedConstituentId &&
             String(verifiedConstituentId) !== String(linkedBlackbaudConstituentId)
           ) {
             blackbaudAction = {
@@ -191,12 +192,7 @@ export async function POST(request) {
       }
 
       if (blackbaudAction?.error) {
-        return Response.json(
-          {
-            error: `Could not create NXT action: ${blackbaudAction.error}`,
-          },
-          { status: 502 },
-        );
+        throw new Error("The created NXT action could not be verified");
       }
     }
 
@@ -259,6 +255,7 @@ export async function POST(request) {
       );
     }
 
+    await completeNxtCreateReceipt(writeReceipt);
     return Response.json(
       {
         ...result[0],
@@ -268,6 +265,8 @@ export async function POST(request) {
       { status: 201 },
     );
   } catch (error) {
+    const protectedResponse = nxtCreateFailure(error, writeReceipt);
+    if (protectedResponse) return protectedResponse;
     console.error("Error creating donor update:", error);
     return Response.json(
       {

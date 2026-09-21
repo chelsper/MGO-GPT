@@ -15,6 +15,7 @@ import { resolveActionFundraiserIds } from "@/app/api/utils/actionFundraisers";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
+import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
 
 function formatActionUpdateNotes({
   notes,
@@ -59,66 +60,6 @@ function getBlackbaudActionConstituentId(payload) {
     payload?.value?.constituent?.constituent_id ||
     null
   );
-}
-
-function isBlackbaudRequestNotFulfilledError(message) {
-  const text = String(message || "");
-  return /404/i.test(text) && /RequestNotFulfilled|requested operation could not be fulfilled/i.test(text);
-}
-
-function buildMinimalBlackbaudActionPayload(payload) {
-  if (!payload || typeof payload !== "object") {
-    return payload;
-  }
-
-  const minimalPayload = {
-    constituent_id: payload.constituent_id,
-    date: payload.date,
-    category: payload.category,
-    direction: payload.direction,
-    summary: payload.summary,
-    description: payload.description,
-  };
-
-  if (payload.opportunity_id) {
-    minimalPayload.opportunity_id = payload.opportunity_id;
-  }
-
-  return minimalPayload;
-}
-
-function buildActionCreateFallbackVariants(payload) {
-  if (!payload || typeof payload !== "object") {
-    return [];
-  }
-
-  return [
-    {
-      syncVariant: "fallback-core-action-payload",
-      payload: buildMinimalBlackbaudActionPayload(payload),
-    },
-    {
-      syncVariant: "fallback-core-action-payload-no-direction",
-      payload: {
-        constituent_id: payload.constituent_id,
-        date: payload.date,
-        category: payload.category,
-        summary: payload.summary,
-        description: payload.description,
-        ...(payload.opportunity_id ? { opportunity_id: payload.opportunity_id } : {}),
-      },
-    },
-    {
-      syncVariant: "fallback-bare-action-payload",
-      payload: {
-        constituent_id: payload.constituent_id,
-        date: payload.date,
-        category: payload.category,
-        summary: payload.summary,
-        ...(payload.opportunity_id ? { opportunity_id: payload.opportunity_id } : {}),
-      },
-    },
-  ];
 }
 
 function summarizeActionCreatePayload(payload) {
@@ -269,6 +210,7 @@ async function repairProspectBlackbaudConstituentLink({
 }
 
 export async function POST(request, { params }) {
+  let writeReceipt = null;
   try {
     await ensureAppSchema();
 
@@ -449,46 +391,19 @@ export async function POST(request, { params }) {
         }
       }
 
-      blackbaudAction = await createBlackbaudAction({
-        userId: user.id,
-        authUserId,
-        origin,
-        payload: fullPayload,
-      }).catch((error) => ({
-        error: error instanceof Error ? error.message : "Failed to sync action to Blackbaud",
-        syncVariant: "initial-full-action-payload",
-      }));
-
-      if (blackbaudAction?.error && isBlackbaudRequestNotFulfilledError(blackbaudAction.error)) {
-        const fallbackVariants = buildActionCreateFallbackVariants(fullPayload);
-        for (const variant of fallbackVariants) {
-          attemptedCreateVariants.push({
-            syncVariant: variant.syncVariant,
-            payload: summarizeActionCreatePayload(variant.payload),
-          });
-          blackbaudAction = await createBlackbaudAction({
-            userId: user.id,
-            authUserId,
-            origin,
-            payload: variant.payload,
-          })
-            .then((payload) => ({
-              ...payload,
-              syncVariant: variant.syncVariant,
-            }))
-            .catch((error) => ({
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to sync action to Blackbaud",
-              syncVariant: variant.syncVariant,
-            }));
-
-          if (!blackbaudAction?.error) {
-            break;
-          }
-        }
-      }
+      blackbaudAction = await guardedNxtCreate({
+        ownerUserId: user.id, enteredByUserId: actionAuthor.id, kind: "action",
+        source: `prospect-action:${prospectId}`,
+        requestData: { actionDate, actionCategory, interactionType, summary, notes, nextStep, nextActionDueDate, linkedOpportunityId, additionalFundraiserUserId },
+        payload: fullPayload, onReceipt: receipt => { writeReceipt = receipt; },
+        create: () => createBlackbaudAction({
+          userId: user.id,
+          authUserId,
+          origin,
+          payload: fullPayload,
+          maxRetries: 0,
+        }),
+      });
 
       const createdActionId = getBlackbaudActionId(blackbaudAction);
 
@@ -509,7 +424,6 @@ export async function POST(request, { params }) {
           });
           const verifiedConstituentId = getBlackbaudActionConstituentId(verifiedAction);
           if (
-            verifiedConstituentId &&
             String(verifiedConstituentId) !== String(linkedBlackbaudConstituentId)
           ) {
             blackbaudAction = {
@@ -580,6 +494,8 @@ export async function POST(request, { params }) {
 
     }
 
+    if (blackbaudAction?.error) throw new Error("The created NXT action could not be verified");
+
     const updateNotes = formatActionUpdateNotes({
       notes,
       nextStep,
@@ -635,6 +551,7 @@ export async function POST(request, { params }) {
       completedAt: nextActionText ? null : prospect.next_action_completed_at,
     });
 
+    await completeNxtCreateReceipt(writeReceipt);
     return Response.json(
       {
         update: savedUpdate,
@@ -645,6 +562,8 @@ export async function POST(request, { params }) {
       { status: 201 },
     );
   } catch (error) {
+    const protectedResponse = nxtCreateFailure(error, writeReceipt);
+    if (protectedResponse) return protectedResponse;
     console.error("Error creating prospect action:", error);
     return Response.json(
       {

@@ -1,4 +1,5 @@
 "use client";
+import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useState, useRef, useEffect } from "react";
 import useUser from "@/utils/useUser";
@@ -797,6 +798,7 @@ export default function LogDonorUpdatePage() {
             }}
           >
             {error}
+            <NxtWriteRecoveryLink message={error} />
           </div>
         )}
 

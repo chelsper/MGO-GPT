@@ -1,4 +1,5 @@
 "use client";
+import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useEffect, useRef, useState } from "react";
 import useUser from "@/utils/useUser";
@@ -760,6 +761,7 @@ export default function NewConstituentPage() {
             }}
           >
             {error}
+            <NxtWriteRecoveryLink message={error} />
           </div>
         )}
 

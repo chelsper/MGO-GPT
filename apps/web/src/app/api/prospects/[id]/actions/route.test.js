@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/app/api/utils/nxtCreateReceipt", async importOriginal => ({
+  ...await importOriginal(),
+  guardedNxtCreate: vi.fn(async ({ kind, payload, create, onReceipt }) => {
+    const receipt = { id: "900", kind, payload, constituent_id: payload?.constituent_id, state: "processing" };
+    onReceipt(receipt);
+    const result = await create();
+    onReceipt({ ...receipt, state: "created", remote_id: result?.id });
+    return result;
+  }),
+  completeNxtCreateReceipt: vi.fn(),
+}));
+
 const authMock = vi.fn();
 const ensureAppSchemaMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
@@ -240,7 +252,7 @@ describe("prospect action route", () => {
     });
   });
 
-  it("saves locally and returns the NXT sync error when action creation fails", async () => {
+  it("holds a failed create without adding local activity or changing the next step", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([
@@ -276,13 +288,14 @@ describe("prospect action route", () => {
     const response = await POST(request, { params: { id: "7" } });
     const payload = await response.json();
 
-    expect(response.status).toBe(201);
-    expect(payload.update.id).toBe(902);
-    expect(payload.blackbaudAction.error).toMatch(/Blackbaud unavailable/i);
-    expect(syncPrimaryPendingActionMock).toHaveBeenCalled();
+    expect(response.status).toBe(409);
+    expect(payload.writeReceipt.id).toBe("900");
+    expect(payload.error).toContain("protected against resending");
+    expect(syncPrimaryPendingActionMock).not.toHaveBeenCalled();
+    expect(sqlMockImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("retries through narrower create payload variants on Blackbaud RequestNotFulfilled 404 errors", async () => {
+  it("does not try alternative create payloads after RequestNotFulfilled", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([
@@ -346,30 +359,14 @@ describe("prospect action route", () => {
     const response = await POST(request, { params: { id: "7" } });
     const payload = await response.json();
 
-    expect(response.status).toBe(201);
-    expect(payload.update.id).toBe(903);
-    expect(payload.blackbaudAction.syncVariant).toBe(
-      "fallback-core-action-payload-no-direction",
-    );
-    expect(createBlackbaudActionMock).toHaveBeenCalledTimes(3);
-    expect(createBlackbaudActionMock.mock.calls[1][0].payload).toEqual({
-      constituent_id: "234684",
-      date: "2026-06-11",
-      category: "Meeting",
-      direction: "Outbound",
-      summary: "Visit note",
-      description: "Notes: Good meeting",
-    });
-    expect(createBlackbaudActionMock.mock.calls[2][0].payload).toEqual({
-      constituent_id: "234684",
-      date: "2026-06-11",
-      category: "Meeting",
-      summary: "Visit note",
-      description: "Notes: Good meeting",
-    });
+    expect(response.status).toBe(409);
+    expect(payload.writeReceipt.id).toBe("900");
+    expect(createBlackbaudActionMock).toHaveBeenCalledTimes(1);
+    expect(createBlackbaudActionMock.mock.calls[0][0].maxRetries).toBe(0);
+    expect(syncPrimaryPendingActionMock).not.toHaveBeenCalled();
   });
 
-  it("preserves the linked NXT opportunity through action create fallbacks", async () => {
+  it("preserves the linked opportunity on the single attempted action create", async () => {
     const { POST } = await import("./route.js");
 
     queueSqlResult([
@@ -438,23 +435,20 @@ describe("prospect action route", () => {
     const response = await POST(request, { params: { id: "7" } });
     const payload = await response.json();
 
-    expect(response.status).toBe(201);
-    expect(payload.update.id).toBe(906);
+    expect(response.status).toBe(409);
+    expect(payload.writeReceipt.id).toBe("900");
     expect(buildBlackbaudActionPayloadMock).toHaveBeenCalledWith(
       expect.objectContaining({
         opportunityId: "bb-opp-301",
       }),
     );
-    expect(createBlackbaudActionMock.mock.calls[1][0].payload).toEqual(
+    expect(createBlackbaudActionMock.mock.calls[0][0].payload).toEqual(
       expect.objectContaining({
         opportunity_id: "bb-opp-301",
       }),
     );
-    expect(buildBlackbaudActionMetadataPayloadMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        opportunityId: "bb-opp-301",
-      }),
-    );
+    expect(createBlackbaudActionMock).toHaveBeenCalledTimes(1);
+    expect(buildBlackbaudActionMetadataPayloadMock).not.toHaveBeenCalled();
   });
 
   it("includes an additional fundraiser when another MGO is selected on the action form", async () => {

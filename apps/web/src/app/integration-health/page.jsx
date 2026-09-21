@@ -185,7 +185,7 @@ export default function IntegrationHealthPage() {
         </article>)}</div>
         <Limited total={verifications?.total} shown={verificationItems.length} />
       </Section>
-      <p className="text-sm leading-relaxed text-gray-600">Other workflow-specific results stay in <a className="font-semibold underline" href="/pledge-payments">Pledge Payments</a>, <a className="font-semibold underline" href="/import-history">Import History</a>, and <a className="font-semibold underline" href="/submissions">Work Queue</a>. This page does not certify every integration, email delivery, or scheduled job.</p>
+      <p className="text-sm leading-relaxed text-gray-600">Other workflow-specific results stay in <a className="font-semibold underline" href="/nxt-write-recovery">Saved NXT submissions</a> for the selected workspace, <a className="font-semibold underline" href="/pledge-payments">Pledge Payments</a>, <a className="font-semibold underline" href="/import-history">Import History</a>, and <a className="font-semibold underline" href="/submissions">Work Queue</a>. This page does not certify every integration, email delivery, or scheduled job.</p>
     </>}
   </main>;
 }

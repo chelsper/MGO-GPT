@@ -1,4 +1,5 @@
 "use client";
+import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 
 import { useEffect, useState } from "react";
 import useUser from "@/utils/useUser";
@@ -528,6 +529,7 @@ export default function UpdateOpportunityPage() {
             }}
           >
             {error}
+            <NxtWriteRecoveryLink message={error} />
           </div>
         )}
 

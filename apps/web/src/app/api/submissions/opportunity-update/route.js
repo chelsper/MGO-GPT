@@ -4,6 +4,7 @@ import { sendSubmissionEmail } from "@/app/api/utils/sendSubmissionEmail";
 import { resolveConstituent } from "@/app/api/utils/constituents";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
+import { guardedNxtCreate, completeNxtCreateReceipt, nxtCreateFailure } from "@/app/api/utils/nxtCreateReceipt";
 import {
   DECLINED_OPPORTUNITY_STATUS,
   FUNDED_OPPORTUNITY_STATUS,
@@ -22,6 +23,7 @@ const DEFAULT_OPPORTUNITY_PURPOSE = "Future. Made. Campaign";
 const DECLINED_OPPORTUNITY_PURPOSE = "Completed -- Not Fulfilled";
 
 export async function POST(request) {
+  let writeReceipt = null;
   try {
     const session = await auth();
     if (!session || !session.user?.email) {
@@ -145,11 +147,13 @@ export async function POST(request) {
             opportunityId: String(existingLinkedOpportunity.blackbaud_opportunity_id),
           };
         } else {
-          blackbaudOpportunity = await createBlackbaudOpportunity({
-            userId: user.id,
-            authUserId: sessionUser?.id || user.id,
-            origin,
-            payload: blackbaudPayload,
+          blackbaudOpportunity = await guardedNxtCreate({
+            ownerUserId: user.id, enteredByUserId: sessionUser.id, kind: "opportunity", source: "opportunity-update",
+            requestData: { donorName, opportunityTitle, purpose, opportunityStage, askAmount, askDate, expectedDate,
+              notes, attachments, constituentId, blackbaudConstituentId, createNewConstituent, linkedProspectId,
+              linkedOpportunityId, createNewOpportunity, jointMgoUserIds, sharedOpportunityKey }, payload: blackbaudPayload,
+            onReceipt: receipt => { writeReceipt = receipt; },
+            create: () => createBlackbaudOpportunity({ userId: user.id, authUserId: sessionUser.id, origin, payload: blackbaudPayload }),
           });
           blackbaudSync = blackbaudOpportunity?.id
             ? {
@@ -159,6 +163,7 @@ export async function POST(request) {
             : null;
         }
       } catch (error) {
+        if (writeReceipt || error?.writeReceipt) throw error;
         const message =
           error instanceof Error && error.message
             ? `Could not sync NXT opportunity: ${error.message}`
@@ -290,6 +295,7 @@ export async function POST(request) {
       );
     }
 
+    await completeNxtCreateReceipt(writeReceipt);
     return Response.json(
       {
         ...savedSubmission,
@@ -303,6 +309,8 @@ export async function POST(request) {
       { status: 201 },
     );
   } catch (error) {
+    const protectedResponse = nxtCreateFailure(error, writeReceipt);
+    if (protectedResponse) return protectedResponse;
     console.error("Error creating opportunity update:", error);
     return Response.json(
       {

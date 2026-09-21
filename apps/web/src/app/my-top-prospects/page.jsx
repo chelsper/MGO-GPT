@@ -1,4 +1,5 @@
 "use client";
+import NxtWriteRecoveryLink from "@/components/NxtWriteRecoveryLink";
 import ProspectDetailSummary from "./ProspectDetailSummary";
 import ProspectDetailActivity from "./ProspectDetailActivity";
 import ProspectOpportunityCard from "./ProspectOpportunityCard";
@@ -4087,6 +4088,7 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
               }}
             >
               {actionError}
+              <NxtWriteRecoveryLink message={actionError} />
             </div>
           ) : null}
 

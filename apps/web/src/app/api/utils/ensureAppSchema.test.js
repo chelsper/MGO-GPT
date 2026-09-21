@@ -3,6 +3,15 @@ import { beforeEach, expect, it, vi } from "vitest";
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/app/api/utils/sql", () => ({ default: sqlMock }));
 let ensureAppSchema;
+it("adds durable create receipts with immutable duplicate keys and a non-expiring unresolved guard", async () => {
+  await ensureAppSchema();
+  const query = sqlMock.mock.calls.map(([parts]) => parts.join(" ")).find(text => text.includes("DO $nxt_create_receipts_schema$"));
+  expect(query).toContain("pg_advisory_xact_lock(734019, 6)");
+  expect(query).toContain("UNIQUE (owner_user_id, kind, request_hash)");
+  expect(query).toContain("UNIQUE (owner_user_id, kind, payload_hash)");
+  expect(query).toContain("WHERE state IN ('processing', 'review', 'created')");
+  expect(query).not.toMatch(/DELETE FROM|DROP TABLE|lease_until/);
+});
 beforeEach(async () => {
   vi.resetModules();
   sqlMock.mockReset().mockResolvedValue([]);

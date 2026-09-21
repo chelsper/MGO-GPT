@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/app/api/utils/nxtCreateReceipt", async importOriginal => ({
+  ...await importOriginal(),
+  guardedNxtCreate: vi.fn(async ({ kind, payload, create, onReceipt }) => {
+    const receipt = { id: "900", kind, payload, constituent_id: payload?.constituent_id, state: "processing" };
+    onReceipt(receipt);
+    const result = await create();
+    onReceipt({ ...receipt, state: "created", remote_id: result?.id });
+    return result;
+  }),
+  completeNxtCreateReceipt: vi.fn(),
+}));
+
 const authMock = vi.fn();
 const getWorkspaceUserMock = vi.fn();
 const resolveConstituentMock = vi.fn();

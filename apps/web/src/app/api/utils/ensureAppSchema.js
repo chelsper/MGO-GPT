@@ -1217,6 +1217,35 @@ export default async function ensureAppSchema() {
     `;
 
     await sql`
+      DO $nxt_create_receipts_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 6);
+        CREATE TABLE IF NOT EXISTS nxt_create_receipts (
+          id BIGSERIAL PRIMARY KEY,
+          owner_user_id BIGINT NOT NULL REFERENCES users(id),
+          entered_by_user_id BIGINT REFERENCES users(id),
+          kind TEXT NOT NULL CHECK (kind IN ('action', 'opportunity')),
+          constituent_id TEXT NOT NULL,
+          request_hash TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+          payload JSONB NOT NULL,
+          state TEXT NOT NULL DEFAULT 'processing'
+            CHECK (state IN ('processing', 'review', 'created', 'complete', 'verified')),
+          remote_id TEXT,
+          verified_by_user_id BIGINT REFERENCES users(id),
+          verified_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (owner_user_id, kind, request_hash),
+          UNIQUE (owner_user_id, kind, payload_hash)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_nxt_create_receipts_unresolved
+          ON nxt_create_receipts (owner_user_id, kind, constituent_id)
+          WHERE state IN ('processing', 'review', 'created');
+      END $nxt_create_receipts_schema$
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunities (
         id BIGSERIAL PRIMARY KEY,
         prospect_id BIGINT REFERENCES prospects(id) ON DELETE CASCADE,

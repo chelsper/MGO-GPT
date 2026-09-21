@@ -565,7 +565,10 @@ export async function blackbaudApiFetch(
   }
 
   const requestTimeoutMs = Math.max(1000, Number(timeoutMs) || BLACKBAUD_REQUEST_TIMEOUT_MS);
-  const requestMaxRetries = Math.max(0, Number(maxRetries) || 0);
+  // A create may have committed even when its response was lost. Never replay
+  // POSTs, including when a caller explicitly requests transport retries.
+  const requestMaxRetries = String(method).toUpperCase() === "POST"
+    ? 0 : Math.max(0, Number(maxRetries) || 0);
 
   for (let attempt = 0; attempt <= requestMaxRetries; attempt += 1) {
     const controller = new AbortController();

@@ -1,5 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/app/api/utils/nxtCreateReceipt", async importOriginal => ({
+  ...await importOriginal(),
+  guardedNxtCreate: vi.fn(async ({ kind, payload, create, onReceipt }) => {
+    const receipt = { id: "900", kind, payload, constituent_id: payload?.constituent_id, state: "processing" };
+    onReceipt(receipt);
+    const result = await create();
+    onReceipt({ ...receipt, state: "created", remote_id: result?.id });
+    return result;
+  }),
+  completeNxtCreateReceipt: vi.fn(),
+}));
+
 const authMock = vi.fn();
 const sendSubmissionEmailMock = vi.fn();
 const resolveConstituentMock = vi.fn();
@@ -133,7 +145,7 @@ describe("opportunity update route", () => {
     sendSubmissionEmailMock.mockResolvedValue();
   });
 
-  it("saves the app opportunity when Blackbaud opportunity sync is denied", async () => {
+  it("holds a failed create without making a disconnected app opportunity or sending email", async () => {
     const { POST } = await import("./route.js");
 
     createBlackbaudOpportunityMock.mockRejectedValue(
@@ -173,21 +185,10 @@ describe("opportunity update route", () => {
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(201);
-    expect(payload.blackbaudSync).toEqual(
-      expect.objectContaining({
-        status: "failed",
-      }),
-    );
-    expect(payload.blackbaudSync.error).toMatch(/Could not sync NXT opportunity/i);
-    expect(saveProspectOpportunityMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        blackbaudOpportunityId: null,
-        prospectId: 901,
-        title: "Leadership gift",
-      }),
-    );
-    expect(sendSubmissionEmailMock).toHaveBeenCalled();
+    expect(response.status).toBe(409);
+    expect(payload.writeReceipt.id).toBe("900");
+    expect(saveProspectOpportunityMock).not.toHaveBeenCalled();
+    expect(sendSubmissionEmailMock).not.toHaveBeenCalled();
   });
 
   it("maps a funded opportunity update to NXT funded fields", async () => {
