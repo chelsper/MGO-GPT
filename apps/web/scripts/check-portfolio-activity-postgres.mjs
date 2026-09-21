@@ -24,8 +24,11 @@ const run = query => new Promise((resolve, reject) => {
   child.on("close", code => code ? reject(new Error(error)) : resolve(output.trim()));
   child.stdin.end(`SET search_path TO ${schema};\n${query}`);
 });
+let testNow = null;
 const sql = async (parts, ...values) => {
-  const query = parts.reduce((text, part, i) => text + part + (i < values.length ? quote(values[i]) : ""), "").trim();
+  let query = parts.reduce((text, part, i) => text + part + (i < values.length ? quote(values[i]) : ""), "").trim();
+  // Only the disposable fixture substitutes the clock to test Eastern window boundaries.
+  if (testNow) query = query.replaceAll("NOW()", `${quote(testNow)}::timestamptz`);
   if (query.startsWith("SELECT") || query.startsWith("WITH eligible AS") || query.startsWith("WITH enrolled_workspaces AS")) return JSON.parse(await run(`SELECT COALESCE(json_agg(t), '[]'::json) FROM (${query}) t`));
   if (query.includes("RETURNING")) return JSON.parse(await run(`WITH t AS (${query}) SELECT COALESCE(json_agg(t), '[]'::json) FROM t`));
   await run(query);
@@ -37,14 +40,16 @@ const { portfolioActivityDetailsEnvelope, savedPortfolioActivity } = await loade
 const { ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows } = await loader.ssrLoadModule(`${root}app/api/utils/portfolioActivitySchedule.js`);
 const { isMgoRole } = await loader.ssrLoadModule(`${root}utils/workspaceRoles.js`);
 const { activityWorkspaceIds } = await loader.ssrLoadModule(`${root}app/api/utils/portfolioActivityData.js`);
+const { ACTIVITY_CATCHUP_DAILY_CALLS, ACTIVITY_CATCHUP_START_HOUR, ACTIVITY_CATCHUP_END_HOUR } = await loader.ssrLoadModule(`${root}app/api/utils/portfolioActivityCatchup.js`);
 await loader.close();
 const enrollmentSource = readFileSync(`${root}app/api/utils/portfolioActivityEnrollment.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function").replaceAll("export function", "function");
 const resolveActivityEnrollment = new Function("sql", "isMgoRole", "activityWorkspaceIds", `${enrollmentSource}\nreturn resolveActivityEnrollment;`)(sql, isMgoRole, activityWorkspaceIds);
 const coverageSource = readFileSync(`${root}app/api/utils/portfolioActivityCoverage.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function").replaceAll("export function", "function");
 const readPortfolioActivityCoverage = new Function("sql", `${coverageSource}\nreturn readPortfolioActivityCoverage;`)(sql);
 const source = readFileSync(`${root}app/api/utils/portfolioActivityStore.js`, "utf8").replace(/^import .*;\n/gm, "").replaceAll("export async function", "async function");
-const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "resolveActivityEnrollment", "portfolioActivityDetailsEnvelope", "ACTIVITY_QUEUE_LIMIT", "activityNextCheckAt", "selectActivityRows", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
+const store = new Function("sql", "randomUUID", "prospectActivityCacheKey", "ACTIVITY_DAILY_CALLS", "activityOrigin", "resolveActivityEnrollment", "portfolioActivityDetailsEnvelope", "ACTIVITY_QUEUE_LIMIT", "activityNextCheckAt", "selectActivityRows", "ACTIVITY_CATCHUP_DAILY_CALLS", "ACTIVITY_CATCHUP_START_HOUR", "ACTIVITY_CATCHUP_END_HOUR", `${source}\nreturn {claimActivityGate,reserveActivityCall,releaseActivityGate,seedActivityQueue,dueActivityRows,saveActivityResult,deferActivityRow,readActivitySeed,requestPortfolioActionRefresh};`)(
   sql, randomUUID, activityKey, 360, () => "https://example.com", () => resolveActivityEnrollment({ enabled: true, mode: "allowlist", workspaceIds: ["7"], excludedIds: [] }), portfolioActivityDetailsEnvelope, ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows,
+  ACTIVITY_CATCHUP_DAILY_CALLS, ACTIVITY_CATCHUP_START_HOUR, ACTIVITY_CATCHUP_END_HOUR,
 );
 const ddl = readFileSync(`${root}app/api/utils/ensureAppSchema.js`, "utf8").match(/DO \$activity_schema\$[\s\S]*?\$activity_schema\$/)[0];
 const origin = "https://example.com";
@@ -53,18 +58,22 @@ try {
     CREATE TABLE users (id bigint PRIMARY KEY, active boolean, blackbaud_portfolio_cache jsonb);
     CREATE TABLE blackbaud_constituent_summary_cache(workspace_user_id bigint, auth_user_id bigint, constituent_id text, cache_key text, payload jsonb, updated_at timestamptz);
     CREATE TABLE portfolio_constituent_snapshots(workspace_user_id bigint, constituent_id text, summary_payload jsonb, last_refreshed_at timestamptz);
+    CREATE TABLE blackbaud_api_limit_state(state_key text PRIMARY KEY, blocked_until timestamptz);
     INSERT INTO users VALUES (7,TRUE,'{"leadSolicitor":[{"constituentId":"100"},{"constituentId":"100"},{"constituentId":"101"}]}'),
       (8,TRUE,'{"leadSolicitor":[{"constituentId":"800"}]}'), (9,FALSE,'{"leadSolicitor":[{"constituentId":"900"}]}'), (99,TRUE,NULL);`);
   await run("ALTER TABLE users ADD COLUMN role text DEFAULT 'mgo'; UPDATE users SET role='admin' WHERE id=99");
   await run(ddl.replace("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS activity_details JSONB;", "")
-    .replace("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;", ""));
+    .replace("ALTER TABLE portfolio_activity_snapshots ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;", "")
+    .replace(/ALTER TABLE portfolio_activity_refresh_gates\s+ADD COLUMN IF NOT EXISTS catchup_call_count INTEGER NOT NULL DEFAULT 0;/, ""));
   await run("INSERT INTO portfolio_activity_snapshots(workspace_user_id,origin,constituent_id,kind,record_id,activity_date,checked_at) VALUES (7,'https://example.com','100','gift','legacy','2020-01-01',NOW())");
+  await run("INSERT INTO portfolio_activity_refresh_gates(origin,call_count) VALUES ('https://legacy.example.com',288)");
   await Promise.all(Array.from({ length: 12 }, () => run(ddl)));
   const migrated = JSON.parse(await run("SELECT row_to_json(t) FROM portfolio_activity_snapshots t"));
   assert.equal(migrated.record_id, "legacy");
   assert.equal(migrated.activity_date, "2020-01-01");
   assert.equal(migrated.activity_details, null);
   assert.equal(migrated.last_attempt_at, null);
+  assert.equal(await run("SELECT call_count||':'||catchup_call_count FROM portfolio_activity_refresh_gates WHERE origin='https://legacy.example.com'"), "288:0");
   await run("UPDATE portfolio_activity_snapshots SET checked_at=NULL");
   console.log("PASS: 12 concurrent additive schema migrations preserve a legacy date-only row.");
   await store.seedActivityQueue(["7", "9"], origin);
@@ -256,6 +265,64 @@ try {
   assert.equal(boundedCoverage.items[0].name, 'MGO 6000');
   assert.equal(boundedCoverage.items[99].name, 'MGO 6099');
   console.log("PASS: coverage totals include all portfolios while the alphabetized display remains bounded to 100.");
+
+  const catchupOrigin = "https://catchup.example.com";
+  testNow = "2026-09-21T11:05:00Z";
+  await run(`INSERT INTO portfolio_activity_refresh_gates(origin,call_day,next_allowed_at,call_count,catchup_call_count)
+    VALUES (${quote(catchupOrigin)},'2026-09-21','2026-09-21T00:00:00Z',359,71)`);
+  const catchupGate = { ...await store.claimActivityGate(catchupOrigin), catchup: true };
+  assert(catchupGate.token);
+  const catchupCalls = await Promise.all(Array.from({ length: 16 }, () => store.reserveActivityCall(catchupGate)));
+  assert.equal(catchupCalls.filter(Boolean).length, 1);
+  const counters = () => run(`SELECT call_count||':'||catchup_call_count FROM portfolio_activity_refresh_gates WHERE origin=${quote(catchupOrigin)}`);
+  assert.equal(await counters(), "360:72");
+  assert.equal(await store.reserveActivityCall({ ...catchupGate, catchup: false }), false);
+  await run(`UPDATE portfolio_activity_refresh_gates SET call_count=100 WHERE origin=${quote(catchupOrigin)}`);
+  assert.equal(await store.reserveActivityCall(catchupGate), false);
+  assert.equal(await store.reserveActivityCall({ ...catchupGate, catchup: false }), true);
+  assert.equal(await counters(), "101:72");
+  assert.equal(await store.reserveActivityCall({ ...catchupGate, token: "lost" }), false);
+  await run(`UPDATE portfolio_activity_refresh_gates SET call_day='2026-09-20' WHERE origin=${quote(catchupOrigin)}`);
+  assert.equal(await store.reserveActivityCall(catchupGate), true);
+  assert.equal(await counters(), "1:1");
+  await run(`UPDATE portfolio_activity_refresh_gates SET call_day='2026-09-20',call_count=360,catchup_call_count=72 WHERE origin=${quote(catchupOrigin)}`);
+  assert.equal(await store.reserveActivityCall({ ...catchupGate, catchup: false }), true);
+  assert.equal(await counters(), "1:0");
+  console.log("PASS: concurrent catch-up reservations cannot exceed either cap; ordinary calls share the daily budget; both counters roll over without losing lease fencing.");
+
+  await run(`INSERT INTO blackbaud_api_limit_state VALUES ('subscription','2026-09-21T11:06:00Z')`);
+  assert.equal(await store.reserveActivityCall(catchupGate), false);
+  assert.equal(await store.claimActivityGate("https://cooldown.example.com"), null);
+  assert.equal(await counters(), "1:0");
+  await store.releaseActivityGate(catchupGate);
+  assert.equal(await store.claimActivityGate(catchupOrigin), null);
+  await run("DELETE FROM blackbaud_api_limit_state WHERE state_key='subscription'");
+  testNow = "2026-09-21T11:06:00Z";
+  const resumedGate = { ...await store.claimActivityGate(catchupOrigin), catchup: true };
+  assert(resumedGate.token);
+  assert.equal(await store.reserveActivityCall(resumedGate), true);
+  assert.equal(await counters(), "2:1");
+  testNow = "2026-09-21T11:09:00Z";
+  assert.equal(await store.reserveActivityCall(resumedGate), false);
+  console.log("PASS: shared cooldown blocks new and existing gate claims and reservations without spending counters; expired leases cannot reserve.");
+
+  testNow = "2026-09-21T10:59:59Z";
+  await run(`UPDATE portfolio_activity_refresh_gates SET lease_token=NULL,lease_until=NULL,next_allowed_at='2026-09-21T00:00:00Z' WHERE origin=${quote(catchupOrigin)}`);
+  const beforeWindowGate = { ...await store.claimActivityGate(catchupOrigin), catchup: true };
+  assert(beforeWindowGate.token);
+  assert.equal(await store.reserveActivityCall(beforeWindowGate), false);
+  testNow = "2026-09-21T11:00:00Z";
+  assert.equal(await store.reserveActivityCall(beforeWindowGate), true);
+  testNow = "2026-09-21T12:59:30Z";
+  const endingGate = { ...await store.claimActivityGate(catchupOrigin), catchup: true };
+  assert(endingGate.token);
+  assert.equal(await store.reserveActivityCall(endingGate), true);
+  const beforeCutoff = await counters();
+  testNow = "2026-09-21T13:00:00Z";
+  assert.equal(await store.reserveActivityCall(endingGate), false);
+  assert.equal(await counters(), beforeCutoff);
+  assert.equal(await store.reserveActivityCall({ ...endingGate, catchup: false }), true);
+  console.log("PASS: database clock enforces 7 AM start and 9 AM cutoff even within a leased batch; authorized ordinary batches retain their existing behavior.");
 } finally {
   await run(`DROP SCHEMA IF EXISTS ${schema} CASCADE;`);
 }

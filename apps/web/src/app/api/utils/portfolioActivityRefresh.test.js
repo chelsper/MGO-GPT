@@ -130,9 +130,32 @@ it("can seed richer saved details without any NXT calls", async () => {
 });
 it("stops before a request when the shared daily budget is exhausted", async () => {
   mocks.reserve.mockResolvedValue(false);
-  expect((await run()).reason).toBe("budget_or_lease");
+  expect((await run()).reason).toBe("budget_cooldown_window_or_lease");
   expect(mocks.fetch).not.toHaveBeenCalled();
   expect(mocks.release).toHaveBeenCalled();
+});
+it("uses the same eight-call batch size and daily reservations for catch-up", async () => {
+  mocks.due.mockResolvedValue(Array.from({ length: 20 }, (_, i) => row("gift", { constituent_id: String(i + 1) })));
+  expect(await run({ catchup: true })).toMatchObject({ calls: 8, status: "queued" });
+  expect(mocks.fetch).toHaveBeenCalledTimes(8);
+  expect(mocks.claim).toHaveBeenCalledTimes(1);
+  expect(mocks.reserve).toHaveBeenCalledWith({ ...gate, catchup: true });
+  expect(mocks.release).toHaveBeenCalledWith({ ...gate, catchup: true }, 1000);
+});
+it("stops a catch-up batch without more reads when its reservation window or budget closes", async () => {
+  mocks.due.mockResolvedValue([row(), row("action")]);
+  mocks.reserve.mockResolvedValueOnce(true).mockResolvedValue(false);
+  expect(await run({ catchup: true })).toMatchObject({ calls: 1, updated: 1, status: "paused", reason: "budget_cooldown_window_or_lease" });
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  expect(mocks.defer).not.toHaveBeenCalled();
+});
+it("retains saved results and pauses catch-up on the first provider throttle", async () => {
+  mocks.due.mockResolvedValue([row(), row("action")]);
+  mocks.fetch.mockRejectedValue({ httpStatus: 429, retryAfterMs: 300000 });
+  expect(await run({ catchup: true })).toMatchObject({ calls: 1, updated: 0, reason: "throttled" });
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(mocks.release).toHaveBeenCalledWith({ ...gate, catchup: true }, 300000);
 });
 it("reuses a fresh exact-connection saved result without NXT reads", async () => {
   mocks.due.mockResolvedValue([row("gift", { seed_complete: false })]);

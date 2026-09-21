@@ -4,6 +4,7 @@ import { activityOrigin, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
 import { activityEnrollmentConfig, resolveActivityEnrollment } from "./portfolioActivityEnrollment";
 import { readPortfolioActivityCoverage } from "./portfolioActivityCoverage";
 import { activityCapacity, readPortfolioRefreshCapacity } from "./portfolioRefreshCapacity";
+import { activityCatchupEnabled } from "./portfolioActivityCatchup";
 
 const LIMIT = 100;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -120,10 +121,14 @@ async function activity(origin) {
   const coverage = await readPortfolioActivityCoverage(ids, origin);
   const [gate] = await sql`
     SELECT next_allowed_at, lease_until,
-      CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS calls_today
+      CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count ELSE 0 END AS calls_today,
+      CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date
+        THEN (to_jsonb(portfolio_activity_refresh_gates)->>'catchup_call_count')::int ELSE 0 END AS catchup_calls_today
     FROM portfolio_activity_refresh_gates WHERE origin = ${origin}
   `;
-  return { enabled: true, enrollmentMode: mode, ...coverage, capacity: activityCapacity(coverage.total),
+  const catchupEnabled = activityCatchupEnabled();
+  return { enabled: true, enrollmentMode: mode, ...coverage, capacity: activityCapacity(coverage.total, catchupEnabled),
+    catchupEnabled, catchupCallsToday: gate?.catchup_calls_today == null ? null : count(gate.catchup_calls_today),
     nextAllowedAt: date(gate?.next_allowed_at), leaseUntil: date(gate?.lease_until),
     callsToday: count(gate?.calls_today), dailyBudget: ACTIVITY_DAILY_CALLS };
 }

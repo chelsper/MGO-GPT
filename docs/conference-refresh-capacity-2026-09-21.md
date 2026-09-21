@@ -3,8 +3,9 @@
 ## Decision
 
 Measure before increasing API traffic. The existing schedule cannot support a
-daily fresh check of every assignment slot. The follow-up implementation is local,
-not part of production release `69b57b0a60b4009a9875e6bc71aba706e2807ebd`.
+daily fresh check of every assignment slot. The read-only capacity implementation
+is deployed as `6402169babb27cebc0f06268675d952bd2e75630`, Vercel deployment
+`dpl_9ixsa2tiDAtjJxRhRJw8D2Td8spS` on the canonical `mgo-gpt` project.
 It adds an Admin-only, read-only capacity section to Integration Health. It does
 not alter schedules, budgets, timeouts, concurrency, enrollment, or user pages.
 
@@ -38,6 +39,18 @@ Signed-in saved evidence at approximately 12:50 PM Eastern on September 21:
   work and pagination compete for capacity, while saved reuse can reduce calls.
 
 No live NXT reads, new jobs, retries, or writes were triggered for this check.
+
+Post-deployment signed-in evidence at approximately 1:08 PM Eastern:
+
+- The all-active-workspace aggregate includes eight saved/MGO workspaces, 913
+  known assignment slots and 853 distinct constituents. Its broader scope includes
+  five additional slots beyond the five MGO portfolios in the detailed view.
+- 578 assignment slots need checks; 424 have saved giving checks within 24 hours,
+  zero have never been checked, and 355 have checks at least 48 hours old.
+- Activity coverage remains 1,816 items / 1,026 never verified / 1,528 eligible,
+  with 288 daily reservations used. No active saved subscription cooldown.
+- Production SHA/assets and the signed-in capacity section were verified. No
+  refresh, recovery, configuration change, or NXT write was triggered.
 
 ## Measurements Added
 
@@ -83,6 +96,11 @@ and activity), reserve interactive headroom, and test bounded catch-up and fair
 workspace selection under cooldowns. Do not raise the existing activity budget or
 remove the shared quota gate simply to make the arithmetic fit.
 
+The next local change is default-off bounded morning activity catch-up, documented
+in `portfolio-activity-catchup.md`. It uses at most 72 reservations within the
+existing 360 daily cap and leaves the full portfolio-summary worker unchanged.
+It has not been deployed or enabled and does not close the capacity finding.
+
 Capacity measurement does not close the audit finding. Historical import-result
 reconciliation, sandbox isolation, and approved sandbox write acceptance remain
 separate work; no historical import was retried here.
@@ -101,6 +119,5 @@ separate work; no historical import was retried here.
 - The actual page with synthetic responses and built CSS rendered at 1487px and
   390px widths, with matching document widths and no browser errors. Component
   tests verify disclosure/reload behavior adds no automatic fetch or NXT work.
-- New capacity UI and measurements are local only. The prior reliability release
-  was separately confirmed in production by SHA/assets and signed-in read-only
-  health inspection.
+- Capacity UI and measurements were deployed and confirmed by SHA/assets and
+  signed-in read-only health inspection. Catch-up is a separate local follow-up.

@@ -82,7 +82,9 @@ can remain blocked; investigate the existing action rather than sending another.
 - No production database failure injection or live NXT acceptance writes were run.
 
 The remaining audit readiness item is background refresh capacity/freshness.
-The next local change adds read-only Admin capacity measurements, not extra API
-traffic. See `docs/conference-refresh-capacity-2026-09-21.md`.
+Read-only Admin capacity measurements are now deployed as `6402169`, without extra
+API traffic. The next local change adds default-off bounded activity catch-up.
+See `docs/conference-refresh-capacity-2026-09-21.md` and
+`docs/portfolio-activity-catchup.md`.
 Sandbox isolation and approved sandbox write acceptance are still required before
 calling the conference copy ready. Family import remains out of scope.

@@ -17,6 +17,7 @@ beforeEach(() => {
   vi.stubEnv("PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS", "");
   vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", "https://www.jumgogpt.app");
   vi.stubEnv("VERCEL_ENV", "production");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_CATCHUP_ENABLED", "");
   mocks.schema.mockReset().mockResolvedValue();
   mocks.user.mockReset().mockResolvedValue({ id: 99, role: "admin" });
   mocks.refresh.mockReset().mockResolvedValue({ status: "complete", calls: 2 });
@@ -46,6 +47,30 @@ it("stays out of daytime traffic unless an authorized operator runs a bounded pi
   expect(mocks.sql).not.toHaveBeenCalled();
   await GET(request(true));
   expect(mocks.refresh).toHaveBeenCalledTimes(1);
+});
+it("keeps catch-up off by default before schema, enrollment or NXT work", async () => {
+  vi.setSystemTime(new Date("2026-09-21T11:05:00Z"));
+  expect(await (await GET(request())).json()).toEqual({ status: "outside_window" });
+  expect(mocks.schema).not.toHaveBeenCalled();
+  expect(mocks.sql).not.toHaveBeenCalled();
+  expect(mocks.refresh).not.toHaveBeenCalled();
+});
+it("passes the constrained catch-up mode only during the enabled morning window", async () => {
+  vi.stubEnv("PORTFOLIO_ACTIVITY_CATCHUP_ENABLED", "true");
+  vi.setSystemTime(new Date("2026-09-21T11:05:00Z"));
+  await GET(request());
+  expect(mocks.refresh).toHaveBeenCalledWith({ workspaceIds: ["7"], origin: "https://www.jumgogpt.app",
+    refreshUser: { id: 99, role: "admin" }, catchup: true });
+  vi.setSystemTime(new Date("2026-09-21T13:00:00Z"));
+  expect(await (await GET(request())).json()).toEqual({ status: "outside_window" });
+  expect(mocks.refresh).toHaveBeenCalledTimes(1);
+});
+it("does not expand preview access even with catch-up enabled and force requested", async () => {
+  vi.stubEnv("PORTFOLIO_ACTIVITY_CATCHUP_ENABLED", "true");
+  vi.stubEnv("VERCEL_ENV", "preview");
+  vi.setSystemTime(new Date("2026-09-21T11:05:00Z"));
+  expect(await (await GET(request(true))).json()).toEqual({ status: "disabled" });
+  expect(mocks.refresh).not.toHaveBeenCalled();
 });
 it("discovers automatic enrollment anew without changing the canonical origin or worker", async () => {
   vi.stubEnv("PORTFOLIO_ACTIVITY_ENROLLMENT_MODE", "active_mgos");

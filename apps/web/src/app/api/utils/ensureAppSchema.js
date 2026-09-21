@@ -175,6 +175,8 @@ export default async function ensureAppSchema() {
           call_day DATE NOT NULL DEFAULT (NOW() AT TIME ZONE 'America/New_York')::date,
           call_count INTEGER NOT NULL DEFAULT 0
         );
+        ALTER TABLE portfolio_activity_refresh_gates
+          ADD COLUMN IF NOT EXISTS catchup_call_count INTEGER NOT NULL DEFAULT 0;
       END;
       $activity_schema$
     `;

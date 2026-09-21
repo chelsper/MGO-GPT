@@ -11,9 +11,10 @@ import {
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function refreshPortfolioActivity({ workspaceIds, origin, refreshUser }) {
+export async function refreshPortfolioActivity({ workspaceIds, origin, refreshUser, catchup = false }) {
   if (!workspaceIds.length || !refreshUser?.id || !isReviewerRole(refreshUser.role)) return { status: "disabled" };
-  const gate = await claimActivityGate(origin);
+  const claimed = await claimActivityGate(origin);
+  const gate = catchup && claimed ? { ...claimed, catchup: true } : claimed;
   if (!gate) return { status: "paused", reason: "busy_or_cooldown" };
   const progress = { status: "complete", calls: 0, reused: 0, updated: 0, deferred: 0 };
   const startedAt = Date.now();
@@ -37,7 +38,7 @@ export async function refreshPortfolioActivity({ workspaceIds, origin, refreshUs
           }
         } else await markActivitySeeded(row);
       }
-      if (!await reserveActivityCall(gate)) return { ...progress, status: "paused", reason: "budget_or_lease" };
+      if (!await reserveActivityCall(gate)) return { ...progress, status: "paused", reason: "budget_cooldown_window_or_lease" };
       progress.calls += 1;
       try {
         const now = new Date();

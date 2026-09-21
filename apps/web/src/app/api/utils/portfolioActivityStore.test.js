@@ -22,6 +22,8 @@ it("atomically claims one origin-wide lease with a bounded expiry", async () => 
   expect(query()).toContain("ON CONFLICT (origin)");
   expect(query()).toContain("next_allowed_at <= NOW()");
   expect(query()).toContain("INTERVAL '150 seconds'");
+  expect(query()).toContain("NOT EXISTS (SELECT 1 FROM blackbaud_api_limit_state");
+  expect(query()).toContain("state_key = 'subscription' AND blocked_until > NOW()");
   sql.mockResolvedValue([]);
   expect(await claimActivityGate(row.origin)).toBeNull();
 });
@@ -30,6 +32,15 @@ it("persists the shared daily budget, including calls that fail", async () => {
   expect(query()).toContain("call_count + 1");
   expect(query()).toContain("lease_until > NOW()");
   expect(sql.mock.calls[0].slice(1)).toContain(360);
+  expect(query()).toContain("catchup_call_count + ?");
+  expect(query()).toContain("blackbaud_api_limit_state");
+});
+it("reserves catch-up atomically within both budgets and the database's Eastern window", async () => {
+  await reserveActivityCall({ ...gate, catchup: true });
+  expect(query()).toContain("catchup_call_count < ?");
+  expect(query()).toContain("EXTRACT(HOUR FROM NOW() AT TIME ZONE 'America/New_York') >= ?");
+  expect(query()).toContain("EXTRACT(HOUR FROM NOW() AT TIME ZONE 'America/New_York') < ?");
+  expect(sql.mock.calls.at(-1).slice(1)).toEqual([1, 1, row.origin, "lease", 360, true, 7, 9, 72]);
 });
 it("only the owning lease can release the gate or save results", async () => {
   await releaseActivityGate(gate, 300000);

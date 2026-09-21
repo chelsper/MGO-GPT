@@ -178,4 +178,7 @@ audit findings and line references above remain historical baseline evidence.
 Capacity/freshness remains open. The subsequent read-only measurement work and
 updated saved-data evidence are recorded in
 `docs/conference-refresh-capacity-2026-09-21.md`; it does not increase scheduled
-work, remove limits, or certify daily coverage.
+work, remove limits, or certify daily coverage. The measurements are deployed as
+`6402169`. A separate local, default-off bounded activity catch-up implementation
+is documented in `docs/portfolio-activity-catchup.md`; it is not enabled and does
+not close this finding.

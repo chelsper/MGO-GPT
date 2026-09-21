@@ -35,7 +35,7 @@ does not certify live authorization, cron execution, or end-to-end health.
 | --- | --- |
 | Blackbaud cooldown | Subscription circuit-breaker deadline. No saved pause does not prove live API availability; individual jobs can also pause |
 | Connections | Active saved connections plus the viewer; current scheduled-account selection. Expired renewable access tokens are not presented as broken connections |
-| Refresh capacity (local follow-up) | Aggregate assignment slots, union backlog, 24/48-hour giving age evidence and normal-night configured ceilings. No added NXT calls or scheduler changes |
+| Refresh capacity | Aggregate assignment slots, union backlog, 24/48-hour giving age evidence and normal-night configured ceilings. No added NXT calls or scheduler changes |
 | Portfolio maintenance | Active MGO saved assignments, summary/giving freshness and failures, and latest job progress. Constituents no longer assigned are excluded; summary and giving backlogs overlap |
 | Last gift/action enrichment | Current enrollment mode, current-origin assigned records, per-portfolio coverage, checks never verified/currently due, classified failures, and shared worker daily budget. Missing queue rows count as never checked |
 | NXT action verification | Reminder-linked receipts in review/processing, plus historical saved receipts without a confirmed local-finalization marker, with owner and reminder ID. No donor name, action notes, request payload, raw provider message, or constituent ID is returned |
@@ -110,13 +110,19 @@ Older portfolio/job tables are workspace-scoped, not origin-scoped;
 the page does not invent stronger isolation than those stores provide. Separate
 development/production databases remain required.
 
-The September 21 local capacity follow-up adds one aggregate saved-data query,
+The September 21 capacity release adds one aggregate saved-data query,
 independent of the bounded named lists. It compares known workspace assignment
 slots with the normal-night configured item ceiling and separately compares
 activity call slots with its daily budget. Unknown membership/read failures remain
 explicit. The measurements do not claim cron-only throughput, provider quota,
 or a completion date. See `conference-refresh-capacity-2026-09-21.md` for scope,
-targets, limitations, and evidence. This follow-up is not yet deployed.
+targets, limitations, and evidence. It is deployed as `6402169`.
+
+The subsequent local catch-up change adds the deployment switch state and saved
+morning reservations to activity health. It uses the existing gate query, with
+unknown counters displayed as unavailable rather than zero. There is no enable
+button and opening health never starts work. Catch-up is not yet deployed or
+enabled; see `portfolio-activity-catchup.md` for activation and rollback gates.
 
 ## Verification
 

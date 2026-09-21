@@ -215,6 +215,7 @@ it("shows capacity separately from saved freshness, without starting more work",
   fireEvent.click(within(section).getByText("Saved check details"));
   expect(within(section).getByText(/best-case arithmetic lower bounds, not finish dates/)).toBeVisible();
   expect(screen.getByText(/at most 288 reserved call slots per normal night/)).toBeVisible();
+  expect(screen.getByText(/Morning catch-up is off/)).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: /start|refresh now|restart|sync/i })).not.toBeInTheDocument();
 });
@@ -224,4 +225,28 @@ it("shows unknown capacity when the section is unavailable", async () => {
   const section = await screen.findByRole("region", { name: "Refresh capacity" });
   expect(within(section).getByRole("status")).toHaveTextContent("unknown, not clear");
   expect(within(section).queryByText("Known assignment slots")).not.toBeInTheDocument();
+});
+
+it("explains enabled catch-up without offering controls to start or increase it", async () => {
+  const data = snapshot();
+  data.sections.activity = { available: true, enabled: true, dailyBudget: 360, callsToday: 304,
+    catchupEnabled: true, catchupCallsToday: 16,
+    capacity: { callsPerNight: 288, minimumSweepNights: 7, catchupCallsPerDay: 72 } };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  expect(await screen.findByText(/Morning catch-up is enabled from 7:00-9:00 AM Eastern/)).toBeVisible();
+  expect(screen.getByText(/16 of 72 catch-up call reservations used today, included in the same 360 daily limit/)).toBeVisible();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: /enable|start|catch-up/i })).not.toBeInTheDocument();
+});
+
+it("keeps missing catch-up usage explicitly unavailable instead of showing zero", async () => {
+  const data = snapshot();
+  data.sections.activity = { available: true, enabled: true, dailyBudget: 360,
+    catchupEnabled: true, catchupCallsToday: null, capacity: { catchupCallsPerDay: 72 } };
+  fetch.mockResolvedValueOnce(reply(data));
+  render(<IntegrationHealthPage />);
+  expect(await screen.findByText(/Today's usage is unavailable/)).toBeVisible();
+  expect(screen.queryByText(/0 of 72 catch-up/)).not.toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

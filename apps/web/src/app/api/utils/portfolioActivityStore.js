@@ -5,12 +5,15 @@ import { ACTIVITY_DAILY_CALLS, activityOrigin } from "./portfolioActivityData";
 import { resolveActivityEnrollment } from "./portfolioActivityEnrollment";
 import { portfolioActivityDetailsEnvelope } from "@/utils/portfolioActivity";
 import { ACTIVITY_QUEUE_LIMIT, activityNextCheckAt, selectActivityRows } from "./portfolioActivitySchedule";
+import { ACTIVITY_CATCHUP_DAILY_CALLS, ACTIVITY_CATCHUP_START_HOUR, ACTIVITY_CATCHUP_END_HOUR } from "./portfolioActivityCatchup";
 
 export async function claimActivityGate(origin) {
   const token = randomUUID();
   const rows = await sql`
     INSERT INTO portfolio_activity_refresh_gates (origin, lease_token, lease_until)
-    VALUES (${origin}, ${token}, NOW() + INTERVAL '150 seconds')
+    SELECT ${origin}, ${token}, NOW() + INTERVAL '150 seconds'
+    WHERE NOT EXISTS (SELECT 1 FROM blackbaud_api_limit_state
+      WHERE state_key = 'subscription' AND blocked_until > NOW())
     ON CONFLICT (origin) DO UPDATE SET lease_token = EXCLUDED.lease_token, lease_until = EXCLUDED.lease_until
     WHERE (portfolio_activity_refresh_gates.lease_until IS NULL OR portfolio_activity_refresh_gates.lease_until <= NOW())
       AND portfolio_activity_refresh_gates.next_allowed_at <= NOW()
@@ -20,12 +23,22 @@ export async function claimActivityGate(origin) {
 }
 
 export async function reserveActivityCall(gate) {
+  const catchup = gate.catchup === true;
   const rows = await sql`
     UPDATE portfolio_activity_refresh_gates SET
       call_count = CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date THEN call_count + 1 ELSE 1 END,
+      catchup_call_count = CASE WHEN call_day = (NOW() AT TIME ZONE 'America/New_York')::date
+        THEN catchup_call_count + ${catchup ? 1 : 0} ELSE ${catchup ? 1 : 0} END,
       call_day = (NOW() AT TIME ZONE 'America/New_York')::date
     WHERE origin = ${gate.origin} AND lease_token = ${gate.token} AND lease_until > NOW()
       AND (call_day <> (NOW() AT TIME ZONE 'America/New_York')::date OR call_count < ${ACTIVITY_DAILY_CALLS})
+      AND NOT EXISTS (SELECT 1 FROM blackbaud_api_limit_state
+        WHERE state_key = 'subscription' AND blocked_until > NOW())
+      AND (NOT ${catchup}::boolean OR (
+        EXTRACT(HOUR FROM NOW() AT TIME ZONE 'America/New_York') >= ${ACTIVITY_CATCHUP_START_HOUR}
+        AND EXTRACT(HOUR FROM NOW() AT TIME ZONE 'America/New_York') < ${ACTIVITY_CATCHUP_END_HOUR}
+        AND (call_day <> (NOW() AT TIME ZONE 'America/New_York')::date OR catchup_call_count < ${ACTIVITY_CATCHUP_DAILY_CALLS})
+      ))
     RETURNING call_count
   `;
   return rows.length > 0;

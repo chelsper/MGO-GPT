@@ -15,6 +15,7 @@ beforeEach(() => {
   vi.stubEnv("PORTFOLIO_ACTIVITY_EXCLUDED_WORKSPACE_IDS", "");
   vi.stubEnv("PORTFOLIO_ACTIVITY_ORIGIN", "https://app.example");
   vi.stubEnv("VERCEL_ENV", "production");
+  vi.stubEnv("PORTFOLIO_ACTIVITY_CATCHUP_ENABLED", "");
   refreshUser.mockResolvedValue({ id: 7, name: "Service owner", email: "private@example.test" });
   sql.mockImplementation(async (strings, ...values) => {
     const text = strings.join(" ");
@@ -62,6 +63,7 @@ describe("read-only health projection", () => {
       expect(result.sections.quota.paused).toBe(true);
       expect(result.sections.capacity).toMatchObject({ available: true, slots: 10, due: 4, itemsPerNight: 360 });
       expect(result.sections.activity.capacity).toMatchObject({ callsPerNight: 288, minimumSweepNights: 1 });
+      expect(result.sections.activity).toMatchObject({ catchupEnabled: false, catchupCallsToday: null });
       expect(result.sections.activity).toMatchObject({ enrollmentMode: "allowlist", workspaceCount: 1, awaitingAssignments: 0, due: 6, neverChecked: 4, total: 20, callsToday: 12, dailyBudget: 360 });
       expect(result.sections.verifications.items[0].href).toBe("/follow-ups?tab=next-steps&nextStepId=33&status=Open");
       const json = JSON.stringify(result);
@@ -147,5 +149,14 @@ describe("read-only health projection", () => {
     expect(result.sections.capacity).toEqual({ available: false });
     expect(result.sections.portfolios.available).toBe(true);
     expect(result.sections.verifications.available).toBe(true);
+  });
+  it("shows catch-up reservations as part of the unchanged daily allowance", async () => {
+    vi.stubEnv("PORTFOLIO_ACTIVITY_CATCHUP_ENABLED", "true");
+    const original = sql.getMockImplementation();
+    sql.mockImplementation((s, ...v) => s.join(" ").includes("FROM portfolio_activity_refresh_gates")
+      ? [{ calls_today: 304, catchup_calls_today: 16 }] : original(s, ...v));
+    const result = await readIntegrationHealth({ viewerId: 7, origin: "https://app.example" });
+    expect(result.sections.activity).toMatchObject({ catchupEnabled: true, catchupCallsToday: 16, callsToday: 304,
+      dailyBudget: 360, capacity: { callsPerNight: 288, catchupCallsPerDay: 72, callsPerDay: 360 } });
   });
 });

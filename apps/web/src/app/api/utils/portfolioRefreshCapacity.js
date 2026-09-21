@@ -1,6 +1,7 @@
 import sql from "./sql";
 import { ACTIVITY_BATCH_CALLS, ACTIVITY_DAILY_CALLS } from "./portfolioActivityData";
 import { PORTFOLIO_BATCH_SIZE, PORTFOLIO_CRON_MINUTES, ACTIVITY_CRON_MINUTES, normalNightSlots } from "./portfolioMaintenancePolicy";
+import { ACTIVITY_CATCHUP_DAILY_CALLS, ACTIVITY_CATCHUP_START_HOUR, ACTIVITY_CATCHUP_END_HOUR } from "./portfolioActivityCatchup";
 
 const count = value => {
   if (value == null || !Number.isSafeInteger(Number(value)) || Number(value) < 0) throw new Error("Invalid capacity count");
@@ -8,10 +9,13 @@ const count = value => {
 };
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
 
-export function activityCapacity(total) {
+export function activityCapacity(total, catchupEnabled = false) {
   const checks = count(total);
   const callsPerNight = Math.min(ACTIVITY_DAILY_CALLS, normalNightSlots(ACTIVITY_CRON_MINUTES) * ACTIVITY_BATCH_CALLS);
-  return { callsPerNight, minimumSweepNights: Math.ceil(checks / callsPerNight),
+  const catchupCallsPerDay = catchupEnabled ? Math.min(ACTIVITY_CATCHUP_DAILY_CALLS,
+    (ACTIVITY_CATCHUP_END_HOUR - ACTIVITY_CATCHUP_START_HOUR) * 60 / ACTIVITY_CRON_MINUTES * ACTIVITY_BATCH_CALLS) : 0;
+  return { callsPerNight, catchupCallsPerDay, callsPerDay: Math.min(ACTIVITY_DAILY_CALLS, callsPerNight + catchupCallsPerDay),
+    minimumSweepNights: Math.ceil(checks / callsPerNight),
     exceedsNight: checks > callsPerNight };
 }
 

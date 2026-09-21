@@ -16,7 +16,10 @@ it("keeps normal-night ceilings aligned with effective cron definitions and work
   expect(manifest.crons.find(item => item.path === "/api/internal/portfolio-refresh").schedule).toBe(`*/${PORTFOLIO_CRON_MINUTES} * * * *`);
   expect(manifest.crons.find(item => item.path === "/api/internal/portfolio-activity-refresh").schedule).toBe(`5-59/${ACTIVITY_CRON_MINUTES} * * * *`);
   expect(portfolioCapacity(row)).toMatchObject({ itemsPerNight: 360, minimumSweepNights: 3, minimumBacklogNights: 2, exceedsNight: true });
-  expect(activityCapacity(1816)).toEqual({ callsPerNight: 288, minimumSweepNights: 7, exceedsNight: true });
+  expect(activityCapacity(1816)).toEqual({ callsPerNight: 288, minimumSweepNights: 7, exceedsNight: true,
+    catchupCallsPerDay: 0, callsPerDay: 288 });
+  expect(activityCapacity(1816, true)).toEqual({ callsPerNight: 288, minimumSweepNights: 7, exceedsNight: true,
+    catchupCallsPerDay: 72, callsPerDay: 360 });
 });
 
 it("does not sum overlapping backlogs or count shared constituents as one workspace slot", () => {
