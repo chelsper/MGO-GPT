@@ -77,3 +77,12 @@ it("adds only an idempotent locked metric metadata table without seeding or rewr
   expect(query).toContain("published BOOLEAN NOT NULL DEFAULT FALSE");
   expect(query).not.toMatch(/INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|report_snapshots_cache/);
 });
+
+it("adds owner-scoped personal layout storage without report data or new refresh jobs", async () => {
+  await ensureAppSchema();
+  const query = sqlMock.mock.calls.map(([strings]) => strings.join(" ")).find(text => text.includes("DO $personal_dashboard_schema$"));
+  expect(query).toContain("pg_advisory_xact_lock(734019, 5)");
+  expect(query).toContain("user_id BIGINT PRIMARY KEY REFERENCES users(id)");
+  expect(query).toContain("revision BIGINT NOT NULL DEFAULT 1");
+  expect(query).not.toMatch(/INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|report_snapshots_cache/);
+});

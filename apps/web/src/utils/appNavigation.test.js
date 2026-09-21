@@ -10,6 +10,12 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it("keeps personal dashboards under the browse-all destination instead of reopening a default", () => {
+    for (const path of ["/reports/personal-dashboards/new", "/reports/personal-dashboards/00000000-0000-4000-8000-000000000001"]) {
+      expect(getBreadcrumbs(path)).toContainEqual({ label: "My Dashboards", href: "/reports/dashboards?browse=1" });
+      expect(getBreadcrumbs(path).at(-1).label).toBe(path.endsWith("/new") ? "Create dashboard" : "Personal dashboard");
+    }
+  });
   it("returns Metric Library managers to report configuration through Setup Hub", () => {
     expect(getBreadcrumbs("/report-configurations/metrics", { canManageWorkspace: true })).toEqual([
       { label: "Home", href: "/" }, { label: "Setup Hub", href: "/setup" },

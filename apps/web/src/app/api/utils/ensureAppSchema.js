@@ -2483,6 +2483,7 @@ export default async function ensureAppSchema() {
       DO $organization_audit_schema$
       BEGIN
         PERFORM pg_advisory_xact_lock(734019, 3);
+        ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS logo_data_url TEXT;
         CREATE TABLE IF NOT EXISTS organization_settings_audits (
           id BIGSERIAL PRIMARY KEY,
           actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -2556,6 +2557,19 @@ export default async function ensureAppSchema() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
       END $metric_library_schema$
+    `;
+    await sql`
+      DO $personal_dashboard_schema$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(734019, 5);
+        CREATE TABLE IF NOT EXISTS personal_report_workspaces (
+          user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          dashboards JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(dashboards) = 'array'),
+          default_dashboard_id UUID,
+          revision BIGINT NOT NULL DEFAULT 1,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      END $personal_dashboard_schema$
     `;
     await sql`
       INSERT INTO report_configurations (

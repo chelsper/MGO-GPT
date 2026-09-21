@@ -49,7 +49,24 @@ export async function PUT(request) {
     const { user, error } = await requireAdminSession();
     if (error) return error;
 
-    const body = await request.json().catch(() => null);
+    const origin = request.headers.get("origin");
+    if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") return json({ error: "Save organization settings from this app." }, 403);
+    const reader = request.body?.getReader();
+    const parts = [];
+    let size = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > 160 * 1024) { await reader.cancel(); return json({ error: "Organization settings are too large. Choose a smaller logo." }, 413); }
+          parts.push(value);
+        }
+      } finally { reader.releaseLock(); }
+    }
+    let body = null;
+    try { body = JSON.parse(Buffer.concat(parts).toString("utf8")); } catch { /* Invalid input is handled by validation below. */ }
     const settings = body?.settings;
     const validationError = validateOrganizationSettings(settings);
     if (validationError) {

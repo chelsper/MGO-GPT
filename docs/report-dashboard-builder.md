@@ -19,10 +19,9 @@ remain separate report destinations.
 The landing page reads configuration metadata only. It does not prefetch report
 snapshots, start queries, or add schedules. The selector uses the same cached
 configuration hook; a direct custom-dashboard visit now also reads that metadata.
-Only the selected dashboard reads its existing saved-snapshot endpoint. Personal
-dashboard composition remains a later phase; creation stays in the
-administrator/Advancement Services builder. The Metric Library below prepares
-existing saved sources for reuse without changing those dashboards.
+Only the selected dashboard reads its saved-snapshot endpoint. The Metric Library
+prepares existing saved sources for personal reuse without changing shared
+dashboards. Creating or changing a shared report remains manager-only.
 
 ## Metric Library (Phase 1)
 
@@ -32,7 +31,7 @@ Administrators and Advancement Services managers can register an existing Alumni
 Give it a clear name and reporting-period description, select its saved source,
 and save. New entries start unpublished; nothing is enrolled automatically.
 **Make available in the library** publishes only the reusable reference, not a
-new dashboard. End-user dashboard assembly is not included in this phase.
+new dashboard. End users can select authorized entries as described below.
 
 Query counts stay numeric, manual values support number or USD currency display,
 and query tables retain their source column formatting. A row count is never a
@@ -71,6 +70,57 @@ and idempotent CREATE. It stores references, presentation, publication and
 revision metadata; no source configurations or saved results are migrated.
 Rollback to the previous app leaves this unused table in place and existing
 reports intact. Do not drop it as part of a normal rollback.
+
+## Personal Dashboards
+
+In **My Dashboards**, choose **Create dashboard**, name it, then select approved
+metrics shared with you. Preview reads only the chosen metric's saved result.
+Add, reorder with the labeled up/down controls, and remove cards locally; nothing
+is written until **Save dashboard**. Query tables span the full row. Counts,
+currency, manual/frozen values, missing results and original timestamps retain
+their source meaning. No metric is copied into a new query or refresh schedule.
+
+Set **Open this dashboard by default** to open it when visiting My Dashboards.
+**Browse all dashboards** bypasses that preference so it never traps users in a
+redirect loop. Uncheck the default setting and save to return to the dashboard
+collection by default. Shared report URLs and shared dashboard arrangement are
+unchanged. The collection loads only personal layout and report metadata, not all
+dashboard results. Personal layouts are not retained in a cross-session query cache.
+
+Limits are 12 personal dashboards per user, 12 different metrics per dashboard,
+and four selected query tables per dashboard. Newly registered library entries
+start unpublished; if the library is empty, a manager must publish selected
+entries and grant source-report access through the existing editor. The personal
+builder cannot change metric definitions, audiences, query IDs or refresh rules.
+Personal layout sharing, dashboard deletion and custom calculations are deferred.
+
+Every API call authenticates the actual active user, not a selected MGO workspace.
+Admins have no cross-owner bypass. `GET /api/reports/personal-dashboards` returns
+only that actor's layout metadata. PUT strictly validates the complete layout
+collection and its revision; one owner-scoped compare-and-swap atomically updates
+layouts and the default. Failed/conflicting saves retain the client draft rather
+than retrying or overwriting newer settings. Cancel confirms before discarding
+edits; full navigation/reload has an unsaved-change warning.
+
+`GET /api/reports/personal-dashboards/:dashboardId` verifies ownership before
+reading metric definitions or saved results, then checks publication, current
+source identity/activation and the reader's source access. Unavailable cards
+contain only their stored reference and a neutral placeholder, not old titles or
+values. Their references can be retained, reordered or removed on that same
+dashboard, but cannot be newly added elsewhere. Multiple cards backed by one
+source snapshot read it once per request. Preview uses the ordinary authorized
+metric endpoint, never the manager preview bypass. Reload saved values remains
+read-only, clears prior rendered results, and never starts or polls an NXT job.
+
+Schema initialization adds only `personal_report_workspaces`, keyed by user ID,
+with reference-only layout JSON, default ID, revision and timestamp. No saved
+report data, access rules or cron schedules are changed. Older application
+releases ignore this table safely; leave it in place on rollback. Optional real
+PostgreSQL tests run with `PERSONAL_TEST_PGHOST` pointing to a disposable socket
+under `/private/tmp/personal-dashboards-pg.*` and
+`node scripts/check-personal-dashboards-postgres.mjs`. They use synthetic records,
+an isolated random schema, concurrent initialization and save checks; they never
+connect to the app database or Blackbaud.
 
 ## Editing Reports
 

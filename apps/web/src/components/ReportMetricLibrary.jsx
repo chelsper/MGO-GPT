@@ -113,7 +113,7 @@ export default function ReportMetricLibrary({ initialPayload }) {
       <a href="/report-configurations" className={styles.button}><ArrowLeft size={16} /> Back to Report Access &amp; Configurations</a>
       <h1>Metric Library</h1><p className={styles.muted}>Define once. Reuse saved results without running another query.</p>
     </div><button className={`${styles.button} ${styles.primary}`} disabled={saving || reloading} onClick={() => choose(null)}><Plus size={17} /> Add metric</button></header>
-    <div className={styles.guide}><strong>Connected to your existing reports</strong><p>Choose an existing count, manual figure, or query table. Access and refresh rules stay with its source report. Making a metric available never grants additional access. Personal dashboard assembly is the next phase.</p></div>
+    <div className={styles.guide}><strong>Connected to your existing reports</strong><p>Choose an existing count, manual figure, or query table. Access and refresh rules stay with its source report. Making a metric available never grants additional access. Authorized users can add published metrics to their private dashboards in My Dashboards.</p></div>
     {notice && <p className={styles.notice} role="status">{notice}</p>}
     {error && <p className={`${styles.notice} ${styles.error}`} role="alert">{error}</p>}
     <div className={styles.toolbar} style={{ marginTop: 24 }}>

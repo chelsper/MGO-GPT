@@ -4,10 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Page from "./page";
 import { DEFAULT_ORGANIZATION_SETTINGS as settings } from "@/utils/organizationSettings";
 import { ORGANIZATION_REPORTING_POLICY as reportingPolicy } from "@/utils/organizationRuntimePolicy";
+import { prepareOrganizationLogo } from "@/utils/organizationLogo";
+vi.mock("@/utils/organizationLogo", async original => ({ ...await original(), prepareOrganizationLogo:vi.fn() }));
 vi.mock("@/utils/useUser", () => { const user = { email:'admin@example.test' }; return { default: () => ({data:user, loading:false}) }; });
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status });
 let client, respond;
 beforeEach(() => {
+  vi.mocked(prepareOrganizationLogo).mockReset();
   client = new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
   respond = () => reply({settings:{...settings, applicationName:'Updated Hub'}, revision:'version-2', reportingPolicy, change:{id:1,created_at:'2026-09-17T16:00:00Z',changed_fields:['applicationName']}});
   vi.spyOn(window,'confirm').mockReturnValue(true);
@@ -83,4 +86,27 @@ it('keeps the current draft when a profile reload returns an incomplete success'
   fireEvent.click(screen.getByRole('button',{name:'Reload saved profile'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('response is incomplete');
   expect(screen.getByLabelText('Application Name')).toHaveValue('Keep this draft');
+});
+
+it('prepares a logo without a request and saves it through the revision-checked profile', async () => {
+  const logo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVh0AAAAASUVORK5CYII=";
+  let finish;
+  vi.mocked(prepareOrganizationLogo).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await mount();
+  const before = fetch.mock.calls.length;
+  fireEvent.change(screen.getByLabelText('Choose logo'), { target:{ files:[new File(['logo'], 'logo.png', {type:'image/png'})] } });
+  expect(screen.getByRole('button',{name:'Save Organization Settings'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Reload saved profile'})).toBeDisabled();
+  finish(logo);
+  await screen.findByAltText('Organization logo preview');
+  expect(fetch).toHaveBeenCalledTimes(before);
+  respond = () => reply({ settings:{...settings,logoDataUrl:logo}, revision:'version-2', reportingPolicy });
+  fireEvent.click(screen.getByRole('button',{name:'Save Organization Settings'}));
+  await screen.findByText(/Institution profile saved in app/);
+  expect(client.getQueryData(['organization-settings','admin@example.test']).settings.logoDataUrl).toBe(logo);
+  const [, options] = fetch.mock.calls.find(([, options])=>options?.method==='PUT');
+  expect(JSON.parse(options.body)).toMatchObject({settings:{logoDataUrl:logo},expectedRevision:'version-1'});
+  fireEvent.click(screen.getByRole('button',{name:'Restore initials'}));
+  expect(screen.queryByAltText('Organization logo preview')).not.toBeInTheDocument();
+  expect(fetch.mock.calls.filter(([, options])=>options?.method==='PUT')).toHaveLength(1);
 });

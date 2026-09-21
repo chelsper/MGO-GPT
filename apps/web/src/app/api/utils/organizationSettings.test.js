@@ -34,6 +34,7 @@ describe("organization settings", () => {
       institutionName: "Example College",
       shortName: "EC",
       applicationName: "Advancement Hub",
+      logoDataUrl: null,
       advancementServicesNotificationEmail: "devdata@example.edu",
       notificationSenderName: "Example Advancement Hub",
       timeZone: "America/Chicago",

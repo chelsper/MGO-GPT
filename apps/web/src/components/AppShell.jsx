@@ -31,6 +31,7 @@ import {
   isNavigationItemActive,
 } from "@/utils/appNavigation";
 import WorkQueueAlertBadge from "@/components/WorkQueueAlertBadge";
+import OrganizationLogo from "@/components/OrganizationLogo";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 import styles from "./AppShell.module.css";
 
@@ -307,7 +308,7 @@ export default function AppShell({ children }) {
               <Menu aria-hidden="true" size={20} />
             </button>
             <a className={styles.brand} href="/" aria-label={`${organization.applicationName} home`} title={organization.institutionName}>
-              <span className={styles.brandMark} aria-hidden="true">{organization.shortName}</span>
+              <OrganizationLogo logo={organization.logoDataUrl} shortName={organization.shortName} className={styles.brandMark} />
               <span className={styles.brandName}>{organization.applicationName}</span>
             </a>
             <span className={styles.workspaceLabel}>{workspaceLabel}</span>
@@ -468,7 +469,7 @@ export default function AppShell({ children }) {
           <aside className={styles.drawer} role="dialog" aria-modal="true" aria-label="Primary navigation">
             <div className={styles.drawerHeader}>
               <a className={styles.brand} href="/" aria-label={`${organization.applicationName} home`} title={organization.institutionName}>
-                <span className={styles.brandMark} aria-hidden="true">{organization.shortName}</span>
+                <OrganizationLogo logo={organization.logoDataUrl} shortName={organization.shortName} className={styles.brandMark} />
                 <span className={styles.brandName}>{organization.applicationName}</span>
               </a>
               <button type="button" className={styles.iconButton} aria-label="Close navigation menu" onClick={() => setDrawerOpen(false)}>

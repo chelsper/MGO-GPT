@@ -146,6 +146,11 @@ export function isNavigationItemActive(pathname, href) {
 
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
+  if (pathname.startsWith("/reports/personal-dashboards/")) return [
+    { label: "Home", href: "/" }, { label: "Reports", href: "/reports" },
+    { label: "My Dashboards", href: "/reports/dashboards?browse=1" },
+    { label: pathname.endsWith("/new") ? "Create dashboard" : "Personal dashboard" },
+  ];
   if (pathname === "/report-configurations/metrics") return [
     { label: "Home", href: "/" },
     ...(canManageWorkspace ? [{ label: "Setup Hub", href: "/setup" }, { label: "Report Access & Configurations", href: "/report-configurations" }] : []),

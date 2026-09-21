@@ -2,6 +2,7 @@ const fieldLabels = {
   institutionName: "Institution name", shortName: "Short name", applicationName: "Application name",
   advancementServicesNotificationEmail: "Notification inbox", notificationSenderName: "Sender name",
   terminology: "Workspace labels", allowedEmailDomains: "Documented email domains",
+  logoDataUrl: "Organization logo",
 };
 
 export default function OrganizationConfigurationStatus({ policy, history = [] }) {

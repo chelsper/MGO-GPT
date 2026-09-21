@@ -1,17 +1,23 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router";
+const personal = vi.hoisted(() => vi.fn());
+vi.mock("@/app/reports/usePersonalDashboards", () => ({ usePersonalDashboards: personal }));
 import MyDashboardsPage from "./page";
 
 const alumni = { key: "alumni-family-engagement", title: "Alumni & Family Engagement", description: "Giving and engagement", canView: true };
 const custom = { key: "campaign", title: "Campaign Progress", description: "Campaign milestones", configurationSchema: "query-count-dashboard-v1", active: true, canView: true };
 const json = (body, status = 200) => ({ ok: status === 200, json: async () => body });
 let client;
-function mount() {
+function mount(path = "/reports/dashboards") {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MyDashboardsPage /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/reports/dashboards" element={<MyDashboardsPage />} /><Route path="/reports/personal-dashboards/:id" element={<p>Personal default opened</p>} /></Routes></MemoryRouter></QueryClientProvider>);
 }
-beforeEach(() => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ configurations: [alumni, custom], canManage: false }))));
+beforeEach(() => {
+  personal.mockReturnValue({ data: { revision: "0", dashboards: [], defaultDashboardId: null }, isPending: false, error: null, refetch: vi.fn() });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ configurations: [alumni, custom], canManage: false })));
+});
 afterEach(() => { cleanup(); client?.clear(); vi.unstubAllGlobals(); });
 
 it("loads only report metadata, shows authorized dashboards and preserves their URLs", async () => {
@@ -88,4 +94,24 @@ it("hides cached dashboard links if an access reload fails", async () => {
   await client.invalidateQueries({ queryKey: ["report-configurations"] });
   await waitFor(() => expect(screen.queryByRole("link", { name: "Open Campaign Progress" })).not.toBeInTheDocument());
   expect(screen.getByRole("alert")).toBeInTheDocument();
+});
+
+it("opens a verified personal default but keeps Browse all dashboards available", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  personal.mockReturnValue({ data: { revision: "1", dashboards: [{ id, title: "My overview", metricIds: [] }], defaultDashboardId: id }, isPending: false });
+  const view = mount();
+  expect(await screen.findByText("Personal default opened")).toBeVisible();
+  view.unmount();
+  mount("/reports/dashboards?browse=1");
+  expect(await screen.findByRole("link", { name: "Open personal dashboard My overview" })).toHaveAttribute("href", `/reports/personal-dashboards/${id}`);
+  expect(screen.getByText(/Your default/)).toBeVisible();
+  expect(screen.queryByText("Personal default opened")).not.toBeInTheDocument();
+});
+
+it("never redirects from a failed or loading personal workspace", async () => {
+  personal.mockReturnValue({ data: { dashboards: [], defaultDashboardId: "old" }, isPending: false, error: new Error("Unavailable"), refetch: vi.fn() });
+  mount();
+  expect(await screen.findByRole("button", { name: "Retry personal dashboards" })).toBeVisible();
+  expect(screen.queryByText("Personal default opened")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Create dashboard" })).not.toBeInTheDocument();
 });

@@ -1,16 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { ArrowRight, LayoutDashboard, Search, Settings2 } from "lucide-react";
 import SharedReportHeader from "@/app/reports/SharedReportHeader";
 import { useReportConfigurations } from "@/app/reports/useReportConfigurations";
 import { getReportHref } from "@/app/api/utils/reportRegistry";
 import { visibleDashboards } from "@/utils/reportDashboards";
+import { usePersonalDashboards } from "@/app/reports/usePersonalDashboards";
+import { MAX_PERSONAL_DASHBOARDS, personalDashboardHref } from "@/utils/personalDashboards";
 import styles from "./dashboards.module.css";
 
 export default function MyDashboardsPage() {
   const { visibleReports, canManage, isPending, error, refetch } = useReportConfigurations();
   const [search, setSearch] = useState("");
+  const personal = usePersonalDashboards();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const ownDashboards = personal.error || personal.isPending ? [] : personal.data?.dashboards || [];
+  const browse = new URLSearchParams(location.search).get("browse") === "1";
+  const defaultId = !personal.error && personal.data?.defaultDashboardId;
+  useEffect(() => {
+    if (!browse && !personal.isPending && defaultId && personal.data.dashboards.some((item) => item.id === defaultId))
+      navigate(personalDashboardHref(defaultId), { replace: true });
+  }, [browse, personal.isPending, defaultId, personal.data, navigate]);
   const dashboards = visibleDashboards(error || isPending ? [] : visibleReports);
   const term = search.trim().toLowerCase();
   const filtered = dashboards.filter((report) =>
@@ -23,7 +36,7 @@ export default function MyDashboardsPage() {
         <SharedReportHeader
           activeReportKey="dashboards"
           title="My Dashboards"
-          description="Your shared dashboards, together in one place. Choose a dashboard to explore its saved results."
+          description="Your private dashboards and shared reports, together in one place."
           accessibleReports={error || isPending ? [] : visibleReports}
           action={canManage && !error && !isPending ? (
             <a className={styles.button} href="/report-configurations">
@@ -31,6 +44,16 @@ export default function MyDashboardsPage() {
             </a>
           ) : null}
         />
+        <section aria-label="Your private dashboards" style={{ marginBottom: 32 }}>
+          <div className={styles.toolbar}><div><h2>Your dashboards <span className={styles.count}>{ownDashboards.length}</span></h2><p>Private layouts made from approved metrics.</p></div>
+            {!personal.isPending && !personal.error && ownDashboards.length < MAX_PERSONAL_DASHBOARDS && <a className={styles.button} href="/reports/personal-dashboards/new">Create dashboard</a>}
+          </div>
+          {personal.isPending ? <p role="status">Loading personal dashboards...</p> : personal.error ? <div className={styles.empty} role="alert"><p>Your personal dashboards could not be loaded.</p><button className={styles.button} onClick={() => personal.refetch()}>Retry personal dashboards</button></div>
+            : !ownDashboards.length ? <p className={styles.searchStatus}>Create your first dashboard by choosing metrics shared with you.</p>
+            : <div className={styles.grid}>{ownDashboards.map((dashboard) => <a className={styles.card} key={dashboard.id} href={personalDashboardHref(dashboard.id)} aria-label={`Open personal dashboard ${dashboard.title}`}>
+              <h3>{dashboard.title}</h3><p>{dashboard.metricIds.length} cards · Only you{personal.data.defaultDashboardId === dashboard.id ? " · Your default" : ""}</p><span className={styles.cardFooter}>Open dashboard <ArrowRight size={19} aria-hidden="true" /></span>
+            </a>)}</div>}
+        </section>
         {isPending && <p role="status">Loading your dashboards...</p>}
         {error && (
           <section className={styles.empty} role="alert">

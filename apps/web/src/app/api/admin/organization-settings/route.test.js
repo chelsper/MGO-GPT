@@ -48,3 +48,11 @@ it("rejects unsupported mappings before attempting a save", async () => {
   expect((await PUT(request({ settings: { ...settings, pledgeQueryId:'999' } }))).status).toBe(400);
   expect(mocks.save).not.toHaveBeenCalled();
 });
+
+it("rejects cross-origin and oversized logo requests before saving", async () => {
+  const crossOrigin = new Request('https://app.test/api/admin/organization-settings', { method:'PUT', headers:{ origin:'https://another.test' }, body:JSON.stringify({ settings }) });
+  expect((await PUT(crossOrigin)).status).toBe(403);
+  expect((await PUT(request({ settings, padding:'a'.repeat(170 * 1024) }))).status).toBe(413);
+  expect((await PUT(request({ settings:{ ...settings, logoDataUrl:'https://tracker.test/logo.svg' } }))).status).toBe(400);
+  expect(mocks.save).not.toHaveBeenCalled();
+});

@@ -68,6 +68,28 @@ are introduced.
 
 ## Safe Saves And History
 
+### Organization Logo
+
+The institution profile includes a logo picker with a local preview and a
+"Restore initials" option. PNG, JPEG, and WebP inputs up to 2 MB are resized and
+re-encoded in the browser to a metadata-free PNG (at most 512 pixels per side and
+96 KB). The logo is not transmitted until Save Organization Settings is selected.
+SVG, external URLs, oversized PNGs, and unsupported PNG chunks are rejected.
+The server caps the request body and checks same-origin writes.
+
+The logo uses the existing manager permission, optimistic revision, and atomic
+profile/audit save. The additive nullable `organization_settings.logo_data_url`
+column defaults to initials, with no data migration or third-party storage service.
+Older clients that omit the field preserve its current value. Removal is an
+explicit profile edit and does not delete prior audit history.
+
+The shared app header and navigation drawer render the logo without changing
+the app name, role permissions, or NXT connection. Broken images fall back to the
+short name. Sign-in pages, favicons, email templates, and exports are not branded
+by this first release. The current session receives the saved logo through the
+existing settings cache update; other sessions use the existing five-minute
+freshness rules, with no extra requests or refresh timer.
+
 Existing management access remains Admin or Advancement Services, resolved from
 the authenticated account, not a supplied workspace or actor ID. Management
 responses are private/no-store. Query/field-mapping keys cannot be smuggled through

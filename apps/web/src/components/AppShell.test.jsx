@@ -141,6 +141,18 @@ describe("AppShell", () => {
     await renderShell();
     expect(container.querySelector('[data-testid="page-label"]')).toHaveTextContent('Fundraiser');
   });
+  it("shows saved organization logos in the header and menu, with safe initials fallback", async () => {
+    const logo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVh0AAAAASUVORK5CYII=";
+    state.organization = { shortName: 'EC', logoDataUrl:logo };
+    await renderShell();
+    expect(container.querySelector('header img')).toHaveAttribute('src',logo);
+    await act(async () => { fireEvent.click(container.querySelector('[aria-label="Open navigation menu"]')); });
+    expect(container.querySelectorAll(`img[src="${logo}"]`)).toHaveLength(2);
+    state.organization = { shortName:'EC', logoDataUrl:'https://tracker.test/logo.svg' };
+    await renderShell();
+    expect(container.querySelectorAll('img')).toHaveLength(0);
+    expect(container.textContent).toContain('EC');
+  });
   it("provides persistent breadcrumbs, role-aware navigation, and queue badges", async () => {
     await renderShell();
 

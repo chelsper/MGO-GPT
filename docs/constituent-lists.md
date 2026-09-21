@@ -107,8 +107,9 @@ access rules, membership action, and refresh behavior until its new list source
 settings are explicitly saved. It is not silently migrated.
 Retired custom-field count reports are not re-enabled. My Dashboards now groups
 the existing engagement and configured dashboards separately from Lists. The
-administrator Metric Library now registers their existing saved sources for reuse;
-personal dashboard composition remains future work. See `report-dashboard-builder.md`.
+administrator Metric Library registers their existing saved sources for reuse.
+Users can compose private dashboards from authorized published metrics. See
+`report-dashboard-builder.md`.
 
 Admin and Advancement Services use **Setup > Report Access & Configurations >
 Add list**. Configure a title, an existing NXT constituent custom-field category,

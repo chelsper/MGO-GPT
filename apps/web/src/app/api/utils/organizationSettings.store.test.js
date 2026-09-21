@@ -65,3 +65,17 @@ it("does not accept arbitrary query IDs or invalid label payloads", async () => 
   }
   expect(sql).not.toHaveBeenCalled();
 });
+
+it("audits logo changes and preserves logos when an older client omits the field", async () => {
+  const logo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVh0AAAAASUVORK5CYII=";
+  sql.mockResolvedValueOnce([{ ...defaults, logo_data_url:logo, revision }]);
+  const { logoDataUrl, ...legacy } = defaults;
+  await save({ ...legacy, applicationName:'New title' });
+  expect(sql.mock.calls[1][0].join('')).toContain('logo_data_url =');
+  expect(sql.mock.calls[1]).toContain(logo);
+  expect(sql.mock.calls[1]).toContain(JSON.stringify(['applicationName']));
+  sql.mockClear();
+  sql.mockResolvedValueOnce([{ ...defaults, logoDataUrl:logo, revision }]);
+  await save({ ...defaults, logoDataUrl:null });
+  expect(sql.mock.calls[1]).toContain(JSON.stringify(['logoDataUrl']));
+});

@@ -6,6 +6,7 @@ import SetupReturnLink from "@/components/SetupReturnLink";
 import { GripVertical, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import OrganizationConfigurationStatus from "@/components/OrganizationConfigurationStatus";
+import OrganizationLogoEditor from "@/components/OrganizationLogoEditor";
 import useUser from "@/utils/useUser";
 import { canManageWorkspaceRole } from "@/utils/workspaceRoles";
 
@@ -124,6 +125,7 @@ function normalizeInstitutionSettingsForForm(settings) {
     institutionName: settings?.institutionName || "",
     shortName: settings?.shortName || "",
     applicationName: settings?.applicationName || "",
+    logoDataUrl: settings?.logoDataUrl || null,
     advancementServicesNotificationEmail:
       settings?.advancementServicesNotificationEmail || "devdata@ju.edu",
     notificationSenderName: settings?.notificationSenderName || "JUMGOGPT",
@@ -187,6 +189,7 @@ export default function OrganizationConfigurationsPage() {
   useSetupAnchor(!loading && !pageLoading && Boolean(profile));
   const [saving, setSaving] = useState(false);
   const [institutionSettingsSaving, setInstitutionSettingsSaving] = useState(false);
+  const [logoPreparing, setLogoPreparing] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [institutionSettingsError, setInstitutionSettingsError] = useState("");
@@ -522,7 +525,7 @@ export default function OrganizationConfigurationsPage() {
   }
 
   async function saveInstitutionSettings() {
-    if (!institutionSettings || !institutionRevision || institutionSettingsSaving || settingsReloadNeeded) return;
+    if (!institutionSettings || !institutionRevision || institutionSettingsSaving || settingsReloadNeeded || logoPreparing) return;
 
     setInstitutionSettingsSaving(true);
     setInstitutionSettingsError("");
@@ -562,7 +565,7 @@ export default function OrganizationConfigurationsPage() {
   }
 
   async function reloadInstitutionSettings() {
-    if (institutionSettingsSaving || !window.confirm("Reload the saved institution profile and discard unsaved profile edits? Giving society edits are kept.")) return;
+    if (institutionSettingsSaving || logoPreparing || !window.confirm("Reload the saved institution profile and discard unsaved profile edits? Giving society edits are kept.")) return;
     setInstitutionSettingsSaving(true);
     try {
       const response = await fetch("/api/admin/organization-settings", { cache: "no-store" });
@@ -690,6 +693,7 @@ export default function OrganizationConfigurationsPage() {
 
           <OrganizationConfigurationStatus policy={reportingPolicy} history={settingsHistory} />
           <fieldset disabled={institutionSettingsSaving || !institutionSettings} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          <OrganizationLogoEditor value={institutionSettings?.logoDataUrl} shortName={institutionSettings?.shortName || "JU"} disabled={institutionSettingsSaving || settingsReloadNeeded || !institutionSettings} onChange={(logoDataUrl) => updateInstitutionSettings({ logoDataUrl })} onBusyChange={setLogoPreparing} />
           <div
             id="notification-delivery"
             className="scroll-mt-24"
@@ -963,7 +967,7 @@ export default function OrganizationConfigurationsPage() {
             <button
               type="button"
               onClick={saveInstitutionSettings}
-              disabled={institutionSettingsSaving || !institutionSettings || !institutionRevision || settingsReloadNeeded}
+              disabled={institutionSettingsSaving || logoPreparing || !institutionSettings || !institutionRevision || settingsReloadNeeded}
               style={{
                 border: 0,
                 borderRadius: "999px",
@@ -982,7 +986,7 @@ export default function OrganizationConfigurationsPage() {
             </button>
           </div>
           </fieldset>
-          <button type="button" disabled={institutionSettingsSaving} onClick={reloadInstitutionSettings} className="mt-4 min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">Reload saved profile</button>
+          <button type="button" disabled={institutionSettingsSaving || logoPreparing} onClick={reloadInstitutionSettings} className="mt-4 min-h-11 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50">Reload saved profile</button>
         </section>
 
         <section id="giving-societies" className="scroll-mt-24" style={{ ...cardStyle, padding: "28px" }}>
