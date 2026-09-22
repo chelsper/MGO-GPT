@@ -26,6 +26,7 @@ export const REVIEWER_NAV_ITEMS = [
   { label: "Work Queue", href: "/submissions", section: "Daily Work", primaryOrder: 1, description: "Review outstanding requests and NXT exceptions in one queue." },
   { label: "Prospect Pool", href: "/prospect-pool", section: "Daily Work" },
   { label: "Follow-ups & Discussion", href: "/follow-ups", section: "Daily Work", description: "View saved next steps or switch to team talking points and handoffs." },
+  { label: "Stewardship", href: "/stewardship", section: "Stewardship", description: "Prepare society letters by household and track acknowledgments across giving periods." },
   { label: "Pledge Payments", href: "/pledge-payments", section: "Reports & Exports", description: "See past-due and upcoming payments, amounts paid, and pledge schedules." },
   { label: "Top Prospect Exports", href: "/prospect-exports", section: "Reports & Exports", primaryOrder: 3 },
   { label: "List Request Queue", href: "/list-requests", section: "Requests" },
@@ -54,7 +55,7 @@ export const ADMIN_WORKSPACE_ITEMS = [
   },
 ];
 
-const SECTION_ORDER = ["Daily Work", "Reports & Exports", "Requests", "Imports", "Tools & Guidance", "My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
+const SECTION_ORDER = ["Daily Work", "Stewardship", "Reports & Exports", "Requests", "Imports", "Tools & Guidance", "My Work", "Team & Support", "Requests & Review", "Admin & Workspace"];
 
 const INTEGRATION_HEALTH_ITEM = { label: "Integration Health", href: "/integration-health", section: "Admin & Workspace", description: "Read saved connection, refresh, cooldown, and NXT verification status. No approvals or automatic retries." };
 const SETUP_HUB_ITEM = { label: "Setup Hub", href: "/setup", section: "Admin & Workspace", description: "Start here for organization settings, NXT connections, fundraiser mappings, and reports." };
@@ -85,6 +86,7 @@ const ROUTE_LABELS = {
   "/request-list": "Request List from DevData",
   "/settings": "My Account & Connections",
   "/setup": "Setup Hub",
+  "/stewardship": "Stewardship",
   "/submissions": "Work Queue",
   "/team-discussion": "Follow-ups & Discussion",
   "/follow-ups": "Follow-ups & Discussion",
@@ -137,6 +139,7 @@ export function groupNavigationItems(items, { promotePrimary = false } = {}) {
 
 export function isNavigationItemActive(pathname, href) {
   if (href === "/") return pathname === "/";
+  if (href === "/stewardship") return pathname === href || pathname.startsWith("/stewardship/");
   if (href === "/follow-ups") return pathname === href || pathname === "/team-discussion";
   if (href === "/reports") {
     return pathname === href || pathname.startsWith("/reports/");
@@ -146,6 +149,9 @@ export function isNavigationItemActive(pathname, href) {
 
 export function getBreadcrumbs(pathname, { canManageWorkspace = false } = {}) {
   if (!pathname || pathname === "/") return [];
+  if (pathname === "/stewardship/society-letters") return [
+    { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Society Letter Creation" },
+  ];
   if (pathname.startsWith("/reports/personal-dashboards/")) return [
     { label: "Home", href: "/" }, { label: "Reports", href: "/reports" },
     { label: "My Dashboards", href: "/reports/dashboards?browse=1" },

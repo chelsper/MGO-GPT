@@ -27,6 +27,7 @@ const icons = {
 
 const sectionDescriptions = {
   "Daily Work": "Review outstanding work, assign prospects, and coordinate with the team.",
+  "Stewardship": "Recognize supporters and keep a shared record of household acknowledgments.",
   "Reports & Exports": "Open the saved pledge worklist or configure reports. Top Prospect Exports is above in Start here.",
   "Requests": "Go directly to a specific request queue. These requests also appear in Work Queue.",
   "Imports": "Review saved results below. Start new constituency imports above in Start here. Nothing to approve in Import History.",

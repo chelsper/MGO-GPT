@@ -12,6 +12,8 @@ const RETURN_PAGES = {
   "/pledge-payments": "Pledge Payments",
   "/prospect-exports": "Top Prospect Exports",
   "/setup": "Setup Hub",
+  "/stewardship": "Stewardship",
+  "/stewardship/society-letters": "Society Letter Creation",
 };
 
 export function getSafeInternalReturnPath(value) {

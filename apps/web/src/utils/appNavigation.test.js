@@ -10,6 +10,14 @@ import {
 } from "./appNavigation";
 
 describe("app navigation", () => {
+  it("adds stewardship only to Advancement Services and returns letters to their parent", () => {
+    expect(getNavigationItems({ isReviewer: true }).find(item => item.href === "/stewardship").section).toBe("Stewardship");
+    expect(getNavigationItems({ isReviewer: false }).some(item => item.href === "/stewardship")).toBe(false);
+    expect(isNavigationItemActive("/stewardship/society-letters", "/stewardship")).toBe(true);
+    expect(getBreadcrumbs("/stewardship/society-letters")).toEqual([
+      { label: "Home", href: "/" }, { label: "Stewardship", href: "/stewardship" }, { label: "Society Letter Creation" },
+    ]);
+  });
   it("keeps personal dashboards under the browse-all destination instead of reopening a default", () => {
     for (const path of ["/reports/personal-dashboards/new", "/reports/personal-dashboards/00000000-0000-4000-8000-000000000001"]) {
       expect(getBreadcrumbs(path)).toContainEqual({ label: "My Dashboards", href: "/reports/dashboards?browse=1" });
@@ -123,6 +131,7 @@ describe("app navigation", () => {
 
     expect(groups.map((group) => group.section)).toEqual([
       "Daily Work",
+      "Stewardship",
       "Reports & Exports",
       "Requests",
       "Imports",
