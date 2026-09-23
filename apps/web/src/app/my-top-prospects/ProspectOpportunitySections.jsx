@@ -5,6 +5,7 @@ export function ActiveOpportunitySection({
   editingOpportunityId,
   opportunityEditFeedback,
   renderOpportunityCard,
+  refreshControl,
 }) {
   return (
     <div style={{ ...workspaceCardStyle, marginBottom: 0 }}>
@@ -18,6 +19,7 @@ export function ActiveOpportunitySection({
       >
         Active Opportunities ({opportunityGroups.active.length})
       </h3>
+      {refreshControl}
       {!editingOpportunityId && opportunityEditFeedback ? (
         <p role="status" className="mb-3 text-sm text-green-800">
           {opportunityEditFeedback}
@@ -59,8 +61,8 @@ export function ClosedOpportunityHistory({
             Closed Opportunities ({opportunityGroups.recentClosed.length})
           </h3>
           <p className="mb-3 text-sm text-gray-500">
-            Funded, withdrawn, and declined opportunities closed in the last two
-            years. Stewardship stays with its opportunity.
+            Funded, withdrawn, declined, and inactive opportunities. Dated history
+            from the last two years appears first. Stewardship stays with its opportunity.
           </p>
           <div className="flex flex-col gap-3">
             {opportunityGroups.recentClosed.map(renderOpportunityCard)}

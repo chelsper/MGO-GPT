@@ -64,6 +64,7 @@ import OpportunityGiftLinkModal from "@/app/components/OpportunityGiftLinkModal"
 import { getProspectFiscalYearLabel, matchesProspectFiscalYear } from "@/utils/prospectDisplay";
 import ProspectRaisedCard from "./ProspectRaisedCard";
 import OpportunityRollover from "./OpportunityRollover";
+import OpportunityRefresh from "./OpportunityRefresh";
 import ProspectActivityHighlights from "./ProspectActivityHighlights";
 import { formatCalendarDate, partitionOpportunities } from "@/utils/prospectActivity";
 
@@ -5450,6 +5451,9 @@ export function ProspectDetailModal({ prospectId, initialPanel, onClose: onReque
             editingOpportunityId={editingOpportunityId}
             opportunityEditFeedback={opportunityEditFeedback}
             renderOpportunityCard={renderOpportunityCard}
+            refreshControl={<OpportunityRefresh key={prospectId} prospectId={prospectId}
+              hasLinkedOpportunities={opportunities.some((opportunity) => Boolean(opportunity.blackbaud_opportunity_id))}
+              editing={Boolean(editingOpportunityId)} />}
           />
           </div>
 

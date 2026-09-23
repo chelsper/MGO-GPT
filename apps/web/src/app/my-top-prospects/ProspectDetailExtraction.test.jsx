@@ -11,6 +11,10 @@ import { ProspectDetailModal } from "./page";
 import { getStandingsPeriods } from "@/utils/standingsPeriods";
 import { WorkspaceTerminologyProvider } from "@/components/WorkspaceTerminology";
 
+// The bounded background NXT read has its own component/route tests. Keep these
+// editor tests focused on explicit writes and their confirmation boundaries.
+vi.mock("./OpportunityRefresh", () => ({ default: () => null }));
+
 let client;
 beforeEach(() => {
   vi.stubGlobal(

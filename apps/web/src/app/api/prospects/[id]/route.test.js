@@ -84,7 +84,7 @@ describe("prospect detail route", () => {
     syncPrimaryPendingActionMock.mockResolvedValue(null);
   });
 
-  it("refreshes imported opportunities without bumping updated_at on read", async () => {
+  it("returns saved opportunities without waiting for NXT or changing them on read", async () => {
     const { GET } = await import("./route.js");
 
     queueSqlResult([
@@ -95,27 +95,10 @@ describe("prospect detail route", () => {
         linked_blackbaud_constituent_id: "234684",
       },
     ]);
-    queueSqlResult([
-      {
-        id: 301,
-        blackbaud_opportunity_id: "bb-opp-1",
-        opportunity_status: "Active",
-        ask_date: null,
-        expected_date: null,
-        closed_amount: null,
-        close_date: null,
-      },
-    ]);
+    getProspectOpportunitiesMock.mockResolvedValue([{ id: 301, blackbaud_opportunity_id: "bb-opp-1" }]);
     queueSqlResult([]);
     queueSqlResult([]);
     queueSqlResult([]);
-
-    blackbaudApiFetchMock.mockResolvedValue({
-      id: "bb-opp-1",
-      ask_date: "2026-05-01",
-      expected_date: "2026-06-01",
-      status: "Active",
-    });
 
     const request = new Request("https://example.com/api/prospects/7");
     const response = await GET(request, { params: { id: "7" } });
@@ -129,11 +112,9 @@ describe("prospect detail route", () => {
       return text.includes("UPDATE prospect_opportunities");
     });
 
-    expect(updateCall).toBeTruthy();
-    const updateSql = Array.isArray(updateCall[0]) ? updateCall[0].join("") : String(updateCall[0]);
-    expect(updateSql).not.toMatch(/updated_at\s*=/i);
-    expect(updateSql).toContain("updated_at::text IS NOT DISTINCT FROM");
-    expect(updateSql).toContain("expected_date IS NOT DISTINCT FROM");
+    expect(updateCall).toBeUndefined();
+    expect(blackbaudApiFetchMock).not.toHaveBeenCalled();
+    expect(payload.opportunities[0].id).toBe(301);
   });
 
   it("shows cached identity and open opportunity years in prospect detail", async () => {

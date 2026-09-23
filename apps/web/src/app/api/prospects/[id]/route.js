@@ -2,168 +2,11 @@ import sql from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import { getProspectOpportunities } from "@/app/api/utils/prospectOpportunities";
-import { blackbaudApiFetch, getBlackbaudConfigIssues } from "@/app/api/utils/blackbaud";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import workspaceWritePermissionError from "@/app/api/utils/workspaceWritePermission";
 import { getPendingActionsForProspect, syncPrimaryPendingAction } from "@/app/api/utils/pendingActions";
 import { clearUserDashboardDataCaches } from "@/app/api/utils/userDataCache";
 import { withProspectDisplayData } from "@/utils/prospectDisplay";
-
-function getNestedValue(source, path) {
-  return path.split(".").reduce((current, key) => {
-    if (current == null) return undefined;
-    return current[key];
-  }, source);
-}
-
-function firstDefined(source, paths) {
-  for (const path of paths) {
-    const value = getNestedValue(source, path);
-    if (value !== undefined && value !== null && value !== "") {
-      return value;
-    }
-  }
-  return null;
-}
-
-function getOpportunityAskDate(opportunity) {
-  return firstDefined(opportunity, [
-    "ask_date",
-    "askDate",
-    "date_asked",
-    "dateAsked",
-    "date_ask",
-    "ask.date",
-  ]);
-}
-
-function getOpportunityExpectedDate(opportunity) {
-  return firstDefined(opportunity, [
-    "expected_date",
-    "expectedDate",
-    "date_expected",
-    "dateExpected",
-    "anticipated_date",
-    "anticipatedDate",
-    "deadline",
-  ]);
-}
-
-function getOpportunityFundedAmount(opportunity) {
-  return firstDefined(opportunity, [
-    "funded_amount.value",
-    "fundedAmount.value",
-    "funded_amount",
-    "fundedAmount",
-    "amount_funded.value",
-    "amountFunded.value",
-    "amount_funded",
-    "amountFunded",
-  ]);
-}
-
-function getOpportunityFundedDate(opportunity) {
-  return firstDefined(opportunity, [
-    "funded_date",
-    "fundedDate",
-    "date_funded",
-    "dateFunded",
-    "close_date",
-    "closeDate",
-  ]);
-}
-
-function getImportedOpportunityStatus(opportunity) {
-  const normalizedStatus = String(opportunity?.status || "").trim().toLowerCase();
-  const fundedAmount = Number(getOpportunityFundedAmount(opportunity) ?? 0);
-  const fundedDate = getOpportunityFundedDate(opportunity);
-
-  if (fundedAmount > 0 || fundedDate) {
-    return "Closed – Gift Secured";
-  }
-
-  if (
-    normalizedStatus.includes("declined") ||
-    normalizedStatus.includes("lost") ||
-    normalizedStatus.includes("cancel") ||
-    normalizedStatus.includes("rejected")
-  ) {
-    return "Closed – Declined";
-  }
-
-  return "Active";
-}
-
-async function refreshImportedBlackbaudOpportunities({
-  userId,
-  authUserId,
-  origin,
-  prospectId,
-}) {
-  const configIssues = getBlackbaudConfigIssues(origin);
-  if (configIssues.length > 0) return;
-
-  const rowsNeedingRefresh = await sql`
-    SELECT po.id, po.blackbaud_opportunity_id, po.opportunity_status, po.ask_date, po.expected_date, po.closed_amount, po.close_date, po.updated_at::text AS revision
-    FROM prospect_opportunities po
-    INNER JOIN prospects p ON p.id = po.prospect_id
-    WHERE po.prospect_id = ${prospectId}
-      AND p.user_id = ${userId}
-      AND po.blackbaud_opportunity_id IS NOT NULL
-      AND (
-        po.ask_date IS NULL
-        OR po.expected_date IS NULL
-        OR po.closed_amount IS NULL
-        OR po.close_date IS NULL
-      )
-  `;
-
-  if (!rowsNeedingRefresh.length) return;
-
-  await Promise.all(
-    rowsNeedingRefresh.map(async (row) => {
-      try {
-        const opportunity = await blackbaudApiFetch(
-          `/opportunity/v1/opportunities/${encodeURIComponent(String(row.blackbaud_opportunity_id))}`,
-          {
-            userId,
-            authUserId,
-            origin,
-          },
-        );
-
-        const nextStatus = getImportedOpportunityStatus(opportunity);
-        const nextClosedAmount =
-          nextStatus === "Closed – Gift Secured"
-            ? getOpportunityFundedAmount(opportunity) ?? row.closed_amount ?? null
-            : nextStatus === "Active"
-              ? null
-              : row.closed_amount;
-        const nextCloseDate =
-          nextStatus === "Closed – Gift Secured"
-            ? getOpportunityFundedDate(opportunity) || row.close_date || null
-            : nextStatus === "Active"
-              ? null
-              : row.close_date;
-
-        await sql`
-          UPDATE prospect_opportunities
-          SET
-            ask_date = COALESCE(${getOpportunityAskDate(opportunity)}, ask_date),
-            expected_date = COALESCE(${getOpportunityExpectedDate(opportunity)}, expected_date),
-            opportunity_status = ${nextStatus},
-            closed_amount = ${nextClosedAmount},
-            close_date = ${nextCloseDate}
-          WHERE id = ${row.id}
-            AND updated_at::text IS NOT DISTINCT FROM ${row.revision}
-            AND expected_date IS NOT DISTINCT FROM ${row.expected_date}::date
-        `;
-      } catch (error) {
-        console.error("Refresh imported Blackbaud opportunity error:", error);
-      }
-    }),
-  );
-}
 
 // GET a single prospect with its updates
 export async function GET(request, { params }) {
@@ -175,11 +18,9 @@ export async function GET(request, { params }) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { workspaceUser: user, sessionUser, isActing } = await getWorkspaceUser(session, request);
+    const { workspaceUser: user } = await getWorkspaceUser(session, request);
     if (!user)
       return Response.json({ error: "User not found" }, { status: 404 });
-    const authUserId = isActing ? sessionUser.id : user.id;
-    const origin = request?.url ? new URL(request.url).origin : null;
 
     const prospectId = params.id;
 
@@ -204,13 +45,6 @@ export async function GET(request, { params }) {
     }
 
     const constituentId = prospects[0].constituent_id || null;
-
-    await refreshImportedBlackbaudOpportunities({
-      userId: user.id,
-      authUserId,
-      origin,
-      prospectId,
-    });
 
     const [updates, opportunities, linkedSubmissions, discussionItems, pendingActions] = await Promise.all([
       sql`

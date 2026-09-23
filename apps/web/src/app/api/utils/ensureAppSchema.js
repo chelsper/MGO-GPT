@@ -1335,6 +1335,14 @@ export default async function ensureAppSchema() {
       ALTER TABLE prospect_opportunities
       ADD COLUMN IF NOT EXISTS purpose TEXT
     `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS nxt_checked_at TIMESTAMPTZ
+    `;
+    await sql`
+      ALTER TABLE prospect_opportunities
+      ADD COLUMN IF NOT EXISTS nxt_retry_after TIMESTAMPTZ
+    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS prospect_opportunity_gift_links (
