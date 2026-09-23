@@ -170,7 +170,10 @@ async function savePortfolioSnapshotSummary({ workspaceUserId, constituentId, pa
     )
     ON CONFLICT (workspace_user_id, constituent_id) DO UPDATE SET
       normalized_payload = EXCLUDED.normalized_payload,
-      summary_payload = EXCLUDED.summary_payload,
+      summary_payload = CASE WHEN COALESCE(portfolio_constituent_snapshots.summary_payload #>> '{mapped,annualGivingSocieties,recognitionSource,checkedAt}', '') >
+          COALESCE(EXCLUDED.summary_payload #>> '{mapped,annualGivingSocieties,recognitionSource,checkedAt}', '')
+        THEN jsonb_set(EXCLUDED.summary_payload, '{mapped,annualGivingSocieties}', portfolio_constituent_snapshots.summary_payload #> '{mapped,annualGivingSocieties}')
+        ELSE EXCLUDED.summary_payload END,
       data_complete = TRUE,
       weekly_policy_applied = TRUE,
       stale_after = EXCLUDED.stale_after,
@@ -1368,6 +1371,8 @@ async function handleGet(request, { params }) {
       });
       const lifetimeGiving = await givingData.loadLifetimeGiving();
       const annualGivingSocieties = await fetchAnnualGivingSocieties({
+        loadAnnualGifts: givingData.loadAnnualGifts,
+        loadSavedSocieties: givingData.loadSavedSocieties,
         listGifts: givingData.listGifts, userId: user.id, authUserId, origin, constituentId,
         societyDefinitions: givingSocietyConfigurations, lifetimeGiving, strict: true,
         resolveRealizedPlannedGiftIds: (gifts) => getRealizedPlannedGiftIds({ gifts, userId: user.id, authUserId, origin, strict: true }),
@@ -1580,6 +1585,8 @@ async function handleGet(request, { params }) {
       "annualGivingSocieties",
       () =>
         fetchAnnualGivingSocieties({
+          loadAnnualGifts: givingData.loadAnnualGifts,
+          loadSavedSocieties: givingData.loadSavedSocieties,
           listGifts: givingData.listGifts,
           userId: user.id,
           authUserId,

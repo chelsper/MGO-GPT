@@ -37,6 +37,20 @@ describe("persisted daily giving", () => {
     const summary = { summaryRefreshedAt: "2026-09-03T06:00:00Z", mapped: {} };
     expect(await withPortfolioGivingSnapshot(7, "123", summary)).toBe(summary);
   });
+  it("shows a corrected annual badge even when the narrative cache was refreshed more recently", async () => {
+    const annual = { annualSocieties: [{ label: "President's Society", basis: "annual", hierarchy: 1 }],
+      societies: [], recognitionSource: { checkedAt: "2026-09-23T12:00:00Z" } };
+    sql.mockResolvedValue([{ constituent_id: "123", payload: { mapped: { annualGivingSocieties: annual } }, refreshed_at: "2026-09-21T00:00:00Z" }]);
+    const summary = { summaryRefreshedAt: "2026-09-22T00:00:00Z", mapped: {
+      annualGivingSocieties: { lifetimeSocieties: [{ label: "1934 Club", basis: "lifetime", hierarchy: 5 }] },
+      lifetimeGiving: { totalGiving: 150000 }, prospectSummaryNarrative: "Newer narrative",
+    } };
+    const result = await withPortfolioGivingSnapshot(7, "123", summary);
+    expect(result.mapped.annualGivingSocieties.societies.map((s) => s.label)).toEqual(["President's Society", "1934 Club"]);
+    expect(result.mapped.lifetimeGiving).toEqual(summary.mapped.lifetimeGiving);
+    expect(result.mapped.prospectSummaryNarrative).toBe("Newer narrative");
+    expect(result.summaryRefreshedAt).toBe(summary.summaryRefreshedAt);
+  });
 
   it("scopes reads to the authorized workspace and requested constituent IDs", async () => {
     await readPortfolioGivingSnapshots(7, ["123"]);

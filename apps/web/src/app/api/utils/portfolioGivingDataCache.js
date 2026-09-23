@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import sql from "@/app/api/utils/sql";
 import { blackbaudApiFetch, listBlackbaudGifts } from "./blackbaud.js";
+import { loadSocietyAnnualGifts } from "./societyGivingSource";
 
 export const PORTFOLIO_GIVING_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const inFlight = new Map();
@@ -119,6 +120,17 @@ export function createPortfolioGivingDataSource({
 
   return {
     get freshUntil() { return new Date(freshUntil).toISOString(); },
+    loadAnnualGifts: ({ startDate, endDate }) => loadSocietyAnnualGifts({
+      authUserId, origin, constituentId, startDate, endDate,
+    }),
+    loadSavedSocieties: async () => {
+      const rows = await sql`SELECT COALESCE(g.payload->'mapped'->'annualGivingSocieties',
+          s.summary_payload->'mapped'->'annualGivingSocieties') AS societies
+        FROM (SELECT ${userId}::bigint AS workspace_user_id, ${String(constituentId)}::text AS constituent_id) AS target
+        LEFT JOIN portfolio_giving_snapshots AS g USING(workspace_user_id, constituent_id)
+        LEFT JOIN portfolio_constituent_snapshots AS s USING(workspace_user_id, constituent_id)`;
+      return rows[0]?.societies || null;
+    },
     loadLifetimeGiving: async () => {
       const value = await read("lifetime", {}, () => blackbaudApiFetch(
         `/constituent/v1/constituents/${encodeURIComponent(String(constituentId))}/givingsummary/lifetimegiving`,

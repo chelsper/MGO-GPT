@@ -435,7 +435,10 @@ async function processItem({ request, item, job, workspaceUserId, authUserId }) 
     await sql`
       UPDATE portfolio_constituent_snapshots
       SET
-        summary_payload = ${JSON.stringify(safeSummary)}::jsonb,
+        summary_payload = CASE WHEN COALESCE(summary_payload #>> '{mapped,annualGivingSocieties,recognitionSource,checkedAt}', '') >
+            ${safeSummary?.mapped?.annualGivingSocieties?.recognitionSource?.checkedAt || ""}
+          THEN jsonb_set(${JSON.stringify(safeSummary)}::jsonb, '{mapped,annualGivingSocieties}', summary_payload #> '{mapped,annualGivingSocieties}')
+          ELSE ${JSON.stringify(safeSummary)}::jsonb END,
         data_complete = ${complete},
         stale_after = ${getPortfolioSummaryStaleAfter(payload)},
         weekly_policy_applied = TRUE,

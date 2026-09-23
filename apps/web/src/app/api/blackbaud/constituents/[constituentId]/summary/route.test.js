@@ -4,6 +4,10 @@ import ensureAppSchema from "@/app/api/utils/ensureAppSchema";
 import getWorkspaceUser from "@/app/api/utils/getWorkspaceUser";
 import sql from "@/app/api/utils/sql";
 import { blackbaudApiFetch, getBlackbaudConfigIssues, listBlackbaudGifts } from "@/app/api/utils/blackbaud";
+import { loadSocietyAnnualGifts } from "@/app/api/utils/societyGivingSource";
+vi.mock("@/app/api/utils/societyGivingSource", async (importOriginal) => ({
+  ...await importOriginal(), loadSocietyAnnualGifts: vi.fn(),
+}));
 
 vi.mock("@/auth", () => ({
   auth: vi.fn(),
@@ -382,6 +386,10 @@ describe("portfolio badges and summary shared giving reads", () => {
     vi.resetAllMocks();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-03T16:00:00Z"));
+    loadSocietyAnnualGifts.mockResolvedValue({
+      gifts: [{ id: "gift-1", constituent_id: "123", gift_type: "Donation", amount: { value: 1500 }, date: "2026-08-03" }],
+      source: { version: 1, checkedAt: "2026-09-03T16:00:00.000Z" },
+    });
     auth.mockResolvedValue({ user: { email: "mgo@ju.edu" } });
     getBlackbaudConfigIssues.mockReturnValue([]);
     getWorkspaceUser.mockResolvedValue({
@@ -432,7 +440,7 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect(summaryResponse.status).toBe(200);
     expect(summaryData.mapped.annualGivingSocieties).toEqual(badgeData.byConstituentId["123"]);
     expect(summaryData.mapped.lifetimeGiving.totalGiving).toBe(1500);
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
     expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(1);
     expect(summaryData.givingDataFreshUntil).toBe("2026-09-04T16:00:00.000Z");
   });
@@ -477,7 +485,7 @@ describe("portfolio badges and summary shared giving reads", () => {
     const first = await (await summary()).json();
     const second = await (await badges()).json();
     expect(second.byConstituentId["123"]).toEqual(first.mapped.annualGivingSocieties);
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
     expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(1);
   });
 
@@ -485,7 +493,7 @@ describe("portfolio badges and summary shared giving reads", () => {
     await badges();
     const response = await summary("refresh=1");
     expect(response.status).toBe(200);
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(2);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
     expect(blackbaudApiFetch.mock.calls.filter(([path]) => path.endsWith("/lifetimegiving"))).toHaveLength(2);
   });
 
@@ -496,13 +504,13 @@ describe("portfolio badges and summary shared giving reads", () => {
     expect((await response.json()).givingDataFreshUntil).toBe("2026-09-04T16:00:00.000Z");
     const snapshotWrite = sql.mock.calls.find(([strings]) => strings.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"));
     expect(snapshotWrite).toContain("2026-09-10T20:00:00.000Z");
-    expect(listBlackbaudGifts).toHaveBeenCalledTimes(1);
+    expect(listBlackbaudGifts).not.toHaveBeenCalled();
   });
 
   it("does not overwrite a good summary when a forced gift-history refresh is incomplete", async () => {
     await summary();
     sql.mockClear();
-    listBlackbaudGifts.mockResolvedValue({ gifts: [], hasMore: true, pageCount: 20 });
+    loadSocietyAnnualGifts.mockRejectedValue(new Error("Society gift history is incomplete"));
     const response = await summary("refresh=1");
     expect((await response.json()).warnings.annualGivingSocieties).toContain("incomplete");
     expect(sql.mock.calls.some(([strings]) => strings.join(" ").includes("INSERT INTO portfolio_constituent_snapshots"))).toBe(false);

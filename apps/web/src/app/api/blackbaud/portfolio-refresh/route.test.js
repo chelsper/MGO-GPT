@@ -218,7 +218,7 @@ describe("nightly portfolio batches", () => {
       : Response.json({ mapped: { ...snapshot.summary_payload.mapped, prospectSummaryNarrative: "Incomplete replacement" }, warnings: { education: "Unavailable" } }));
     await POST(request());
     const write = sql.mock.calls.find(([s]) => s.join(" ").includes("summary_payload ="));
-    const safeSummary = JSON.parse(write[1]);
+    const safeSummary = JSON.parse(write[2]);
     expect(safeSummary.mapped.prospectSummaryNarrative).toBe("Good snapshot");
     expect(safeSummary.summaryRefreshedAt).toBe("2026-08-01T06:00:00Z");
     expect(sql.mock.calls.some((call) => call.includes("IncompleteEnrichment"))).toBe(true);

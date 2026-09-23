@@ -437,11 +437,11 @@ export async function refreshBlackbaudConnection(connection, origin) {
     expiresAt: getExpiresAt(token.expires_in),
   };
 
-  await saveBlackbaudConnection(connection.user_id, nextConnection);
+  await saveBlackbaudConnection(connection.user_id, nextConnection, { tokenRefresh: true });
   return nextConnection;
 }
 
-export async function saveBlackbaudConnection(userId, connection) {
+export async function saveBlackbaudConnection(userId, connection, { tokenRefresh = false } = {}) {
   await ensureAppSchema();
 
   const rows = await sql`
@@ -471,6 +471,7 @@ export async function saveBlackbaudConnection(userId, connection) {
       token_type = EXCLUDED.token_type,
       scope = EXCLUDED.scope,
       expires_at = EXCLUDED.expires_at,
+      connected_at = CASE WHEN ${tokenRefresh} THEN blackbaud_connections.connected_at ELSE NOW() END,
       updated_at = NOW()
     RETURNING *
   `;
