@@ -459,6 +459,13 @@ export function constituentHouseholdsFromQuery(
         addressee: row.addressee,
         salutation: row.salutation,
         email: row.email,
+        ...(table.metadata?.emailCandidates?.[row.constituentId]
+          ? {
+              emailCandidates: [
+                ...table.metadata.emailCandidates[row.constituentId],
+              ],
+            }
+          : {}),
         address: [
           row.address1,
           row.address2,
@@ -569,11 +576,40 @@ export function mergeSocietyLetterCohorts(cohorts, hierarchy, period) {
       };
       for (const candidate of row.recipientCandidates) {
         const previous = group.recipients.get(candidate.constituentId);
-        if (previous && JSON.stringify(previous) !== JSON.stringify(candidate))
+        if (!previous) {
+          group.recipients.set(candidate.constituentId, candidate);
+          continue;
+        }
+        const {
+          email: previousEmail,
+          emailCandidates: previousEmails,
+          ...previousDetails
+        } = previous;
+        const { email, emailCandidates, ...details } = candidate;
+        if (JSON.stringify(previousDetails) !== JSON.stringify(details))
           throw letterError(
             `Constituent ${candidate.constituentId} has conflicting recipient details across society queries. Review the output mappings before refreshing.`,
           );
-        group.recipients.set(candidate.constituentId, candidate);
+        const emails = [
+          ...new Set(
+            [
+              previousEmail,
+              email,
+              ...(previousEmails || []),
+              ...(emailCandidates || []),
+            ].filter(Boolean),
+          ),
+        ].sort();
+        if (emails.length > 20)
+          throw letterError(
+            `Constituent ${candidate.constituentId} has more than 20 email values across society queries.`,
+            413,
+          );
+        group.recipients.set(candidate.constituentId, {
+          ...details,
+          email: emails.length === 1 ? emails[0] : "",
+          ...(emails.length > 1 ? { emailCandidates: emails } : {}),
+        });
       }
       group.qualifications.add(row.societyKey);
       group.memberNames.push(...(row.memberNames || []));

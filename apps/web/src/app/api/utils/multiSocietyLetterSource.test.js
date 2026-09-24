@@ -65,6 +65,9 @@ describe("bounded multiple society refresh", () => {
     const previous = state.snapshot;
     await run();
     expect(advanceQueryList).toHaveBeenCalledTimes(1);
+    expect(advanceQueryList.mock.calls[0][0].readResult).toEqual(
+      expect.any(Function),
+    );
     expect(state.snapshot).toBe(previous);
     expect(state.job).toMatchObject({ status: "running", sourceIndex: 1 });
     await resume();

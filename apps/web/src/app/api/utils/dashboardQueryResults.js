@@ -39,9 +39,10 @@ function byteLimitError() {
   return limitError(`Query results must not exceed ${QUERY_RESULTS_LIMITS.bytes} bytes.`);
 }
 
-export function decodeResult({ body, contentType }) {
+export function decodeResult({ body, contentType }, { maxBytes = QUERY_RESULTS_LIMITS.bytes } = {}) {
   if (!(body instanceof Uint8Array)) throw new DashboardQueryResultsError(FAILURE_MESSAGE);
-  if (body.byteLength > QUERY_RESULTS_LIMITS.bytes) throw byteLimitError();
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new DashboardQueryResultsError(FAILURE_MESSAGE);
+  if (body.byteLength > maxBytes) throw limitError(`Query results must not exceed ${maxBytes} bytes.`);
   // Only the actual response MIME can authorize CSV decoding, not the URL or Accept header.
   const [mime, ...parameters] = String(contentType || "").split(";");
   if (!CSV_MIME_TYPES.has(mime.trim().toLowerCase())) {
@@ -79,7 +80,10 @@ function removeTechnicalColumns(table) {
   };
 }
 
-export function parseResultCsv(content, { preserveTechnical = false } = {}) {
+// Visit complete, strictly validated rows without retaining a raw result table.
+// Specialized readers may bound raw rows separately from their deduplicated output.
+export function visitResultCsv(content, { onHeaders, onRow, maxRows = QUERY_RESULTS_LIMITS.rows }) {
+  if (!Number.isSafeInteger(maxRows) || maxRows < 1) throw malformedCsv();
   const text = content.replace(/^\uFEFF/, "");
   const leading = text.trimStart();
   if (!leading) throw new DashboardQueryResultsError("NXT returned an empty CSV result file.");
@@ -95,7 +99,7 @@ export function parseResultCsv(content, { preserveTechnical = false } = {}) {
   }
 
   let headers = null;
-  const rows = [];
+  let rowCount = 0;
   let row = [];
   let cell = "";
   let state = "start";
@@ -123,12 +127,14 @@ export function parseResultCsv(content, { preserveTechnical = false } = {}) {
       if (headers.some((header) => header.length > 200)) {
         throw limitError("Query result headers must not exceed 200 characters.");
       }
+      onHeaders?.(headers);
     } else {
       if (row.length !== headers.length) throw malformedCsv();
-      rows.push(row);
-      if (rows.length > QUERY_RESULTS_LIMITS.rows) {
-        throw limitError(`Query results must not exceed ${QUERY_RESULTS_LIMITS.rows} rows.`);
+      rowCount += 1;
+      if (rowCount > maxRows) {
+        throw limitError(`Query results must not exceed ${maxRows} rows.`);
       }
+      onRow(row, headers);
     }
     row = [];
   };
@@ -158,6 +164,13 @@ export function parseResultCsv(content, { preserveTechnical = false } = {}) {
   }
   if (state === "quoted") throw malformedCsv();
   if (state !== "start" || row.length) { finishCell(); finishRow(); }
+  if (!headers) throw malformedCsv();
+  return { headers, rowCount };
+}
+
+export function parseResultCsv(content, { preserveTechnical = false } = {}) {
+  const rows = [];
+  const { headers } = visitResultCsv(content, { onRow: (row) => rows.push(row) });
   const table = preserveTechnical ? { headers, rows } : removeTechnicalColumns({ headers, rows });
   if (!isValidDashboardTableData(table)) {
     throw limitError("Query results exceed the supported table size or shape.");

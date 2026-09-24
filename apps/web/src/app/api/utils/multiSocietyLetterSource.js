@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
+import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
 import {
   constituentHouseholdsFromQuery,
   letterError,
@@ -116,6 +117,13 @@ export async function refreshMultipleSocietySources({
       job: job.queryState,
       user: context.user,
       origin: context.origin,
+      readResult: (url, options, result) =>
+        readSocietyConstituentQueryResult(
+          url,
+          options,
+          sourceSettings,
+          result?.row_count,
+        ),
       source: {
         source: "query",
         queryId: source.queryId,
@@ -141,6 +149,7 @@ export async function refreshMultipleSocietySources({
         societyKey: source.societyKey,
         queryId: source.queryId,
         generatedAt: result.snapshot.generatedAt,
+        deduplication: result.snapshot.metadata?.deduplication || null,
         rows,
       });
       if (Buffer.byteLength(JSON.stringify(job.cohorts)) > 4 * 1024 * 1024)

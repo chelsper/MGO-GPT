@@ -21,7 +21,22 @@ import {
   LEGACY_QUERY_EXPIRY_MESSAGE,
 } from "./listQueryRecovery";
 
-export async function advanceQueryList({ job, user, origin, source }) {
+async function readQueryTable(url, context) {
+  const file = await downloadBlackbaudQueryResultWithMetadata(url, {
+    ...context,
+    maxBytes: QUERY_RESULTS_LIMITS.bytes,
+    redirect: "error",
+  });
+  return parseResultCsv(decodeResult(file), { preserveTechnical: true });
+}
+
+export async function advanceQueryList({
+  job,
+  user,
+  origin,
+  source,
+  readResult = readQueryTable,
+}) {
   if (job.stage === "members") {
     const created =
       source.source === "query_json"
@@ -70,16 +85,15 @@ export async function advanceQueryList({ job, user, origin, source }) {
       job.message = "NXT is preparing the query output.";
       return { job, snapshot: null };
     }
-    const file = await downloadBlackbaudQueryResultWithMetadata(url, {
-      userId: user.id,
-      authUserId: user.id,
-      origin,
-      maxBytes: QUERY_RESULTS_LIMITS.bytes,
-      redirect: "error",
-    });
-    const table = parseResultCsv(decodeResult(file), {
-      preserveTechnical: true,
-    });
+    const table = await readResult(
+      url,
+      {
+        userId: user.id,
+        authUserId: user.id,
+        origin,
+      },
+      result,
+    );
     // Keep validated output available even when optional enrichment needs setup.
     job.table = table;
     job.queryOutputAt = new Date().toISOString();
@@ -133,6 +147,7 @@ export async function advanceQueryList({ job, user, origin, source }) {
         : []),
     ]),
     leadAsOf: job.leadAsOf || null,
+    ...(table.metadata ? { metadata: table.metadata } : {}),
   };
   const displayedIndexes = snapshot.headers.flatMap((header, index) =>
     header.toLowerCase() === "qrecid" ? [] : [index],

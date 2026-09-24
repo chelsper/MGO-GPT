@@ -610,6 +610,8 @@ describe("society letter workspace", () => {
                 addressee: "Alex Sample",
                 salutation: "Alex",
                 address: "10 Test St",
+                email: "",
+                emailCandidates: ["alex@example.org", "alex2@example.org"],
               },
             ],
           },
@@ -625,6 +627,12 @@ describe("society letter workspace", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByText("Review address and salutation options"));
     expect(screen.getByText("Alex Sample")).toBeVisible();
+    expect(screen.getByText("alex@example.org")).toBeVisible();
+    expect(screen.getByText("alex2@example.org")).toBeVisible();
+    expect(
+      screen.getByText(/No email was selected automatically/),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it("loads saved data only and returns to Stewardship", async () => {

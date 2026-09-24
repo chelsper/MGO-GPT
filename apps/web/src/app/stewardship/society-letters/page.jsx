@@ -835,7 +835,28 @@ export default function SocietyLettersPage() {
                                         {candidate.address ||
                                           "No address returned"}
                                       </p>
-                                      <p>{candidate.email}</p>
+                                      {candidate.emailCandidates?.length > 1 ? (
+                                        <div className="mt-2 text-sm">
+                                          <p className="font-semibold">
+                                            Multiple email values: choose during
+                                            recipient review
+                                          </p>
+                                          <ul className="list-inside list-disc">
+                                            {candidate.emailCandidates.map(
+                                              (email) => (
+                                                <li key={email}>{email}</li>
+                                              ),
+                                            )}
+                                          </ul>
+                                          <p className="text-xs text-gray-500">
+                                            No email was selected automatically.
+                                            Mailing details are retained
+                                            separately.
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <p>{candidate.email}</p>
+                                      )}
                                       <p className="text-xs text-gray-500">
                                         From constituent{" "}
                                         {candidate.constituentId}

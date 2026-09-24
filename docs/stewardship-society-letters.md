@@ -191,13 +191,27 @@ confirmation of every query's qualification dates.
 The combined preview is replaced only after all queries finish successfully,
 including queries returning zero rows. Failures retain the previous snapshot
 and letter history. The oldest source verification time is used for combined
-freshness. Limits remain 1,000 output rows and 512 KB per query, with at most
-5,000 households and 4 MB of accumulated cohorts across the selected sources.
-Oversized results are rejected, not truncated.
+freshness. Constituent-format society queries can read up to 12 MB and 100,000
+raw rows, retaining only mapped letter fields and deduplicating by constituent
+System Record ID before spouse grouping. The compacted result is limited to
+1,000 unique constituents and 512 KB per query, with at most 5,000 households
+and 4 MB of accumulated cohorts across the selected sources. The complete CSV
+must validate and, when NXT provides a completed row count, match that count.
+Oversized, malformed, or incomplete results are rejected, not truncated. Other
+reports and legacy grouped sources retain their original limits.
+
+Repeated non-email letter values must agree, including spouse IDs, names,
+greetings, and mailing details. Unused query columns such as constituency codes
+do not create additional people. Distinct nonblank email values are retained as
+recipient-review choices (at most 20 per constituent), including across society
+queries. No email is selected automatically when multiple values remain. Postal
+details stay separate; this deduplication does not enable sending, preparation,
+or appeal assignment for a preview-only source. Raw and unique row counts are
+retained in source metadata for diagnostics.
 
 Opposite spouses returned in different society queries form one household only
 when both ID groups agree. Conflicting spouse links, group membership, or recipient
-data for the same constituent reject the refresh. No names, addresses or gift
+non-email data for the same constituent reject the refresh. No names, addresses or gift
 totals are used to infer household qualification. The highest matching society
 in the configured hierarchy becomes the proposed letter; the other matches and
 their source query IDs are retained. This is not proof that an excluded higher
@@ -299,7 +313,7 @@ Identity conflicts, ambiguous columns, conflicting household recipient values,
 or members belonging to multiple households fail the whole refresh. Last valid
 results and acknowledgment history remain intact. No partial result is sent.
 
-The existing query transport limits output to 1,000 rows, 25 columns, and 512 KB.
+The legacy grouped query transport limits output to 1,000 rows, 25 columns, and 512 KB.
 Oversized results are rejected rather than silently truncated. Several rows may
 describe different society qualifications for the same household; they collapse
 to one highest-tier letter. The query must provide the complete member list and

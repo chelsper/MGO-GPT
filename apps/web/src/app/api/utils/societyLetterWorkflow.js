@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { advanceQueryList } from "./constituentQueryList";
 import { refreshMultipleSocietySources } from "./multiSocietyLetterSource";
+import { readSocietyConstituentQueryResult } from "./societyConstituentQueryResult";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
 import { getGivingSocietyConfigurationSignature } from "./givingSocietyDefinitions";
 import { buildResendFromAddress } from "./sendSubmissionEmail";
@@ -470,6 +471,17 @@ export async function refreshLetterSource(
       job: state.job,
       user: context.user,
       origin: context.origin,
+      ...(state.settings.sourceMode === "constituents"
+        ? {
+            readResult: (url, options, result) =>
+              readSocietyConstituentQueryResult(
+                url,
+                options,
+                state.settings,
+                result?.row_count,
+              ),
+          }
+        : {}),
       source: {
         source: "query",
         queryId: state.settings.queryId,
@@ -497,6 +509,7 @@ export async function refreshLetterSource(
         signature,
         period,
         generatedAt: snapshot.generatedAt,
+        deduplication: snapshot.metadata?.deduplication || null,
       };
       state.job = {
         id: job.id,
