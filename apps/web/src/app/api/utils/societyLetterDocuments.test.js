@@ -9,6 +9,7 @@ import {
   renderSocietyLetter,
   letterArchive,
 } from "./societyLetterDocuments";
+import { LETTER_TAGS } from "@/utils/societyLetters";
 
 const row = {
   householdId: "10",
@@ -22,6 +23,80 @@ const row = {
   letterDate: "2026-09-22",
 };
 describe("society Word letters", () => {
+  it("saves canonical selected fields and versions changes to the field settings", () => {
+    const source = templateFixture();
+    const saved = validateLetterTemplate({
+      ...source,
+      mergeSettings: {
+        fields: ["society_name", "salutation"],
+        dateFormat: "long_us",
+      },
+    });
+    expect(saved.mergeSettings).toEqual({
+      fields: ["salutation", "society_name"],
+      dateFormat: "long_us",
+    });
+    expect(saved.usedFields).toEqual(["salutation", "society_name"]);
+    expect(saved.version).not.toBe(validateLetterTemplate(source).version);
+    expect(saved.version).toBe(
+      validateLetterTemplate({
+        ...source,
+        mergeSettings: {
+          fields: ["salutation", "society_name"],
+          dateFormat: "long_us",
+        },
+      }).version,
+    );
+  });
+  it("rejects unchecked fields still used in Word or email instead of silently removing values", () => {
+    expect(() =>
+      validateLetterTemplate({
+        ...templateFixture(),
+        mergeSettings: { fields: ["society_name"] },
+      }),
+    ).toThrow(/Select the merge field \{salutation\}/);
+    expect(() =>
+      validateLetterTemplate({
+        ...templateFixture(),
+        subject: "Letter for {addressee}",
+        mergeSettings: { fields: ["salutation", "society_name"] },
+      }),
+    ).toThrow(/Select the merge field \{addressee\}/);
+  });
+  it.each([
+    { fields: ["constructor"] },
+    { fields: "salutation" },
+    { fields: ["salutation", "salutation"] },
+    { fields: LETTER_TAGS, dateFormat: "unsupported" },
+    null,
+  ])("rejects invalid merge preferences %j", (mergeSettings) => {
+    expect(() =>
+      validateLetterTemplate({ ...templateFixture(), mergeSettings }),
+    ).toThrow(/supported merge fields/);
+  });
+  it("applies the saved date format and preserves the old default for legacy templates", () => {
+    const source = {
+      ...templateFixture(),
+      content: wordFixture(
+        "{letter_date}: {period_start} to {period_end}",
+      ).generate({ type: "base64" }),
+      subject: "{letter_date}",
+      emailBody: "{period_start}",
+    };
+    const modern = validateLetterTemplate({
+      ...source,
+      mergeSettings: { fields: LETTER_TAGS, dateFormat: "long_us" },
+    });
+    const rendered = renderSocietyLetter(modern, row, "2026-09-24");
+    expect(
+      new PizZip(rendered.document).file("word/document.xml").asText(),
+    ).toContain("September 24, 2026: January 1, 2026 to December 31, 2026");
+    expect(rendered.subject).toBe("September 24, 2026");
+    expect(rendered.text).toBe("January 1, 2026");
+    expect(renderSocietyLetter(source, row, "2026-09-24").subject).toBe(
+      "2026-09-24",
+    );
+  });
   it("stores versioned templates and retains Word formatting while escaping merged text", () => {
     const template = validateLetterTemplate(templateFixture());
     expect(template.version).toMatch(/^[a-f0-9]{64}$/);

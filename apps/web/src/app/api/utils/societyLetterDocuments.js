@@ -7,6 +7,7 @@ import {
   letterError,
   letterMergeData,
   mergeLetterText,
+  normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
 
 export const MAX_TEMPLATE_BYTES = 1024 * 1024;
@@ -14,7 +15,11 @@ const sample = Object.fromEntries(
   LETTER_TAGS.map((tag) => [tag, `Sample ${tag.replaceAll("_", " ")}`]),
 );
 
-function templateDocument(base64) {
+function templateDocument(
+  base64,
+  selectedFields = LETTER_TAGS,
+  usedFields = new Set(),
+) {
   const buffer = Buffer.from(base64, "base64");
   if (!buffer.length || buffer.length > MAX_TEMPLATE_BYTES)
     throw letterError("Upload a Word .docx template no larger than 1 MB.");
@@ -71,19 +76,29 @@ function templateDocument(base64) {
       }
     }
   }
-  return new Docxtemplater(zip, {
+  const document = new Docxtemplater(zip, {
     paragraphLoop: false,
     linebreaks: true,
     errorLogging: false,
     parser: (tag) => {
       if (!LETTER_TAGS.includes(tag.trim()))
         throw letterError("Use only the listed merge fields.");
+      usedFields.add(tag.trim());
       return { get: (data) => data[tag.trim()] || "" };
     },
   });
+  for (const field of usedFields) {
+    if (!selectedFields.includes(field))
+      throw letterError(
+        `Select the merge field {${field}} or remove it from the Word letter before saving.`,
+      );
+  }
+  return document;
 }
 
 export function validateLetterTemplate(raw) {
+  const mergeSettings = normalizeLetterMergeSettings(raw?.mergeSettings);
+  const usedFields = new Set();
   const filename = String(raw?.filename || "")
     .replace(/[^a-zA-Z0-9_. -]/g, "_")
     .slice(0, 100);
@@ -107,7 +122,17 @@ export function validateLetterTemplate(raw) {
       "Add an email subject (up to 200 characters) and cover message.",
     );
   try {
-    templateDocument(content).render(sample);
+    templateDocument(content, mergeSettings.fields, usedFields).render(sample);
+    for (const text of [subject, emailBody]) {
+      for (const match of text.matchAll(/\{([^{}]+)\}/g)) {
+        const field = match[1].trim();
+        if (!mergeSettings.fields.includes(field))
+          throw letterError(
+            `Select the merge field {${field.slice(0, 60)}} or remove it from the email before saving.`,
+          );
+        usedFields.add(field);
+      }
+    }
     mergeLetterText(subject, sample);
     mergeLetterText(emailBody, sample);
   } catch (error) {
@@ -121,15 +146,18 @@ export function validateLetterTemplate(raw) {
     content,
     subject,
     emailBody,
+    mergeSettings,
+    usedFields: LETTER_TAGS.filter((field) => usedFields.has(field)),
     version: createHash("sha256")
-      .update(JSON.stringify([content, subject, emailBody]))
+      .update(JSON.stringify([content, subject, emailBody, mergeSettings]))
       .digest("hex"),
   };
 }
 
 export function renderSocietyLetter(template, row, today) {
-  const data = letterMergeData(row, today);
-  const document = templateDocument(template.content);
+  const settings = normalizeLetterMergeSettings(template.mergeSettings);
+  const data = letterMergeData(row, today, settings);
+  const document = templateDocument(template.content, settings.fields);
   document.render(data);
   return {
     document: document.toBuffer(),

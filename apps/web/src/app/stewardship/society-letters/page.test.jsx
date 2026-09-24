@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import Page from "./page";
 import { LETTER_COLUMNS } from "@/utils/societyLetters";
 import { societyQuerySettings } from "../../../../test/societyQueryFixture";
@@ -42,6 +48,121 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("society letter workspace", () => {
+  it("persists selected merge fields without a replacement upload and restores them on a later visit", async () => {
+    let template = {
+      societyKey: "presidents_society",
+      societyName: "President's Society",
+      filename: "saved.docx",
+      version: "v1",
+      subject: "Your {society_name} letter",
+      emailBody: "Dear {salutation}",
+      mergeSettings: {
+        fields: ["salutation", "society_name", "letter_date"],
+        dateFormat: "iso",
+      },
+    };
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (options?.method === "POST") {
+        const payload = JSON.parse(options.body);
+        expect(payload.existingVersion).toBe("v1");
+        expect(payload.template.content).toBeUndefined();
+        expect(payload.template.filename).toBeUndefined();
+        template = { ...template, ...payload.template, version: "v2" };
+      }
+      return Response.json({ ...base, templates: [template] });
+    });
+    const first = render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Letter templates" }),
+    );
+    expect(
+      screen.getByLabelText("President's Society use Salutation"),
+    ).toBeChecked();
+    expect(
+      screen.getByLabelText("President's Society use Addressee"),
+    ).not.toBeChecked();
+    fireEvent.click(
+      screen.getByLabelText("President's Society use Letter date"),
+    );
+    fireEvent.change(
+      screen.getByLabelText("President's Society merge date appearance"),
+      { target: { value: "long_us" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save template and field settings" }),
+    );
+    await screen.findByText(/Template and merge-field settings saved/);
+    expect(template.mergeSettings).toEqual({
+      fields: ["salutation", "society_name"],
+      dateFormat: "long_us",
+    });
+    first.unmount();
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Letter templates" }),
+    );
+    expect(
+      screen.getByLabelText("President's Society use Letter date"),
+    ).not.toBeChecked();
+    expect(
+      screen.getByLabelText("President's Society merge date appearance"),
+    ).toHaveValue("long_us");
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(1);
+  });
+  it("keeps societies' field choices independent and inserts only selected tags into email text", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...base,
+        templates: [
+          {
+            societyKey: "presidents_society",
+            societyName: "President's Society",
+            version: "v1",
+            filename: "high.docx",
+            mergeSettings: { fields: ["salutation"], dateFormat: "iso" },
+          },
+          {
+            societyKey: "order_of_the_dolphin",
+            societyName: "Order of the Dolphin",
+            version: "v2",
+            filename: "low.docx",
+            mergeSettings: { fields: ["addressee"], dateFormat: "iso" },
+          },
+        ],
+      }),
+    );
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Letter templates" }),
+    );
+    const high = within(
+      screen.getByRole("form", { name: "President's Society letter template" }),
+    );
+    const low = within(
+      screen.getByRole("form", {
+        name: "Order of the Dolphin letter template",
+      }),
+    );
+    fireEvent.click(
+      screen.getByLabelText("President's Society use Mailing address"),
+    );
+    expect(
+      screen.getByLabelText("Order of the Dolphin use Mailing address"),
+    ).not.toBeChecked();
+    expect(low.getByRole("combobox", { name: /field to insert/ })).toHaveValue(
+      "addressee",
+    );
+    const subject = high.getByLabelText("Email subject");
+    fireEvent.change(subject, { target: { value: "Dear " } });
+    subject.setSelectionRange(5, 5);
+    fireEvent.click(
+      high.getByRole("button", { name: "Insert into email subject" }),
+    );
+    expect(subject).toHaveValue("Dear {salutation}");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("provides independent query and template slots for each annual society", async () => {
     const settings = societyQuerySettings();
     const definitions = [

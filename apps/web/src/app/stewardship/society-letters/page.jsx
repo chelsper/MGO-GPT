@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   LETTER_BATCH_LIMIT,
   LETTER_COLUMNS,
-  LETTER_TAGS,
   CONSTITUENT_LETTER_COLUMNS,
   CONSTITUENT_LETTER_LABELS,
   isLetterPreviewSource,
+  normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
 import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
+import LetterMergeFieldsEditor from "./LetterMergeFieldsEditor";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
 const endpoint = "/api/stewardship/society-letters";
@@ -81,8 +82,14 @@ function BatchConfirmation({ value, busy, onCancel, onConfirm }) {
   );
 }
 
-function TemplateEditor({ template, busy, save }) {
+function TemplateEditor({ template, busy, save, onEdit }) {
   const [file, setFile] = useState(null);
+  const fileInput = useRef(null),
+    subjectInput = useRef(null),
+    messageInput = useRef(null);
+  const [mergeSettings, setMergeSettings] = useState(() =>
+    normalizeLetterMergeSettings(template.mergeSettings),
+  );
   const [subject, setSubject] = useState(
     template.subject || "Your {society_name} recognition",
   );
@@ -91,25 +98,56 @@ function TemplateEditor({ template, busy, save }) {
       "Dear {salutation},\n\nPlease find your {society_name} letter attached. Thank you for your support.",
   );
   const [error, setError] = useState("");
+  function insertField(target, token) {
+    const element =
+      target === "subject" ? subjectInput.current : messageInput.current;
+    const value = target === "subject" ? subject : emailBody;
+    const start = element.selectionStart ?? value.length;
+    const end = element.selectionEnd ?? start;
+    const updated = `${value.slice(0, start)}${token}${value.slice(end)}`;
+    if (target === "subject") setSubject(updated);
+    else setEmailBody(updated);
+    onEdit();
+    requestAnimationFrame(() => {
+      element.focus();
+      element.setSelectionRange(start + token.length, start + token.length);
+    });
+  }
   async function submit(event) {
     event.preventDefault();
     setError("");
-    if (!file || !/\.docx$/i.test(file.name) || file.size > 1024 * 1024) {
+    onEdit();
+    if (
+      (!file && !template.version) ||
+      (file && (!/\.docx$/i.test(file.name) || file.size > 1024 * 1024))
+    ) {
       setError("Choose a Word .docx template up to 1 MB.");
       return;
     }
     try {
-      const content = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",")[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      await save({
+      const content = file
+        ? await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(",")[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          })
+        : null;
+      const result = await save({
         action: "template",
         societyKey: template.societyKey,
-        template: { filename: file.name, content, subject, emailBody },
+        ...(!file ? { existingVersion: template.version } : {}),
+        template: {
+          ...(file ? { filename: file.name, content } : {}),
+          subject,
+          emailBody,
+          mergeSettings,
+        },
       });
+      if (result) {
+        setFile(null);
+        if (fileInput.current) fileInput.current.value = "";
+      }
     } catch {
       setError(
         "The template could not be saved. Check the file and try again.",
@@ -117,17 +155,30 @@ function TemplateEditor({ template, busy, save }) {
     }
   }
   return (
-    <form onSubmit={submit} className={card}>
+    <form
+      onSubmit={submit}
+      onChange={onEdit}
+      aria-label={`${template.societyName} letter template`}
+      className={card}
+    >
       <h3 className="text-lg font-bold">{template.societyName}</h3>
       <p className="mt-1 text-sm text-gray-600">
         {template.filename
           ? `Saved: ${template.filename}. New versions do not change already prepared letters.`
           : "No template saved yet."}
       </p>
+      {template.version && (
+        <p className="mt-2 text-sm text-gray-600">
+          Keep the saved Word file to update only its fields, date appearance,
+          or email text. Previously prepared letters keep their original
+          settings.
+        </p>
+      )}
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <label className="text-sm font-semibold">
           Word letter template
           <input
+            ref={fileInput}
             aria-label={`${template.societyName} Word template`}
             className={input}
             type="file"
@@ -138,6 +189,7 @@ function TemplateEditor({ template, busy, save }) {
         <label className="text-sm font-semibold">
           Email subject
           <input
+            ref={subjectInput}
             className={input}
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
@@ -149,6 +201,7 @@ function TemplateEditor({ template, busy, save }) {
       <label className="mt-4 block text-sm font-semibold">
         Email cover message
         <textarea
+          ref={messageInput}
           className={input}
           rows={4}
           value={emailBody}
@@ -160,13 +213,23 @@ function TemplateEditor({ template, busy, save }) {
         The personalized Word letter is attached to the email. This does not
         create a reply inbox.
       </p>
+      <LetterMergeFieldsEditor
+        name={template.societyName}
+        value={mergeSettings}
+        onChange={(value) => {
+          setMergeSettings(value);
+          onEdit();
+        }}
+        onInsert={insertField}
+        busy={busy}
+      />
       {error && (
         <p role="alert" className="mt-3 text-red-800">
           {error}
         </p>
       )}
       <button disabled={busy} className={`${primary} mt-4`}>
-        Save template
+        Save template and field settings
       </button>
     </form>
   );
@@ -186,6 +249,7 @@ export default function SocietyLettersPage() {
     [confirmation, setConfirmation] = useState(null);
   const [receiptIds, setReceiptIds] = useState({});
   const [societyFilter, setSocietyFilter] = useState("");
+  const [templateNotice, setTemplateNotice] = useState("");
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const inFlight = useRef(false);
@@ -1028,8 +1092,9 @@ export default function SocietyLettersPage() {
                   annual society's template before its query is ready. Saving a
                   template never sends letters.
                 </p>
-                <p className="mt-3 break-words font-mono text-sm">
-                  {LETTER_TAGS.map((tag) => `{${tag}}`).join("  ")}
+                <p className="mt-3 text-sm font-semibold text-emerald-800">
+                  Choose and save reusable merge fields in each society's
+                  template below.
                 </p>
               </div>
               {!data.templates.length && (
@@ -1037,12 +1102,28 @@ export default function SocietyLettersPage() {
                   Add active annual societies in Organization Settings first.
                 </p>
               )}
+              {templateNotice && (
+                <p
+                  role="status"
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+                >
+                  {templateNotice}
+                </p>
+              )}
               {data.templates.map((template) => (
                 <TemplateEditor
                   key={`${template.societyKey}:${template.version}`}
                   template={template}
                   busy={busy}
-                  save={act}
+                  onEdit={() => setTemplateNotice("")}
+                  save={async (body) => {
+                    const result = await act(body);
+                    if (result)
+                      setTemplateNotice(
+                        `${template.societyName}: Template and merge-field settings saved. No letters were sent.`,
+                      );
+                    return result;
+                  }}
                 />
               ))}
             </section>

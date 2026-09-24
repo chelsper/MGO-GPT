@@ -33,6 +33,31 @@ are not imported automatically.
 
 ## Household Query Contract
 
+### Saved Merge Fields
+
+In **Letter templates**, each annual society's Word template retains its own
+selected merge fields and date appearance. Supported fields are addressee,
+salutation, mailing address, individual/household name, society name,
+qualification start/end dates and letter date. The insertion picker copies an
+exact tag for Word or inserts it at the email subject/message cursor. It does not
+rewrite Word layout or automatically convert native Word mail-merge field codes.
+Use the supported `{field_name}` tags in the uploaded document.
+
+Once a Word template is saved, field choices, date appearance and email text can
+be updated without re-uploading the document. The API resolves the active version
+server-side and rejects stale or cross-society references. Fields still used by
+the Word document or email cannot be deselected silently: saving is blocked until
+the field is selected again or the tag is removed. Empty selections are allowed
+only for a template/email that uses no merge tags. Query-column mappings remain
+in Source & period; no additional NXT calls are made by field selection or saving.
+
+Settings are versioned alongside the document and participate in the version
+hash. Already prepared letters, previews and archives retain their original
+template version. Existing templates default to all supported fields and their
+original ISO date format. Written-out dates use UTC date-only formatting to
+avoid local timezone shifts. These controls do not enable preview-only sources,
+send letters, write appeals, or change membership eligibility.
+
 ### Multiple Annual Society Queries (September 24)
 
 In **Source & period**, choose **Separate query for each society (preview only)**.

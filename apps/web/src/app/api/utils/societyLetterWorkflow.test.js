@@ -452,6 +452,98 @@ describe("society letter workflow", () => {
     expect(state.templates[previous.version]).toBe(previous);
     expect(Object.keys(state.templates)).toHaveLength(2);
   });
+  it("edits saved merge fields without uploading Word again and leaves the prior version frozen", async () => {
+    const { state, store } = setup();
+    const previous = Object.values(state.templates)[0];
+    const previousCopy = JSON.stringify(previous);
+    await saveLetterTemplate(
+      state,
+      {
+        societyKey: "presidents_society",
+        existingVersion: previous.version,
+        template: {
+          mergeSettings: {
+            fields: ["salutation", "society_name"],
+            dateFormat: "long_us",
+          },
+        },
+      },
+      today,
+      store,
+      1,
+      definitions,
+    );
+    expect(JSON.stringify(previous)).toBe(previousCopy);
+    const current = Object.values(state.templates).find(
+      (t) => t.version !== previous.version,
+    );
+    expect(current.content).toBe(previous.content);
+    expect(current.filename).toBe(previous.filename);
+    const reloaded = letterWorkspace(
+      JSON.parse(JSON.stringify(state)),
+      definitions,
+      today,
+    );
+    expect(
+      reloaded.templates.find((t) => t.societyKey === "presidents_society")
+        .mergeSettings,
+    ).toEqual({
+      fields: ["salutation", "society_name"],
+      dateFormat: "long_us",
+    });
+    expect(
+      reloaded.templates.find((t) => t.societyKey === "presidents_society")
+        .content,
+    ).toBeUndefined();
+    expect(store.reserve).not.toHaveBeenCalled();
+    await expect(
+      saveLetterTemplate(
+        state,
+        {
+          societyKey: "presidents_society",
+          existingVersion: previous.version,
+          template: {},
+        },
+        today,
+        store,
+        1,
+        definitions,
+      ),
+    ).rejects.toThrow(/changed/);
+  });
+  it("rejects reuse of another society's template or mixing replacement and reuse", async () => {
+    const { state, store } = setup();
+    const previous = Object.values(state.templates)[0];
+    await expect(
+      saveLetterTemplate(
+        state,
+        {
+          societyKey: "order_of_the_dolphin",
+          existingVersion: previous.version,
+          template: {},
+        },
+        today,
+        store,
+        1,
+        definitions,
+      ),
+    ).rejects.toThrow(/changed/);
+    await expect(
+      saveLetterTemplate(
+        state,
+        {
+          societyKey: "presidents_society",
+          existingVersion: previous.version,
+          template: templateFixture(),
+        },
+        today,
+        store,
+        1,
+        definitions,
+      ),
+    ).rejects.toThrow(/not both/);
+    expect(store.save).not.toHaveBeenCalled();
+  });
   async function emailSetup() {
     const context = setup();
     context.body.channel = "email";

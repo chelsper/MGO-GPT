@@ -61,6 +61,32 @@ export const LETTER_TAGS = [
   "period_end",
   "letter_date",
 ];
+export const LETTER_FIELD_LABELS = {
+  addressee: "Addressee",
+  salutation: "Salutation",
+  address: "Mailing address",
+  household_name: "Individual or household name",
+  society_name: "Society name",
+  period_start: "Qualification period start",
+  period_end: "Qualification period end",
+  letter_date: "Letter date",
+};
+export function normalizeLetterMergeSettings(raw) {
+  const fields = raw === undefined ? LETTER_TAGS : raw?.fields;
+  const dateFormat = raw === undefined ? "iso" : raw?.dateFormat || "iso";
+  if (
+    !Array.isArray(fields) ||
+    fields.length > LETTER_TAGS.length ||
+    new Set(fields).size !== fields.length ||
+    fields.some((field) => !LETTER_TAGS.includes(field)) ||
+    !["iso", "long_us"].includes(dateFormat)
+  )
+    throw letterError("Choose supported merge fields and a date format.");
+  return {
+    fields: LETTER_TAGS.filter((field) => fields.includes(field)),
+    dateFormat,
+  };
+}
 export const LETTER_BATCH_LIMIT = 50;
 export const letterError = (message, status = 422) =>
   Object.assign(new Error(message), { status });
@@ -647,8 +673,9 @@ export function letterIssue(row, channel, template) {
   return null;
 }
 
-export function letterMergeData(row, today) {
-  return {
+export function letterMergeData(row, today, mergeSettings) {
+  const settings = normalizeLetterMergeSettings(mergeSettings);
+  const data = {
     addressee: row.addressee,
     salutation: row.salutation,
     address: row.address,
@@ -658,6 +685,24 @@ export function letterMergeData(row, today) {
     period_end: row.period.end,
     letter_date: today,
   };
+  if (settings.dateFormat === "long_us") {
+    for (const key of ["period_start", "period_end", "letter_date"]) {
+      const date = dateOnly(data[key]);
+      if (!date)
+        throw letterError(
+          "A letter date is invalid. Review the letter period.",
+        );
+      data[key] = new Intl.DateTimeFormat("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(`${date}T12:00:00Z`));
+    }
+  }
+  return Object.fromEntries(
+    settings.fields.map((field) => [field, data[field]]),
+  );
 }
 
 export function mergeLetterText(template, data) {

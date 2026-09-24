@@ -20,6 +20,7 @@ import {
   verifyConstituentLetterIdColumns,
   CONSTITUENT_LETTER_PREVIEW_NOTICE,
   isLetterPreviewSource,
+  normalizeLetterMergeSettings,
 } from "@/utils/societyLetters";
 
 const hash = (value) =>
@@ -83,6 +84,8 @@ export function letterWorkspace(state, definitions, today) {
               subject: t.subject,
               emailBody: t.emailBody,
               savedAt: t.savedAt,
+              mergeSettings: normalizeLetterMergeSettings(t.mergeSettings),
+              usedFields: t.usedFields || [],
             }
           : {}),
       };
@@ -259,7 +262,26 @@ export async function saveLetterTemplate(
     throw letterError(
       "Choose an active annual society from Organization Settings.",
     );
-  const template = validateLetterTemplate(body.template);
+  let raw = body.template;
+  if (body.existingVersion) {
+    const existing = activeTemplate(state, body.societyKey);
+    if (!existing || existing.version !== body.existingVersion)
+      throw letterError(
+        "The saved letter template changed. Reload it before editing its merge settings.",
+        409,
+      );
+    if (raw?.content || raw?.filename)
+      throw letterError(
+        "Choose either a new Word file or the saved template, not both.",
+      );
+    raw = {
+      ...existing,
+      subject: raw?.subject ?? existing.subject,
+      emailBody: raw?.emailBody ?? existing.emailBody,
+      mergeSettings: raw?.mergeSettings ?? existing.mergeSettings,
+    };
+  }
+  const template = validateLetterTemplate(raw);
   const version = hash([body.societyKey, template.version]);
   if (!state.templates[version]) {
     if (Object.keys(state.templates).length >= 100)
