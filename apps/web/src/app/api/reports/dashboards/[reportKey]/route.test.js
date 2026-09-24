@@ -38,6 +38,7 @@ vi.mock("@/app/api/utils/reportRefresh", () => ({
 }));
 import { GET, POST } from "./route";
 import { getDashboardTableFingerprint } from "@/app/api/utils/dashboardConfiguration";
+import { newFundraisingTracker } from "@/utils/fundraisingTracker";
 
 const record = {
   report_key: "demo",
@@ -74,6 +75,17 @@ describe("generic dashboard routes", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.user).toHaveBeenCalled();
+  });
+  it("allows campaign viewers to read saved totals but only managers to refresh", async () => {
+    mocks.record.mockResolvedValue({ ...record, data_configuration: { version: 1, panels: [newFundraisingTracker("campaign")] } });
+    const response = await GET(request(), context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).configuration.canRefresh).toBe(false);
+    expect((await POST(request(), context)).status).toBe(403);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    mocks.user.mockResolvedValue({ id: 1, active: true, role: "advancement_services" });
+    expect((await POST(request(), context)).status).toBe(200);
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
   });
   it("blocks disabled and non-allowlisted public reports including managers", async () => {
     mocks.user.mockResolvedValue({ id: 1, active: true, role: "admin" });

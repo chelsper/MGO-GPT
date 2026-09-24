@@ -1,3 +1,4 @@
+import { normalizeFundraisingTracker, validateFundraisingTracker } from "@/utils/fundraisingTracker";
 // Pure, browser-safe schema helpers. Validation precedes normalization at API boundaries.
 export const DASHBOARD_SCHEMA = "query-count-dashboard-v1";
 export const DASHBOARD_LIMITS = Object.freeze({
@@ -47,16 +48,23 @@ export function validateDashboardConfiguration(value) {
   const valueKeys = new Set();
   let queries = 0;
   let resultTables = 0;
+  let trackers = 0;
   for (const panel of value.panels) {
     if (!isObject(panel) || !validKey(panel.key) || panelKeys.has(panel.key))
       return "Panel keys must be valid and unique.";
     panelKeys.add(panel.key);
     if (!validText(panel.title, 120))
       return "Each panel needs a title of at most 120 characters.";
-    if (!["rows", "table", "metric", "query_results"].includes(panel.layout))
+    if (!["rows", "table", "metric", "query_results", "fundraising_tracker"].includes(panel.layout))
       return "Unsupported panel layout.";
     if (!["half", "full"].includes(panel.width))
       return "Panel width must be half or full.";
+    if (panel.layout === "fundraising_tracker") {
+      if (++trackers > 4) return "A dashboard accepts at most 4 fundraising trackers.";
+      const error = validateFundraisingTracker(panel);
+      if (error) return error;
+      continue;
+    }
     if (panel.layout === "query_results") {
       resultTables += 1;
       queries += 1;
@@ -205,7 +213,7 @@ export function normalizeDashboardConfiguration(value) {
   return {
     version: 1,
     panels: value.panels.map((panel) =>
-      panel.layout === "query_results"
+      panel.layout === "fundraising_tracker" ? normalizeFundraisingTracker(panel) : panel.layout === "query_results"
         ? {
             key: panel.key,
             title: panel.title.trim(),

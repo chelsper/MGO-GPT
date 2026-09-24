@@ -51,6 +51,18 @@ describe("report configuration save contracts", () => {
 });
 
 describe("single-report editor", () => {
+  it("opens the requested A-Train setup as an unsaved, disabled report without NXT reads", async () => {
+    const saved = { ...dashboard(), title: "The A-Train Campaign", key: "dashboard-train", specificUserIds: [] };
+    fetch.mockResolvedValue(jsonResponse({ configuration: saved }));
+    render(<ReportConfigurationEditor initialConfigurations={[]} users={users} />);
+    fireEvent.click(screen.getByRole("button", { name: "Set up A-Train Campaign" }));
+    expect(screen.getByLabelText("Report title")).toHaveValue("The A-Train Campaign");
+    expect(screen.getByText(/0 of 1 campaigns have funds selected/)).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Create disabled report" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ title: "The A-Train Campaign", dataConfiguration: { panels: [{ layout: "fundraising_tracker", goal: 250000, milestone: 187500, period: "all_time", display: "both", funds: [] }] } });
+  });
   it("creates a disabled custom-field list without reading NXT and previews its exact criteria", async () => {
     const saved = { ...listMetadata("list-demo"), title: "Interests", description: "", active: false, specificUserIds: [], dataConfiguration: { version: 1, source: "custom_field", fieldCategory: "Interests", fieldDescription: "" }, revision: "1" };
     fetch.mockResolvedValue(jsonResponse({ configuration: saved }));

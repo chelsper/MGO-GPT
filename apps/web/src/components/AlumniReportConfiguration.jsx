@@ -89,6 +89,7 @@ export default function AlumniReportConfiguration({ value, onChange, disabled = 
     </section>)}
     {!donorPanels.length && <p className={styles.muted}>No Alumni donor-count panels are configured.</p>}
     <ReportDashboardBuilder
+      allowFundraisingTrackers={false}
       value={genericDashboard}
       disabled={disabled}
       panelLimit={DASHBOARD_LIMITS.panels - donorPanels.length}

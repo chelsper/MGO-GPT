@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { getDashboardTableFingerprint, getDashboardValueFingerprint, isValidDashboardTableData } from "@/app/api/utils/dashboardConfiguration";
 import QueryResultsTable from "./QueryResultsTable";
+import { FundraisingTrackerCard } from "./FundraisingTracker";
 import styles from "./reportDashboard.module.css";
 
 function formatTime(value) {
@@ -95,6 +96,7 @@ function DashboardPanel({
   panel,
   savedValues,
   savedTables,
+  savedTrackers,
   arrangeMode = false,
   panelIndex = 0,
   panelCount = 1,
@@ -200,7 +202,7 @@ function DashboardPanel({
         </div>
       </div>
       <div className={`${styles.panelBody} ${expandable && !expanded ? styles.compactPanelBody : ""}`}>
-        {panel.layout === "query_results" ? <DashboardQueryTable panel={panel} saved={savedTables.get(panel.key)} /> : panel.layout === "metric" ? (
+        {panel.layout === "fundraising_tracker" ? <FundraisingTrackerCard panel={panel} saved={savedTrackers?.get(panel.key)} /> : panel.layout === "query_results" ? <DashboardQueryTable panel={panel} saved={savedTables.get(panel.key)} /> : panel.layout === "metric" ? (
           <dl className={styles.metrics}>
             <div className={styles.dataRow}>
               <dt>{rows.find((row) => row.key === values[0]?.rowKey)?.label || title || "Metric"}</dt>
@@ -258,6 +260,7 @@ export default function ReportDashboardPanels({
   const [expandedPanelKey, setExpandedPanelKey] = useState("");
   const savedValues = new Map((Array.isArray(snapshot?.values) ? snapshot.values : []).map((value) => [value.key, value]));
   const savedTables = new Map((Array.isArray(snapshot?.tables) ? snapshot.tables : []).map((table) => [table.key, table]));
+  const savedTrackers = new Map((snapshot?.trackers || []).map((tracker) => [tracker.key, tracker]));
   const expandedPanel = panels.find((panel) => panel.key === expandedPanelKey) || null;
 
   useEffect(() => {
@@ -290,6 +293,7 @@ export default function ReportDashboardPanels({
             panel={panel}
             savedValues={savedValues}
             savedTables={savedTables}
+            savedTrackers={savedTrackers}
             arrangeMode={arrangeMode}
             panelIndex={index}
             panelCount={panels.length}
