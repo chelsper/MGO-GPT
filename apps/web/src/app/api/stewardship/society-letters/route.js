@@ -22,7 +22,9 @@ import {
   refreshLetterSource,
   sendLetterBatch,
   verifyLetterEmail,
+  updateLetterExclusion,
 } from "@/app/api/utils/societyLetterWorkflow";
+import { inspectLetterQueryFields } from "@/app/api/utils/societyLetterQueryFields";
 import { letterError } from "@/utils/societyLetters";
 
 export const maxDuration = 120;
@@ -137,6 +139,8 @@ export async function POST(request) {
     } catch {
       throw letterError("Invalid stewardship request.", 400);
     }
+    if (body?.action === "inspect_query")
+      return json(await inspectLetterQueryFields(body, ctx));
     const actions = [
       "settings",
       "template",
@@ -150,6 +154,8 @@ export async function POST(request) {
       "mailed",
       "cancel",
       "verify",
+      "exclude_recipient",
+      "restore_recipient",
     ];
     if (!actions.includes(body?.action) || !Number.isInteger(body.revision))
       throw letterError("Reload the workspace and choose an action.", 400);
@@ -157,6 +163,17 @@ export async function POST(request) {
     const state = await readSocietyLetterState();
     let batchId;
     switch (body.action) {
+      case "exclude_recipient":
+      case "restore_recipient":
+        await updateLetterExclusion(
+          state,
+          ctx.definitions,
+          ctx.today,
+          body,
+          store,
+          ctx.user.id,
+        );
+        break;
       case "settings":
         await updateLetterSettings(
           state,

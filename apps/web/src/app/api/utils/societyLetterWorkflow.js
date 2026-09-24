@@ -91,6 +91,13 @@ export function letterWorkspace(state, definitions, today) {
       };
     }),
     sourceIssue: issue,
+    exclusions: (state.exclusions || []).filter(
+      (item) =>
+        !item.restoredAt &&
+        period &&
+        item.period.start <= period.end &&
+        item.period.end >= period.start,
+    ),
     refreshedAt: state.snapshot?.generatedAt || null,
     sources: state.snapshot?.sources || [],
     job: state.job
@@ -108,7 +115,7 @@ export function letterWorkspace(state, definitions, today) {
       : null,
     rows: currentRows.map((row) => ({
       ...row,
-      ...letterDisposition(row, state.history),
+      ...letterDisposition(row, state.history, state.exclusions),
       issues: {
         email:
           issue ||
@@ -146,10 +153,10 @@ export function previewLetters(state, definitions, today, body) {
     if (
       !row ||
       isLetterPreviewSource(row) ||
-      letterDisposition(row, state.history).status !== "ready"
+      letterDisposition(row, state.history, state.exclusions).status !== "ready"
     )
       throw letterError(
-        "A selected household is already covered or held. Reload the worklist.",
+        "A selected household is excluded, already covered or held. Reload the worklist.",
         409,
       );
     if (
@@ -201,6 +208,79 @@ export function previewLetters(state, definitions, today, body) {
     channel: body.channel,
     token: hash([state.revision, body.channel, rows]),
   };
+}
+
+export async function updateLetterExclusion(
+  state,
+  definitions,
+  today,
+  body,
+  store,
+  userId,
+) {
+  const period = state.settings && letterPeriod(state.settings, today);
+  if (!period) throw letterError("Choose a letter period first.");
+  const exclusions = state.exclusions || [];
+  const timestamp = new Date().toISOString();
+  if (body.action === "restore_recipient") {
+    const item = exclusions.find(
+      (item) => item.id === body.exclusionId && !item.restoredAt,
+    );
+    if (
+      !item ||
+      item.period.start > period.end ||
+      item.period.end < period.start
+    )
+      throw letterError(
+        "This exclusion changed or belongs to another period. Reload the holding list.",
+        409,
+      );
+    item.restoredAt = timestamp;
+    item.restoredBy = userId;
+  } else {
+    if (body.action !== "exclude_recipient")
+      throw letterError("Choose an exclusion action.");
+    // Exclusions do not assert send eligibility, but must identify a reviewed, current source row.
+    if (
+      state.snapshot?.period?.key !== period.key ||
+      state.snapshot?.signature !== letterSourceSignature(state, definitions)
+    )
+      throw letterError(
+        "Refresh membership for the current source settings before excluding a recipient.",
+        409,
+      );
+    const row = state.snapshot.rows.find(
+      (row) => row.householdId === body.householdId,
+    );
+    if (
+      !row ||
+      letterDisposition(row, state.history, exclusions).status !== "ready"
+    )
+      throw letterError(
+        "This recipient is no longer in the holding list. Prepared letters must be cancelled in Letter history first.",
+        409,
+      );
+    if (typeof body.reason !== "string" || body.reason.trim().length > 500)
+      throw letterError(
+        "Keep the optional exclusion reason to 500 characters.",
+      );
+    if (exclusions.length >= 20000)
+      throw letterError(
+        "The exclusion history needs archiving before adding more entries.",
+      );
+    exclusions.push({
+      id: randomUUID(),
+      householdId: row.householdId,
+      members: [...row.members],
+      name: row.name,
+      period: { ...period },
+      reason: body.reason.trim(),
+      excludedAt: timestamp,
+      excludedBy: userId,
+    });
+  }
+  state.exclusions = exclusions;
+  await store.save(state);
 }
 
 export async function updateLetterSettings(

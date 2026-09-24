@@ -619,7 +619,24 @@ export function householdsFromQuery(table, settings, hierarchy, period) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function letterDisposition(row, history) {
+export function letterExclusionsForRow(row, exclusions = []) {
+  return exclusions.filter(
+    (item) =>
+      !item.restoredAt &&
+      item.period.start <= row.period.end &&
+      item.period.end >= row.period.start &&
+      (item.householdId === row.householdId ||
+        item.members.some((member) => row.members.includes(member))),
+  );
+}
+
+export function letterDisposition(row, history, exclusions = []) {
+  if (letterExclusionsForRow(row, exclusions).length)
+    return {
+      status: "excluded",
+      reason:
+        "Excluded from all society letters for this period. Not marked sent.",
+    };
   const prior = history.filter(
     (item) =>
       item.status !== "cancelled" &&

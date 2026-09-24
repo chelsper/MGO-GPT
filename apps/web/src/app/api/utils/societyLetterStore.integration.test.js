@@ -42,9 +42,14 @@ function execute(statement) {
         Object.fromEntries(
           Object.entries(row).map(([key, value]) => [
             key,
-            ["settings", "templates", "snapshot", "job", "payload"].includes(
-              key,
-            )
+            [
+              "settings",
+              "templates",
+              "snapshot",
+              "job",
+              "payload",
+              "exclusions",
+            ].includes(key)
               ? value
                 ? JSON.parse(value)
                 : null
@@ -79,7 +84,7 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
   });
   beforeEach(() => {
     execute(
-      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', lease_token=NULL, lease_until=NULL WHERE id=1;",
+      "TRUNCATE stewardship_letter_deliveries; UPDATE stewardship_letters SET revision=0, settings=NULL, snapshot=NULL, job=NULL, templates='{}', exclusions='[]', lease_token=NULL, lease_until=NULL WHERE id=1;",
     );
   });
   function item(overrides = {}) {
@@ -94,6 +99,36 @@ describe.skipIf(!enabled)("society letter PostgreSQL safeguards", () => {
       ...overrides,
     };
   }
+  it("persists exclusions independently of refreshed membership and retains restoration audit", async () => {
+    const store = await acquireSocietyLetters(1, 0);
+    const state = await readSocietyLetterState();
+    state.exclusions = [
+      {
+        id: "hold",
+        householdId: "10",
+        members: ["10", "11"],
+        reason: "Wait",
+        excludedBy: 1,
+      },
+    ];
+    await store.save(state);
+    const reloaded = await readSocietyLetterState();
+    expect(reloaded.exclusions).toEqual(state.exclusions);
+    reloaded.snapshot = { rows: [] };
+    await store.save(reloaded);
+    expect((await readSocietyLetterState()).exclusions).toEqual(
+      state.exclusions,
+    );
+    reloaded.exclusions[0].restoredBy = 1;
+    reloaded.exclusions[0].restoredAt = "2026-09-24T14:00:00Z";
+    await store.save(reloaded);
+    expect((await readSocietyLetterState()).exclusions[0].restoredBy).toBe(1);
+    expect((await readSocietyLetterState()).history).toEqual([]);
+    await store.release();
+    await expect(acquireSocietyLetters(1, 0)).rejects.toMatchObject({
+      status: 409,
+    });
+  });
   it("allows one lease and rejects stale revisions after release", async () => {
     const store = await acquireSocietyLetters(1, 0);
     await expect(acquireSocietyLetters(1, 0)).rejects.toMatchObject({

@@ -10,6 +10,8 @@ import {
 } from "@/utils/societyLetters";
 import SocietyQueryEditors, { sourceForSociety } from "./SocietyQueryEditors";
 import LetterMergeFieldsEditor from "./LetterMergeFieldsEditor";
+import LetterExclusionDialog from "./LetterExclusionDialog";
+import QueryColumnMapper from "./QueryColumnMapper";
 import WorkflowReturnLink from "@/components/WorkflowReturnLink";
 
 const endpoint = "/api/stewardship/society-letters";
@@ -30,14 +32,14 @@ const labels = {
   cancelled: "Cancelled before sending",
 };
 const defaults = {
-  sourceMode: "households",
+  sourceMode: "constituents",
   queryId: "",
   periodBasis: "calendar_year",
   fiscalYearStartMonth: 7,
   startDate: "",
   endDate: "",
   societyKeys: [],
-  columns: LETTER_COLUMNS,
+  columns: CONSTITUENT_LETTER_COLUMNS,
 };
 
 function saveBlob(blob, name) {
@@ -250,6 +252,7 @@ export default function SocietyLettersPage() {
   const [receiptIds, setReceiptIds] = useState({});
   const [societyFilter, setSocietyFilter] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
+  const [excluding, setExcluding] = useState(null);
   const [refreshing, setRefreshing] = useState(false),
     [sendingBatch, setSendingBatch] = useState(null);
   const inFlight = useRef(false);
@@ -382,11 +385,28 @@ export default function SocietyLettersPage() {
     }, {}),
   );
   const tabs = [
-    ["ready", householdPreview ? "Household preview" : "Ready to acknowledge"],
+    ["ready", "Ready for letters"],
+    ["excluded", `Excluded (${data?.exclusions?.length || 0})`],
     ["history", "Letter history"],
     ["templates", "Letter templates"],
     ["settings", "Source & period"],
   ];
+  function changeSourceMode(mode) {
+    setConfirmedSource(false);
+    setSettings({
+      ...settings,
+      sourceMode: mode,
+      ...(mode === "society_queries"
+        ? {
+            societySources: settings.societyKeys.map((key) =>
+              sourceForSociety(settings, key),
+            ),
+          }
+        : {}),
+      columns:
+        mode === "constituents" ? CONSTITUENT_LETTER_COLUMNS : LETTER_COLUMNS,
+    });
+  }
   async function confirmAction() {
     const action = confirmation;
     setConfirmation(null);
@@ -508,15 +528,33 @@ export default function SocietyLettersPage() {
           </nav>
           {tab === "ready" && (
             <>
+              <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <h2 className="font-bold text-emerald-950">
+                  Your letter holding list
+                </h2>
+                <p className="mt-1 text-sm text-emerald-950">
+                  After you load membership, recipients stay here while you
+                  prepare. Opening or leaving this page never sends letters or
+                  marks them sent. Exclude a recipient for this period if you do
+                  not want them to receive a letter; restore them later from
+                  Excluded.
+                </p>
+                {householdPreview && (
+                  <p className="mt-2 text-sm text-emerald-950">
+                    You can organize this list now. Delivery checks are still
+                    required before these recipients can receive letters.
+                  </p>
+                )}
+              </section>
               {data.sourceIssue && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <p>{data.sourceIssue}</p>
-                  {!data.settings && (
+                  {(!data.settings || !data.refreshedAt) && (
                     <button
                       className={`${button} mt-3`}
                       onClick={() => setTab("settings")}
                     >
-                      Set up household source
+                      Set up membership source
                     </button>
                   )}
                 </div>
@@ -667,6 +705,7 @@ export default function SocietyLettersPage() {
                             "Household",
                             "Letter",
                             "Recipient / eligibility",
+                            "Holding list",
                           ].map((h) => (
                             <th key={h} className="p-3">
                               {h}
@@ -784,6 +823,22 @@ export default function SocietyLettersPage() {
                                 row.issues[channel] ||
                                 (channel === "email" ? row.email : row.address)
                               )}
+                            </td>
+                            <td className="p-3">
+                              <button
+                                className={button}
+                                disabled={busy || refreshing || !!sendingBatch}
+                                onClick={() => {
+                                  setError("");
+                                  setExcluding({
+                                    ...row,
+                                    period: row.period || data.period,
+                                  });
+                                }}
+                                aria-label={`Exclude ${row.name} for this period`}
+                              >
+                                Exclude for this period
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -1128,6 +1183,50 @@ export default function SocietyLettersPage() {
               ))}
             </section>
           )}
+          {tab === "excluded" && (
+            <section className={card} aria-label="Excluded recipients">
+              <h2 className="text-xl font-bold">
+                Not receiving letters this period
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Exclusions survive query refreshes and cover all society levels
+                for the individual or household. Restoring does not send
+                anything; recipients reappear only if they remain in the current
+                membership list and are not already covered or prepared.
+              </p>
+              {!(data.exclusions || []).length && (
+                <p className="mt-5 text-gray-600">
+                  No recipients excluded for this period.
+                </p>
+              )}
+              {(data.exclusions || []).map((item) => (
+                <div
+                  key={item.id}
+                  className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-gray-200 p-4"
+                >
+                  <div>
+                    <p className="font-semibold">{item.name}</p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {item.period.start} through {item.period.end}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {item.reason || "No reason recorded."}
+                    </p>
+                  </div>
+                  <button
+                    className={button}
+                    disabled={busy || refreshing || !!sendingBatch}
+                    aria-label={`Restore ${item.name}`}
+                    onClick={() =>
+                      act({ action: "restore_recipient", exclusionId: item.id })
+                    }
+                  >
+                    Restore to holding list
+                  </button>
+                </div>
+              ))}
+            </section>
+          )}
           {tab === "settings" && (
             <form
               className={card}
@@ -1154,30 +1253,40 @@ export default function SocietyLettersPage() {
                 used to guess a relationship, and individual gift totals are not
                 added together.
               </p>
+              {(!settings.sourceMode ||
+                settings.sourceMode === "households") && (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="font-bold">
+                    Does your query return people and spouse IDs?
+                  </h3>
+                  <p className="mt-1 text-sm">
+                    The form below is for queries already grouped into
+                    households. For a normal constituent query, switch formats
+                    instead of trying to supply Household ID, Member IDs, or
+                    permission columns. Individuals without a spouse are
+                    included too.
+                  </p>
+                  <button
+                    type="button"
+                    className={`${button} mt-3`}
+                    onClick={() => changeSourceMode("constituents")}
+                  >
+                    Use constituent and spouse fields
+                  </button>
+                  <p className="mt-2 text-xs text-gray-600">
+                    Changes this form only until you save. Query ID and letter
+                    period are retained; select the query's society and confirm
+                    its actual qualification dates.
+                  </p>
+                </div>
+              )}
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-semibold">
                   Query format
                   <select
                     className={input}
                     value={settings.sourceMode || "households"}
-                    onChange={(e) => {
-                      setConfirmedSource(false);
-                      setSettings({
-                        ...settings,
-                        sourceMode: e.target.value,
-                        ...(e.target.value === "society_queries"
-                          ? {
-                              societySources: settings.societyKeys.map((key) =>
-                                sourceForSociety(settings, key),
-                              ),
-                            }
-                          : {}),
-                        columns:
-                          e.target.value === "constituents"
-                            ? CONSTITUENT_LETTER_COLUMNS
-                            : LETTER_COLUMNS,
-                      });
-                    }}
+                    onChange={(e) => changeSourceMode(e.target.value)}
                   >
                     <option value="households">
                       Already grouped households
@@ -1367,7 +1476,7 @@ export default function SocietyLettersPage() {
                 />
               )}
               {settings.sourceMode !== "society_queries" && (
-                <details className="mt-6" open={!data.settings}>
+                <details className="mt-6" open={!data.refreshedAt}>
                   <summary className="cursor-pointer font-bold">
                     Map returned query columns
                   </summary>
@@ -1385,34 +1494,21 @@ export default function SocietyLettersPage() {
                       </>
                     )}
                   </p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {Object.entries(
+                  <QueryColumnMapper
+                    key={settings.sourceMode || "households"}
+                    queryId={settings.queryId}
+                    columns={settings.columns}
+                    constituent={settings.sourceMode === "constituents"}
+                    labels={
                       settings.sourceMode === "constituents"
                         ? CONSTITUENT_LETTER_LABELS
-                        : LETTER_COLUMNS,
-                    ).map(([key, label]) => (
-                      <label className="text-sm font-semibold" key={key}>
-                        {label}
-                        <input
-                          className={input}
-                          value={settings.columns?.[key] || ""}
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              columns: {
-                                ...settings.columns,
-                                [key]: e.target.value,
-                              },
-                            })
-                          }
-                          required={
-                            settings.sourceMode !== "constituents" ||
-                            !label.includes("(optional)")
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
+                        : LETTER_COLUMNS
+                    }
+                    onChange={(columns) => {
+                      setSettings({ ...settings, columns });
+                      setConfirmedSource(false);
+                    }}
+                  />
                 </details>
               )}
               <label className="mt-6 flex items-start gap-3 text-sm">
@@ -1455,6 +1551,22 @@ export default function SocietyLettersPage() {
               busy={busy}
               onCancel={() => setConfirmation(null)}
               onConfirm={confirmAction}
+            />
+          )}
+          {excluding && (
+            <LetterExclusionDialog
+              recipient={excluding}
+              busy={busy}
+              error={error}
+              onClose={() => setExcluding(null)}
+              onSave={async (reason) => {
+                const result = await act({
+                  action: "exclude_recipient",
+                  householdId: excluding.householdId,
+                  reason,
+                });
+                if (result) setExcluding(null);
+              }}
             />
           )}
         </>

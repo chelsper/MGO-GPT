@@ -33,6 +33,56 @@ are not imported automatically.
 
 ## Household Query Contract
 
+### Holding List And Exclusions (September 24)
+
+**Ready for letters** is the saved membership holding list, not a send queue.
+Recipients remain available across visits until refreshed qualification, letter
+history, or an explicit exclusion changes their disposition. Opening the page,
+loading fields, and organizing this list never send letters or write NXT appeals.
+Constituent/spouse and multiple-query sources remain preview-only for delivery,
+but their holding lists can be organized before delivery verification is complete.
+
+Reviewers can **Exclude for this period**, with an optional reason, then restore
+from **Excluded**. An exclusion covers all society levels and both delivery
+channels for the household, including a later higher qualification. It matches
+by system household ID or any overlapping member system ID, persists across
+query refreshes and household-head changes, and does not represent a sent letter.
+Exclusions cover overlapping period windows, not a future non-overlapping year.
+An excluded recipient remains visible in Excluded even if absent from a later
+query result. Restoration never recreates membership or overrides delivery history.
+
+The separate `stewardship_letters.exclusions` JSONB ledger retains the actor,
+timestamp, original members, period, reason, and restoration audit. It is saved
+under the existing revision/lease guard; preparing a batch checks exclusions
+again server-side. Already prepared or uncertain letters cannot be removed via
+this control: use the existing reviewed cancellation/recovery path first.
+
+New setup defaults to constituent/spouse queries, while existing grouped settings
+are preserved. Grouped setup includes an explicit draft-only switch for ordinary
+queries. **Load query fields** reads saved-query output metadata only; it does
+not execute a query or save settings. Select actual output columns, or explicitly
+accept recognized fields. Identity suggestions use System Record ID metadata
+and the constituent/spouse roots, never lookup IDs or guessed column names.
+Duplicate field names and ambiguous identity fields are not suggested. Query
+qualification dates and society selection still require human confirmation.
+Once fields are loaded, unavailable saved mappings are flagged and prevent form
+submission until corrected or cleared if optional.
+
+Live JU source settings are not changed by this code update. In the screenshot's
+grouped form, choose **Use constituent and spouse fields**, load query 31043's
+fields, review mappings and actual CY dates, select Order of the Dolphin as the
+query's society, then save the reviewed source. Loading membership is a separate,
+explicit action. Prior appeal and recipient/restriction verification remain
+required before enabling delivery for this source.
+
+Verification: 3,910 application tests passed, with 18 opt-in tests skipped;
+the six stewardship PostgreSQL tests passed separately on an isolated temporary
+local database. Type checking, the production build, and synthetic desktop/mobile
+checks passed. No live source settings, recipients, appeals, or delivery state
+were changed. If rolling back after exclusions are used, do not operate society
+letter preparation with an older release that ignores the exclusion ledger;
+backport the guard or pause this workflow instead. Retain the ledger and audit.
+
 ### Saved Merge Fields
 
 In **Letter templates**, each annual society's Word template retains its own

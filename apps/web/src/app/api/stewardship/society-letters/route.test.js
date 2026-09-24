@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   finish: vi.fn(),
   release: vi.fn(),
+  exclusion: vi.fn(),
+  inspect: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/app/api/utils/ensureAppSchema", () => ({ default: mocks.schema }));
@@ -37,6 +39,10 @@ vi.mock("@/app/api/utils/societyLetterWorkflow", () => ({
   refreshLetterSource: vi.fn(),
   sendLetterBatch: mocks.send,
   verifyLetterEmail: vi.fn(),
+  updateLetterExclusion: mocks.exclusion,
+}));
+vi.mock("@/app/api/utils/societyLetterQueryFields", () => ({
+  inspectLetterQueryFields: mocks.inspect,
 }));
 vi.mock("@/app/api/utils/societyLetterDocuments", () => ({
   letterArchive: vi.fn(() => Buffer.from("zip")),
@@ -75,6 +81,38 @@ beforeEach(() => {
   });
 });
 describe("stewardship API authorization and delivery boundaries", () => {
+  it("inspects fields explicitly without acquiring a mutation lease or preparing letters", async () => {
+    mocks.inspect.mockResolvedValue({ queryId: "31043", fields: ["ID"] });
+    const response = await POST(
+      request({ action: "inspect_query", queryId: "31043" }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.inspect).toHaveBeenCalledOnce();
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+  it.each(["exclude_recipient", "restore_recipient"])(
+    "serializes %s using the reviewer and revision lock",
+    async (action) => {
+      expect((await POST(request({ action, revision: 3 }))).status).toBe(200);
+      expect(mocks.acquire).toHaveBeenCalledWith(1, 3);
+      expect(mocks.exclusion).toHaveBeenCalledOnce();
+      expect(mocks.release).toHaveBeenCalledOnce();
+      expect(mocks.send).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["exclude_recipient", "restore_recipient", "inspect_query"])(
+    "denies non-reviewer %s",
+    async (action) => {
+      mocks.workspace.mockResolvedValue({
+        sessionUser: { id: 1, active: true, role: "mgo" },
+      });
+      expect((await POST(request({ action, revision: 3 }))).status).toBe(403);
+      expect(mocks.exclusion).not.toHaveBeenCalled();
+      expect(mocks.inspect).not.toHaveBeenCalled();
+    },
+  );
   it("requires authentication before any database work", async () => {
     mocks.auth.mockResolvedValue(null);
     expect((await GET(new Request(url))).status).toBe(401);

@@ -42,12 +42,116 @@ const base = {
 };
 let fetchMock;
 beforeEach(() => {
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    showModal: {
+      configurable: true,
+      value() {
+        this.setAttribute("open", "");
+      },
+    },
+    close: {
+      configurable: true,
+      value() {
+        this.removeAttribute("open");
+      },
+    },
+  });
   fetchMock = vi
     .spyOn(globalThis, "fetch")
     .mockImplementation(async () => Response.json(base));
 });
 afterEach(() => vi.restoreAllMocks());
 describe("society letter workspace", () => {
+  it("guides a grouped source to constituent fields without changing saved settings or running a query", async () => {
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Source & period" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use constituent and spouse fields" }),
+    );
+    expect(screen.getByLabelText("Query format")).toHaveValue("constituents");
+    expect(screen.getByLabelText("NXT saved query ID")).toHaveValue("123");
+    expect(screen.queryByLabelText("Member IDs")).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Constituent system record ID"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save source settings" }),
+    ).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("keeps preview recipients in a persistent holding area with reversible exclusions", async () => {
+    let excluded = false;
+    const exclusion = {
+      id: "e1",
+      name: household.name,
+      members: ["10"],
+      period: base.period,
+      reason: "Not this year",
+    };
+    fetchMock.mockImplementation(async (_url, options) => {
+      const payload = options?.body && JSON.parse(options.body);
+      if (payload?.action === "exclude_recipient") {
+        expect(payload).toMatchObject({
+          householdId: "10",
+          revision: 1,
+          reason: "Not this year",
+        });
+        excluded = true;
+      }
+      if (payload?.action === "restore_recipient") excluded = false;
+      return Response.json({
+        ...base,
+        settings: { ...base.settings, sourceMode: "constituents" },
+        rows: [
+          {
+            ...household,
+            status: excluded ? "excluded" : "ready",
+            issues: { post: "Preview only", email: "Preview only" },
+          },
+        ],
+        exclusions: excluded ? [exclusion] : [],
+      });
+    });
+    const first = render(<Page />);
+    await screen.findByRole("button", { name: "Ready for letters" });
+    expect(screen.getByText("Your letter holding list")).toBeVisible();
+    expect(screen.getByLabelText(`Select ${household.name}`)).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Exclude ${household.name} for this period`,
+      }),
+    );
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Reason (optional)"), {
+      target: { value: "Not this year" },
+    });
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Exclude for this period" }),
+    );
+    await screen.findByRole("button", { name: "Excluded (1)" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    first.unmount();
+    render(<Page />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Excluded (1)" }),
+    );
+    expect(screen.getByText("Not this year")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: `Restore ${household.name}` }),
+    );
+    await screen.findByRole("button", { name: "Excluded (0)" });
+    fireEvent.click(screen.getByRole("button", { name: "Ready for letters" }));
+    expect(screen.getByLabelText(`Select ${household.name}`)).toBeDisabled();
+    expect(
+      fetchMock.mock.calls
+        .filter(([, opts]) => opts?.method === "POST")
+        .map(([, opts]) => JSON.parse(opts.body).action),
+    ).toEqual(["exclude_recipient", "restore_recipient"]);
+  });
   it("persists selected merge fields without a replacement upload and restores them on a later visit", async () => {
     let template = {
       societyKey: "presidents_society",
@@ -303,7 +407,7 @@ describe("society letter workspace", () => {
     expect(screen.getByText("Another Household")).toBeVisible();
     expect(screen.queryByText("Sample Household")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Household preview" }),
+      screen.getByRole("button", { name: "Ready for letters" }),
     ).toBeVisible();
     expect(screen.getByLabelText("Select Another Household")).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -387,7 +491,7 @@ describe("society letter workspace", () => {
     expect(screen.getByLabelText("Select Sample Household")).toBeDisabled();
     expect(screen.getByText(/Spouse outside query: 11/)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Household preview" }),
+      screen.getByRole("button", { name: "Ready for letters" }),
     ).toBeVisible();
     fireEvent.click(screen.getByText("Review address and salutation options"));
     expect(screen.getByText("Alex Sample")).toBeVisible();
@@ -416,7 +520,7 @@ describe("society letter workspace", () => {
     );
     render(<Page />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Set up household source" }),
+      await screen.findByRole("button", { name: "Set up membership source" }),
     );
     expect(screen.getByLabelText("NXT saved query ID")).toBeVisible();
     expect(

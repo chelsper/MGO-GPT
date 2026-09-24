@@ -2,6 +2,7 @@ import {
   CONSTITUENT_LETTER_COLUMNS,
   CONSTITUENT_LETTER_LABELS,
 } from "@/utils/societyLetters";
+import QueryColumnMapper from "./QueryColumnMapper";
 
 const input =
   "mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-normal text-gray-900";
@@ -127,30 +128,13 @@ export default function SocietyQueryEditors({
                 Each query can use different column names. Leave unused optional
                 fields blank.
               </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(CONSTITUENT_LETTER_LABELS).map(
-                  ([key, label]) => (
-                    <label className="text-sm font-semibold" key={key}>
-                      {label}
-                      <input
-                        className={input}
-                        aria-label={`${society.name} ${label}`}
-                        maxLength={150}
-                        value={source.columns?.[key] || ""}
-                        required={!label.includes("(optional)")}
-                        onChange={(e) =>
-                          update(society.key, {
-                            columns: {
-                              ...source.columns,
-                              [key]: e.target.value,
-                            },
-                          })
-                        }
-                      />
-                    </label>
-                  ),
-                )}
-              </div>
+              <QueryColumnMapper
+                queryId={source.queryId}
+                columns={source.columns}
+                labels={CONSTITUENT_LETTER_LABELS}
+                prefix={`${society.name} `}
+                onChange={(columns) => update(society.key, { columns })}
+              />
             </details>
           </fieldset>
         );

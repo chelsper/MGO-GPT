@@ -18,6 +18,7 @@ import {
   sendLetterBatch,
   verifyLetterEmail,
   refreshLetterSource,
+  updateLetterExclusion,
 } from "./societyLetterWorkflow";
 import { advanceQueryList } from "./constituentQueryList";
 import { getBlackbaudSavedQueryById } from "./blackbaud";
@@ -96,6 +97,205 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("society letter workflow", () => {
+  it("saves an exclusion without preparing, sending, or querying and restores with audit history", async () => {
+    const { state, store, body } = setup();
+    const history = [...state.history];
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "exclude_recipient", householdId: "10", reason: "Please wait" },
+      store,
+      7,
+    );
+    const excluded = state.exclusions[0];
+    expect(excluded).toMatchObject({
+      members: ["10", "11"],
+      reason: "Please wait",
+      excludedBy: 7,
+    });
+    expect(letterWorkspace(state, definitions, today).rows[0].status).toBe(
+      "excluded",
+    );
+    expect(() => previewLetters(state, definitions, today, body)).toThrow(
+      /excluded/,
+    );
+    expect(state.history).toEqual(history);
+    expect(store.reserve).not.toHaveBeenCalled();
+    expect(advanceQueryList).not.toHaveBeenCalled();
+    expect(getBlackbaudSavedQueryById).not.toHaveBeenCalled();
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "restore_recipient", exclusionId: excluded.id },
+      store,
+      8,
+    );
+    expect(excluded.restoredBy).toBe(8);
+    expect(excluded.restoredAt).toBeTruthy();
+    expect(letterWorkspace(state, definitions, today).exclusions).toEqual([]);
+    expect(previewLetters(state, definitions, today, body).rows).toHaveLength(
+      1,
+    );
+    expect(store.save).toHaveBeenCalledTimes(2);
+  });
+  it("retains exclusions across refresh, a changed household head, higher tiers and overlapping periods", async () => {
+    const { state, store } = setup();
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "exclude_recipient", householdId: "10", reason: "" },
+      store,
+      7,
+    );
+    state.snapshot = structuredClone(state.snapshot);
+    Object.assign(state.snapshot.rows[0], {
+      householdId: "11",
+      members: ["11", "10"],
+      societyKey: "higher_society",
+      rank: 0,
+    });
+    expect(letterWorkspace(state, definitions, today).rows[0].status).toBe(
+      "excluded",
+    );
+    state.settings = {
+      ...state.settings,
+      periodBasis: "custom",
+      startDate: "2026-06-01",
+      endDate: "2027-05-31",
+    };
+    state.snapshot.period = letterPeriod(state.settings, today);
+    state.snapshot.rows[0].period = state.snapshot.period;
+    expect(letterWorkspace(state, definitions, today).rows[0].status).toBe(
+      "excluded",
+    );
+  });
+  it("does not suppress a new non-overlapping year or unrelated individual", async () => {
+    const { state, store } = setup();
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "exclude_recipient", householdId: "10", reason: "" },
+      store,
+      7,
+    );
+    Object.assign(state.snapshot.rows[0], {
+      householdId: "12",
+      members: ["12"],
+    });
+    expect(letterWorkspace(state, definitions, today).rows[0].status).toBe(
+      "ready",
+    );
+    Object.assign(state.snapshot.rows[0], {
+      householdId: "10",
+      members: ["10"],
+    });
+    state.snapshot.period = letterPeriod(state.settings, "2027-01-01");
+    state.snapshot.rows[0].period = state.snapshot.period;
+    const next = letterWorkspace(state, definitions, "2027-01-01");
+    expect(next.rows[0].status).toBe("ready");
+    expect(next.exclusions).toEqual([]);
+  });
+  it("keeps absent recipients excluded and allows restoration without recreating membership", async () => {
+    const { state, store } = setup();
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "exclude_recipient", householdId: "10", reason: "" },
+      store,
+      7,
+    );
+    state.snapshot.rows = [];
+    expect(letterWorkspace(state, definitions, today).exclusions).toHaveLength(
+      1,
+    );
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "restore_recipient", exclusionId: state.exclusions[0].id },
+      store,
+      8,
+    );
+    expect(letterWorkspace(state, definitions, today).rows).toEqual([]);
+  });
+  it("allows organizing a preview source without lifting its delivery boundary", async () => {
+    const { state, store, body } = setup();
+    state.settings.sourceMode = "constituents";
+    state.snapshot.signature = letterSourceSignature(state, definitions);
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "exclude_recipient", householdId: "10", reason: "" },
+      store,
+      7,
+    );
+    await updateLetterExclusion(
+      state,
+      definitions,
+      today,
+      { action: "restore_recipient", exclusionId: state.exclusions[0].id },
+      store,
+      7,
+    );
+    expect(() => previewLetters(state, definitions, today, body)).toThrow(
+      /preview only/,
+    );
+    expect(store.reserve).not.toHaveBeenCalled();
+  });
+  it.each(["prepared", "pending_email", "sending", "needs_review", "mailed"])(
+    "does not exclude a %s letter or erase delivery history",
+    async (status) => {
+      const { state, store } = setup();
+      state.history = [{ ...state.snapshot.rows[0], status }];
+      await expect(
+        updateLetterExclusion(
+          state,
+          definitions,
+          today,
+          { action: "exclude_recipient", householdId: "10", reason: "" },
+          store,
+          7,
+        ),
+      ).rejects.toThrow(/no longer/);
+      expect(store.save).not.toHaveBeenCalled();
+      expect(state.history[0].status).toBe(status);
+    },
+  );
+  it("rejects stale source mappings, missing households and excessive reason text", async () => {
+    const { state, store } = setup();
+    for (const payload of [
+      { householdId: "99", reason: "" },
+      { householdId: "10", reason: "x".repeat(501) },
+    ])
+      await expect(
+        updateLetterExclusion(
+          state,
+          definitions,
+          today,
+          { action: "exclude_recipient", ...payload },
+          store,
+          7,
+        ),
+      ).rejects.toThrow();
+    state.settings.queryId = "999";
+    await expect(
+      updateLetterExclusion(
+        state,
+        definitions,
+        today,
+        { action: "exclude_recipient", householdId: "10", reason: "" },
+        store,
+        7,
+      ),
+    ).rejects.toThrow(/current source settings/);
+    expect(store.save).not.toHaveBeenCalled();
+  });
   it("shows a constituent household preview but blocks letter preparation server-side", async () => {
     const { state, body, store } = setup();
     state.settings.sourceMode = "constituents";
